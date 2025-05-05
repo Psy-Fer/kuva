@@ -88,6 +88,40 @@ impl Layout {
             title: None,
         }
     }
+    pub fn with_width(mut self, width: f64) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub fn with_height(mut self, height: f64) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    pub fn with_title<S: Into<String>>(mut self, title: S) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    pub fn with_x_label<S: Into<String>>(mut self, label: S) -> Self {
+        self.x_label = Some(label.into());
+        self
+    }
+
+    pub fn with_y_label<S: Into<String>>(mut self, label: S) -> Self {
+        self.y_label = Some(label.into());
+        self
+    }
+
+    pub fn with_ticks(mut self, ticks: usize) -> Self {
+        self.ticks = ticks;
+        self
+    }
+
+    pub fn with_show_grid(mut self, show: bool) -> Self {
+        self.show_grid = show;
+        self
+    }
 }
 
 
@@ -133,12 +167,20 @@ impl ComputedLayout {
         }
     }
 
+    pub fn plot_width(&self) -> f64 {
+        self.width - self.margin_left - self.margin_right
+    }
+
+    pub fn plot_height(&self) -> f64 {
+        self.height - self.margin_top - self.margin_bottom
+    }
+
     pub fn map_x(&self, x: f64) -> f64 {
-        self.margin_left + (x - self.x_range.0) / (self.x_range.1 - self.x_range.0) * self.width
+        self.margin_left + (x - self.x_range.0) / (self.x_range.1 - self.x_range.0) * self.plot_width()
     }
 
     pub fn map_y(&self, y: f64) -> f64 {
-        self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.height
+        self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
     }
 }
 
