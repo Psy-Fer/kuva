@@ -3,34 +3,52 @@ use visus::backend::svg::SvgBackend;
 use visus::render::{render_scatter, Layout};
 
 #[test]
-fn test_scatter_svg_output() {
+fn test_scatter_svg_output_builder() {
     let data = vec![
-        Point { x: 1.0, y: 2.0 },
-        Point { x: 2.0, y: 3.5 },
-        Point { x: 3.0, y: 1.0 },
+        Point { x: 1.0, y: 5.0 },
+        Point { x: 4.5, y: 3.5 },
+        Point { x: 5.0, y: 8.7 },
+    ];
+
+    let plot = ScatterPlot::new(data);
+    let layout = Layout::new((0.0, 10.0), (0.0, 40.0))
+    .with_title("Scatter Builder Plot")
+    .with_x_label("The X axis")
+    .with_y_label("The Y axis");
+
+    let scene = render_scatter(&plot, layout).with_background(Some("white"));
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_builder.svg", svg.clone()).unwrap();
+
+    // Basic sanity assertion
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+}
+
+#[test]
+fn test_scatter_svg_output_layout() {
+    let data = vec![
+        Point { x: 1.0, y: 5.0 },
+        Point { x: 4.5, y: 3.5 },
+        Point { x: 5.0, y: 8.7 },
     ];
 
     let plot = ScatterPlot::new(data);
     let layout = Layout {
         width: None,
         height: None,
-        x_range: (0.0, 5.0),
-        y_range: (0.0, 5.0),
+        x_range: (0.0, 11.0),
+        y_range: (0.0, 10.0),
         ticks: 5,
         show_grid: true,
-        title: Some("Some silly dots".into()),
+        title: Some("Scatter Layout Plot".into()),
         x_label: Some("The X axis".into()),
         y_label: Some("The Y axis".into()),
     };
 
-    // let layout = Layout::new((0.0, 10.0), (0.0, 100.0))
-    // .with_title("Auto-sized Plot")
-    // .with_x_label("Time (s)")
-    // .with_y_label("Amplitude");
-
     let scene = render_scatter(&plot, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_with_labels.svg", svg.clone()).unwrap();
+    std::fs::write("test_outputs/scatter_layout.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
