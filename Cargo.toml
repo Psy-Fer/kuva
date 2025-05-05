@@ -1,0 +1,11 @@
+[package]
+name = "visus"
+version = "0.1.0"
+edition = "2021"
+description = "Scientific plotting library in Rust with various backends."
+authors = ["James M. Ferguson <j.ferguson@garvan.org.au>"]
+repository = "https://github.com/Psy-Fer/visus"
+license = "MIT"
+keywords = ["plotting", "bioinformatics"]
+
+[dependencies]
