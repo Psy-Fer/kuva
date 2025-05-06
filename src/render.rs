@@ -1,5 +1,6 @@
 use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
+use crate::plot::bar::BarPlot;
 
 
 #[derive(Debug)]
@@ -29,7 +30,15 @@ pub enum Primitive {
         d: String,
         stroke: String,
         stroke_width: f64,
-    }
+    },
+    Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        fill: String,
+    },
+
 }
 
 #[derive(Debug)]
@@ -283,6 +292,98 @@ fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &Layo
     }
 }
 
+fn add_axes_and_grid_categories(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
+
+    let map_x = |x| computed.map_x(x);
+    let map_y = |y| computed.map_y(y);
+
+    // Draw axes
+    // X axis
+    scene.add(Primitive::Line {
+        x1: computed.margin_left,
+        y1: computed.height - computed.margin_bottom,
+        x2: computed.width - computed.margin_right,
+        y2: computed.height - computed.margin_bottom,
+        stroke: "red".into(),
+    });
+    // Y axis
+    scene.add(Primitive::Line {
+        x1: computed.margin_left,
+        y1: computed.margin_top,
+        x2: computed.margin_left,
+        y2: computed.height - computed.margin_bottom,
+        stroke: "green".into(),
+    });
+
+    // Draw ticks and labels
+    for i in 0..=computed.ticks {
+        let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
+        let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
+
+        let x = map_x(tx);
+        let y = map_y(ty);
+
+        // X ticks
+        scene.add(Primitive::Line {
+            x1: x,
+            y1: computed.height - computed.margin_bottom,
+            x2: x,
+            y2: computed.height - computed.margin_bottom + 5.0,
+            stroke: "black".into(),
+        });
+        // X tick labels
+        // scene.add(Primitive::Text {
+        //     x,
+        //     y: computed.height - computed.margin_bottom + 15.0,
+        //     content: format!("{:.1}", tx),
+        //     size: 10,
+        //     anchor: TextAnchor::Middle,
+        //     rotate: None,
+        // });
+
+        // Y ticks
+        scene.add(Primitive::Line {
+            x1: computed.margin_left - 5.0,
+            y1: y,
+            x2: computed.margin_left,
+            y2: y,
+            stroke: "black".into(),
+        });
+        // Y tick labels
+        scene.add(Primitive::Text {
+            x: computed.margin_left - 15.0,
+            y,
+            content: format!("{:.1}", ty),
+            size: 10,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+        });
+
+        // Grid lines
+        if layout.show_grid {
+            if i != 0 {
+                // Vertical grid
+                scene.add(Primitive::Line {
+                    x1: x,
+                    y1: computed.margin_top,
+                    x2: x,
+                    y2: computed.height - computed.margin_bottom,
+                    stroke: "#ccc".to_string(),
+                });
+        
+                // Horizontal grid
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left,
+                    y1: y,
+                    x2: computed.width - computed.margin_right,
+                    y2: y,
+                    stroke: "#ccc".to_string(),
+                });
+            }
+        }
+    }
+}
+
 fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
     if let Some(label) = &layout.x_label {
@@ -356,11 +457,63 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
 }
 
 
+fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
+
+    // get size of bar
+    let (resolved_data, categories) = bar.resolve_bar_categories();
+    let n = bar.data.len();
+    let bar_width = bar.bar_width.unwrap_or_else(|| {
+        if n > 1 {
+            let mut xs: Vec<_> = resolved_data.iter().map(|(x, _)| *x).collect();
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            (xs[1] - xs[0]) * 0.8
+        } else {
+            1.0
+        }
+    });
+
+    
+    // add each bar
+    for &(x, y) in &resolved_data {
+        let x0 = computed.map_x(x - bar_width / 2.0);
+        let x1 = computed.map_x(x + bar_width / 2.0);
+        let y0 = computed.map_y(0.0); // all bars start at y=0
+        let y1 = computed.map_y(y);
+        
+        let rect_y = y1.min(y0);
+        let rect_width = (x1 - x0).abs();
+        let rect_height = (y0 - y1).abs();
+        
+        scene.add(Primitive::Rect {
+            x: x0.min(x1),
+            y: rect_y,
+            width: rect_width,
+            height: rect_height,
+            fill: bar.color.clone(),
+        });
+    }
+
+    // Add category labels
+    for (i, cat) in categories.iter().enumerate() {
+        let x = computed.map_x(i as f64 + 1.0);
+        let y = computed.map_y(0.0) + 20.0;
+    
+        scene.add(Primitive::Text {
+            x,
+            y,
+            content: cat.clone(),
+            size: 12,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+        });
+    }
+}
+
 
 pub enum Plot {
     Scatter(ScatterPlot),
     Line(LinePlot),
-    // Bar,
+    Bar(BarPlot),
     // Histogram,
     // boxplot,
 }
@@ -401,6 +554,38 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     scene
 }
 
+// render_bar
+pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_bar(bar, &mut scene, &computed);
+
+    scene
+}
+
+// render_bar_categories
+pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+    add_axes_and_grid_categories(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_bar(bar, &mut scene, &computed);
+
+    scene
+}
 
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
@@ -417,6 +602,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Line(l) => {
                add_line(&l, &mut scene, &computed);
+            }
+            Plot::Bar(b) => {
+               add_bar(&b, &mut scene, &computed);
             }
         }
     }
