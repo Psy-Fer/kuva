@@ -1,4 +1,5 @@
 use crate::plot::scatter::ScatterPlot;
+use crate::plot::line::LinePlot;
 
 
 #[derive(Debug)]
@@ -24,6 +25,11 @@ pub enum Primitive {
         y2: f64,
         stroke: String,
     },
+    Path {
+        d: String,
+        stroke: String,
+        stroke_width: f64,
+    }
 }
 
 #[derive(Debug)]
@@ -185,41 +191,33 @@ impl ComputedLayout {
 }
 
 
+fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
 
+    let map_x = |x| computed.map_x(x);
+    let map_y = |y| computed.map_y(y);
 
-
-
-/// render_scatter
-pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
-    
-    let layout = ComputedLayout::from_layout(&input_layout);
-    
-    let map_x = |x| layout.map_x(x);
-    let map_y = |y| layout.map_y(y);
-    
-    let mut scene = Scene::new(layout.width, layout.height);
     // Draw axes
     // X axis
     scene.add(Primitive::Line {
-        x1: layout.margin_left,
-        y1: layout.height - layout.margin_bottom,
-        x2: layout.width - layout.margin_right,
-        y2: layout.height - layout.margin_bottom,
+        x1: computed.margin_left,
+        y1: computed.height - computed.margin_bottom,
+        x2: computed.width - computed.margin_right,
+        y2: computed.height - computed.margin_bottom,
         stroke: "red".into(),
     });
     // Y axis
     scene.add(Primitive::Line {
-        x1: layout.margin_left,
-        y1: layout.margin_top,
-        x2: layout.margin_left,
-        y2: layout.height - layout.margin_bottom,
+        x1: computed.margin_left,
+        y1: computed.margin_top,
+        x2: computed.margin_left,
+        y2: computed.height - computed.margin_bottom,
         stroke: "green".into(),
     });
 
     // Draw ticks and labels
-    for i in 0..=layout.ticks {
-        let tx = layout.x_range.0 + (i as f64) * (layout.x_range.1 - layout.x_range.0) / layout.ticks as f64;
-        let ty = layout.y_range.0 + (i as f64) * (layout.y_range.1 - layout.y_range.0) / layout.ticks as f64;
+    for i in 0..=computed.ticks {
+        let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
+        let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
 
         let x = map_x(tx);
         let y = map_y(ty);
@@ -227,15 +225,15 @@ pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
         // X ticks
         scene.add(Primitive::Line {
             x1: x,
-            y1: layout.height - layout.margin_bottom,
+            y1: computed.height - computed.margin_bottom,
             x2: x,
-            y2: layout.height - layout.margin_bottom + 5.0,
+            y2: computed.height - computed.margin_bottom + 5.0,
             stroke: "black".into(),
         });
         // X tick labels
         scene.add(Primitive::Text {
             x,
-            y: layout.height - layout.margin_bottom + 15.0,
+            y: computed.height - computed.margin_bottom + 15.0,
             content: format!("{:.1}", tx),
             size: 10,
             anchor: TextAnchor::Middle,
@@ -244,15 +242,15 @@ pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
 
         // Y ticks
         scene.add(Primitive::Line {
-            x1: layout.margin_left - 5.0,
+            x1: computed.margin_left - 5.0,
             y1: y,
-            x2: layout.margin_left,
+            x2: computed.margin_left,
             y2: y,
             stroke: "black".into(),
         });
         // Y tick labels
         scene.add(Primitive::Text {
-            x: layout.margin_left - 15.0,
+            x: computed.margin_left - 15.0,
             y,
             content: format!("{:.1}", ty),
             size: 10,
@@ -261,34 +259,36 @@ pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
         });
 
         // Grid lines
-        if input_layout.show_grid {
+        if layout.show_grid {
             if i != 0 {
                 // Vertical grid
                 scene.add(Primitive::Line {
                     x1: x,
-                    y1: layout.margin_top,
+                    y1: computed.margin_top,
                     x2: x,
-                    y2: layout.height - layout.margin_bottom,
+                    y2: computed.height - computed.margin_bottom,
                     stroke: "#ccc".to_string(),
                 });
         
                 // Horizontal grid
                 scene.add(Primitive::Line {
-                    x1: layout.margin_left,
+                    x1: computed.margin_left,
                     y1: y,
-                    x2: layout.width - layout.margin_right,
+                    x2: computed.width - computed.margin_right,
                     y2: y,
                     stroke: "#ccc".to_string(),
                 });
             }
         }
     }
+}
 
+fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
-    if let Some(label) = &input_layout.x_label {
+    if let Some(label) = &layout.x_label {
         scene.add(Primitive::Text {
-            x: layout.width / 2.0,
-            y: layout.height - layout.margin_bottom / 4.0,
+            x: computed.width / 2.0,
+            y: computed.height - computed.margin_bottom / 4.0,
             content: label.clone(),
             size: 14,
             anchor: TextAnchor::Middle,
@@ -297,10 +297,10 @@ pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
     }
 
     // Y Axis Label
-    if let Some(label) = &input_layout.y_label {
+    if let Some(label) = &layout.y_label {
         scene.add(Primitive::Text {
             x: 20.0,
-            y: layout.height / 2.0,
+            y: computed.height / 2.0,
             content: label.clone(),
             size: 14,
             anchor: TextAnchor::Middle,
@@ -309,26 +309,116 @@ pub fn render_scatter(scatter: &ScatterPlot, input_layout: Layout) -> Scene {
     }
 
     // Title
-    if let Some(title) = &input_layout.title {
+    if let Some(title) = &layout.title {
         scene.add(Primitive::Text {
-            x: layout.width / 2.0,
-            y: layout.margin_top / 2.0,
+            x: computed.width / 2.0,
+            y: computed.margin_top / 2.0,
             content: title.clone(),
             size: 16,
             anchor: TextAnchor::Middle,
             rotate: None,
         });
     }
+}
 
-
+fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Draw points
-    for point in &scatter.points {
+    for point in &scatter.data {
         scene.add(Primitive::Circle {
-            cx: map_x(point.x),
-            cy: map_y(point.y),
-            r: 3.0,
-            fill: "blue".into(),
+            cx:  computed.map_x(point.x),
+            cy: computed.map_y(point.y),
+            r: scatter.size,
+            fill: scatter.color.clone(),
         });
+    }
+}
+
+fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
+    // Add the line path
+    if line.data.len() >= 2 {
+        let mut path = String::new();
+        for (i, &coords) in line.data.iter().enumerate() {
+            let sx = computed.map_x(coords.x);
+            let sy = computed.map_y(coords.y);
+            if i == 0 {
+                path += &format!("M {sx} {sy} ");
+            } else {
+                path += &format!("L {sx} {sy} ");
+            }
+        }
+
+        scene.add(Primitive::Path {
+            d: path,
+            stroke: line.color.clone(),
+            stroke_width: line.stroke_width,
+        });
+    }
+}
+
+
+
+pub enum Plot {
+    Scatter(ScatterPlot),
+    Line(LinePlot),
+    // Bar,
+    // Histogram,
+    // boxplot,
+}
+
+
+
+
+/// render_scatter
+pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
+    
+    let computed = ComputedLayout::from_layout(&layout);
+        
+    let mut scene = Scene::new(computed.width, computed.height);
+    
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_scatter(scatter, &mut scene, &computed);
+
+    scene
+}
+
+
+// render_line
+pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_line(line, &mut scene, &computed);
+
+    scene
+}
+
+
+pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    add_axes_and_grid(&mut scene, &computed, &layout);
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    // for each plot, plot it
+    for plot in plots {
+        match plot {
+            Plot::Scatter(s) => {
+                add_scatter(&s, &mut scene, &computed);
+            }
+            Plot::Line(l) => {
+               add_line(&l, &mut scene, &computed);
+            }
+        }
     }
 
     scene

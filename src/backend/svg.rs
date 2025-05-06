@@ -28,10 +28,6 @@ impl SvgBackend {
                 Primitive::Circle { cx, cy, r, fill } => {
                     svg.push_str(&format!(
                         r#"<circle cx="{cx}" cy="{cy}" r="{r}" fill="{fill}" />"#,
-                        cx = cx,
-                        cy = cy,
-                        r = r,
-                        fill = fill
                     ));
                 }
                 Primitive::Text { x, y, content, size, anchor, rotate } => {
@@ -54,11 +50,11 @@ impl SvgBackend {
                 Primitive::Line { x1, y1, x2, y2, stroke } => {
                     svg.push_str(&format!(
                         r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" />"#,
-                        x1 = x1,
-                        y1 = y1,
-                        x2 = x2,
-                        y2 = y2,
-                        stroke = stroke
+                    ));
+                }
+                Primitive::Path { d, stroke, stroke_width } => {
+                    svg.push_str(&format!(
+                        r#"<path d="{d}" stroke="{stroke}" stroke-width="{stroke_width}" fill="none"/>"#
                     ));
                 }
             }

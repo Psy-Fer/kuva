@@ -10,7 +10,11 @@ fn test_scatter_svg_output_builder() {
         Point { x: 5.0, y: 8.7 },
     ];
 
-    let plot = ScatterPlot::new(data);
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_color("blue")
+        .with_size(5.0);
+        
     let layout = Layout::new((0.0, 10.0), (0.0, 40.0))
     .with_title("Scatter Builder Plot")
     .with_x_label("The X axis")
@@ -33,7 +37,11 @@ fn test_scatter_svg_output_layout() {
         Point { x: 5.0, y: 8.7 },
     ];
 
-    let plot = ScatterPlot::new(data);
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_color("purple")
+        .with_size(3.0);
+
     let layout = Layout {
         width: None,
         height: None,
