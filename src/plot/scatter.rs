@@ -1,7 +1,6 @@
-use crate::plot::types::Point;
 
 pub struct ScatterPlot {
-    pub data: Vec<Point>,
+    pub data: Vec<(f64, f64)>,
     pub color: String,
     pub size: f64, // radius of circle point...diff markers will be interesting to add lol
 }
@@ -15,7 +14,7 @@ impl ScatterPlot {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<Point>) -> Self {
+    pub fn with_data(mut self, data: Vec<(f64, f64)>) -> Self {
         self.data = data;
         self
     }
@@ -24,7 +23,7 @@ impl ScatterPlot {
         self.color = color.into();
         self
     }
-    
+
     pub fn with_size(mut self, size: f64) -> Self {
         self.size = size;
         self

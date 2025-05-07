@@ -1,6 +1,8 @@
 use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
+use crate::plot::histogram::Histogram;
+use crate::plot::types::BarX;
 
 
 #[derive(Debug)]
@@ -103,6 +105,39 @@ impl Layout {
             title: None,
         }
     }
+
+    pub fn auto_from_data(data: &[f64], x_range: std::ops::Range<f64>) -> Self {
+        let y_min = 0.0;
+        let y_max = data.iter().cloned().fold(0.0, f64::max);
+
+        Layout::new((x_range.start, x_range.end), (y_min, y_max * 1.05))
+    }
+
+    pub fn auto_from_plots(plots: &[Plot]) -> Self {
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+
+        for plot in plots {
+            if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
+                x_min = x_min.min(xmin);
+                x_max = x_max.max(xmax);
+                y_min = y_min.min(ymin);
+                y_max = y_max.max(ymax);
+            }
+        }
+
+        // Add margin
+        let x_margin = (x_max - x_min) * 0.05;
+        let y_margin = (y_max - y_min) * 0.05;
+
+        Layout::new(
+            (x_min - x_margin, x_max + x_margin),
+            (y_min - y_margin, y_max + y_margin),
+        )
+    }
+
     pub fn with_width(mut self, width: f64) -> Self {
         self.width = Some(width);
         self
@@ -426,8 +461,8 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     // Draw points
     for point in &scatter.data {
         scene.add(Primitive::Circle {
-            cx:  computed.map_x(point.x),
-            cy: computed.map_y(point.y),
+            cx:  computed.map_x(point.0),
+            cy: computed.map_y(point.1),
             r: scatter.size,
             fill: scatter.color.clone(),
         });
@@ -439,8 +474,8 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     if line.data.len() >= 2 {
         let mut path = String::new();
         for (i, &coords) in line.data.iter().enumerate() {
-            let sx = computed.map_x(coords.x);
-            let sy = computed.map_y(coords.y);
+            let sx = computed.map_x(coords.0);
+            let sy = computed.map_y(coords.1);
             if i == 0 {
                 path += &format!("M {sx} {sy} ");
             } else {
@@ -480,13 +515,13 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let y0 = computed.map_y(0.0); // all bars start at y=0
         let y1 = computed.map_y(y);
         
-        let rect_y = y1.min(y0);
+        // let rect_y = y1.min(y0);
         let rect_width = (x1 - x0).abs();
         let rect_height = (y0 - y1).abs();
         
         scene.add(Primitive::Rect {
             x: x0.min(x1),
-            y: rect_y,
+            y: y1.min(y0),
             width: rect_width,
             height: rect_height,
             fill: bar.color.clone(),
@@ -509,14 +544,113 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout) {
+
+    // fold is basically a fancy for loop
+    let range: (f64, f64) = hist.range.unwrap_or_else(|| {
+        let min: f64 = hist.data.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max: f64 = hist.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        (min, max)
+    });
+
+    let bin_width: f64 = (range.1 - range.0) / hist.bins as f64;
+    let mut counts: Vec<usize> = vec![0; hist.bins];
+
+    for &value in &hist.data {
+        if value < range.0 || value > range.1 {
+            continue;
+        }
+        let bin: usize = ((value - range.0) / bin_width).floor() as usize;
+        let bin: usize = if bin == hist.bins { bin - 1 } else { bin };
+        counts[bin] += 1;
+    }
+
+    let max_count: f64 = *counts.iter().max().unwrap_or(&1) as f64;
+    let norm: f64 = if hist.normalize { 1.0 / max_count } else { 1.0 };
+
+    for (i, count) in counts.iter().enumerate() {
+        let x = range.0 + i as f64 * bin_width;
+        let height = *count as f64 * norm;
+
+        let x0 = computed.map_x(x);
+        let x1 = computed.map_x(x + bin_width);
+        let y0 = computed.map_y(0.0);
+        let y1 = computed.map_y(height);
+
+        let rect_width = (x1 - x0).abs();
+        let rect_height = (y0 - y1).abs();
+
+        scene.add(Primitive::Rect {
+            x: x0,
+            y: y1.min(y0),
+            width: rect_width,
+            height: rect_height,
+            fill: hist.color.clone(),
+        });
+    }
+}
+
+
+
+fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
+    if points.is_empty() {
+        return None;
+    }
+    let (mut x_min, mut x_max) = (points[0].0, points[0].0);
+    let (mut y_min, mut y_max) = (points[0].1, points[0].1);
+    for &(x, y) in points {
+        x_min = x_min.min(x);
+        x_max = x_max.max(x);
+        y_min = y_min.min(y);
+        y_max = y_max.max(y);
+    }
+    Some(((x_min, x_max), (y_min, y_max)))
+}
+
 
 pub enum Plot {
     Scatter(ScatterPlot),
     Line(LinePlot),
     Bar(BarPlot),
-    // Histogram,
+    Histogram(Histogram),
     // boxplot,
 }
+
+impl Plot {
+    pub fn bounds(&self) -> Option<((f64, f64), (f64, f64))> {
+        match self {
+            Plot::Scatter(p) => bounds_from_xy(&p.data),
+            Plot::Line(p) => bounds_from_xy(&p.data),
+            Plot::Bar(p) => {
+                let points: Vec<(f64, f64)> = p.data.iter().filter_map(|(x, y)| match x {
+                    BarX::Numeric(n) => Some((*n, *y)),
+                    BarX::Category(_) => None, // categories are special case
+                }).collect();
+                bounds_from_xy(&points)
+            }
+            Plot::Histogram(h) => {
+                let range = h.range?;
+                let bins = h.bins;
+                let bin_width = (range.1 - range.0) / bins as f64;
+
+                let mut counts = vec![0usize; bins];
+                for &value in &h.data {
+                    if value < range.0 || value > range.1 {
+                        continue;
+                    }
+                    let bin = ((value - range.0) / bin_width).floor() as usize;
+                    let bin = if bin == bins { bin - 1 } else { bin };
+                    counts[bin] += 1;
+                }
+
+                let max_y = *counts.iter().max().unwrap_or(&1) as f64;
+
+                Some((range, (0.0, max_y)))
+            }
+        }
+    }
+}
+
 
 
 
@@ -587,6 +721,23 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     scene
 }
 
+// render_histogram
+pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_histogram(hist, &mut scene, &computed);
+
+    scene
+}
+
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
@@ -605,6 +756,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Bar(b) => {
                add_bar(&b, &mut scene, &computed);
+            }
+            Plot::Histogram(h) => {
+                add_histogram(&h, &mut scene, &computed);
             }
         }
     }

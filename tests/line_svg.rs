@@ -1,4 +1,4 @@
-use visus::plot::{LinePlot, types::Point};
+use visus::plot::LinePlot;
 use visus::backend::svg::SvgBackend;
 use visus::render::{render_line, Layout};
 
@@ -6,7 +6,7 @@ use visus::render::{render_line, Layout};
 fn test_line_svg_output_builder() {
     let plot = LinePlot::new()
                         .with_data((0..100)
-                        .map(|x| Point{x: x as f64 / 10.0, y: (x as f64 / 10.0).sin()})
+                        .map(|x| (x as f64 / 10.0, (x as f64 / 10.0).sin()))
                         .collect())
                         .with_color("green");
 

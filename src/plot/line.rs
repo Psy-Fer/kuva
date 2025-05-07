@@ -1,7 +1,6 @@
-use crate::plot::types::Point;
 
 pub struct LinePlot {
-    pub data: Vec<Point>,
+    pub data: Vec<(f64, f64)>,
     pub color: String,
     pub stroke_width: f64,
 }
@@ -15,7 +14,7 @@ impl LinePlot {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<Point>) -> Self {
+    pub fn with_data(mut self, data: Vec<(f64, f64)>) -> Self {
         self.data = data;
         self
     }

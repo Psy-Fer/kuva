@@ -1,13 +1,13 @@
-use visus::plot::{ScatterPlot, types::Point};
+use visus::plot::ScatterPlot;
 use visus::backend::svg::SvgBackend;
 use visus::render::{render_scatter, Layout};
 
 #[test]
 fn test_scatter_svg_output_builder() {
     let data = vec![
-        Point { x: 1.0, y: 5.0 },
-        Point { x: 4.5, y: 3.5 },
-        Point { x: 5.0, y: 8.7 },
+        (1.0, 5.0),
+        (4.5, 3.5),
+        (5.0, 8.7),
     ];
 
     let plot = ScatterPlot::new()
@@ -32,9 +32,9 @@ fn test_scatter_svg_output_builder() {
 #[test]
 fn test_scatter_svg_output_layout() {
     let data = vec![
-        Point { x: 1.0, y: 5.0 },
-        Point { x: 4.5, y: 3.5 },
-        Point { x: 5.0, y: 8.7 },
+        (1.0, 5.0),
+        (4.5, 3.5),
+        (5.0, 8.7),
     ];
 
     let plot = ScatterPlot::new()

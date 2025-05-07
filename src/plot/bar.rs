@@ -1,8 +1,5 @@
+use crate::plot::types::BarX;
 
-pub enum BarX {
-    Numeric(f64),
-    Category(String),
-}
 pub struct BarPlot {
     pub data: Vec<(BarX, f64)>, // (variable x, height)
     pub color: String,
