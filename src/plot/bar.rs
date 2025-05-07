@@ -18,10 +18,15 @@ impl BarPlot {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<(BarX, f64)>) -> Self {
-        self.data = data;
+    pub fn with_numeric_data(mut self, data: Vec<(f64, f64)>) -> Self {
+        self.data = data.into_iter().map(|(x, y)| (BarX::Numeric(x), y)).collect();
         self
     }
+
+    pub fn with_data(self, data: Vec<(f64, f64)>) -> Self {
+        self.with_numeric_data(data)
+    }
+
 
     pub fn with_categories_and_values<T: Into<String>>(categories: Vec<T>, values: Vec<f64>) -> Self {
         let data = categories

@@ -1,26 +1,26 @@
 use visus::plot::BarPlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_bar_categories, Layout};
+use visus::render::{render_bar_categories, render_bar, Layout};
 
-// #[test]
-// fn test_bar_svg_output_builder() {
-//     let bars = BarPlot::new()
-//                         .with_data(vec![(1.0, 3.0), (2.0, 5.0), (3.0, 2.0)])
-//                         .with_color("orange");
+#[test]
+fn test_bar_svg_output_builder() {
+    let bars = BarPlot::new()
+                        .with_numeric_data(vec![(1.0, 3.0), (2.0, 5.0), (3.0, 2.0)])
+                        .with_color("orange");
 
-//     let layout = Layout::new((0.0, 5.0), (0.0, 6.0))
-//                         .with_title("Exciting Bar Plot")
-//                         .with_x_label("Category")
-//                         .with_y_label("Value")
-//                         .with_ticks(5);
+    let layout = Layout::new((0.0, 5.0), (0.0, 6.0))
+                        .with_title("Exciting Bar Plot")
+                        .with_x_label("Category")
+                        .with_y_label("Value")
+                        .with_ticks(5);
 
-//     let scene = render_bar(&bars, layout);
-//     let svg = SvgBackend.render_scene(&scene);
-//     std::fs::write("test_outputs/bar_builder.svg", svg.clone()).unwrap();
+    let scene = render_bar(&bars, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/bar_builder.svg", svg.clone()).unwrap();
 
-//     // Basic sanity assertion
-//     assert!(svg.contains("<svg"));
-// }
+    // Basic sanity assertion
+    assert!(svg.contains("<svg"));
+}
 #[test]
 fn test_bar_categories_svg_output_builder() {
     let bars = BarPlot::with_categories_and_values(
