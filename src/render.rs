@@ -3,6 +3,7 @@ use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::types::BarX;
+use crate::plot::BoxPlot;
 
 
 #[derive(Debug)]
@@ -27,6 +28,7 @@ pub enum Primitive {
         x2: f64,
         y2: f64,
         stroke: String,
+        stroke_width: f64,
     },
     Path {
         d: String,
@@ -89,6 +91,7 @@ pub struct Layout {
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
+    pub x_categories: Option<Vec<String>>,
 }
 
 impl Layout {
@@ -103,6 +106,7 @@ impl Layout {
             x_label: None,
             y_label: None,
             title: None,
+            x_categories: None,
         }
     }
 
@@ -112,12 +116,16 @@ impl Layout {
 
         Layout::new((x_range.start, x_range.end), (y_min, y_max * 1.05))
     }
+    
+
 
     pub fn auto_from_plots(plots: &[Plot]) -> Self {
         let mut x_min = f64::INFINITY;
         let mut x_max = f64::NEG_INFINITY;
         let mut y_min = f64::INFINITY;
         let mut y_max = f64::NEG_INFINITY;
+
+        let mut x_labels = None;
 
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
@@ -126,16 +134,54 @@ impl Layout {
                 y_min = y_min.min(ymin);
                 y_max = y_max.max(ymax);
             }
+
+            if let Plot::Box(bp) = plot {
+                let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
+                x_labels = Some(labels);
+            }
+
+            if let Plot::Bar(bp) = plot {
+                let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
+                x_labels = Some(labels);
+            }
         }
 
-        // Add margin
-        let x_margin = (x_max - x_min) * 0.05;
-        let y_margin = (y_max - y_min) * 0.05;
+        let mut layout = Self::new((x_min, x_max), (y_min, y_max));
+        if let Some(labels) = x_labels {
+            layout = layout.with_x_categories(labels);
+        }
 
-        Layout::new(
-            (x_min - x_margin, x_max + x_margin),
-            (y_min - y_margin, y_max + y_margin),
-        )
+        layout
+    }
+    
+    // pub fn auto_from_plots(plots: &[Plot]) -> Self {
+    //     let mut x_min = f64::INFINITY;
+    //     let mut x_max = f64::NEG_INFINITY;
+    //     let mut y_min = f64::INFINITY;
+    //     let mut y_max = f64::NEG_INFINITY;
+
+    //     for plot in plots {
+    //         if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
+    //             x_min = x_min.min(xmin);
+    //             x_max = x_max.max(xmax);
+    //             y_min = y_min.min(ymin);
+    //             y_max = y_max.max(ymax);
+    //         }
+    //     }
+
+    //     // Add margin
+    //     let x_margin = (x_max - x_min) * 0.05;
+    //     let y_margin = (y_max - y_min) * 0.05;
+
+    //     Layout::new(
+    //         (x_min - x_margin, x_max + x_margin),
+    //         (y_min - y_margin, y_max + y_margin),
+    //     )
+    // }
+
+    pub fn with_x_categories(mut self, labels: Vec<String>) -> Self {
+        self.x_categories = Some(labels);
+        self
     }
 
     pub fn with_width(mut self, width: f64) -> Self {
@@ -248,7 +294,9 @@ fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &Layo
         x2: computed.width - computed.margin_right,
         y2: computed.height - computed.margin_bottom,
         stroke: "red".into(),
+        stroke_width: 1.0,
     });
+
     // Y axis
     scene.add(Primitive::Line {
         x1: computed.margin_left,
@@ -256,168 +304,237 @@ fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &Layo
         x2: computed.margin_left,
         y2: computed.height - computed.margin_bottom,
         stroke: "green".into(),
+        stroke_width: 1.0,
     });
 
-    // Draw ticks and labels
-    for i in 0..=computed.ticks {
-        let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
-        let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
+    if let Some(categories) = &layout.x_categories {
+        // draw x axis category labels and ticks
+        for (i, label) in categories.iter().enumerate() {
+            let x_val = i as f64 + 1.0; // match x-positioning
+            let x_pos = computed.map_x(x_val);
+    
+            // Draw label
+            scene.add(Primitive::Text {
+                x: x_pos,
+                y: computed.height - computed.margin_bottom + 15.0,
+                content: label.clone(),
+                size: 10,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+    
+            // Optional: draw a small tick
+            scene.add(Primitive::Line {
+                x1: x_pos,
+                y1: computed.height - computed.margin_bottom,
+                x2: x_pos,
+                y2: computed.height - computed.margin_bottom + 5.0,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
+        }
+        for i in 0..=computed.ticks {
+            // let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
+            let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
 
-        let x = map_x(tx);
-        let y = map_y(ty);
+            // let x = map_x(tx);
+            let y = map_y(ty);
+            // Y ticks
+            scene.add(Primitive::Line {
+                x1: computed.margin_left - 5.0,
+                y1: y,
+                x2: computed.margin_left,
+                y2: y,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
 
-        // X ticks
-        scene.add(Primitive::Line {
-            x1: x,
-            y1: computed.height - computed.margin_bottom,
-            x2: x,
-            y2: computed.height - computed.margin_bottom + 5.0,
-            stroke: "black".into(),
-        });
-        // X tick labels
-        scene.add(Primitive::Text {
-            x,
-            y: computed.height - computed.margin_bottom + 15.0,
-            content: format!("{:.1}", tx),
-            size: 10,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-        });
+            // Y tick labels
+            scene.add(Primitive::Text {
+                x: computed.margin_left - 15.0,
+                y,
+                content: format!("{:.1}", ty),
+                size: 10,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+        }
+    }
+    else {
+        // Draw value ticks and labels
+        for i in 0..=computed.ticks {
+            let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
+            let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
 
-        // Y ticks
-        scene.add(Primitive::Line {
-            x1: computed.margin_left - 5.0,
-            y1: y,
-            x2: computed.margin_left,
-            y2: y,
-            stroke: "black".into(),
-        });
-        // Y tick labels
-        scene.add(Primitive::Text {
-            x: computed.margin_left - 15.0,
-            y,
-            content: format!("{:.1}", ty),
-            size: 10,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-        });
+            let x = map_x(tx);
+            let y = map_y(ty);
 
-        // Grid lines
-        if layout.show_grid {
-            if i != 0 {
-                // Vertical grid
-                scene.add(Primitive::Line {
-                    x1: x,
-                    y1: computed.margin_top,
-                    x2: x,
-                    y2: computed.height - computed.margin_bottom,
-                    stroke: "#ccc".to_string(),
-                });
-        
-                // Horizontal grid
-                scene.add(Primitive::Line {
-                    x1: computed.margin_left,
-                    y1: y,
-                    x2: computed.width - computed.margin_right,
-                    y2: y,
-                    stroke: "#ccc".to_string(),
-                });
+            // X ticks
+            scene.add(Primitive::Line {
+                x1: x,
+                y1: computed.height - computed.margin_bottom,
+                x2: x,
+                y2: computed.height - computed.margin_bottom + 5.0,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
+
+            // X tick labels
+            scene.add(Primitive::Text {
+                x,
+                y: computed.height - computed.margin_bottom + 15.0,
+                content: format!("{:.1}", tx),
+                size: 10,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+
+            // Y ticks
+            scene.add(Primitive::Line {
+                x1: computed.margin_left - 5.0,
+                y1: y,
+                x2: computed.margin_left,
+                y2: y,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
+
+            // Y tick labels
+            scene.add(Primitive::Text {
+                x: computed.margin_left - 15.0,
+                y,
+                content: format!("{:.1}", ty),
+                size: 10,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+
+            // Grid lines
+            if layout.show_grid {
+                if i != 0 {
+                    // Vertical grid
+                    scene.add(Primitive::Line {
+                        x1: x,
+                        y1: computed.margin_top,
+                        x2: x,
+                        y2: computed.height - computed.margin_bottom,
+                        stroke: "#ccc".to_string(),
+                        stroke_width: 1.0,
+                    });
+            
+                    // Horizontal grid
+                    scene.add(Primitive::Line {
+                        x1: computed.margin_left,
+                        y1: y,
+                        x2: computed.width - computed.margin_right,
+                        y2: y,
+                        stroke: "#ccc".to_string(),
+                        stroke_width: 1.0,
+                    });
+                }
             }
         }
     }
 }
 
-fn add_axes_and_grid_categories(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
+// fn add_axes_and_grid_categories(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
 
-    let map_x = |x| computed.map_x(x);
-    let map_y = |y| computed.map_y(y);
+//     let map_x = |x| computed.map_x(x);
+//     let map_y = |y| computed.map_y(y);
 
-    // Draw axes
-    // X axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.height - computed.margin_bottom,
-        x2: computed.width - computed.margin_right,
-        y2: computed.height - computed.margin_bottom,
-        stroke: "red".into(),
-    });
-    // Y axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.margin_top,
-        x2: computed.margin_left,
-        y2: computed.height - computed.margin_bottom,
-        stroke: "green".into(),
-    });
+//     // Draw axes
+//     // X axis
+//     scene.add(Primitive::Line {
+//         x1: computed.margin_left,
+//         y1: computed.height - computed.margin_bottom,
+//         x2: computed.width - computed.margin_right,
+//         y2: computed.height - computed.margin_bottom,
+//         stroke: "red".into(),
+//         stroke_width: 1.0,
+//     });
+//     // Y axis
+//     scene.add(Primitive::Line {
+//         x1: computed.margin_left,
+//         y1: computed.margin_top,
+//         x2: computed.margin_left,
+//         y2: computed.height - computed.margin_bottom,
+//         stroke: "green".into(),
+//         stroke_width: 1.0,
+//     });
 
-    // Draw ticks and labels
-    for i in 0..=computed.ticks {
-        let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
-        let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
+//     // Draw ticks and labels
+//     for i in 0..=computed.ticks {
+//         let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
+//         let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
 
-        let x = map_x(tx);
-        let y = map_y(ty);
+//         let x = map_x(tx);
+//         let y = map_y(ty);
 
-        // X ticks
-        scene.add(Primitive::Line {
-            x1: x,
-            y1: computed.height - computed.margin_bottom,
-            x2: x,
-            y2: computed.height - computed.margin_bottom + 5.0,
-            stroke: "black".into(),
-        });
-        // X tick labels
-        // scene.add(Primitive::Text {
-        //     x,
-        //     y: computed.height - computed.margin_bottom + 15.0,
-        //     content: format!("{:.1}", tx),
-        //     size: 10,
-        //     anchor: TextAnchor::Middle,
-        //     rotate: None,
-        // });
+//         // X ticks
+//         scene.add(Primitive::Line {
+//             x1: x,
+//             y1: computed.height - computed.margin_bottom,
+//             x2: x,
+//             y2: computed.height - computed.margin_bottom + 5.0,
+//             stroke: "black".into(),
+//             stroke_width: 1.0,
+//         });
+//         // X tick labels
+//         // scene.add(Primitive::Text {
+//         //     x,
+//         //     y: computed.height - computed.margin_bottom + 15.0,
+//         //     content: format!("{:.1}", tx),
+//         //     size: 10,
+//         //     anchor: TextAnchor::Middle,
+//         //     rotate: None,
+//         // });
 
-        // Y ticks
-        scene.add(Primitive::Line {
-            x1: computed.margin_left - 5.0,
-            y1: y,
-            x2: computed.margin_left,
-            y2: y,
-            stroke: "black".into(),
-        });
-        // Y tick labels
-        scene.add(Primitive::Text {
-            x: computed.margin_left - 15.0,
-            y,
-            content: format!("{:.1}", ty),
-            size: 10,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-        });
+//         // Y ticks
+//         scene.add(Primitive::Line {
+//             x1: computed.margin_left - 5.0,
+//             y1: y,
+//             x2: computed.margin_left,
+//             y2: y,
+//             stroke: "black".into(),
+//             stroke_width: 1.0,
+//         });
 
-        // Grid lines
-        if layout.show_grid {
-            if i != 0 {
-                // Vertical grid
-                scene.add(Primitive::Line {
-                    x1: x,
-                    y1: computed.margin_top,
-                    x2: x,
-                    y2: computed.height - computed.margin_bottom,
-                    stroke: "#ccc".to_string(),
-                });
+//         // Y tick labels
+//         scene.add(Primitive::Text {
+//             x: computed.margin_left - 15.0,
+//             y,
+//             content: format!("{:.1}", ty),
+//             size: 10,
+//             anchor: TextAnchor::Middle,
+//             rotate: None,
+//         });
+
+//         // Grid lines
+//         if layout.show_grid {
+//             if i != 0 {
+//                 // Vertical grid
+//                 scene.add(Primitive::Line {
+//                     x1: x,
+//                     y1: computed.margin_top,
+//                     x2: x,
+//                     y2: computed.height - computed.margin_bottom,
+//                     stroke: "#ccc".to_string(),
+//                     stroke_width: 1.0,
+//                 });
         
-                // Horizontal grid
-                scene.add(Primitive::Line {
-                    x1: computed.margin_left,
-                    y1: y,
-                    x2: computed.width - computed.margin_right,
-                    y2: y,
-                    stroke: "#ccc".to_string(),
-                });
-            }
-        }
-    }
-}
+//                 // Horizontal grid
+//                 scene.add(Primitive::Line {
+//                     x1: computed.margin_left,
+//                     y1: y,
+//                     x2: computed.width - computed.margin_right,
+//                     y2: y,
+//                     stroke: "#ccc".to_string(),
+//                     stroke_width: 1.0,
+//                 });
+//             }
+//         }
+//     }
+// }
 
 fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
@@ -494,52 +611,21 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
-    // get size of bar
-    let (resolved_data, categories) = bar.resolve_bar_categories();
-    let n = bar.data.len();
-    let bar_width = bar.bar_width.unwrap_or_else(|| {
-        if n > 1 {
-            let mut xs: Vec<_> = resolved_data.iter().map(|(x, _)| *x).collect();
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            (xs[1] - xs[0]) * 0.8
-        } else {
-            1.0
-        }
-    });
-
+    for (i, group) in bar.groups.iter().enumerate() {
+        let x = i as f64 + 1.0; // make bars at 1, 2, etc...
+        let w = bar.width / 2.0;
     
-    // add each bar
-    for &(x, y) in &resolved_data {
-        let x0 = computed.map_x(x - bar_width / 2.0);
-        let x1 = computed.map_x(x + bar_width / 2.0);
+        let x0 = computed.map_x(x - w);
+        let x1 = computed.map_x(x + w);
         let y0 = computed.map_y(0.0); // all bars start at y=0
-        let y1 = computed.map_y(y);
-        
-        // let rect_y = y1.min(y0);
-        let rect_width = (x1 - x0).abs();
-        let rect_height = (y0 - y1).abs();
-        
-        scene.add(Primitive::Rect {
-            x: x0.min(x1),
-            y: y1.min(y0),
-            width: rect_width,
-            height: rect_height,
-            fill: bar.color.clone(),
-        });
-    }
-
-    // Add category labels
-    for (i, cat) in categories.iter().enumerate() {
-        let x = computed.map_x(i as f64 + 1.0);
-        let y = computed.map_y(0.0) + 20.0;
+        let y1 = computed.map_y(group.value);
     
-        scene.add(Primitive::Text {
-            x,
-            y,
-            content: cat.clone(),
-            size: 12,
-            anchor: TextAnchor::Middle,
-            rotate: None,
+        scene.add(Primitive::Rect {
+            x: x0,
+            y: y1.min(y0),
+            width: (x1 - x0).abs(),
+            height: (y0 - y1).abs(),
+            fill: bar.color.clone(),
         });
     }
 }
@@ -590,6 +676,93 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
     }
 }
 
+// TODO: move helper
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    let rank = p / 100.0 * (sorted.len() - 1) as f64;
+    let low = rank.floor() as usize;
+    let high = rank.ceil() as usize;
+    let weight = rank - low as f64;
+    sorted[low] * (1.0 - weight) + sorted[high] * weight
+}
+
+fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    
+    
+    for (i, group) in boxplot.groups.iter().enumerate() {
+        if group.values.is_empty() { continue; }
+
+        let mut sorted = group.values.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let q1 = percentile(&sorted, 25.0); // Q1
+        let q2 = percentile(&sorted, 50.0); // median
+        let q3 = percentile(&sorted, 75.0); // Q3
+        let iqr = q3 - q1;
+        let lower_whisker = sorted.iter().cloned().filter(|v| *v >= q1 - 1.5 * iqr).fold(f64::INFINITY, f64::min);
+        let upper_whisker = sorted.iter().cloned().filter(|v| *v <= q3 + 1.5 * iqr).fold(f64::NEG_INFINITY, f64::max);
+
+        let x = i as f64 + 1.0;
+        let w = boxplot.width / 2.0;
+
+        let x0 = computed.map_x(x - w);
+        let x1 = computed.map_x(x + w);
+        let yq1 = computed.map_y(q1);
+        let yq3 = computed.map_y(q3);
+        let ymed = computed.map_y(q2);
+        let ylow = computed.map_y(lower_whisker);
+        let yhigh = computed.map_y(upper_whisker);
+        let xmid = computed.map_x(x);
+
+        // Box
+        scene.add(Primitive::Rect {
+            x: x0,
+            y: yq3.min(yq1),
+            width: (x1 - x0).abs(),
+            height: (yq1 - yq3).abs(),
+            fill: boxplot.color.clone(),
+        });
+
+        // Median line
+        scene.add(Primitive::Line {
+            x1: x0,
+            y1: ymed,
+            x2: x1,
+            y2: ymed,
+            stroke: "white".into(),
+            stroke_width: 1.5,
+        });
+
+        // Whiskers
+        scene.add(Primitive::Line {
+            x1: xmid,
+            y1: ylow,
+            x2: xmid,
+            y2: yq1,
+            stroke: boxplot.color.clone(),
+            stroke_width: 1.0,
+        });
+        scene.add(Primitive::Line {
+            x1: xmid,
+            y1: yq3,
+            x2: xmid,
+            y2: yhigh,
+            stroke: boxplot.color.clone(),
+            stroke_width: 1.0,
+        });
+
+        // Whisker caps
+        for &y in &[ylow, yhigh] {
+            scene.add(Primitive::Line {
+                x1: computed.map_x(x - w / 2.0),
+                x2: computed.map_x(x + w / 2.0),
+                y1: y,
+                y2: y,
+                stroke: boxplot.color.clone(),
+                stroke_width: 1.0,
+            });
+        }
+    }
+}
 
 
 fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
@@ -613,7 +786,7 @@ pub enum Plot {
     Line(LinePlot),
     Bar(BarPlot),
     Histogram(Histogram),
-    // boxplot,
+    Box(BoxPlot),
 }
 
 impl Plot {
@@ -621,12 +794,21 @@ impl Plot {
         match self {
             Plot::Scatter(p) => bounds_from_xy(&p.data),
             Plot::Line(p) => bounds_from_xy(&p.data),
-            Plot::Bar(p) => {
-                let points: Vec<(f64, f64)> = p.data.iter().filter_map(|(x, y)| match x {
-                    BarX::Numeric(n) => Some((*n, *y)),
-                    BarX::Category(_) => None, // categories are special case
-                }).collect();
-                bounds_from_xy(&points)
+            Plot::Bar(bp) => {
+                if bp.groups.is_empty() {
+                    None
+                } else {
+                    let x_min = 0.5;
+                    let x_max = bp.groups.len() as f64 + 0.5;
+            
+                    let y_min = 0.0;
+                    let mut y_max = f64::NEG_INFINITY;
+                    for g in &bp.groups {
+                        y_max = y_max.max(g.value);
+                    }
+            
+                    Some(((x_min, x_max), (y_min, y_max)))
+                }
             }
             Plot::Histogram(h) => {
                 let range = h.range?;
@@ -646,6 +828,31 @@ impl Plot {
                 let max_y = *counts.iter().max().unwrap_or(&1) as f64;
 
                 Some((range, (0.0, max_y)))
+            }
+            Plot::Box(bp) => {
+                if bp.groups.is_empty() {
+                    None
+                } else {
+                    let x_min = 0.5;
+                    let x_max = bp.groups.len() as f64 + 0.5;
+            
+                    let mut y_min = f64::INFINITY;
+                    let mut y_max = f64::NEG_INFINITY;
+                    for g in &bp.groups {
+                        if g.values.is_empty() { continue; }
+                        let mut vals = g.values.clone();
+                        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        let q1 = percentile(&vals, 25.0);
+                        let q3 = percentile(&vals, 75.0);
+                        let iqr = q3 - q1;
+                        let lo = q1 - 1.5 * iqr;
+                        let hi = q3 + 1.5 * iqr;
+                        y_min = y_min.min(lo);
+                        y_max = y_max.max(hi);
+                    }
+            
+                    Some(((x_min, x_max), (y_min, y_max)))
+                }
             }
         }
     }
@@ -712,7 +919,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
 
     // Add grid and axes
     // add_axes_and_grid(&mut scene, &computed, &layout);
-    add_axes_and_grid_categories(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, &layout);
 
     add_labels_and_title(&mut scene, &computed, &layout);
 
@@ -738,6 +945,23 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     scene
 }
 
+// render_histogram
+pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_boxplot(boxplot, &mut scene, &computed);
+
+    scene
+}
+
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
@@ -759,6 +983,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Histogram(h) => {
                 add_histogram(&h, &mut scene, &computed);
+            }
+            Plot::Box(b) => {
+                add_boxplot(&b, &mut scene, &computed);
             }
         }
     }

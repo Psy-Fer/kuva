@@ -3,7 +3,7 @@ use visus::backend::svg::SvgBackend;
 use visus::render::{render_histogram, Layout};
 
 #[test]
-fn test_bar_svg_output_builder() {
+fn test_histogram_svg_output_builder() {
     let hist = Histogram::new()
         .with_data(vec![1.1, 2.3, 2.7, 3.2, 3.8, 3.9, 4.0])
         .with_bins(20)

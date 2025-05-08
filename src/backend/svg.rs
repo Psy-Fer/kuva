@@ -47,9 +47,9 @@ impl SvgBackend {
                         r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{transform}>{content}</text>"#
                     ));
                 }
-                Primitive::Line { x1, y1, x2, y2, stroke } => {
+                Primitive::Line { x1, y1, x2, y2, stroke, stroke_width } => {
                     svg.push_str(&format!(
-                        r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" />"#,
+                        r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{stroke_width}" />"#,
                     ));
                 }
                 Primitive::Path { d, stroke, stroke_width } => {
