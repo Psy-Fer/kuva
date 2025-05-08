@@ -53,6 +53,7 @@ fn test_scatter_svg_output_layout() {
         x_label: Some("The X axis".into()),
         y_label: Some("The Y axis".into()),
         x_categories: None,
+        show_legend: false,
     };
 
     let scene = render_scatter(&plot, layout).with_background(Some("white"));

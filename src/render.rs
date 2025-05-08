@@ -43,6 +43,8 @@ pub enum Primitive {
         width: f64,
         height: f64,
         fill: String,
+        stroke: Option<String>,
+        stroke_width: Option<f64>,
     },
 
 }
@@ -94,6 +96,7 @@ pub struct Layout {
     pub y_label: Option<String>,
     pub title: Option<String>,
     pub x_categories: Option<Vec<String>>,
+    pub show_legend: bool,
 }
 
 impl Layout {
@@ -109,6 +112,7 @@ impl Layout {
             y_label: None,
             title: None,
             x_categories: None,
+            show_legend: false,
         }
     }
 
@@ -118,8 +122,6 @@ impl Layout {
 
         Layout::new((x_range.start, x_range.end), (y_min, y_max * 1.05))
     }
-    
-
 
     pub fn auto_from_plots(plots: &[Plot]) -> Self {
         let mut x_min = f64::INFINITY;
@@ -129,6 +131,7 @@ impl Layout {
 
         let mut x_labels = None;
 
+        let mut has_legend: bool = false;
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
                 x_min = x_min.min(xmin);
@@ -145,6 +148,21 @@ impl Layout {
             if let Plot::Bar(bp) = plot {
                 let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);
+                if bp.legend_label.is_some() {
+                    has_legend = true;
+                }
+            }
+
+            if let Plot::Scatter(sp) = plot {
+                if sp.legend_label.is_some() {
+                    has_legend = true;
+                }
+            }
+
+            if let Plot::Line(lp) = plot {
+                if lp.legend_label.is_some() {
+                    has_legend = true;
+                }
             }
         }
 
@@ -153,33 +171,14 @@ impl Layout {
             layout = layout.with_x_categories(labels);
         }
 
+        if has_legend {
+            layout = layout.with_show_legend();
+        }
+
+
         layout
     }
-    
-    // pub fn auto_from_plots(plots: &[Plot]) -> Self {
-    //     let mut x_min = f64::INFINITY;
-    //     let mut x_max = f64::NEG_INFINITY;
-    //     let mut y_min = f64::INFINITY;
-    //     let mut y_max = f64::NEG_INFINITY;
 
-    //     for plot in plots {
-    //         if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
-    //             x_min = x_min.min(xmin);
-    //             x_max = x_max.max(xmax);
-    //             y_min = y_min.min(ymin);
-    //             y_max = y_max.max(ymax);
-    //         }
-    //     }
-
-    //     // Add margin
-    //     let x_margin = (x_max - x_min) * 0.05;
-    //     let y_margin = (y_max - y_min) * 0.05;
-
-    //     Layout::new(
-    //         (x_min - x_margin, x_max + x_margin),
-    //         (y_min - y_margin, y_max + y_margin),
-    //     )
-    // }
 
     pub fn with_x_categories(mut self, labels: Vec<String>) -> Self {
         self.x_categories = Some(labels);
@@ -220,6 +219,11 @@ impl Layout {
         self.show_grid = show;
         self
     }
+
+    fn with_show_legend(mut self) -> Self {
+        self.show_legend = true;
+        self
+    }
 }
 
 
@@ -244,13 +248,17 @@ impl ComputedLayout {
         let margin_top = if layout.title.is_some() { font_size * 2.0 } else { font_size * 0.5 };
         let margin_bottom = font_size * 2.0 + tick_space;
         let margin_left = font_size * 2.0 + tick_space;
-        let margin_right = font_size;
-
+        let mut margin_right = font_size;
+        
+        if layout.show_legend {
+            margin_right += 120.0;
+        }
         let plot_width = 400.0;
         let plot_height = 300.0;
 
         let width = layout.width.unwrap_or(margin_left + plot_width + margin_right);
         let height = layout.height.unwrap_or(margin_top + plot_height + margin_bottom);
+
 
         Self {
             width,
@@ -533,6 +541,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 width: (x1 - x0).abs(),
                 height: (y0 - y1).abs(),
                 fill: bar.color.clone(),
+                stroke: None,
+                stroke_width: None,
             });
         }
     }
@@ -580,6 +590,8 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
             width: rect_width,
             height: rect_height,
             fill: hist.color.clone(),
+            stroke: None,
+            stroke_width: None,
         });
     }
 }
@@ -628,6 +640,8 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             width: (x1 - x0).abs(),
             height: (yq1 - yq3).abs(),
             fill: boxplot.color.clone(),
+            stroke: None,
+            stroke_width: None,
         });
 
         // Median line
@@ -676,39 +690,71 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
 
-    let legend_x = computed.width - 70.0;
-    let mut legend_y = 20.0;
-    let line_height = 20.0;
+    // let legend_x = computed.width - 70.0;
+    // let mut legend_y = 20.0;
+    // let line_height = 20.0;
+
+    // TODO: make this the length of the text
+    let legend_width = 110.0;
+    let legend_padding = 10.0;
+    let legend_x = computed.width - computed.margin_right + 10.0;
+    let mut legend_y = computed.margin_top;
+    let line_height = 18.0;
+
+    let legend_height = legend.entries.len() as f64 * line_height + legend_padding * 2.0;
+
+    scene.add(Primitive::Rect {
+        x: legend_x - legend_padding + 5.0,
+        y: legend_y - legend_padding,
+        width: legend_width,
+        height: legend_height,
+        fill: "white".into(),
+        stroke: None,
+        stroke_width: None,
+    });
+    
+    scene.add(Primitive::Rect {
+        x: legend_x - legend_padding +5.0,
+        y: legend_y - legend_padding,
+        width: legend_width,
+        height: legend_height,
+        fill: "none".into(),
+        stroke: Some("black".into()),
+        stroke_width: Some(1.0),
+    });
 
     for entry in &legend.entries {
+        // add label
         scene.add(Primitive::Text {
-            x: legend_x + 20.0,
+            x: legend_x + 25.0,
             y: legend_y + 5.0,
             content: entry.label.clone(),
             anchor: TextAnchor::Start,
             size: 12,
             rotate: None,
         });
-
+        // add shape with colour
         match entry.shape {
             LegendShape::Rect => scene.add(Primitive::Rect {
-                x: legend_x,
+                x: legend_x+5.0,
                 y: legend_y,
                 width: 12.0,
                 height: 12.0,
                 fill: entry.color.clone(),
+                stroke: None,
+                stroke_width: None,
             }),
             LegendShape::Line => scene.add(Primitive::Line {
-                x1: legend_x,
-                y1: legend_y + 6.0,
-                x2: legend_x + 12.0,
-                y2: legend_y + 6.0,
+                x1: legend_x + 5.0,
+                y1: legend_y + 2.0,
+                x2: legend_x + 5.0 + 12.0,
+                y2: legend_y + 2.0,
                 stroke: entry.color.clone(),
                 stroke_width: 2.0,
             }),
             LegendShape::Circle => scene.add(Primitive::Circle {
-                cx: legend_x + 6.0,
-                cy: legend_y + 6.0,
+                cx: legend_x +5.0 + 6.0,
+                cy: legend_y + 1.0,
                 r: 5.0,
                 fill: entry.color.clone(),
             }),
@@ -954,17 +1000,14 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         match plot {
             Plot::Bar(barplot) => {
-                for (_i, group) in barplot.groups.iter().enumerate() {
-                    for (j, bar) in group.bars.iter().enumerate() {
-                        if let Some(label) = barplot.legend_label.clone() {
-                            // One entry per group or bar, up to you
-                            legend.entries.push(LegendEntry {
-                                label: format!("{} ({})", label, j + 1),
-                                color: bar.color.clone(),
-                                shape: LegendShape::Rect,
-                            });
-                            break; // one entry is enough if grouped
-                        }
+                if let Some(label) = barplot.legend_label.clone() {
+                    for (i, barval) in barplot.groups.first().unwrap().bars.iter().enumerate() {
+                        legend.entries.push(LegendEntry {
+                            label: format!("{}", label.get(i).unwrap()),
+                            color: barval.color.clone(),
+                            shape: LegendShape::Rect,
+                        });
+                        eprintln!("label:{}", label.get(i).unwrap());
                     }
                 }
             }
@@ -990,7 +1033,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    add_legend(&legend, &mut scene, &computed);
+    if layout.show_legend {
+        add_legend(&legend, &mut scene, &computed);
+    }
 
     scene
 }

@@ -49,13 +49,14 @@ fn test_bar_vec_svg_output_builder() {
 fn test_bar_categories_svg_output_builder() {
     let bar = BarPlot::new()
                     .with_group("Laptop", vec![(3.2, "tomato"), (7.8, "skyblue")])
-                    .with_group("Server", vec![(5.8, "tomato"), (9.4, "skyblue")]);
+                    .with_group("Server", vec![(5.8, "tomato"), (9.4, "skyblue")])
+                    .with_legend(vec!["blow5", "pod5"]);
 
     let plots = vec![Plot::Bar(bar)];
 
     let layout = Layout::auto_from_plots(&plots)
                         .with_title("Software Performance")
-                        .with_y_label("Speed");
+                        .with_y_label("Time");
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);

@@ -57,10 +57,19 @@ impl SvgBackend {
                         r#"<path d="{d}" stroke="{stroke}" stroke-width="{stroke_width}" fill="none"/>"#
                     ));
                 }
-                Primitive::Rect { x, y, width, height, fill } => {
+                Primitive::Rect { x, y, width, height, fill, stroke, stroke_width } => {
                      svg.push_str(&format!(
-                        r#"<rect x="{x}" y="{y}" width="{width}" height="{height}" fill="{fill}"/>"#
+                        r#"<rect x="{x}" y="{y}" width="{width}" height="{height}" fill="{fill}""#
                     ));
+
+                    if let Some(stroke) = stroke {
+                        svg.push_str(&format!(r#" stroke="{stroke}""#));
+                    }
+                    if let Some(width) = stroke_width {
+                        svg.push_str(&format!(r#" stroke-width="{width}""#));
+                    }
+                
+                    svg.push_str(&format!(r#" />"#));
                 }
             }
         }

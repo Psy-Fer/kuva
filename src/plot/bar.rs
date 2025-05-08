@@ -3,14 +3,16 @@
 pub struct BarPlot {
     pub groups: Vec<BarGroup>,
     pub width: f64,
-    pub legend_label: Option<String>,
+    pub legend_label: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct BarGroup {
     pub label: String,
     pub bars: Vec<BarValue>,
 }
 
+#[derive(Debug, Clone)]
 pub struct BarValue {
     pub value: f64,
     pub color: String,
@@ -21,7 +23,7 @@ impl BarPlot {
         Self {
             groups: vec![],
             width: 0.8,
-            legend_label: None,
+            legend_label: None
         }
     }
 
@@ -41,6 +43,12 @@ impl BarPlot {
                     });
         self
     }
+    pub fn with_legend(mut self, legend: Vec<&str>) -> Self {
+        self.legend_label = Some(legend.into_iter()
+                                 .map(|l| l.into())
+                                .collect());
+        self
+    }
 
     pub fn with_width(mut self, width: f64) -> Self {
         self.width = width;
@@ -49,10 +57,13 @@ impl BarPlot {
 
     pub fn with_bar<T: Into<String>>(mut self, label: T, value: f64) -> Self {
         let color = self.default_color();
+        let l = label.into();
         self.groups.push(BarGroup {
-            label: label.into(),
+            label: l.clone(),
             bars: vec![BarValue { value, color }],
         });
+        
+            
         self
     }
 
@@ -69,8 +80,6 @@ impl BarPlot {
         self
     }
 
-
-
     pub fn with_color<T: Into<String>>(mut self, color: T) -> Self {
         let c = color.into();
         for group in &mut self.groups {
@@ -85,8 +94,5 @@ impl BarPlot {
         "steelblue".into()
     }
 
-    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
-        self.legend_label = Some(label.into());
-        self
-    }
+
 }
