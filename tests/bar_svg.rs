@@ -1,14 +1,14 @@
 use visus::plot::BarPlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_multiple, render_bar_categories, Layout, Plot};
+use visus::render::{render_multiple, Layout, Plot};
 
 #[test]
 fn test_bar_svg_output_builder() {
     let bar = BarPlot::new()
-                        .with_group("A", 3.2)
-                        .with_group("B", 4.7)
-                        .with_group("Longform_C", 2.8)
-                        .with_color("orange");
+                        .with_bar("A", 3.2)
+                        .with_bar("B", 4.7)
+                        .with_bar("Longform_C", 2.8)
+                        .with_color("green");
     
     let plots = vec![Plot::Bar(bar)];
 
@@ -23,22 +23,44 @@ fn test_bar_svg_output_builder() {
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
 }
-// #[test]
-// fn test_bar_categories_svg_output_builder() {
-//     let bars = BarPlot::with_categories_and_values(
-//         vec!["team-kill", "Okay", "Lovely"],
-//         vec![2.5, 3.5, 4.0]
-//         )
-//         .with_color("darkgreen");
+
+#[test]
+fn test_bar_vec_svg_output_builder() {
+    let barvec = vec![("A", 3.2), ("B", 4.7), ("Longform_C", 2.8)];
+    let bar = BarPlot::new()
+                        .with_bars(barvec)
+                        .with_color("purple");
     
-//     let layout = Layout::new((0.0, 5.0), (0.0, 5.0))
-//                         .with_title("Grenade Stats")
-//                         .with_y_label("Lobbed nades");
+    let plots = vec![Plot::Bar(bar)];
 
-//     let scene = render_bar_categories(&bars, layout);
-//     let svg = SvgBackend.render_scene(&scene);
-//     std::fs::write("test_outputs/bar_categories_builder.svg", svg.clone()).unwrap();
+    let layout = Layout::auto_from_plots(&plots)
+                        .with_title("Exciting Bar Plot")
+                        .with_y_label("Value");
 
-//     // Basic sanity assertion
-//     assert!(svg.contains("<svg"));
-// }
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/bar_vec_builder.svg", svg.clone()).unwrap();
+
+    // Basic sanity assertion
+    assert!(svg.contains("<svg"));
+}
+
+#[test]
+fn test_bar_categories_svg_output_builder() {
+    let bar = BarPlot::new()
+                    .with_group("Laptop", vec![(3.2, "tomato"), (7.8, "skyblue")])
+                    .with_group("Server", vec![(5.8, "tomato"), (9.4, "skyblue")]);
+
+    let plots = vec![Plot::Bar(bar)];
+
+    let layout = Layout::auto_from_plots(&plots)
+                        .with_title("Software Performance")
+                        .with_y_label("Speed");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/bar_categories_builder.svg", svg.clone()).unwrap();
+
+    // Basic sanity assertion
+    assert!(svg.contains("<svg"));
+}

@@ -2,7 +2,6 @@ use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::types::BarX;
 use crate::plot::BoxPlot;
 
 
@@ -610,23 +609,28 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
 
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
-
+    // for each tick, make a group, then within the groups do the bars
     for (i, group) in bar.groups.iter().enumerate() {
-        let x = i as f64 + 1.0; // make bars at 1, 2, etc...
-        let w = bar.width / 2.0;
+        let group_x = i as f64 + 1.0; // make bar groups at 1, 2, etc...
+        let n = group.bars.len();
+        let total_width = bar.width;
+        let single_width = total_width / n as f64; // each individual bar as fraction
     
-        let x0 = computed.map_x(x - w);
-        let x1 = computed.map_x(x + w);
-        let y0 = computed.map_y(0.0); // all bars start at y=0
-        let y1 = computed.map_y(group.value);
+        for (j, bar) in group.bars.iter().enumerate() {
+            let x = group_x - total_width / 2.0 + single_width * (j as f64 + 0.5);
+            let x0 = computed.map_x(x - single_width / 2.0);
+            let x1 = computed.map_x(x + single_width / 2.0);
+            let y0 = computed.map_y(0.0); // all bars start at y=0
+            let y1 = computed.map_y(bar.value);
     
-        scene.add(Primitive::Rect {
-            x: x0,
-            y: y1.min(y0),
-            width: (x1 - x0).abs(),
-            height: (y0 - y1).abs(),
-            fill: bar.color.clone(),
-        });
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: y1.min(y0),
+                width: (x1 - x0).abs(),
+                height: (y0 - y1).abs(),
+                fill: bar.color.clone(),
+            });
+        }
     }
 }
 
@@ -795,18 +799,22 @@ impl Plot {
             Plot::Scatter(p) => bounds_from_xy(&p.data),
             Plot::Line(p) => bounds_from_xy(&p.data),
             Plot::Bar(bp) => {
+
                 if bp.groups.is_empty() {
                     None
-                } else {
+                } 
+                else {
                     let x_min = 0.5;
                     let x_max = bp.groups.len() as f64 + 0.5;
-            
                     let y_min = 0.0;
+    
                     let mut y_max = f64::NEG_INFINITY;
-                    for g in &bp.groups {
-                        y_max = y_max.max(g.value);
+                    for group in &bp.groups {
+                        for bar in &group.bars {
+                            y_max = y_max.max(bar.value);
+                        }
                     }
-            
+
                     Some(((x_min, x_max), (y_min, y_max)))
                 }
             }
@@ -832,7 +840,8 @@ impl Plot {
             Plot::Box(bp) => {
                 if bp.groups.is_empty() {
                     None
-                } else {
+                }
+                else {
                     let x_min = 0.5;
                     let x_max = bp.groups.len() as f64 + 0.5;
             
