@@ -1,7 +1,7 @@
 use crate::render::{Scene, Primitive, TextAnchor};
 
 
-
+// I should probably use the SVG lib for this backend in future.
 pub struct SvgBackend;
 
 impl SvgBackend {

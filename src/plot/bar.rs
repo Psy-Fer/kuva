@@ -3,6 +3,7 @@
 pub struct BarPlot {
     pub groups: Vec<BarGroup>,
     pub width: f64,
+    pub legend_label: Option<String>,
 }
 
 pub struct BarGroup {
@@ -20,6 +21,7 @@ impl BarPlot {
         Self {
             groups: vec![],
             width: 0.8,
+            legend_label: None,
         }
     }
 
@@ -29,6 +31,7 @@ impl BarPlot {
                         .map(|(v, c)| BarValue {
                             value: v,
                             color: c.into(),
+                            
                         })
                         .collect();
 
@@ -80,5 +83,10 @@ impl BarPlot {
 
     fn default_color(&self) -> String {
         "steelblue".into()
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
+        self
     }
 }

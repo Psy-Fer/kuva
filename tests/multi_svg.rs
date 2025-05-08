@@ -10,14 +10,17 @@ fn test_line_svg_output_builder() {
     .with_data((0..100)
     .map(|x| (x as f64 / 10.0, (x as f64 / 10.0).sin()))
     .collect())
-    .with_color("blue");
+    .with_color("blue")
+    .with_legend("sine");
+
 
     let markers = ScatterPlot::new()
         .with_data(vec![(0.0, 0.0),
                         (1.57, 1.0),
                         (3.14, 0.0),
         ])
-        .with_color("red");
+        .with_color("red")
+        .with_legend("Markers");
 
     let scatter: ScatterPlot = ScatterPlot::new()
         .with_data(vec![(0.8, -0.5),
@@ -25,7 +28,8 @@ fn test_line_svg_output_builder() {
                         (4.0, 0.4),
         ])
         .with_color("purple")
-        .with_size(6.0);
+        .with_size(6.0)
+        .with_legend("Scatter");
 
     let plots = vec![
         Plot::Line(sine),

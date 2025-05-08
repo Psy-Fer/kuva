@@ -4,6 +4,9 @@ use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::BoxPlot;
 
+use crate::plot::Legend;
+use crate::plot::legend::{LegendEntry, LegendShape};
+
 
 #[derive(Debug)]
 pub enum Primitive {
@@ -436,105 +439,6 @@ fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &Layo
     }
 }
 
-// fn add_axes_and_grid_categories(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
-
-//     let map_x = |x| computed.map_x(x);
-//     let map_y = |y| computed.map_y(y);
-
-//     // Draw axes
-//     // X axis
-//     scene.add(Primitive::Line {
-//         x1: computed.margin_left,
-//         y1: computed.height - computed.margin_bottom,
-//         x2: computed.width - computed.margin_right,
-//         y2: computed.height - computed.margin_bottom,
-//         stroke: "red".into(),
-//         stroke_width: 1.0,
-//     });
-//     // Y axis
-//     scene.add(Primitive::Line {
-//         x1: computed.margin_left,
-//         y1: computed.margin_top,
-//         x2: computed.margin_left,
-//         y2: computed.height - computed.margin_bottom,
-//         stroke: "green".into(),
-//         stroke_width: 1.0,
-//     });
-
-//     // Draw ticks and labels
-//     for i in 0..=computed.ticks {
-//         let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
-//         let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
-
-//         let x = map_x(tx);
-//         let y = map_y(ty);
-
-//         // X ticks
-//         scene.add(Primitive::Line {
-//             x1: x,
-//             y1: computed.height - computed.margin_bottom,
-//             x2: x,
-//             y2: computed.height - computed.margin_bottom + 5.0,
-//             stroke: "black".into(),
-//             stroke_width: 1.0,
-//         });
-//         // X tick labels
-//         // scene.add(Primitive::Text {
-//         //     x,
-//         //     y: computed.height - computed.margin_bottom + 15.0,
-//         //     content: format!("{:.1}", tx),
-//         //     size: 10,
-//         //     anchor: TextAnchor::Middle,
-//         //     rotate: None,
-//         // });
-
-//         // Y ticks
-//         scene.add(Primitive::Line {
-//             x1: computed.margin_left - 5.0,
-//             y1: y,
-//             x2: computed.margin_left,
-//             y2: y,
-//             stroke: "black".into(),
-//             stroke_width: 1.0,
-//         });
-
-//         // Y tick labels
-//         scene.add(Primitive::Text {
-//             x: computed.margin_left - 15.0,
-//             y,
-//             content: format!("{:.1}", ty),
-//             size: 10,
-//             anchor: TextAnchor::Middle,
-//             rotate: None,
-//         });
-
-//         // Grid lines
-//         if layout.show_grid {
-//             if i != 0 {
-//                 // Vertical grid
-//                 scene.add(Primitive::Line {
-//                     x1: x,
-//                     y1: computed.margin_top,
-//                     x2: x,
-//                     y2: computed.height - computed.margin_bottom,
-//                     stroke: "#ccc".to_string(),
-//                     stroke_width: 1.0,
-//                 });
-        
-//                 // Horizontal grid
-//                 scene.add(Primitive::Line {
-//                     x1: computed.margin_left,
-//                     y1: y,
-//                     x2: computed.width - computed.margin_right,
-//                     y2: y,
-//                     stroke: "#ccc".to_string(),
-//                     stroke_width: 1.0,
-//                 });
-//             }
-//         }
-//     }
-// }
-
 fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
     if let Some(label) = &layout.x_label {
@@ -769,6 +673,54 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
 }
 
 
+fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
+
+
+    let legend_x = computed.width - 70.0;
+    let mut legend_y = 20.0;
+    let line_height = 20.0;
+
+    for entry in &legend.entries {
+        scene.add(Primitive::Text {
+            x: legend_x + 20.0,
+            y: legend_y + 5.0,
+            content: entry.label.clone(),
+            anchor: TextAnchor::Start,
+            size: 12,
+            rotate: None,
+        });
+
+        match entry.shape {
+            LegendShape::Rect => scene.add(Primitive::Rect {
+                x: legend_x,
+                y: legend_y,
+                width: 12.0,
+                height: 12.0,
+                fill: entry.color.clone(),
+            }),
+            LegendShape::Line => scene.add(Primitive::Line {
+                x1: legend_x,
+                y1: legend_y + 6.0,
+                x2: legend_x + 12.0,
+                y2: legend_y + 6.0,
+                stroke: entry.color.clone(),
+                stroke_width: 2.0,
+            }),
+            LegendShape::Circle => scene.add(Primitive::Circle {
+                cx: legend_x + 6.0,
+                cy: legend_y + 6.0,
+                r: 5.0,
+                fill: entry.color.clone(),
+            }),
+        }
+
+        legend_y += line_height;
+    }
+}
+
+
+
+
 fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
     if points.is_empty() {
         return None;
@@ -866,8 +818,6 @@ impl Plot {
         }
     }
 }
-
-
 
 
 
@@ -979,7 +929,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     add_labels_and_title(&mut scene, &computed, &layout);
 
     // for each plot, plot it
-    for plot in plots {
+    for plot in plots.iter() {
         match plot {
             Plot::Scatter(s) => {
                 add_scatter(&s, &mut scene, &computed);
@@ -998,6 +948,49 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
         }
     }
+    
+    // create legend
+    let mut legend = Legend::default();
+    for plot in plots.iter() {
+        match plot {
+            Plot::Bar(barplot) => {
+                for (_i, group) in barplot.groups.iter().enumerate() {
+                    for (j, bar) in group.bars.iter().enumerate() {
+                        if let Some(label) = barplot.legend_label.clone() {
+                            // One entry per group or bar, up to you
+                            legend.entries.push(LegendEntry {
+                                label: format!("{} ({})", label, j + 1),
+                                color: bar.color.clone(),
+                                shape: LegendShape::Rect,
+                            });
+                            break; // one entry is enough if grouped
+                        }
+                    }
+                }
+            }
+            Plot::Line(line) => {
+                if let Some(label) = &line.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: line.color.clone(),
+                        shape: LegendShape::Line,
+                    });
+                }
+            }
+            Plot::Scatter(scatter) => {
+                if let Some(label) = &scatter.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: scatter.color.clone(),
+                        shape: LegendShape::Circle,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    add_legend(&legend, &mut scene, &computed);
 
     scene
 }

@@ -3,6 +3,7 @@ pub struct LinePlot {
     pub data: Vec<(f64, f64)>,
     pub color: String,
     pub stroke_width: f64,
+    pub legend_label: Option<String>,
 }
 
 impl LinePlot {
@@ -11,6 +12,7 @@ impl LinePlot {
             data: vec![],
             color: "black".into(),
             stroke_width: 2.0,
+            legend_label: None,
         }
     }
 
@@ -26,6 +28,11 @@ impl LinePlot {
 
     pub fn with_stroke_width(mut self, width: f64) -> Self {
         self.stroke_width = width;
+        self
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
         self
     }
 }
