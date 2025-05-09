@@ -86,6 +86,12 @@ impl Layout {
                     has_legend = true;
                 }
             }
+
+            if let Plot::Series(sp) = plot {
+                if sp.legend_label.is_some() {
+                    has_legend = true;
+                }
+            }
         }
 
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));

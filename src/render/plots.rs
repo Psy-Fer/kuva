@@ -5,6 +5,7 @@ use crate::plot::histogram::Histogram;
 use crate::plot::boxplot::BoxPlot;
 use crate::plot::violin::ViolinPlot;
 
+use crate::plot::{PiePlot, SeriesPlot};
 use crate::render::render_utils;
 
 
@@ -15,9 +16,11 @@ pub enum Plot {
     Histogram(Histogram),
     Box(BoxPlot),
     Violin(ViolinPlot),
+    Series(SeriesPlot),
+    Pie(PiePlot),
 }
 
-fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
+fn bounds_from_2d(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
     if points.is_empty() {
         return None;
     }
@@ -32,14 +35,47 @@ fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
     Some(((x_min, x_max), (y_min, y_max)))
 }
 
+fn _bounds_from_1d(points: &[f64]) -> Option<((f64, f64), (f64, f64))> {
+    if points.is_empty() {
+        return None;
+    }
+    let (mut min_val, mut max_val) = (points[0], points[0]);
+    for i in points {
+        min_val = min_val.min(*i);
+        max_val = max_val.max(*i);
+       
+    }
+    
+    Some(((0.0f64, points.len() as f64), (min_val, max_val)))
+}
+
 
 
 impl Plot {
     pub fn bounds(&self) -> Option<((f64, f64), (f64, f64))> {
         match self {
             
-            Plot::Scatter(p) => bounds_from_xy(&p.data),
-            Plot::Line(p) => bounds_from_xy(&p.data),
+            Plot::Scatter(s) => bounds_from_2d(&s.data),
+            Plot::Line(p) => bounds_from_2d(&p.data),
+            // Plot::Series(s) => bounds_from_1d(&s.values),
+            Plot::Series(sp) => {
+                if sp.values.is_empty() {
+                    None
+                } else {
+                    let x_min = 0.0;
+                    let x_max = sp.values.len() as f64 - 1.0;
+            
+                    let mut y_min = f64::INFINITY;
+                    let mut y_max = f64::NEG_INFINITY;
+            
+                    for &v in &sp.values {
+                        y_min = y_min.min(v);
+                        y_max = y_max.max(v);
+                    }
+            
+                    Some(((x_min, x_max), (y_min, y_max)))
+                }
+            }
             Plot::Bar(bp) => {
 
                 if bp.groups.is_empty() {
@@ -129,6 +165,10 @@ impl Plot {
             
                     Some(((x_min, x_max), (y_min, y_max)))
                 }
+            }
+            Plot::Pie(_) => {
+                // Centered at (0.0, 0.0) and rendered to fit the layout box
+                Some(((-1.0, 1.0), (-1.0, 1.0))) 
             }
         }
     }

@@ -60,6 +60,9 @@ impl SvgBackend {
                     if let Some(fill) = fill {
                         svg.push_str(&format!(r#" fill="{fill}""#));
                     }
+                    else {
+                        svg.push_str(&format!(r#" fill="none""#));
+                    }
 
                     svg.push_str(&format!(r#" />"#));
                 }

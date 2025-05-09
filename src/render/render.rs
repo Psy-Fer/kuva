@@ -7,7 +7,7 @@ use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::{BoxPlot, ViolinPlot};
+use crate::plot::{BoxPlot, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 
 use crate::plot::Legend;
 use crate::plot::legend::{LegendEntry, LegendShape};
@@ -103,6 +103,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
 
 fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Add the line path
+    //TODO: export this function
     if line.data.len() >= 2 {
         let mut path = String::new();
         for (i, &coords) in line.data.iter().enumerate() {
@@ -121,6 +122,75 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
         });
+    }
+}
+
+fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout) {
+
+    let points: Vec<(f64, f64)> = series.values.iter().enumerate()
+        .map(|(i, &y)| (computed.map_x(i as f64), computed.map_y(y)))
+        .collect();
+
+    // TODO: abstract the path/circle builders
+    match series.style {
+        SeriesStyle::Line => {
+            if points.len() >= 2 {
+                let mut pathstr = String::new();
+                for (i, &coords) in points.iter().enumerate() {
+                    let sx = coords.0;
+                    let sy = coords.1;
+                    if i == 0 {
+                        pathstr += &format!("M {sx} {sy} ");
+                    } else {
+                        pathstr += &format!("L {sx} {sy} ");
+                    }
+                }
+                scene.add(Primitive::Path {
+                        d: pathstr,
+                        fill: None,
+                        stroke: series.color.clone(),
+                        stroke_width: 2.0, // TODO: add interface
+                });
+            }
+        }
+        SeriesStyle::Point => {
+            for (x, y) in points {
+                scene.add(Primitive::Circle {
+                    cx:  x,
+                    cy: y,
+                    r: 3.0, // TODO: add interface
+                    fill: series.color.clone()
+                });
+            }
+        }
+        SeriesStyle::Both => {
+            if points.len() >= 2 {
+                let mut pathstr = String::new();
+                for (i, &coords) in points.iter().enumerate() {
+                    let sx = coords.0;
+                    let sy = coords.1;
+                    if i == 0 {
+                        pathstr += &format!("M {sx} {sy} ");
+                    } else {
+                        pathstr += &format!("L {sx} {sy} ");
+                    }
+                }
+                scene.add(Primitive::Path {
+                        d: pathstr,
+                        fill: None,
+                        stroke: series.color.clone(),
+                        stroke_width: 2.0, // TODO: add interface
+                });
+            }
+            for (x, y) in points {
+                scene.add(Primitive::Circle {
+                    cx:  x,
+                    cy: y,
+                    r: 3.0, // TODO: add interface
+                    fill: series.color.clone()
+                });
+            }
+        }
     }
 }
 
@@ -325,6 +395,74 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
     }
 }
 
+fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
+
+    let cx = computed.width / 2.0;
+    let cy = computed.height / 2.0;
+    let radius = computed.plot_width().min(computed.plot_height()) / 2.0 - 10.0;
+    let inner_radius = pie.inner_radius;
+    let label_radius = (radius + inner_radius) / 2.0;
+    // let label_radius = radius * 1.15;
+
+    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    let mut angle = 0.0;
+
+    // slice maths in radians - IN REAL LIFE!!! - my school teachers would be proud
+    for slice in &pie.slices {
+        let frac = slice.value / total;
+        let sweep = frac * std::f64::consts::TAU;
+        let end_angle = angle + sweep;
+
+        let x1 = cx + radius * angle.cos();
+        let y1 = cy + radius * angle.sin();
+        let x2 = cx + radius * end_angle.cos();
+        let y2 = cy + radius * end_angle.sin();
+
+        let large_arc = if sweep > std::f64::consts::PI { 1 } else { 0 };
+
+        let path_data = if inner_radius == 0.0 {
+            format!(
+                "M{cx},{cy} L{x1},{y1} A{r},{r} 0 {large_arc},1 {x2},{y2} Z",
+                r = radius
+            )
+        } else {
+            let ix1 = cx + inner_radius * end_angle.cos();
+            let iy1 = cy + inner_radius * end_angle.sin();
+            let ix2 = cx + inner_radius * angle.cos();
+            let iy2 = cy + inner_radius * angle.sin();
+            format!(
+                "M{x1},{y1} A{r},{r} 0 {large_arc},1 {x2},{y2} L{ix1},{iy1} A{ir},{ir} 0 {large_arc},0 {ix2},{iy2} Z",
+                r = radius,
+                ir = inner_radius
+            )
+        };
+
+        scene.add(Primitive::Path {
+            d: path_data,
+            fill: Some(slice.color.clone()),
+            stroke: slice.color.clone(),
+            stroke_width: 1.0 }
+        );
+
+        // SLICE LABEL
+        let mid_angle = angle + sweep / 2.0;
+        let label_x = cx + label_radius * mid_angle.cos();
+        let label_y = cy + label_radius * mid_angle.sin();
+
+        scene.add(Primitive::Text {
+            x: label_x,
+            y: label_y,
+            content: slice.label.clone(),
+            size: 12,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+        });
+
+
+        angle = end_angle;
+    }
+}
+
 
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
@@ -454,7 +592,6 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
 
     // Add grid and axes
-    // add_axes_and_grid(&mut scene, &computed, &layout);
     add_axes_and_grid(&mut scene, &computed, &layout);
 
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -471,7 +608,6 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
 
     // Add grid and axes
-    // add_axes_and_grid(&mut scene, &computed, &layout);
     add_axes_and_grid(&mut scene, &computed, &layout);
 
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -488,7 +624,6 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
 
     // Add grid and axes
-    // add_axes_and_grid(&mut scene, &computed, &layout);
     add_axes_and_grid(&mut scene, &computed, &layout);
 
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -505,12 +640,26 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
 
     // Add grid and axes
-    // add_axes_and_grid(&mut scene, &computed, &layout);
     add_axes_and_grid(&mut scene, &computed, &layout);
 
     add_labels_and_title(&mut scene, &computed, &layout);
 
     add_violin(violin, &mut scene, &computed);
+
+    scene
+}
+
+pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_pie(pie, &mut scene, &computed);
 
     scene
 }
@@ -533,10 +682,13 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 add_scatter(&s, &mut scene, &computed);
             }
             Plot::Line(l) => {
-               add_line(&l, &mut scene, &computed);
+                add_line(&l, &mut scene, &computed);
+            }
+            Plot::Series(s) => {
+                add_series(&s, &mut scene, &computed);
             }
             Plot::Bar(b) => {
-               add_bar(&b, &mut scene, &computed);
+                add_bar(&b, &mut scene, &computed);
             }
             Plot::Histogram(h) => {
                 add_histogram(&h, &mut scene, &computed);
@@ -546,6 +698,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Violin(v) => {
                 add_violin(&v, &mut scene, &computed);
+            }
+            Plot::Pie(p) => {
+                add_pie(&p, &mut scene, &computed);
             }
         }
     }
@@ -581,6 +736,15 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     legend.entries.push(LegendEntry {
                         label: label.clone(),
                         color: scatter.color.clone(),
+                        shape: LegendShape::Circle,
+                    });
+                }
+            }
+            Plot::Series(series) => {
+                if let Some(label) = &series.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: series.color.clone(),
                         shape: LegendShape::Circle,
                     });
                 }

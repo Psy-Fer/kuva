@@ -4,6 +4,8 @@ pub mod bar;
 pub mod histogram;
 pub mod boxplot;
 pub mod violin;
+pub mod pie;
+pub mod series;
 
 pub mod legend;
 
@@ -15,5 +17,7 @@ pub use bar::BarPlot;
 pub use histogram::Histogram;
 pub use boxplot::{BoxPlot, BoxGroup};
 pub use violin::{ViolinPlot, ViolinGroup};
+pub use pie::{PiePlot, PieSlice};
+pub use series::{SeriesPlot, SeriesStyle};
 
 pub use legend::Legend;
