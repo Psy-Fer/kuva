@@ -1,4 +1,5 @@
 
+#[derive(Debug, Clone)]
 
 pub struct Histogram {
     pub data: Vec<f64>,

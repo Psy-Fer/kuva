@@ -1,6 +1,7 @@
 use visus::plot::ScatterPlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_scatter, Layout};
+use visus::render::render::render_scatter;
+use visus::render::layout::Layout;
 
 #[test]
 fn test_scatter_svg_output_builder() {

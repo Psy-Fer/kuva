@@ -7,4 +7,4 @@
 // pub enum BarX {
 //     Numeric(f64),
 //     Category(String),
-// }
+// }2

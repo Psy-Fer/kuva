@@ -1,7 +1,9 @@
 use visus::plot::BoxPlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_multiple, Layout};
-use visus::render::Plot;
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+
 
 #[test]
 fn test_boxplot_groups_svg_output_builder() {

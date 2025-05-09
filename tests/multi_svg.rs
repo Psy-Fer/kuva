@@ -2,7 +2,9 @@
 
 use visus::plot::{ScatterPlot, LinePlot};
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_multiple, Layout, Plot};
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
 
 #[test]
 fn test_line_svg_output_builder() {
@@ -40,8 +42,8 @@ fn test_line_svg_output_builder() {
     let layout = Layout::auto_from_plots(&plots)
                 .with_title("Sine Wave with Markers")
                 .with_x_label("Rads")
-                .with_y_label("Amp");
-                // .with_ticks(6);
+                .with_y_label("Amp")
+                .with_ticks(10);
 
     // let layout = Layout::new((0.0, 10.0), (-1.5, 1.5))
     //     .with_title("Sine Wave with Markers")

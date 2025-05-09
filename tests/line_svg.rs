@@ -1,6 +1,7 @@
 use visus::plot::LinePlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::{render_line, Layout};
+use visus::render::render::render_line;
+use visus::render::layout::Layout;
 
 #[test]
 fn test_line_svg_output_builder() {
