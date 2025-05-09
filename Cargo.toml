@@ -9,3 +9,5 @@ license = "MIT"
 keywords = ["plotting", "bioinformatics"]
 
 [dependencies]
+rand = "0.9.1"
+rand_distr = "0.5.1"

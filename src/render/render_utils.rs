@@ -75,7 +75,7 @@ pub fn percentile(sorted: &[f64], p: f64) -> f64 {
 
 /// gaussian bump kde
 /// TODO: I can do better lol
-fn _simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
+pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
     let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
     let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let step = (max - min) / samples as f64;

@@ -2,7 +2,8 @@ use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::BoxPlot;
+use crate::plot::boxplot::BoxPlot;
+use crate::plot::violin::ViolinPlot;
 
 use crate::render::render_utils;
 
@@ -13,6 +14,7 @@ pub enum Plot {
     Bar(BarPlot),
     Histogram(Histogram),
     Box(BoxPlot),
+    Violin(ViolinPlot),
 }
 
 fn bounds_from_xy(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
@@ -99,6 +101,31 @@ impl Plot {
                         y_min = y_min.min(lo);
                         y_max = y_max.max(hi);
                     }
+            
+                    Some(((x_min, x_max), (y_min, y_max)))
+                }
+            }
+            Plot::Violin(vp) => {
+                if vp.groups.is_empty() {
+                    None
+                } else {
+                    let x_min = 0.5;
+                    let x_max = vp.groups.len() as f64 + 0.5;
+            
+                    let mut y_min = f64::INFINITY;
+                    let mut y_max = f64::NEG_INFINITY;
+            
+                    for group in &vp.groups {
+                        if group.values.is_empty() { continue; }
+            
+                        for &v in &group.values {
+                            y_min = y_min.min(v);
+                            y_max = y_max.max(v);
+                        }
+                    }
+                    // let padding = 0.05 * (y_max - y_min);
+                    // y_min -= padding;
+                    // y_max += padding;
             
                     Some(((x_min, x_max), (y_min, y_max)))
                 }

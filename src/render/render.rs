@@ -1,4 +1,4 @@
-use crate::render::render_utils::percentile;
+use crate::render::render_utils::{percentile, simple_kde};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
@@ -7,7 +7,7 @@ use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::BoxPlot;
+use crate::plot::{BoxPlot, ViolinPlot};
 
 use crate::plot::Legend;
 use crate::plot::legend::{LegendEntry, LegendShape};
@@ -39,6 +39,7 @@ pub enum Primitive {
     },
     Path {
         d: String,
+        fill: Option<String>,
         stroke: String,
         stroke_width: f64,
     },
@@ -116,6 +117,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         scene.add(Primitive::Path {
             d: path,
+            fill: None,
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
         });
@@ -276,6 +278,50 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 stroke_width: 1.0,
             });
         }
+    }
+}
+
+fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout) {
+
+    for (i, group) in violin.groups.iter().enumerate() {
+        let x_center = computed.map_x((i + 1) as f64);
+
+        // Compute KDE
+        let kde = simple_kde(&group.values, 0.3, 50); // 0.3 bandwidth, 50 steps
+
+        // Normalize
+        let max_density = kde.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+        let scale = violin.width / max_density;
+
+        // Map KDE to plot coordinates
+        let mut path_data = String::new();
+
+        //from top, left to right
+        for (j, (y, d)) in kde.iter().enumerate() {
+            let dy = computed.map_y(*y);
+            let dx = x_center - d * scale;
+            if j == 0 {
+                path_data += &format!("M {dx} {dy} ");
+            } else {
+                path_data += &format!("L {dx} {dy} ");
+            }
+        }
+
+        // from bottom, right to left
+        for (y, d) in kde.iter().rev() {
+            let dy = computed.map_y(*y);
+            let dx = x_center + d * scale;
+            path_data += &format!("L {dx} {dy} ");
+        }
+
+        path_data += "Z";
+
+        scene.add(Primitive::Path {
+            d: path_data,
+            fill: Some(violin.color.clone()),
+            stroke: "black".into(),
+            stroke_width: 0.5,
+        });
     }
 }
 
@@ -452,6 +498,24 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     scene
 }
 
+// render_violinplot
+pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, &layout);
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_violin(violin, &mut scene, &computed);
+
+    scene
+}
+
+
 
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
@@ -479,6 +543,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Box(b) => {
                 add_boxplot(&b, &mut scene, &computed);
+            }
+            Plot::Violin(v) => {
+                add_violin(&v, &mut scene, &computed);
             }
         }
     }

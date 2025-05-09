@@ -16,7 +16,7 @@ impl ViolinPlot {
         Self {
             groups: vec![],
             color: "black".into(),
-            width: 0.8,
+            width: 30.0,
         }
     }
 

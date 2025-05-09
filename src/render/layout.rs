@@ -62,6 +62,11 @@ impl Layout {
                 x_labels = Some(labels);
             }
 
+            if let Plot::Violin(vp) = plot {
+                let labels = vp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
+                x_labels = Some(labels);
+            }
+
             if let Plot::Bar(bp) = plot {
                 let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);
