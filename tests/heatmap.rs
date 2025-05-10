@@ -15,8 +15,9 @@ fn test_boxplot_groups_svg_output_builder() {
         vec![7.0, 8.0, 90.0],
     ];
 
-    let heatmap = Heatmap::new(data)
-                        .show_values(true)
+    let heatmap = Heatmap::new()
+                        .with_data(data)
+                        .show_values()
                         // .with_color_map(ColorMap::Grayscale);
                         .with_color_map(ColorMap::Viridis);
                         // .with_color_map(ColorMap::Inferno);

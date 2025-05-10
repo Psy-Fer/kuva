@@ -11,7 +11,7 @@ fn test_line_svg_output_builder() {
     let sine = LinePlot::new()
     .with_data((0..100)
     .map(|x| (x as f64 / 10.0, (x as f64 / 10.0).sin()))
-    .collect())
+    .collect::<Vec<_>>())
     .with_color("blue")
     .with_legend("sine");
 

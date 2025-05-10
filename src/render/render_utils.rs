@@ -89,3 +89,42 @@ pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f
         (x, y)
     }).collect()
 }
+
+
+/// linear regression of a scatter plot so we can make the equation and get correlation
+pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)> 
+    where
+        I: IntoIterator,
+        I::Item: Into<(f64, f64)>,
+    {
+
+    let mut vals = Vec::new();
+
+    for (x, y) in points.into_iter().map(Into::into) {
+        vals.push((x, y));
+    }
+
+    if vals.len() < 2 { return None; }
+
+    let n = vals.len() as f64;
+    let (sum_x, sum_y, sum_xy, sum_x2) = vals.iter().fold((0.0, 0.0, 0.0, 0.0), |acc, (x, y)| {
+        (acc.0 + x, acc.1 + y, acc.2 + x * y, acc.3 + x * x)
+    });
+
+    let denom = n * sum_x2 - sum_x * sum_x;
+    if denom.abs() < 1e-8 { return None; }
+
+    let slope = (n * sum_xy - sum_x * sum_y) / denom;
+    let intercept = (sum_y - slope * sum_x) / n;
+
+    // Pearson correlation coefficient
+    let mean_x = sum_x / n;
+    let mean_y = sum_y / n;
+    let r_num: f64 = vals.iter().map(|(x, y)| (x - mean_x) * (y - mean_y)).sum();
+    let r_den_x: f64 = vals.iter().map(|(x, _)| (x - mean_x).powi(2)).sum();
+    let r_den_y: f64 = vals.iter().map(|(_, y)| (y - mean_y).powi(2)).sum();
+    let r = r_num / (r_den_x.sqrt() * r_den_y.sqrt());
+
+    // y = mx+b and r
+    Some((slope, intercept, r))
+}

@@ -1,4 +1,4 @@
-use crate::plot::scatter::ScatterPlot;
+use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
@@ -21,13 +21,25 @@ pub enum Plot {
     Heatmap(Heatmap),
 }
 
-fn bounds_from_2d(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
-    if points.is_empty() {
+fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
+    where
+        I: IntoIterator,
+        I::Item: Into<(f64, f64)>,
+    {
+
+    // extract values
+    let mut vals = Vec::new();
+
+    for (x, y) in points.into_iter().map(Into::into) {
+        vals.push((x, y));
+    }
+
+    if vals.is_empty() {
         return None;
     }
-    let (mut x_min, mut x_max) = (points[0].0, points[0].0);
-    let (mut y_min, mut y_max) = (points[0].1, points[0].1);
-    for &(x, y) in points {
+    let (mut x_min, mut x_max) = (vals[0].0, vals[0].0);
+    let (mut y_min, mut y_max) = (vals[0].1, vals[0].1);
+    for (x, y) in vals.into_iter() {
         x_min = x_min.min(x);
         x_max = x_max.max(x);
         y_min = y_min.min(y);
@@ -56,7 +68,36 @@ impl Plot {
     pub fn bounds(&self) -> Option<((f64, f64), (f64, f64))> {
         match self {
             
-            Plot::Scatter(s) => bounds_from_2d(&s.data),
+            Plot::Scatter(s) => {
+                let ((mut x_min, mut x_max), (mut y_min, mut y_max)) = bounds_from_2d(&s.data).unwrap();
+
+                // Expand with error bars
+                for point in &s.data {
+                    let x_lo = point.x - point.x_err.map_or(0.0, |e| e.0);
+                    let x_hi = point.x + point.x_err.map_or(0.0, |e| e.1);
+                    let y_lo = point.y - point.y_err.map_or(0.0, |e| e.0);
+                    let y_hi = point.y + point.y_err.map_or(0.0, |e| e.1);
+
+                    x_min = x_min.min(x_lo);
+                    x_max = x_max.max(x_hi);
+                    y_min = y_min.min(y_lo);
+                    y_max = y_max.max(y_hi);
+                }
+
+                // Expand for trend line
+                if let Some(trend) = s.trend {
+                    let TrendLine::Linear = trend;
+                        if let Some((slope, intercept, _)) = render_utils::linear_regression(&s.data) {
+                            let y_start = slope * x_min + intercept;
+                            let y_end = slope * x_max + intercept;
+
+                            y_min = y_min.min(y_start).min(y_end);
+                            y_max = y_max.max(y_start).max(y_end);
+                        }
+                }
+
+                Some(((x_min, x_max), (y_min, y_max)))
+            },
             Plot::Line(p) => bounds_from_2d(&p.data),
             // Plot::Series(s) => bounds_from_1d(&s.values),
             Plot::Series(sp) => {

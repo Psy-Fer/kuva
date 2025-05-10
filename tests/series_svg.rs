@@ -1,3 +1,5 @@
+use std::vec;
+
 use visus::plot::SeriesPlot;
 use visus::backend::svg::SvgBackend;
 use visus::render::render::render_multiple;
@@ -8,7 +10,7 @@ use visus::render::plots::Plot;
 fn test_line_svg_output_builder() {
     let data = (0..100)
                 .map(|x| (x as f64 / 10.0).sin())
-                .collect();
+                .collect::<Vec<_>>();
     let series = SeriesPlot::new()
                         .with_data(data)
                         .with_color("green")

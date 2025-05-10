@@ -24,8 +24,12 @@ impl SeriesPlot {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<f64>) -> Self {
-        self.values = data;
+    pub fn with_data<T, I>(mut self, data: I) -> Self 
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        self.values = data.into_iter().map(|x| x.into()).collect();
         self
     }
 

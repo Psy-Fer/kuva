@@ -20,8 +20,13 @@ impl Histogram {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<f64>) -> Self {
-        self.data = data;
+    pub fn with_data<T, I>(mut self, data: I) -> Self 
+    where 
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        self.data = data.into_iter().map(|x| x.into()).collect();
+
         self
     }
 

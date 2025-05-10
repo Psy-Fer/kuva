@@ -1,6 +1,35 @@
 
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScatterPoint {
+    pub x: f64,
+    pub y: f64,
+    pub x_err: Option<(f64, f64)>, // (negative, positive)
+    pub y_err: Option<(f64, f64)>,
+}
+
+impl From<&ScatterPoint> for (f64, f64) {
+    fn from(p: &ScatterPoint) -> (f64, f64) {
+        (p.x, p.y)
+    }
+}
+
+impl ScatterPoint {
+    pub fn with_y_error(mut self, err: f64) -> Self {
+        self.y_err = Some((err, err));
+        self
+    }
+
+    pub fn with_y_error_asymmetric(mut self, neg: f64, pos: f64) -> Self {
+        self.y_err = Some((neg, pos));
+        self
+    }
+}
+
+
+#[derive(Debug, Clone,)]
 pub struct LinePlot {
-    pub data: Vec<(f64, f64)>,
+    pub data: Vec<ScatterPoint>,
     pub color: String,
     pub stroke_width: f64,
     pub legend_label: Option<String>,
@@ -16,10 +45,88 @@ impl LinePlot {
         }
     }
 
-    pub fn with_data(mut self, data: Vec<(f64, f64)>) -> Self {
-        self.data = data;
+    // accept data of any numerical type and push it to f64
+    pub fn with_data<T, U, I>(mut self, points: I) -> Self
+    where
+        I: IntoIterator<Item = (T, U)>,
+        T: Into<f64>,
+        U: Into<f64>,
+    {
+        self.data = points
+            .into_iter()
+            .map(|(x, y)| ScatterPoint {
+                x: x.into(),
+                y: y.into(),
+                x_err: None,
+                y_err: None,
+            })
+            .collect();
+
         self
     }
+
+    // insert symmetric error
+    pub fn with_x_err<T, I>(mut self, errors: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64> + Copy,
+    {
+        for (i, err) in errors.into_iter().enumerate() {
+            if i < self.data.len() {
+                self.data[i].x_err = Some((err.into(), err.into()));
+            }
+        }
+
+        self
+    }
+
+    // insert asymmetric x error
+    pub fn with_x_err_asymmetric<T, U, I>(mut self, errors: I) -> Self
+    where
+    I: IntoIterator<Item = (T, U)>,
+    T: Into<f64>,
+    U: Into<f64>,
+    {
+        for (i, (neg, pos)) in errors.into_iter().enumerate() {
+            if i < self.data.len() {
+                self.data[i].x_err = Some((neg.into(), pos.into()));
+            }
+        }
+        
+        self
+    }
+    
+    // insert symmetric y error
+    pub fn with_y_err<T, I>(mut self, errors: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64> + Copy,
+    {
+        for (i, err) in errors.into_iter().enumerate() {
+            if i < self.data.len() {
+                self.data[i].y_err = Some((err.into(), err.into()));
+            }
+        }
+
+        self
+    }
+
+    // insert asymmetric y error
+    pub fn with_y_err_asymmetric<T, U, I>(mut self, errors: I) -> Self
+    where
+        I: IntoIterator<Item = (T, U)>,
+        T: Into<f64>,
+        U: Into<f64>,
+    {
+        for (i, (neg, pos)) in errors.into_iter().enumerate() {
+            if i < self.data.len() {
+                self.data[i].y_err = Some((neg.into(), pos.into()));
+            }
+        }
+
+        self
+    }
+
 
     pub fn with_color<S: Into<String>>(mut self, color: S) -> Self {
         self.color = color.into();

@@ -20,10 +20,15 @@ impl ViolinPlot {
         }
     }
 
-    pub fn with_group<T: Into<String>>(mut self, label: T, values: Vec<f64>) -> Self {
+    pub fn with_group<T, U, I>(mut self, label: T, values: I) -> Self 
+    where
+        T: Into<String>,
+        I: IntoIterator<Item = U>,
+        U: Into<f64>,
+    {
         self.groups.push(ViolinGroup {
             label: label.into(),
-            values,
+            values: values.into_iter().map(|x| x.into()).collect(),
         });
         self
     }

@@ -50,14 +50,32 @@ pub struct Heatmap {
 
 
 impl Heatmap {
-    pub fn new(data: Vec<Vec<f64>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            data,
+            data: vec![],
             row_labels: None,
             col_labels: None,
             color_map: ColorMap::Viridis,
             show_values: false,
         }
+    }
+
+    // accept data of any numerical type and push it to f64
+    pub fn with_data<U, T, I>(mut self, data: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoIterator<Item = U>,
+        U: Into<f64>,
+    {
+        let mut a: Vec<f64> = vec![];
+        for d in data.into_iter() {
+            for v in d {
+                a.push(v.into())
+            }
+            self.data.push(a);
+            a = vec![];
+        }
+        self
     }
 
     pub fn with_labels(mut self, rows: Vec<String>, cols: Vec<String>) -> Self {
@@ -71,8 +89,8 @@ impl Heatmap {
         self
     }
 
-    pub fn show_values(mut self, show: bool) -> Self {
-        self.show_values = show;
+    pub fn show_values(mut self) -> Self {
+        self.show_values = true;
         self
     }
 }

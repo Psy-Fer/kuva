@@ -1,9 +1,9 @@
-use crate::render::render_utils::{percentile, simple_kde};
+use crate::render::render_utils::{percentile, simple_kde, linear_regression};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
 
-use crate::plot::scatter::ScatterPlot;
+use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
@@ -13,7 +13,7 @@ use crate::plot::{BoxPlot, Heatmap, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot
 use crate::plot::Legend;
 use crate::plot::legend::{LegendEntry, LegendShape};
 
-
+// TODO: make setters/builders for these primitives
 #[derive(Debug)]
 pub enum Primitive {
     Circle {
@@ -94,11 +94,131 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     // Draw points
     for point in &scatter.data {
         scene.add(Primitive::Circle {
-            cx:  computed.map_x(point.0),
-            cy: computed.map_y(point.1),
+            cx:  computed.map_x(point.x),
+            cy: computed.map_y(point.y),
             r: scatter.size,
             fill: scatter.color.clone(),
         });
+
+        // x error
+        if let Some((neg, pos)) = point.x_err {
+            let cy = computed.map_y(point.y);
+            let cx_low = computed.map_x(point.x - neg);
+            let cx_high = computed.map_x(point.x + pos);
+        
+            scene.add(Primitive::Line {
+                x1: cx_low,
+                y1: cy,
+                x2: cx_high,
+                y2: cy,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        
+            // Add caps
+            scene.add(Primitive::Line {
+                x1: cx_low,
+                y1: cy - 5.0,
+                x2: cx_low,
+                y2: cy + 5.0,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        
+            scene.add(Primitive::Line {
+                x1: cx_high,
+                y1: cy - 5.0,
+                x2: cx_high,
+                y2: cy + 5.0,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        }
+
+        // y error
+        if let Some((neg, pos)) = point.y_err {
+            let cx = computed.map_x(point.x);
+            let cy_low = computed.map_y(point.y - neg);
+            let cy_high = computed.map_y(point.y + pos);
+        
+            scene.add(Primitive::Line {
+                x1: cx,
+                y1: cy_low,
+                x2: cx,
+                y2: cy_high,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        
+            // Add caps
+            scene.add(Primitive::Line {
+                x1: cx - 5.0,
+                y1: cy_low,
+                x2: cx + 5.0,
+                y2: cy_low,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        
+            scene.add(Primitive::Line {
+                x1: cx - 5.0,
+                y1: cy_high,
+                x2: cx + 5.0,
+                y2: cy_high,
+                stroke: scatter.color.clone(),
+                stroke_width: 1.0,
+            });
+        }
+    }
+    
+    // if trend, draw the line
+    if let Some(trend) = scatter.trend {
+        match trend {
+            TrendLine::Linear => {
+                
+                if let Some((slope, intercept, r)) = linear_regression(&scatter.data) {
+                    // get line start and end co-ords
+                    let x1 = computed.x_range.0;
+                    let x2 = computed.x_range.1;
+                    let y1 = slope * x1 + intercept;
+                    let y2 = slope * x2 + intercept;
+                    
+                    // draw the line
+                    scene.add(Primitive::Line {
+                        x1: computed.map_x(x1),
+                        y1: computed.map_y(y1),
+                        x2: computed.map_x(x2),
+                        y2: computed.map_y(y2),
+                        stroke: scatter.trend_color.clone(),
+                        stroke_width: 1.0, // TODO: add to interface
+                    });
+    
+                    // display equation and correlation
+                    if scatter.show_equation || scatter.show_correlation {
+                        let mut label = String::new();
+                        if scatter.show_equation {
+                            label.push_str(&format!("y = {:.2}x + {:.2}", slope, intercept));
+                        }
+                        if scatter.show_correlation {
+                            if !label.is_empty() {
+                                label.push_str("  ");
+                            }
+                            label.push_str(&format!("r = {:.2}", r));
+                        }
+    
+                        scene.add(Primitive::Text {
+                            x: computed.margin_left + 10.0,
+                            y: computed.margin_top + 20.0,
+                            content: label,
+                            size: 12,
+                            anchor: TextAnchor::Start,
+                            rotate: None,
+                        });
+                    }
+                }
+            }
+            // _ => {}
+        }
     }
 }
 
@@ -108,8 +228,8 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     if line.data.len() >= 2 {
         let mut path = String::new();
         for (i, &coords) in line.data.iter().enumerate() {
-            let sx = computed.map_x(coords.0);
-            let sy = computed.map_y(coords.1);
+            let sx = computed.map_x(coords.x);
+            let sy = computed.map_y(coords.y);
             if i == 0 {
                 path += &format!("M {sx} {sy} ");
             } else {
