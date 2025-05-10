@@ -7,7 +7,8 @@ use crate::plot::scatter::ScatterPlot;
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::{BoxPlot, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
+use crate::plot::{BoxPlot, Heatmap, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
+
 
 use crate::plot::Legend;
 use crate::plot::legend::{LegendEntry, LegendShape};
@@ -463,6 +464,60 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) {
+
+    let rows = heatmap.data.len();
+    let cols = heatmap.data.first().map_or(0, |row| row.len());
+    if rows == 0 || cols == 0 {
+        return;
+    }
+
+    let flat: Vec<f64> = heatmap.data.iter().flatten().cloned().collect();
+    let min = flat.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = flat.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let norm = |v: f64| (v - min) / (max - min + f64::EPSILON);
+
+    let cmap = heatmap.color_map.clone();
+    for (i, row) in heatmap.data.iter().enumerate() {
+        for (j, &value) in row.iter().enumerate() {
+            let color = cmap.map(norm(value));
+
+            // let x = computed.map_x(j as f64);
+            let x0 = computed.map_x(j as f64);
+            let x1 = computed.map_x(j as f64 + 1.0);
+            let y0 = computed.map_y(i as f64 + 1.0);
+            let y1 = computed.map_y(i as f64);
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: y0,
+                width: (x1-x0).abs()*0.99,
+                height: (y1-y0).abs()*0.99,
+                fill: color,
+                stroke: None,
+                stroke_width: None,
+            });
+
+        }
+    }
+    for (i, row) in heatmap.data.iter().enumerate() {
+        for (j, &value) in row.iter().enumerate() {
+            if heatmap.show_values {
+                let x0 = computed.map_x(j as f64);
+                let x1 = computed.map_x(j as f64 + 1.0);
+                let y0 = computed.map_y(i as f64 + 1.0);
+                let y1 = computed.map_y(i as f64);
+                scene.add(Primitive::Text {
+                    x: x0 + ((x1-x0).abs() / 2.0),
+                    y: y0 + ((y1-y0).abs() / 2.0),
+                    content: format!("{:.2}", value),
+                    size: 12,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                });
+            }
+        }
+    }
+}
 
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
@@ -701,6 +756,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Pie(p) => {
                 add_pie(&p, &mut scene, &computed);
+            }
+            Plot::Heatmap(h) => {
+                add_heatmap(&h, &mut scene, &computed);
             }
         }
     }

@@ -5,7 +5,7 @@ use crate::plot::histogram::Histogram;
 use crate::plot::boxplot::BoxPlot;
 use crate::plot::violin::ViolinPlot;
 
-use crate::plot::{PiePlot, SeriesPlot};
+use crate::plot::{Heatmap, PiePlot, SeriesPlot};
 use crate::render::render_utils;
 
 
@@ -18,6 +18,7 @@ pub enum Plot {
     Violin(ViolinPlot),
     Series(SeriesPlot),
     Pie(PiePlot),
+    Heatmap(Heatmap),
 }
 
 fn bounds_from_2d(points: &[(f64, f64)]) -> Option<((f64, f64), (f64, f64))> {
@@ -169,6 +170,11 @@ impl Plot {
             Plot::Pie(_) => {
                 // Centered at (0.0, 0.0) and rendered to fit the layout box
                 Some(((-1.0, 1.0), (-1.0, 1.0))) 
+            }
+            Plot::Heatmap(hm) => {
+                let rows = hm.data.len();
+                let cols = hm.data.first().map_or(0, |row| row.len());
+                Some(((0.0, cols as f64), (0.0, rows as f64)))
             }
         }
     }
