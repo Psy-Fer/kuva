@@ -30,7 +30,78 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         stroke_width: 1.0,
     });
 
-    if let Some(categories) = &layout.x_categories {
+    // if y categories
+    if let Some(categories) = &layout.y_categories {
+        // draw x axis category labels and ticks
+        for (i, label) in categories.iter().enumerate() {
+            let y_val = i as f64 + 1.0; // match y-positioning
+            let y_pos = computed.map_y(y_val);
+
+            // Draw label
+            scene.add(Primitive::Text {
+                x: computed.margin_left - 10.0,
+                y: y_pos + 20.0,
+                content: label.clone(),
+                size: 10,
+                anchor: TextAnchor::End,
+                rotate: None,
+            });
+    
+            // Optional: draw a small tick
+            scene.add(Primitive::Line {
+                x1: computed.margin_left - 5.0,
+                y1: y_pos,
+                x2: computed.margin_left,
+                y2: y_pos,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
+        }
+        // x axis
+        let x_ticks = render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks);
+        for (i, tx) in x_ticks.iter().enumerate() {
+            
+            let x = map_x(*tx);
+            
+            // X ticks
+            scene.add(Primitive::Line {
+                x1: x,
+                y1: computed.height - computed.margin_bottom,
+                x2: x,
+                y2: computed.height - computed.margin_bottom + 5.0,
+                stroke: "black".into(),
+                stroke_width: 1.0,
+            });
+            
+            // X tick labels
+            scene.add(Primitive::Text {
+                x,
+                y: computed.height - computed.margin_bottom + 15.0,
+                content: format!("{:.1}", tx),
+                size: 10,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+            
+            // Grid lines
+            if layout.show_grid {
+                if i != 0 {
+                    // Vertical grid
+                    scene.add(Primitive::Line {
+                        x1: x,
+                        y1: computed.margin_top,
+                        x2: x,
+                        y2: computed.height - computed.margin_bottom,
+                        stroke: "#ccc".to_string(),
+                        stroke_width: 1.0,
+                    });
+                }
+            }
+        }
+
+    }
+    // if x categories
+    else if let Some(categories) = &layout.x_categories {
         // draw x axis category labels and ticks
         for (i, label) in categories.iter().enumerate() {
             let x_val = i as f64 + 1.0; // match x-positioning
@@ -86,6 +157,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             });
         }
     }
+    // if regular axes
     else {
         // Draw value ticks and labels
 

@@ -4,6 +4,7 @@ use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::boxplot::BoxPlot;
 use crate::plot::violin::ViolinPlot;
+use crate::plot::brick::BrickPlot;
 
 use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
 use crate::render::render_utils;
@@ -20,6 +21,7 @@ pub enum Plot {
     Series(SeriesPlot),
     Pie(PiePlot),
     Heatmap(Heatmap),
+    Brick(BrickPlot)
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -221,6 +223,12 @@ impl Plot {
             Plot::Histogram2d(h2d) => {
                 let rows = h2d.bins.len();
                 let cols = h2d.bins.first().map_or(0, |row| row.len());
+                Some(((0.0, cols as f64), (0.0, rows as f64)))
+            }
+            Plot::Brick(bp) => {
+                let rows = bp.sequences.len();
+                // let cols = bp.sequences.first().map_or(0, |row| row.len());
+                let cols = bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0);
                 Some(((0.0, cols as f64), (0.0, rows as f64)))
             }
         }

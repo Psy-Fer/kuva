@@ -66,7 +66,7 @@ impl SvgBackend {
 
                     svg.push_str(&format!(r#" />"#));
                 }
-                Primitive::Rect { x, y, width, height, fill, stroke, stroke_width } => {
+                Primitive::Rect { x, y, width, height, fill, stroke, stroke_width, opacity} => {
                      svg.push_str(&format!(
                         r#"<rect x="{x}" y="{y}" width="{width}" height="{height}" fill="{fill}""#
                     ));
@@ -77,6 +77,10 @@ impl SvgBackend {
                     if let Some(width) = stroke_width {
                         svg.push_str(&format!(r#" stroke-width="{width}""#));
                     }
+                    if let Some(opacity) = opacity {
+                        svg.push_str(&format!(r#" fill-opacity="{opacity}%""#));
+                    }
+
                 
                     svg.push_str(&format!(r#" />"#));
                 }

@@ -13,6 +13,7 @@ pub struct Layout {
     pub y_label: Option<String>,
     pub title: Option<String>,
     pub x_categories: Option<Vec<String>>,
+    pub y_categories: Option<Vec<String>>,
     pub show_legend: bool,
 }
 
@@ -29,6 +30,7 @@ impl Layout {
             y_label: None,
             title: None,
             x_categories: None,
+            y_categories: None,
             show_legend: false,
         }
     }
@@ -47,6 +49,7 @@ impl Layout {
         let mut y_max = f64::NEG_INFINITY;
 
         let mut x_labels = None;
+        let mut y_labels = None;
 
         let mut has_legend: bool = false;
         for plot in plots {
@@ -92,12 +95,23 @@ impl Layout {
                     has_legend = true;
                 }
             }
+            if let Plot::Brick(bp) = plot {
+                let labels = bp.names.iter().map(|g| g.clone()).collect::<Vec<_>>();
+                y_labels = Some(labels);
+                has_legend = true;
+
+            }
         }
 
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));
         if let Some(labels) = x_labels {
             layout = layout.with_x_categories(labels);
         }
+
+        if let Some(labels) = y_labels {
+            layout = layout.with_y_categories(labels);
+        }
+        
 
         if has_legend {
             layout = layout.with_show_legend();
@@ -110,6 +124,11 @@ impl Layout {
 
     pub fn with_x_categories(mut self, labels: Vec<String>) -> Self {
         self.x_categories = Some(labels);
+        self
+    }
+
+    pub fn with_y_categories(mut self, labels: Vec<String>) -> Self {
+        self.y_categories = Some(labels);
         self
     }
 

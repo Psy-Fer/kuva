@@ -8,6 +8,7 @@ pub mod violin;
 pub mod pie;
 pub mod series;
 pub mod heatmap;
+pub mod brick;
 
 pub mod legend;
 
@@ -23,5 +24,6 @@ pub use violin::{ViolinPlot, ViolinGroup};
 pub use pie::{PiePlot, PieSlice};
 pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
+pub use brick::BrickPlot;
 
 pub use legend::Legend;

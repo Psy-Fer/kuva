@@ -7,7 +7,7 @@ use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::{BoxPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
+use crate::plot::{brick, BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 
 
 use crate::plot::Legend;
@@ -52,6 +52,7 @@ pub enum Primitive {
         fill: String,
         stroke: Option<String>,
         stroke_width: Option<f64>,
+        opacity: Option<f64>,
     },
 
 }
@@ -338,6 +339,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 fill: bar.color.clone(),
                 stroke: None,
                 stroke_width: None,
+                opacity: None,
             });
         }
     }
@@ -387,6 +389,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
             fill: hist.color.clone(),
             stroke: None,
             stroke_width: None,
+            opacity: None,
         });
     }
 }
@@ -437,6 +440,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
                 fill: color,
                 stroke: None,
                 stroke_width: None,
+                opacity: None,
             });
         }
     }
@@ -492,6 +496,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             fill: boxplot.color.clone(),
             stroke: None,
             stroke_width: None,
+            opacity: None,
         });
 
         // Median line
@@ -679,6 +684,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                 fill: color,
                 stroke: None,
                 stroke_width: None,
+                opacity: None,
             });
 
         }
@@ -686,6 +692,59 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     for (i, row) in heatmap.data.iter().enumerate() {
         for (j, &value) in row.iter().enumerate() {
             if heatmap.show_values {
+                let x0 = computed.map_x(j as f64);
+                let x1 = computed.map_x(j as f64 + 1.0);
+                let y0 = computed.map_y(i as f64 + 1.0);
+                let y1 = computed.map_y(i as f64);
+                scene.add(Primitive::Text {
+                    x: x0 + ((x1-x0).abs() / 2.0),
+                    y: y0 + ((y1-y0).abs() / 2.0),
+                    content: format!("{:.2}", value),
+                    size: 12,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                });
+            }
+        }
+    }
+}
+
+fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+
+    let rows = brickplot.sequences.len();
+    let cols = brickplot.sequences.first().map_or(0, |row| row.len());
+    if rows == 0 || cols == 0 {
+        return;
+    }
+    
+    // println!("template: {:?}", brickplot.template);
+    // println!()
+    for (i, row) in brickplot.sequences.iter().enumerate() {
+        for (j, value) in row.chars().into_iter().enumerate() {
+            println!("letter: {}", value);
+            let color = brickplot.template.as_ref().unwrap().get(&value).unwrap();
+
+            // let x = computed.map_x(j as f64);
+            let x0 = computed.map_x(j as f64);
+            let x1 = computed.map_x(j as f64 + 1.0);
+            let y0 = computed.map_y(i as f64 + 1.0);
+            let y1 = computed.map_y(i as f64);
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: y0,
+                width: (x1-x0).abs()*0.99,
+                height: (y1-y0).abs()*0.99,
+                fill: color.clone(),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+
+        }
+    }
+    for (i, row) in brickplot.sequences.iter().enumerate() {
+        for (j, value) in row.chars().into_iter().enumerate() {
+            if brickplot.show_values {
                 let x0 = computed.map_x(j as f64);
                 let x1 = computed.map_x(j as f64 + 1.0);
                 let y0 = computed.map_y(i as f64 + 1.0);
@@ -722,6 +781,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         fill: "white".into(),
         stroke: None,
         stroke_width: None,
+        opacity: None,
     });
     
     scene.add(Primitive::Rect {
@@ -732,6 +792,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         fill: "none".into(),
         stroke: Some("black".into()),
         stroke_width: Some(1.0),
+        opacity: None,
     });
 
     for entry in &legend.entries {
@@ -747,13 +808,14 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         // add shape with colour
         match entry.shape {
             LegendShape::Rect => scene.add(Primitive::Rect {
-                x: legend_x+5.0,
-                y: legend_y,
+                x: legend_x + 5.0,
+                y: legend_y - 5.0,
                 width: 12.0,
                 height: 12.0,
                 fill: entry.color.clone(),
                 stroke: None,
                 stroke_width: None,
+                opacity: None,
             }),
             LegendShape::Line => scene.add(Primitive::Line {
                 x1: legend_x + 5.0,
@@ -903,6 +965,23 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
     scene
 }
 
+// render_brickplot
+pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+
+    // Add grid and axes
+    // add_axes_and_grid(&mut scene, &computed, &layout);
+
+
+    add_labels_and_title(&mut scene, &computed, &layout);
+
+    add_brickplot(brickplot, &mut scene, &computed);
+
+    scene
+}
+
 
 
 /// this should be the default renderer.
@@ -947,6 +1026,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Heatmap(h) => {
                 add_heatmap(&h, &mut scene, &computed);
             }
+            Plot::Brick(b) => {
+                add_brickplot(&b, &mut scene, &computed);
+            }
         }
     }
     
@@ -981,7 +1063,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     legend.entries.push(LegendEntry {
                         label: label.clone(),
                         color: scatter.color.clone(),
-                        shape: LegendShape::Circle,
+                        shape: LegendShape::Rect,
                     });
                 }
             }
@@ -993,6 +1075,16 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                         shape: LegendShape::Circle,
                     });
                 }
+            }
+            Plot::Brick(brickplot) => {
+                let labels = brickplot.template.as_ref().unwrap();
+                    for (name, color) in labels {
+                        legend.entries.push(LegendEntry {
+                            label: name.to_string(),
+                            color: color.clone(),
+                            shape: LegendShape::Rect,
+                        })
+                    }
             }
             _ => {}
         }
