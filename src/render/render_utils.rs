@@ -118,13 +118,41 @@ pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
     let intercept = (sum_y - slope * sum_x) / n;
 
     // Pearson correlation coefficient
-    let mean_x = sum_x / n;
-    let mean_y = sum_y / n;
-    let r_num: f64 = vals.iter().map(|(x, y)| (x - mean_x) * (y - mean_y)).sum();
-    let r_den_x: f64 = vals.iter().map(|(x, _)| (x - mean_x).powi(2)).sum();
-    let r_den_y: f64 = vals.iter().map(|(_, y)| (y - mean_y).powi(2)).sum();
-    let r = r_num / (r_den_x.sqrt() * r_den_y.sqrt());
+    let r = pearson_corr(&vals).unwrap(); // TODO: handle when n < 2
 
     // y = mx+b and r
     Some((slope, intercept, r))
+}
+
+
+// Pearson correlation coefficient (r)
+pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
+    let n = data.len();
+    if n < 2 {
+        return None;
+    }
+
+    let (mut sum_x, mut sum_y) = (0.0, 0.0);
+    for &(x, y) in data {
+        sum_x += x;
+        sum_y += y;
+    }
+
+    let mean_x = sum_x / n as f64;
+    let mean_y = sum_y / n as f64;
+
+    let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
+    for &(x, y) in data {
+        let dx = x - mean_x;
+        let dy = y - mean_y;
+        cov += dx * dy;
+        var_x += dx * dx;
+        var_y += dy * dy;
+    }
+
+    if var_x == 0.0 || var_y == 0.0 {
+        return None;
+    }
+
+    Some(cov / (var_x.sqrt() * var_y.sqrt()))
 }

@@ -1,4 +1,4 @@
-use crate::render::render_utils::{percentile, simple_kde, linear_regression};
+use crate::render::render_utils::{percentile, simple_kde, linear_regression, pearson_corr};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
@@ -7,7 +7,7 @@ use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
-use crate::plot::{BoxPlot, Heatmap, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
+use crate::plot::{BoxPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 
 
 use crate::plot::Legend;
@@ -390,6 +390,70 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
         });
     }
 }
+
+fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedLayout) {
+    let max_count = hist2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
+
+    let x_bin_width = (hist2d.x_range.1 - hist2d.x_range.0) / hist2d.bins_x as f64;
+    let y_bin_height = (hist2d.y_range.1 - hist2d.y_range.0) / hist2d.bins_x as f64;
+
+    // let cmap = hist2d.color_map.clone();
+    // for (i, row) in hist2d.data.iter().enumerate() {
+    //     for (j, &value) in row.iter().enumerate() {
+    //         let color = cmap.map(norm(value));
+
+    //         // let x = computed.map_x(j as f64);
+    //         let x0 = computed.map_x(j as f64);
+    //         let x1 = computed.map_x(j as f64 + 1.0);
+    //         let y0 = computed.map_y(i as f64 + 1.0);
+    //         let y1 = computed.map_y(i as f64);
+    //         scene.add(Primitive::Rect {
+    //             x: x0,
+    //             y: y0,
+    //             width: (x1-x0).abs()*0.99,
+    //             height: (y1-y0).abs()*0.99,
+    //             fill: color,
+    //             stroke: None,
+    //             stroke_width: None,
+    //         });
+
+    let cmap = hist2d.color_map.clone();
+    for (row_idx, row) in hist2d.bins.iter().enumerate() {
+        for (col_idx, &count) in row.iter().enumerate() {
+            if count == 0 { continue; }
+
+            let x0 = hist2d.x_range.0 + col_idx as f64 * x_bin_width;
+            let y0 = hist2d.y_range.0 + row_idx as f64 * y_bin_height;
+            let x1 = x0 + x_bin_width;
+            let y1 = y0 + y_bin_height;
+            let norm = (count as f64 / max_count).clamp(0.0, 1.0);
+            let color = cmap.map(norm);
+
+            scene.add(Primitive::Rect {
+                x: computed.map_x(x0),
+                y: computed.map_y(y1), // y1 is the bottom, SVG coords go down
+                width: computed.map_x(x1) - computed.map_x(x0),
+                height: computed.map_y(y0) - computed.map_y(y1),
+                fill: color,
+                stroke: None,
+                stroke_width: None,
+            });
+        }
+    }
+
+    if hist2d.show_correlation {
+        let corr = pearson_corr(&hist2d.data).unwrap();
+        scene.add(Primitive::Text {
+            x: computed.width - 120.0,
+            y: computed.margin_top + 20.0,
+            content: format!("r = {:.2}", corr),
+            size: 14,
+            anchor: TextAnchor::End,
+            rotate: None,
+        });
+    }
+}
+
 
 fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) {
     
@@ -867,6 +931,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Histogram(h) => {
                 add_histogram(&h, &mut scene, &computed);
+            }
+            Plot::Histogram2d(h) => {
+                add_histogram2d(&h, &mut scene, &computed);
             }
             Plot::Box(b) => {
                 add_boxplot(&b, &mut scene, &computed);
