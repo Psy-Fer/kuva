@@ -33,6 +33,7 @@ pub struct ScatterPlot {
     pub trend_color: String,
     pub show_equation: bool,
     pub show_correlation: bool,
+    pub trend_width: f64,
     pub band: Option<BandPlot>,
 }
 
@@ -48,6 +49,7 @@ impl ScatterPlot {
             trend_color: "black".into(),
             show_equation: false,
             show_correlation: false,
+            trend_width: 1.0,
             band: None,
         }
     }
@@ -166,6 +168,11 @@ impl ScatterPlot {
 
     pub fn show_correlation(mut self) -> Self {
         self.show_correlation = true;
+        self
+    }
+
+    pub fn with_trend_width(mut self, width: f64) -> Self {
+        self.trend_width = width;
         self
     }
 

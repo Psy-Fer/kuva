@@ -5,6 +5,8 @@ pub struct SeriesPlot {
     pub color: String,
     pub style: SeriesStyle, // e.g., Line, Point, Both
     pub legend_label: Option<String>,
+    pub stroke_width: f64,
+    pub point_radius: f64,
 }
 
 pub enum SeriesStyle {
@@ -21,6 +23,8 @@ impl SeriesPlot {
             color: "black".into(),
             style: SeriesStyle::Point,
             legend_label: None,
+            stroke_width: 2.0,
+            point_radius: 3.0,
         }
     }
 
@@ -53,6 +57,16 @@ impl SeriesPlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_stroke_width(mut self, width: f64) -> Self {
+        self.stroke_width = width;
+        self
+    }
+
+    pub fn with_point_radius(mut self, radius: f64) -> Self {
+        self.point_radius = radius;
         self
     }
 }

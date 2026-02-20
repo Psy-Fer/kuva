@@ -235,7 +235,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                         x2: computed.map_x(x2),
                         y2: computed.map_y(y2),
                         stroke: scatter.trend_color.clone(),
-                        stroke_width: 1.0, // TODO: add to interface
+                        stroke_width: scatter.trend_width,
                         stroke_dasharray: None,
                     });
     
@@ -322,7 +322,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         d: pathstr,
                         fill: None,
                         stroke: series.color.clone(),
-                        stroke_width: 2.0, // TODO: add interface
+                        stroke_width: series.stroke_width,
                         opacity: None,
                 });
             }
@@ -332,7 +332,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                 scene.add(Primitive::Circle {
                     cx:  x,
                     cy: y,
-                    r: 3.0, // TODO: add interface
+                    r: series.point_radius,
                     fill: series.color.clone()
                 });
             }
@@ -353,7 +353,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         d: pathstr,
                         fill: None,
                         stroke: series.color.clone(),
-                        stroke_width: 2.0, // TODO: add interface
+                        stroke_width: series.stroke_width,
                         opacity: None,
                 });
             }
@@ -361,7 +361,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                 scene.add(Primitive::Circle {
                     cx:  x,
                     cy: y,
-                    r: 3.0, // TODO: add interface
+                    r: series.point_radius,
                     fill: series.color.clone()
                 });
             }

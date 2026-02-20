@@ -1,6 +1,14 @@
 use crate::render::render::{Scene, Primitive, TextAnchor};
 
 
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&apos;")
+}
+
 // I should probably use the SVG lib for this backend in future.
 pub struct SvgBackend;
 
@@ -43,8 +51,9 @@ impl SvgBackend {
                         "".into()
                     };
                 
+                    let escaped = escape_xml(content);
                     svg.push_str(&format!(
-                        r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{transform}>{content}</text>"#
+                        r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{transform}>{escaped}</text>"#
                     ));
                 }
                 Primitive::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_dasharray } => {
