@@ -204,7 +204,7 @@ pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
     let intercept = (sum_y - slope * sum_x) / n;
 
     // Pearson correlation coefficient
-    let r = pearson_corr(&vals).unwrap(); // TODO: handle when n < 2
+    let r = pearson_corr(&vals)?;
 
     // y = mx+b and r
     Some((slope, intercept, r))
