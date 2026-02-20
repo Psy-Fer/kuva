@@ -26,6 +26,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | Pie | Slices with labels, supports donut charts via inner radius |
 | Series | Index-based 1D data with line, point, or both styles |
 | Heatmap | 2D matrix with colormaps (Viridis, Inferno, Grayscale, custom) |
+| Band | Filled area between upper and lower curves (confidence intervals) |
 | Brick | Character-level sequence visualization (DNA/RNA templates) |
 
 ## Quick Start
@@ -139,7 +140,7 @@ let svg = SvgBackend.render_scene(&scene);
 - [ ] Stacked bar plots
 - [ ] Area / filled line plots
 - [ ] Step plots
-- [ ] Error band / shaded confidence interval plots
+- [x] Error band / shaded confidence interval plots
 - [ ] Contour plots
 - [ ] Bubble plots (scatter with variable size per point)
 - [ ] Waterfall charts
@@ -150,8 +151,8 @@ let svg = SvgBackend.render_scene(&scene);
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
 - [ ] Custom tick formatting (e.g. percentages, scientific notation)
-- [ ] Configurable legend positioning (currently hardcoded top-right)
-- [ ] Colorbar / continuous color legend for heatmaps
+- [x] Configurable legend positioning
+- [x] Colorbar / continuous color legend for heatmaps
 
 ### Styling
 - [ ] Line styles (dashed, dotted, dash-dot)
@@ -166,9 +167,9 @@ let svg = SvgBackend.render_scene(&scene);
 - [ ] CLI binary: `cat data.txt | visus --histogram -o hist.svg`
 
 ### Annotations & interactivity
-- [ ] Text annotations with arrows
-- [ ] Horizontal / vertical reference lines
-- [ ] Shaded regions
+- [x] Text annotations with arrows
+- [x] Horizontal / vertical reference lines
+- [x] Shaded regions
 
 ## License
 
