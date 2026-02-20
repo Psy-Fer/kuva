@@ -290,6 +290,7 @@ pub fn add_text_annotations(annotations: &[TextAnnotation], scene: &mut Scene, c
                     fill: Some(ann.color.clone()),
                     stroke: ann.color.clone(),
                     stroke_width: 1.0,
+                    opacity: None,
                 });
             }
         }

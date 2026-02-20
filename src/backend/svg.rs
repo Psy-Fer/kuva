@@ -56,7 +56,7 @@ impl SvgBackend {
                     }
                     svg.push_str(" />");
                 }
-                Primitive::Path { d, fill, stroke, stroke_width } => {
+                Primitive::Path { d, fill, stroke, stroke_width, opacity } => {
                     svg.push_str(&format!(
                         r#"<path d="{d}" stroke="{stroke}" stroke-width="{stroke_width}""#
                     ));
@@ -65,10 +65,14 @@ impl SvgBackend {
                         svg.push_str(&format!(r#" fill="{fill}""#));
                     }
                     else {
-                        svg.push_str(&format!(r#" fill="none""#));
+                        svg.push_str(r#" fill="none""#);
                     }
 
-                    svg.push_str(&format!(r#" />"#));
+                    if let Some(opacity) = opacity {
+                        svg.push_str(&format!(r#" fill-opacity="{opacity}%""#));
+                    }
+
+                    svg.push_str(" />");
                 }
                 Primitive::Rect { x, y, width, height, fill, stroke, stroke_width, opacity} => {
                      svg.push_str(&format!(

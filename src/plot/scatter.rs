@@ -22,6 +22,8 @@ impl From<&ScatterPoint> for (f64, f64) {
 }
 
 
+use crate::plot::band::BandPlot;
+
 pub struct ScatterPlot {
     pub data: Vec<ScatterPoint>,
     pub color: String,
@@ -31,6 +33,7 @@ pub struct ScatterPlot {
     pub trend_color: String,
     pub show_equation: bool,
     pub show_correlation: bool,
+    pub band: Option<BandPlot>,
 }
 
 
@@ -45,6 +48,7 @@ impl ScatterPlot {
             trend_color: "black".into(),
             show_equation: false,
             show_correlation: false,
+            band: None,
         }
     }
 
@@ -165,4 +169,17 @@ impl ScatterPlot {
         self
     }
 
+    pub fn with_band<T, U, I1, I2>(mut self, y_lower: I1, y_upper: I2) -> Self
+    where
+        I1: IntoIterator<Item = T>,
+        I2: IntoIterator<Item = U>,
+        T: Into<f64>,
+        U: Into<f64>,
+    {
+        let x: Vec<f64> = self.data.iter().map(|p| p.x).collect();
+        let band = BandPlot::new(x, y_lower, y_upper)
+            .with_color(self.color.clone());
+        self.band = Some(band);
+        self
+    }
 }

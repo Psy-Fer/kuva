@@ -9,6 +9,7 @@ use crate::plot::violin::ViolinPlot;
 use crate::plot::brick::BrickPlot;
 
 use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
+use crate::plot::band::BandPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -24,7 +25,8 @@ pub enum Plot {
     Series(SeriesPlot),
     Pie(PiePlot),
     Heatmap(Heatmap),
-    Brick(BrickPlot)
+    Brick(BrickPlot),
+    Band(BandPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -90,6 +92,12 @@ impl Plot {
                     y_max = y_max.max(y_hi);
                 }
 
+                // Expand for band
+                if let Some(ref band) = s.band {
+                    for &y in &band.y_lower { y_min = y_min.min(y); }
+                    for &y in &band.y_upper { y_max = y_max.max(y); }
+                }
+
                 // Expand for trend line
                 if let Some(trend) = s.trend {
                     let TrendLine::Linear = trend;
@@ -104,7 +112,14 @@ impl Plot {
 
                 Some(((x_min, x_max), (y_min, y_max)))
             },
-            Plot::Line(p) => bounds_from_2d(&p.data),
+            Plot::Line(p) => {
+                let ((x_min, x_max), (mut y_min, mut y_max)) = bounds_from_2d(&p.data)?;
+                if let Some(ref band) = p.band {
+                    for &y in &band.y_lower { y_min = y_min.min(y); }
+                    for &y in &band.y_upper { y_max = y_max.max(y); }
+                }
+                Some(((x_min, x_max), (y_min, y_max)))
+            }
             // Plot::Series(s) => bounds_from_1d(&s.values),
             Plot::Series(sp) => {
                 if sp.values.is_empty() {
@@ -227,6 +242,14 @@ impl Plot {
                 let rows = h2d.bins.len();
                 let cols = h2d.bins.first().map_or(0, |row| row.len());
                 Some(((0.0, cols as f64), (0.0, rows as f64)))
+            }
+            Plot::Band(b) => {
+                if b.x.is_empty() { return None; }
+                let x_min = b.x.iter().cloned().fold(f64::INFINITY, f64::min);
+                let x_max = b.x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let y_min = b.y_lower.iter().cloned().fold(f64::INFINITY, f64::min);
+                let y_max = b.y_upper.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                Some(((x_min, x_max), (y_min, y_max)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {

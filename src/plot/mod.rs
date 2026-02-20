@@ -9,6 +9,7 @@ pub mod pie;
 pub mod series;
 pub mod heatmap;
 pub mod brick;
+pub mod band;
 
 pub mod legend;
 
@@ -25,5 +26,6 @@ pub use pie::{PiePlot, PieSlice};
 pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
 pub use brick::BrickPlot;
+pub use band::BandPlot;
 
 pub use legend::{Legend, LegendPosition};

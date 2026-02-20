@@ -8,6 +8,7 @@ use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
+use crate::plot::band::BandPlot;
 use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 
 
@@ -45,6 +46,7 @@ pub enum Primitive {
         fill: Option<String>,
         stroke: String,
         stroke_width: f64,
+        opacity: Option<f64>,
     },
     Rect {
         x: f64,
@@ -93,7 +95,41 @@ impl Scene {
     }
 }
 
+fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if band.x.len() < 2 { return; }
+    let mut path = String::new();
+    // Forward along upper curve
+    for (i, (&x, &y)) in band.x.iter().zip(band.y_upper.iter()).enumerate() {
+        let sx = computed.map_x(x);
+        let sy = computed.map_y(y);
+        if i == 0 {
+            path += &format!("M {sx} {sy} ");
+        } else {
+            path += &format!("L {sx} {sy} ");
+        }
+    }
+    // Backward along lower curve
+    for (&x, &y) in band.x.iter().zip(band.y_lower.iter()).rev() {
+        let sx = computed.map_x(x);
+        let sy = computed.map_y(y);
+        path += &format!("L {sx} {sy} ");
+    }
+    path += "Z";
+    scene.add(Primitive::Path {
+        d: path,
+        fill: Some(band.color.clone()),
+        stroke: "none".into(),
+        stroke_width: 0.0,
+        opacity: Some(band.opacity * 100.0),
+    });
+}
+
 fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    // Draw band behind points if present
+    if let Some(ref band) = scatter.band {
+        add_band(band, scene, computed);
+    }
+
     // Draw points
     for point in &scatter.data {
         scene.add(Primitive::Circle {
@@ -233,6 +269,11 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
 }
 
 fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
+    // Draw band behind line if present
+    if let Some(ref band) = line.band {
+        add_band(band, scene, computed);
+    }
+
     // Add the line path
     //TODO: export this function
     if line.data.len() >= 2 {
@@ -252,6 +293,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             fill: None,
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
+            opacity: None,
         });
     }
 }
@@ -281,6 +323,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         fill: None,
                         stroke: series.color.clone(),
                         stroke_width: 2.0, // TODO: add interface
+                        opacity: None,
                 });
             }
         }
@@ -311,6 +354,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         fill: None,
                         stroke: series.color.clone(),
                         stroke_width: 2.0, // TODO: add interface
+                        opacity: None,
                 });
             }
             for (x, y) in points {
@@ -594,6 +638,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
             fill: Some(violin.color.clone()),
             stroke: "black".into(),
             stroke_width: 0.5,
+            opacity: None,
         });
     }
 }
@@ -644,8 +689,9 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             d: path_data,
             fill: Some(slice.color.clone()),
             stroke: slice.color.clone(),
-            stroke_width: 1.0 }
-        );
+            stroke_width: 1.0,
+            opacity: None,
+        });
 
         // SLICE LABEL
         let mid_angle = angle + sweep / 2.0;
@@ -1182,6 +1228,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Brick(b) => {
                 add_brickplot(&b, &mut scene, &computed);
+            }
+            Plot::Band(b) => {
+                add_band(&b, &mut scene, &computed);
             }
         }
     }

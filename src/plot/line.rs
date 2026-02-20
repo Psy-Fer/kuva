@@ -27,12 +27,15 @@ impl ScatterPoint {
 }
 
 
+use crate::plot::band::BandPlot;
+
 #[derive(Debug, Clone,)]
 pub struct LinePlot {
     pub data: Vec<ScatterPoint>,
     pub color: String,
     pub stroke_width: f64,
     pub legend_label: Option<String>,
+    pub band: Option<BandPlot>,
 }
 
 impl LinePlot {
@@ -42,6 +45,7 @@ impl LinePlot {
             color: "black".into(),
             stroke_width: 2.0,
             legend_label: None,
+            band: None,
         }
     }
 
@@ -140,6 +144,20 @@ impl LinePlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_band<T, U, I1, I2>(mut self, y_lower: I1, y_upper: I2) -> Self
+    where
+        I1: IntoIterator<Item = T>,
+        I2: IntoIterator<Item = U>,
+        T: Into<f64>,
+        U: Into<f64>,
+    {
+        let x: Vec<f64> = self.data.iter().map(|p| p.x).collect();
+        let band = BandPlot::new(x, y_lower, y_upper)
+            .with_color(self.color.clone());
+        self.band = Some(band);
         self
     }
 }
