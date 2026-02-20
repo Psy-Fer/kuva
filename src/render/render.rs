@@ -2,6 +2,7 @@ use crate::render::render_utils::{self, percentile, simple_kde, linear_regressio
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
+use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
 
 use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
@@ -37,6 +38,7 @@ pub enum Primitive {
         y2: f64,
         stroke: String,
         stroke_width: f64,
+        stroke_dasharray: Option<String>,
     },
     Path {
         d: String,
@@ -114,8 +116,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
-        
+
             // Add caps
             scene.add(Primitive::Line {
                 x1: cx_low,
@@ -124,8 +127,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy + 5.0,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
-        
+
             scene.add(Primitive::Line {
                 x1: cx_high,
                 y1: cy - 5.0,
@@ -133,6 +137,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy + 5.0,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
         }
 
@@ -149,8 +154,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy_high,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
-        
+
             // Add caps
             scene.add(Primitive::Line {
                 x1: cx - 5.0,
@@ -159,8 +165,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy_low,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
-        
+
             scene.add(Primitive::Line {
                 x1: cx - 5.0,
                 y1: cy_high,
@@ -168,6 +175,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 y2: cy_high,
                 stroke: scatter.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
         }
     }
@@ -192,6 +200,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                         y2: computed.map_y(y2),
                         stroke: scatter.trend_color.clone(),
                         stroke_width: 1.0, // TODO: add to interface
+                        stroke_dasharray: None,
                     });
     
                     // display equation and correlation
@@ -507,6 +516,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y2: ymed,
             stroke: "white".into(),
             stroke_width: 1.5,
+            stroke_dasharray: None,
         });
 
         // Whiskers
@@ -517,6 +527,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y2: yq1,
             stroke: boxplot.color.clone(),
             stroke_width: 1.0,
+            stroke_dasharray: None,
         });
         scene.add(Primitive::Line {
             x1: xmid,
@@ -525,6 +536,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y2: yhigh,
             stroke: boxplot.color.clone(),
             stroke_width: 1.0,
+            stroke_dasharray: None,
         });
 
         // Whisker caps
@@ -536,6 +548,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 y2: y,
                 stroke: boxplot.color.clone(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
         }
     }
@@ -860,6 +873,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
                 y2: legend_y + 2.0,
                 stroke: entry.color.clone(),
                 stroke_width: 2.0,
+                stroke_dasharray: None,
             }),
             LegendShape::Circle => scene.add(Primitive::Circle {
                 cx: legend_x + 5.0 + 6.0,
@@ -931,6 +945,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             y2: y,
             stroke: "black".into(),
             stroke_width: 1.0,
+            stroke_dasharray: None,
         });
 
         // tick label
@@ -966,10 +981,13 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_scatter(scatter, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -980,12 +998,14 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_line(line, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -996,12 +1016,14 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_bar(bar, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1012,12 +1034,14 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_bar(bar, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1028,12 +1052,14 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_histogram(hist, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1044,12 +1070,14 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_boxplot(boxplot, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1060,12 +1088,14 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_violin(violin, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1075,12 +1105,14 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     // add_axes_and_grid(&mut scene, &computed, &layout);
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_pie(pie, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1091,13 +1123,14 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    // Add grid and axes
     // add_axes_and_grid(&mut scene, &computed, &layout);
-
-
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_brickplot(brickplot, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
 }
@@ -1112,6 +1145,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     // for each plot, plot it
     for plot in plots.iter() {
@@ -1151,7 +1185,10 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
         }
     }
-    
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
     // create legend
     // only bar, line, and scatter have legends for now
     let mut legend = Legend::default();

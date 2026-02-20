@@ -18,6 +18,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y2: computed.height - computed.margin_bottom,
         stroke: "red".into(),
         stroke_width: 1.0,
+        stroke_dasharray: None,
     });
 
     // Y axis
@@ -28,6 +29,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y2: computed.height - computed.margin_bottom,
         stroke: "green".into(),
         stroke_width: 1.0,
+        stroke_dasharray: None,
     });
 
     // if y categories
@@ -55,6 +57,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: y_pos,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
         }
         // x axis
@@ -75,6 +78,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: computed.height - computed.margin_bottom + 5.0,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
 
             // X tick labels
@@ -103,6 +107,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y2: computed.height - computed.margin_bottom,
                         stroke: "#ccc".to_string(),
                         stroke_width: 1.0,
+                        stroke_dasharray: None,
                     });
                 }
             }
@@ -134,6 +139,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: computed.height - computed.margin_bottom + 5.0,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
         }
 
@@ -153,6 +159,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: y,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
 
             // Y tick labels
@@ -193,6 +200,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: computed.height - computed.margin_bottom + 5.0,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
 
             // X tick labels
@@ -221,6 +229,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y2: computed.height - computed.margin_bottom,
                         stroke: "#ccc".to_string(),
                         stroke_width: 1.0,
+                        stroke_dasharray: None,
                     });
                 }
             }
@@ -244,6 +253,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 y2: y,
                 stroke: "black".into(),
                 stroke_width: 1.0,
+                stroke_dasharray: None,
             });
 
             // Y tick labels
@@ -271,6 +281,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y2: y,
                         stroke: "#ccc".to_string(),
                         stroke_width: 1.0,
+                        stroke_dasharray: None,
                     });
                 }
             }

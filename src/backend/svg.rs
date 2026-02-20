@@ -47,10 +47,14 @@ impl SvgBackend {
                         r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{transform}>{content}</text>"#
                     ));
                 }
-                Primitive::Line { x1, y1, x2, y2, stroke, stroke_width } => {
+                Primitive::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_dasharray } => {
                     svg.push_str(&format!(
-                        r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{stroke_width}" />"#,
+                        r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{stroke_width}""#,
                     ));
+                    if let Some(dash) = stroke_dasharray {
+                        svg.push_str(&format!(r#" stroke-dasharray="{dash}""#));
+                    }
+                    svg.push_str(" />");
                 }
                 Primitive::Path { d, fill, stroke, stroke_width } => {
                     svg.push_str(&format!(

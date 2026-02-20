@@ -1,5 +1,6 @@
 use crate::render::render_utils;
 use crate::render::plots::Plot;
+use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 use crate::plot::legend::LegendPosition;
 
 /// Defines the layout of the plot
@@ -21,6 +22,9 @@ pub struct Layout {
     pub legend_width: f64,
     pub log_x: bool,
     pub log_y: bool,
+    pub annotations: Vec<TextAnnotation>,
+    pub reference_lines: Vec<ReferenceLine>,
+    pub shaded_regions: Vec<ShadedRegion>,
 }
 
 impl Layout {
@@ -43,6 +47,9 @@ impl Layout {
             legend_width: 120.0,
             log_x: false,
             log_y: false,
+            annotations: Vec::new(),
+            reference_lines: Vec::new(),
+            shaded_regions: Vec::new(),
         }
     }
 
@@ -222,6 +229,21 @@ impl Layout {
     pub fn with_log_scale(mut self) -> Self {
         self.log_x = true;
         self.log_y = true;
+        self
+    }
+
+    pub fn with_annotation(mut self, annotation: TextAnnotation) -> Self {
+        self.annotations.push(annotation);
+        self
+    }
+
+    pub fn with_reference_line(mut self, line: ReferenceLine) -> Self {
+        self.reference_lines.push(line);
+        self
+    }
+
+    pub fn with_shaded_region(mut self, region: ShadedRegion) -> Self {
+        self.shaded_regions.push(region);
         self
     }
 }
