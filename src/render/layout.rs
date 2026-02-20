@@ -19,6 +19,8 @@ pub struct Layout {
     pub show_colorbar: bool,
     pub legend_position: LegendPosition,
     pub legend_width: f64,
+    pub log_x: bool,
+    pub log_y: bool,
 }
 
 impl Layout {
@@ -39,6 +41,8 @@ impl Layout {
             show_colorbar: false,
             legend_position: LegendPosition::TopRight,
             legend_width: 120.0,
+            log_x: false,
+            log_y: false,
         }
     }
 
@@ -204,6 +208,22 @@ impl Layout {
         self.legend_position = pos;
         self
     }
+
+    pub fn with_log_x(mut self) -> Self {
+        self.log_x = true;
+        self
+    }
+
+    pub fn with_log_y(mut self) -> Self {
+        self.log_y = true;
+        self
+    }
+
+    pub fn with_log_scale(mut self) -> Self {
+        self.log_x = true;
+        self.log_y = true;
+        self
+    }
 }
 
 
@@ -220,6 +240,8 @@ pub struct ComputedLayout {
     pub ticks: usize,
     pub legend_position: LegendPosition,
     pub legend_width: f64,
+    pub log_x: bool,
+    pub log_y: bool,
 }
 
 impl ComputedLayout {
@@ -247,8 +269,16 @@ impl ComputedLayout {
         let x_ticks = render_utils::auto_tick_count(width);
         let y_ticks = render_utils::auto_tick_count(height);
 
-        let (x_min, x_max) = render_utils::auto_nice_range(layout.x_range.0, layout.x_range.1, x_ticks);
-        let (y_min, y_max) = render_utils::auto_nice_range(layout.y_range.0, layout.y_range.1, y_ticks);
+        let (x_min, x_max) = if layout.log_x {
+            render_utils::auto_nice_range_log(layout.x_range.0, layout.x_range.1)
+        } else {
+            render_utils::auto_nice_range(layout.x_range.0, layout.x_range.1, x_ticks)
+        };
+        let (y_min, y_max) = if layout.log_y {
+            render_utils::auto_nice_range_log(layout.y_range.0, layout.y_range.1)
+        } else {
+            render_utils::auto_nice_range(layout.y_range.0, layout.y_range.1, y_ticks)
+        };
 
         Self {
             width,
@@ -262,6 +292,8 @@ impl ComputedLayout {
             ticks: layout.ticks,
             legend_position: layout.legend_position,
             legend_width: layout.legend_width,
+            log_x: layout.log_x,
+            log_y: layout.log_y,
         }
     }
 
@@ -274,10 +306,24 @@ impl ComputedLayout {
     }
 
     pub fn map_x(&self, x: f64) -> f64 {
-        self.margin_left + (x - self.x_range.0) / (self.x_range.1 - self.x_range.0) * self.plot_width()
+        if self.log_x {
+            let x = x.max(1e-10);
+            let log_min = self.x_range.0.log10();
+            let log_max = self.x_range.1.log10();
+            self.margin_left + (x.log10() - log_min) / (log_max - log_min) * self.plot_width()
+        } else {
+            self.margin_left + (x - self.x_range.0) / (self.x_range.1 - self.x_range.0) * self.plot_width()
+        }
     }
 
     pub fn map_y(&self, y: f64) -> f64 {
-        self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
+        if self.log_y {
+            let y = y.max(1e-10);
+            let log_min = self.y_range.0.log10();
+            let log_max = self.y_range.1.log10();
+            self.height - self.margin_bottom - (y.log10() - log_min) / (log_max - log_min) * self.plot_height()
+        } else {
+            self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
+        }
     }
 }

@@ -58,11 +58,15 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             });
         }
         // x axis
-        let x_ticks = render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks);
+        let x_ticks = if layout.log_x {
+            render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
+        } else {
+            render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks)
+        };
         for (i, tx) in x_ticks.iter().enumerate() {
-            
+
             let x = map_x(*tx);
-            
+
             // X ticks
             scene.add(Primitive::Line {
                 x1: x,
@@ -72,17 +76,22 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 stroke: "black".into(),
                 stroke_width: 1.0,
             });
-            
+
             // X tick labels
+            let label = if layout.log_x {
+                render_utils::format_log_tick(*tx)
+            } else {
+                format!("{:.1}", tx)
+            };
             scene.add(Primitive::Text {
                 x,
                 y: computed.height - computed.margin_bottom + 15.0,
-                content: format!("{:.1}", tx),
+                content: label,
                 size: 10,
                 anchor: TextAnchor::Middle,
                 rotate: None,
             });
-            
+
             // Grid lines
             if layout.show_grid {
                 if i != 0 {
@@ -128,13 +137,13 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             });
         }
 
-        let y_ticks = render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks);
+        let y_ticks = if layout.log_y {
+            render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
+        } else {
+            render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks)
+        };
 
         for ty in y_ticks {
-            // let tx = computed.x_range.0 + (i as f64) * (computed.x_range.1 - computed.x_range.0) / computed.ticks as f64;
-            // let ty = computed.y_range.0 + (i as f64) * (computed.y_range.1 - computed.y_range.0) / computed.ticks as f64;
-            // let ty: f64 = i;
-            // let x = map_x(tx);
             let y = map_y(ty);
             // Y ticks
             scene.add(Primitive::Line {
@@ -147,10 +156,15 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             });
 
             // Y tick labels
+            let label = if layout.log_y {
+                render_utils::format_log_tick(ty)
+            } else {
+                format!("{:.1}", ty)
+            };
             scene.add(Primitive::Text {
                 x: computed.margin_left - 15.0,
                 y,
-                content: format!("{:.1}", ty),
+                content: label,
                 size: 10,
                 anchor: TextAnchor::Middle,
                 rotate: None,
@@ -162,11 +176,15 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         // Draw value ticks and labels
 
         // x axis
-        let x_ticks = render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks);
+        let x_ticks = if layout.log_x {
+            render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
+        } else {
+            render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks)
+        };
         for (i, tx) in x_ticks.iter().enumerate() {
-            
+
             let x = map_x(*tx);
-            
+
             // X ticks
             scene.add(Primitive::Line {
                 x1: x,
@@ -176,17 +194,22 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 stroke: "black".into(),
                 stroke_width: 1.0,
             });
-            
+
             // X tick labels
+            let label = if layout.log_x {
+                render_utils::format_log_tick(*tx)
+            } else {
+                format!("{:.1}", tx)
+            };
             scene.add(Primitive::Text {
                 x,
                 y: computed.height - computed.margin_bottom + 15.0,
-                content: format!("{:.1}", tx),
+                content: label,
                 size: 10,
                 anchor: TextAnchor::Middle,
                 rotate: None,
             });
-            
+
             // Grid lines
             if layout.show_grid {
                 if i != 0 {
@@ -204,7 +227,11 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         }
 
         // y axis
-        let y_ticks = render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks);
+        let y_ticks = if layout.log_y {
+            render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
+        } else {
+            render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks)
+        };
         for (i, ty) in y_ticks.iter().enumerate() {
 
             let y = map_y(*ty);
@@ -220,10 +247,15 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             });
 
             // Y tick labels
+            let label = if layout.log_y {
+                render_utils::format_log_tick(*ty)
+            } else {
+                format!("{:.1}", ty)
+            };
             scene.add(Primitive::Text {
                 x: computed.margin_left - 15.0,
                 y,
-                content: format!("{:.1}", ty),
+                content: label,
                 size: 10,
                 anchor: TextAnchor::Middle,
                 rotate: None,

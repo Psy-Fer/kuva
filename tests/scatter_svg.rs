@@ -133,3 +133,40 @@ fn test_scatter_trend_error_svg() {
     assert!(svg.contains("<circle"));
 
 }
+
+
+#[test]
+fn test_scatter_log_scale() {
+    // Data spanning several orders of magnitude
+    let data: Vec<(f64, f64)> = vec![
+        (1.0, 0.001),
+        (5.0, 0.01),
+        (10.0, 0.1),
+        (50.0, 1.0),
+        (100.0, 10.0),
+        (500.0, 100.0),
+        (1000.0, 1000.0),
+        (5000.0, 5000.0),
+        (10000.0, 10000.0),
+    ];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("teal")
+        .with_size(5.0);
+
+    let plot = vec![Plot::Scatter(scatter)];
+
+    let layout = Layout::auto_from_plots(&plot)
+        .with_log_scale()
+        .with_title("Log-Scale Scatter")
+        .with_x_label("X (log)")
+        .with_y_label("Y (log)");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_log.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+}

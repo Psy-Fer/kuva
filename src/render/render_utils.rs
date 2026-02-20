@@ -63,6 +63,92 @@ pub fn auto_nice_range(data_min: f64, data_max: f64, target_ticks: usize) -> (f6
     (nice_min, nice_max)
 }
 
+/// Compute a nice log-scale range that fully includes the data
+pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
+    let clamped_min = if data_min <= 0.0 {
+        eprintln!("warning: log scale data_min ({}) <= 0, clamping to 1e-10", data_min);
+        1e-10
+    } else {
+        data_min
+    };
+    let clamped_max = if data_max <= 0.0 {
+        eprintln!("warning: log scale data_max ({}) <= 0, clamping to 1.0", data_max);
+        1.0
+    } else {
+        data_max
+    };
+
+    let nice_min = prev_log_tick(clamped_min);
+    let nice_max = next_log_tick(clamped_max);
+    (nice_min, nice_max)
+}
+
+/// Find the next 1-2-5 tick strictly above a value
+fn next_log_tick(value: f64) -> f64 {
+    let decade = value.log10().floor() as i32;
+    let base = 10f64.powi(decade);
+    let mult = value / base;
+
+    if mult < 1.0 - 1e-8 { base }
+    else if mult < 2.0 - 1e-8 { base * 2.0 }
+    else if mult < 5.0 - 1e-8 { base * 5.0 }
+    else { base * 10.0 }
+}
+
+/// Find the previous 1-2-5 tick strictly below a value
+fn prev_log_tick(value: f64) -> f64 {
+    let decade = value.log10().floor() as i32;
+    let base = 10f64.powi(decade);
+    let mult = value / base;
+
+    if mult > 5.0 + 1e-8 { base * 5.0 }
+    else if mult > 2.0 + 1e-8 { base * 2.0 }
+    else if mult > 1.0 + 1e-8 { base }
+    else { base * 0.5 }
+}
+
+/// Generate tick marks for a log-scale axis
+/// Major ticks at powers of 10, minor ticks at 2x and 5x each decade
+pub fn generate_ticks_log(min: f64, max: f64) -> Vec<f64> {
+    let log_min = min.max(1e-10).log10().floor() as i32;
+    let log_max = max.log10().ceil() as i32;
+
+    let mut ticks = Vec::new();
+    for exp in log_min..=log_max {
+        let base = 10f64.powi(exp);
+        for &mult in &[1.0, 2.0, 5.0] {
+            let tick = base * mult;
+            if tick >= min * (1.0 - 1e-8) && tick <= max * (1.0 + 1e-8) {
+                ticks.push(tick);
+            }
+        }
+    }
+    ticks
+}
+
+/// Format a tick value for display on a log-scale axis
+pub fn format_log_tick(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let log_val = value.abs().log10();
+    // Check if it's an exact power of 10
+    if (log_val - log_val.round()).abs() < 1e-8 {
+        let exp = log_val.round() as i32;
+        if exp >= 0 && exp <= 6 {
+            format!("{}", 10f64.powi(exp) as u64)
+        } else {
+            format!("1e{}", exp)
+        }
+    } else if value >= 1.0 {
+        format!("{:.0}", value)
+    } else {
+        // For small values, use enough precision
+        let digits = (-log_val.floor() as i32 + 1).max(1) as usize;
+        format!("{:.*}", digits, value)
+    }
+}
+
 // TODO: move helper
 pub fn percentile(sorted: &[f64], p: f64) -> f64 {
     let rank = p / 100.0 * (sorted.len() - 1) as f64;
