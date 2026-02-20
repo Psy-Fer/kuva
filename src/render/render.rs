@@ -304,7 +304,6 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
         .map(|(i, &y)| (computed.map_x(i as f64), computed.map_y(y)))
         .collect();
 
-    // TODO: abstract the path/circle builders
     match series.style {
         SeriesStyle::Line => {
             if points.len() >= 2 {
