@@ -1,4 +1,4 @@
-use crate::render::render_utils::{percentile, simple_kde, linear_regression, pearson_corr};
+use crate::render::render_utils::{self, percentile, simple_kde, linear_regression, pearson_corr};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
@@ -11,7 +11,7 @@ use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot,
 
 
 use crate::plot::Legend;
-use crate::plot::legend::{LegendEntry, LegendShape};
+use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendPosition, LegendShape};
 
 // TODO: make setters/builders for these primitives
 #[derive(Debug)]
@@ -787,14 +787,27 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
-    // TODO: make this the length of the text
-    let legend_width = 110.0;
+    let legend_width = computed.legend_width;
     let legend_padding = 10.0;
-    let legend_x = computed.width - computed.margin_right + 10.0;
-    let mut legend_y = computed.margin_top;
     let line_height = 18.0;
-
     let legend_height = legend.entries.len() as f64 * line_height + legend_padding * 2.0;
+
+    let (legend_x, mut legend_y) = match computed.legend_position {
+        LegendPosition::TopRight => {
+            (computed.width - computed.margin_right + 10.0, computed.margin_top)
+        }
+        LegendPosition::BottomRight => {
+            (computed.width - computed.margin_right + 10.0,
+             computed.height - computed.margin_bottom - legend_height)
+        }
+        LegendPosition::TopLeft => {
+            (legend_padding, computed.margin_top)
+        }
+        LegendPosition::BottomLeft => {
+            (legend_padding,
+             computed.height - computed.margin_bottom - legend_height)
+        }
+    };
 
     scene.add(Primitive::Rect {
         x: legend_x - legend_padding + 5.0,
@@ -806,9 +819,9 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         stroke_width: None,
         opacity: None,
     });
-    
+
     scene.add(Primitive::Rect {
-        x: legend_x - legend_padding +5.0,
+        x: legend_x - legend_padding + 5.0,
         y: legend_y - legend_padding,
         width: legend_width,
         height: legend_height,
@@ -849,7 +862,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
                 stroke_width: 2.0,
             }),
             LegendShape::Circle => scene.add(Primitive::Circle {
-                cx: legend_x +5.0 + 6.0,
+                cx: legend_x + 5.0 + 6.0,
                 cy: legend_y + 1.0,
                 r: 5.0,
                 fill: entry.color.clone(),
@@ -857,6 +870,90 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         }
 
         legend_y += line_height;
+    }
+}
+
+fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayout) {
+    let bar_width = 20.0;
+    let bar_height = computed.plot_height() * 0.8;
+    let bar_x = computed.width - 70.0; // rightmost area
+    let bar_y = computed.margin_top + computed.plot_height() * 0.1; // vertically centered
+
+    let num_slices = 50;
+    let slice_height = bar_height / num_slices as f64;
+
+    // Draw stacked rects (top = high value, bottom = low value)
+    for i in 0..num_slices {
+        let t = 1.0 - (i as f64 / (num_slices - 1) as f64); // top is high
+        let value = info.min_value + t * (info.max_value - info.min_value);
+        let color = (info.map_fn)(value);
+        let y = bar_y + i as f64 * slice_height;
+
+        scene.add(Primitive::Rect {
+            x: bar_x,
+            y,
+            width: bar_width,
+            height: slice_height + 0.5, // slight overlap to prevent gaps
+            fill: color,
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+
+    // Black border around the bar
+    scene.add(Primitive::Rect {
+        x: bar_x,
+        y: bar_y,
+        width: bar_width,
+        height: bar_height,
+        fill: "none".into(),
+        stroke: Some("black".into()),
+        stroke_width: Some(1.0),
+        opacity: None,
+    });
+
+    // Tick marks and labels
+    let ticks = render_utils::generate_ticks(info.min_value, info.max_value, 5);
+    let range = info.max_value - info.min_value;
+    for tick in &ticks {
+        if *tick < info.min_value || *tick > info.max_value {
+            continue;
+        }
+        let frac = (tick - info.min_value) / range;
+        let y = bar_y + bar_height - frac * bar_height; // invert: high values at top
+
+        // tick mark
+        scene.add(Primitive::Line {
+            x1: bar_x + bar_width,
+            y1: y,
+            x2: bar_x + bar_width + 4.0,
+            y2: y,
+            stroke: "black".into(),
+            stroke_width: 1.0,
+        });
+
+        // tick label
+        scene.add(Primitive::Text {
+            x: bar_x + bar_width + 6.0,
+            y: y + 4.0,
+            content: format!("{:.1}", tick),
+            size: 10,
+            anchor: TextAnchor::Start,
+            rotate: None,
+        });
+    }
+
+    // Optional label above the bar
+    if let Some(ref label) = info.label {
+        scene.add(Primitive::Text {
+            x: bar_x + bar_width / 2.0,
+            y: bar_y - 6.0,
+            content: label.clone(),
+            size: 11,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+        });
     }
 }
 
@@ -1121,6 +1218,15 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
 
     if layout.show_legend {
         add_legend(&legend, &mut scene, &computed);
+    }
+
+    if layout.show_colorbar {
+        for plot in plots.iter() {
+            if let Some(info) = plot.colorbar_info() {
+                add_colorbar(&info, &mut scene, &computed);
+                break; // one colorbar per figure
+            }
+        }
     }
 
     scene

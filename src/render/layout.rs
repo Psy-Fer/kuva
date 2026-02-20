@@ -1,5 +1,6 @@
 use crate::render::render_utils;
 use crate::render::plots::Plot;
+use crate::plot::legend::LegendPosition;
 
 /// Defines the layout of the plot
 pub struct Layout {
@@ -15,6 +16,9 @@ pub struct Layout {
     pub x_categories: Option<Vec<String>>,
     pub y_categories: Option<Vec<String>>,
     pub show_legend: bool,
+    pub show_colorbar: bool,
+    pub legend_position: LegendPosition,
+    pub legend_width: f64,
 }
 
 impl Layout {
@@ -32,6 +36,9 @@ impl Layout {
             x_categories: None,
             y_categories: None,
             show_legend: false,
+            show_colorbar: false,
+            legend_position: LegendPosition::TopRight,
+            legend_width: 120.0,
         }
     }
 
@@ -52,6 +59,9 @@ impl Layout {
         let mut y_labels = None;
 
         let mut has_legend: bool = false;
+        let mut has_colorbar: bool = false;
+        let mut max_label_len: usize = 0;
+
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
                 x_min = x_min.min(xmin);
@@ -73,33 +83,47 @@ impl Layout {
             if let Plot::Bar(bp) = plot {
                 let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);
-                if bp.legend_label.is_some() {
+                if let Some(ref ll) = bp.legend_label {
                     has_legend = true;
+                    for l in ll {
+                        max_label_len = max_label_len.max(l.len());
+                    }
                 }
             }
 
             if let Plot::Scatter(sp) = plot {
-                if sp.legend_label.is_some() {
+                if let Some(ref label) = sp.legend_label {
                     has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
                 }
             }
 
             if let Plot::Line(lp) = plot {
-                if lp.legend_label.is_some() {
+                if let Some(ref label) = lp.legend_label {
                     has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
                 }
             }
 
             if let Plot::Series(sp) = plot {
-                if sp.legend_label.is_some() {
+                if let Some(ref label) = sp.legend_label {
                     has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
                 }
             }
             if let Plot::Brick(bp) = plot {
                 let labels = bp.names.iter().map(|g| g.clone()).collect::<Vec<_>>();
                 y_labels = Some(labels);
                 has_legend = true;
+                if let Some(ref motifs) = bp.motifs {
+                    for (_k, v) in motifs {
+                        max_label_len = max_label_len.max(v.len());
+                    }
+                }
+            }
 
+            if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) {
+                has_colorbar = true;
             }
         }
 
@@ -111,12 +135,16 @@ impl Layout {
         if let Some(labels) = y_labels {
             layout = layout.with_y_categories(labels);
         }
-        
 
         if has_legend {
             layout = layout.with_show_legend();
+            let dynamic_width = max_label_len as f64 * 7.0 + 35.0;
+            layout.legend_width = dynamic_width.max(80.0);
         }
 
+        if has_colorbar {
+            layout.show_colorbar = true;
+        }
 
         layout
     }
@@ -171,6 +199,11 @@ impl Layout {
         self.show_legend = true;
         self
     }
+
+    pub fn with_legend_position(mut self, pos: LegendPosition) -> Self {
+        self.legend_position = pos;
+        self
+    }
 }
 
 
@@ -185,6 +218,8 @@ pub struct ComputedLayout {
     pub x_range: (f64, f64),
     pub y_range: (f64, f64),
     pub ticks: usize,
+    pub legend_position: LegendPosition,
+    pub legend_width: f64,
 }
 
 impl ComputedLayout {
@@ -196,9 +231,12 @@ impl ComputedLayout {
         let margin_bottom = font_size * 2.0 + tick_space;
         let margin_left = font_size * 2.0 + tick_space;
         let mut margin_right = font_size;
-        
+
         if layout.show_legend {
-            margin_right += 120.0;
+            margin_right += layout.legend_width;
+        }
+        if layout.show_colorbar {
+            margin_right += 85.0; // 20px bar + 50px labels + 15px gap
         }
         let plot_width = 400.0;
         let plot_height = 300.0;
@@ -222,6 +260,8 @@ impl ComputedLayout {
             x_range: (x_min, x_max),
             y_range: (y_min, y_max),
             ticks: layout.ticks,
+            legend_position: layout.legend_position,
+            legend_width: layout.legend_width,
         }
     }
 

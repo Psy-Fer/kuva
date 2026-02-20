@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
@@ -7,6 +9,7 @@ use crate::plot::violin::ViolinPlot;
 use crate::plot::brick::BrickPlot;
 
 use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
+use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
 
@@ -247,6 +250,40 @@ impl Plot {
 
                 Some(((0.0 - bp.x_offset, max_width - bp.x_offset), (0.0, rows as f64)))
             }
+        }
+    }
+
+    pub fn colorbar_info(&self) -> Option<ColorBarInfo> {
+        match self {
+            Plot::Heatmap(hm) => {
+                let flat: Vec<f64> = hm.data.iter().flatten().cloned().collect();
+                let min = flat.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max = flat.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let cmap = hm.color_map.clone();
+                Some(ColorBarInfo {
+                    map_fn: Arc::new(move |t| {
+                        let norm = (t - min) / (max - min + f64::EPSILON);
+                        cmap.map(norm.clamp(0.0, 1.0))
+                    }),
+                    min_value: min,
+                    max_value: max,
+                    label: None,
+                })
+            }
+            Plot::Histogram2d(h2d) => {
+                let max_count = h2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
+                let cmap = h2d.color_map.clone();
+                Some(ColorBarInfo {
+                    map_fn: Arc::new(move |t| {
+                        let norm = t / max_count;
+                        cmap.map(norm.clamp(0.0, 1.0))
+                    }),
+                    min_value: 0.0,
+                    max_value: max_count,
+                    label: Some("Count".to_string()),
+                })
+            }
+            _ => None,
         }
     }
 }

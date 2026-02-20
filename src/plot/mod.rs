@@ -26,4 +26,4 @@ pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
 pub use brick::BrickPlot;
 
-pub use legend::Legend;
+pub use legend::{Legend, LegendPosition};
