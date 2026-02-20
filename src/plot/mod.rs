@@ -22,7 +22,7 @@ pub use histogram::Histogram;
 pub use histogram2d::Histogram2D;
 pub use boxplot::{BoxPlot, BoxGroup};
 pub use violin::{ViolinPlot, ViolinGroup};
-pub use pie::{PiePlot, PieSlice};
+pub use pie::{PiePlot, PieSlice, PieLabelPosition};
 pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
 pub use brick::BrickPlot;

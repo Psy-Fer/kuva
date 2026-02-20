@@ -161,12 +161,12 @@ impl ScatterPlot {
         self
     }
 
-    pub fn show_equation(mut self) -> Self {
+    pub fn with_equation(mut self) -> Self {
         self.show_equation = true;
         self
     }
 
-    pub fn show_correlation(mut self) -> Self {
+    pub fn with_correlation(mut self) -> Self {
         self.show_correlation = true;
         self
     }

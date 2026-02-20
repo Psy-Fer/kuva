@@ -77,9 +77,9 @@ fn test_scatter_trend_svg() {
         .with_data(data)
         .with_color("blue")
         .with_trend(TrendLine::Linear)
-        .show_equation()
-        .show_correlation();
-        
+        .with_equation()
+        .with_correlation();
+
 
     let plot = vec![Plot::Scatter(scatter)];
 
@@ -113,8 +113,8 @@ fn test_scatter_trend_error_svg() {
         .with_y_err_asymmetric(y_err)
         .with_color("red")
         .with_trend(TrendLine::Linear)
-        .show_equation()
-        .show_correlation();
+        .with_equation()
+        .with_correlation();
 
     let plot = vec![Plot::Scatter(scatter)];
 

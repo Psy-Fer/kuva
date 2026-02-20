@@ -17,7 +17,7 @@ fn test_heatmap_colorbar_values() {
 
     let heatmap = Heatmap::new()
                         .with_data(data)
-                        .show_values()
+                        .with_values()
                         // .with_color_map(ColorMap::Grayscale);
                         .with_color_map(ColorMap::Viridis);
                         // .with_color_map(ColorMap::Inferno);

@@ -1,11 +1,22 @@
 
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PieLabelPosition {
+    Inside,   // labels centered between inner/outer radius
+    Outside,  // labels outside with leader lines
+    Auto,     // inside for large slices, outside for small ones
+    None,     // no slice labels
+}
+
 /// The full pie
 #[derive(Debug, Clone)]
 pub struct PiePlot {
     pub slices: Vec<PieSlice>,
     pub inner_radius: f64, // 0.0 = full pie, >0.0 = donut
     pub legend_label: Option<String>,
+    pub label_position: PieLabelPosition,
+    pub show_percent: bool,
+    pub min_label_fraction: f64,
 }
 
 /// each slice of the pie
@@ -16,17 +27,15 @@ pub struct PieSlice {
     pub color: String,
 }
 
-/// TODO: add a builder method to move labels in or out of pie
-/// TODO: move the title into the middle of the donut
-/// TODO: when the slice gets really small, push label to a legend
-/// TODO: Add % to the labels
-/// TODO: add background colours to the labels
 impl PiePlot {
     pub fn new() -> Self {
         Self {
             slices: vec![],
             inner_radius: 0.0,
             legend_label: None,
+            label_position: PieLabelPosition::Auto,
+            show_percent: false,
+            min_label_fraction: 0.05,
         }
     }
 
@@ -51,6 +60,21 @@ impl PiePlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_label_position(mut self, pos: PieLabelPosition) -> Self {
+        self.label_position = pos;
+        self
+    }
+
+    pub fn with_percent(mut self) -> Self {
+        self.show_percent = true;
+        self
+    }
+
+    pub fn with_min_label_fraction(mut self, fraction: f64) -> Self {
+        self.min_label_fraction = fraction;
         self
     }
 }

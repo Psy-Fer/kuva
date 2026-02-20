@@ -24,7 +24,7 @@ fn test_histogram2d_svg_output_builder() {
     let hist2d = Histogram2D::new()
         .with_data(data, (0.0, 30.0), (0.0, 30.0), 30, 30)
         .with_color_map(ColorMap::Inferno)
-        .show_correlation();
+        .with_correlation();
 
     let plots = vec![Plot::Histogram2d(hist2d.clone())];
 

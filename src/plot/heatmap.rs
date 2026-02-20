@@ -91,7 +91,7 @@ impl Heatmap {
         self
     }
 
-    pub fn show_values(mut self) -> Self {
+    pub fn with_values(mut self) -> Self {
         self.show_values = true;
         self
     }

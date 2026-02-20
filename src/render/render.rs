@@ -10,6 +10,7 @@ use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::band::BandPlot;
 use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
+use crate::plot::pie::PieLabelPosition;
 
 
 use crate::plot::Legend;
@@ -631,13 +632,24 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     let cy = computed.height / 2.0;
     let radius = computed.plot_width().min(computed.plot_height()) / 2.0 - 10.0;
     let inner_radius = pie.inner_radius;
-    let label_radius = (radius + inner_radius) / 2.0;
-    // let label_radius = radius * 1.15;
+    let inside_label_radius = (radius + inner_radius) / 2.0;
 
     let total: f64 = pie.slices.iter().map(|s| s.value).sum();
     let mut angle = 0.0;
 
-    // slice maths in radians - IN REAL LIFE!!! - my school teachers would be proud
+    // Collect outside labels for anti-overlap pass
+    struct OutsideLabel {
+        x: f64,
+        y: f64,
+        content: String,
+        anchor: TextAnchor,
+        leader_x1: f64,
+        leader_y1: f64,
+        leader_x2: f64,
+        leader_y2: f64,
+    }
+    let mut outside_labels: Vec<OutsideLabel> = Vec::new();
+
     for slice in &pie.slices {
         let frac = slice.value / total;
         let sweep = frac * std::f64::consts::TAU;
@@ -675,22 +687,94 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             opacity: None,
         });
 
-        // SLICE LABEL
+        // Build label text
+        let label_text = if pie.show_percent {
+            let pct = frac * 100.0;
+            if slice.label.is_empty() {
+                format!("{:.1}%", pct)
+            } else {
+                format!("{} ({:.1}%)", slice.label, pct)
+            }
+        } else {
+            slice.label.clone()
+        };
+
+        // Determine placement
+        let place_inside = match pie.label_position {
+            PieLabelPosition::None => { angle = end_angle; continue; }
+            PieLabelPosition::Inside => true,
+            PieLabelPosition::Outside => false,
+            PieLabelPosition::Auto => frac >= pie.min_label_fraction,
+        };
+
         let mid_angle = angle + sweep / 2.0;
-        let label_x = cx + label_radius * mid_angle.cos();
-        let label_y = cy + label_radius * mid_angle.sin();
 
-        scene.add(Primitive::Text {
-            x: label_x,
-            y: label_y,
-            content: slice.label.clone(),
-            size: 12,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-        });
+        if place_inside {
+            let label_x = cx + inside_label_radius * mid_angle.cos();
+            let label_y = cy + inside_label_radius * mid_angle.sin();
+            scene.add(Primitive::Text {
+                x: label_x,
+                y: label_y,
+                content: label_text,
+                size: 12,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+            });
+        } else {
+            // Outside label with leader line
+            let leader_x1 = cx + (radius + 5.0) * mid_angle.cos();
+            let leader_y1 = cy + (radius + 5.0) * mid_angle.sin();
+            let leader_x2 = cx + (radius + 20.0) * mid_angle.cos();
+            let leader_y2 = cy + (radius + 20.0) * mid_angle.sin();
+            let label_x = cx + (radius + 25.0) * mid_angle.cos();
+            let label_y = cy + (radius + 25.0) * mid_angle.sin();
+            let anchor = if mid_angle.cos() >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
 
+            outside_labels.push(OutsideLabel {
+                x: label_x,
+                y: label_y,
+                content: label_text,
+                anchor,
+                leader_x1,
+                leader_y1,
+                leader_x2,
+                leader_y2,
+            });
+        }
 
         angle = end_angle;
+    }
+
+    // Anti-overlap pass for outside labels: sort by y, nudge adjacent labels apart
+    outside_labels.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+    let min_gap = 14.0;
+    for i in 1..outside_labels.len() {
+        let prev_y = outside_labels[i - 1].y;
+        let curr_y = outside_labels[i].y;
+        if curr_y - prev_y < min_gap {
+            outside_labels[i].y = prev_y + min_gap;
+        }
+    }
+
+    // Render outside labels and leader lines
+    for label in &outside_labels {
+        scene.add(Primitive::Line {
+            x1: label.leader_x1,
+            y1: label.leader_y1,
+            x2: label.leader_x2,
+            y2: label.leader_y2,
+            stroke: "#666".into(),
+            stroke_width: 1.0,
+            stroke_dasharray: None,
+        });
+        scene.add(Primitive::Text {
+            x: label.x,
+            y: label.y,
+            content: label.content.clone(),
+            size: 12,
+            anchor: match label.anchor { TextAnchor::Start => TextAnchor::Start, TextAnchor::End => TextAnchor::End, TextAnchor::Middle => TextAnchor::Middle },
+            rotate: None,
+        });
     }
 }
 
@@ -1317,15 +1401,25 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 }
             }
             Plot::Pie(pie) => {
-                if let Some(label) = &pie.legend_label {
-                    let color = pie.slices.first()
-                        .map(|s| s.color.clone())
-                        .unwrap_or_else(|| "gray".into());
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color,
-                        shape: LegendShape::Rect,
-                    });
+                if pie.legend_label.is_some() {
+                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+                    for slice in &pie.slices {
+                        let label = if pie.show_percent {
+                            let pct = slice.value / total * 100.0;
+                            if slice.label.is_empty() {
+                                format!("{:.1}%", pct)
+                            } else {
+                                format!("{} ({:.1}%)", slice.label, pct)
+                            }
+                        } else {
+                            slice.label.clone()
+                        };
+                        legend.entries.push(LegendEntry {
+                            label,
+                            color: slice.color.clone(),
+                            shape: LegendShape::Rect,
+                        });
+                    }
                 }
             }
             _ => {}

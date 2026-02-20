@@ -112,7 +112,7 @@ impl Histogram2D {
         self
     }
 
-    pub fn show_correlation(mut self) -> Self {
+    pub fn with_correlation(mut self) -> Self {
         self.show_correlation = true;
         self
     }
