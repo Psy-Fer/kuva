@@ -628,9 +628,17 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
-    let cx = computed.width / 2.0;
-    let cy = computed.height / 2.0;
-    let radius = computed.plot_width().min(computed.plot_height()) / 2.0 - 10.0;
+    // Center pie in the plot area, not the full canvas
+    let cx = computed.margin_left + computed.plot_width() / 2.0;
+    let cy = computed.margin_top + computed.plot_height() / 2.0;
+
+    // Reduce radius when outside labels need space
+    let has_outside = match pie.label_position {
+        PieLabelPosition::Outside | PieLabelPosition::Auto => true,
+        _ => false,
+    };
+    let label_margin = if has_outside { 40.0 } else { 10.0 };
+    let radius = computed.plot_width().min(computed.plot_height()) / 2.0 - label_margin;
     let inner_radius = pie.inner_radius;
     let inside_label_radius = (radius + inner_radius) / 2.0;
 
@@ -639,14 +647,16 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // Collect outside labels for anti-overlap pass
     struct OutsideLabel {
-        x: f64,
-        y: f64,
         content: String,
-        anchor: TextAnchor,
-        leader_x1: f64,
-        leader_y1: f64,
-        leader_x2: f64,
-        leader_y2: f64,
+        right_side: bool,
+        // Fixed: radial segment from edge to elbow
+        edge_x: f64,
+        edge_y: f64,
+        elbow_x: f64,
+        elbow_y: f64,
+        // Text position (y will be nudged)
+        text_x: f64,
+        text_y: f64,
     }
     let mut outside_labels: Vec<OutsideLabel> = Vec::new();
 
@@ -721,58 +731,72 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 rotate: None,
             });
         } else {
-            // Outside label with leader line
-            let leader_x1 = cx + (radius + 5.0) * mid_angle.cos();
-            let leader_y1 = cy + (radius + 5.0) * mid_angle.sin();
-            let leader_x2 = cx + (radius + 20.0) * mid_angle.cos();
-            let leader_y2 = cy + (radius + 20.0) * mid_angle.sin();
-            let label_x = cx + (radius + 25.0) * mid_angle.cos();
-            let label_y = cy + (radius + 25.0) * mid_angle.sin();
-            let anchor = if mid_angle.cos() >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
+            let right_side = mid_angle.cos() >= 0.0;
+            let edge_x = cx + (radius + 5.0) * mid_angle.cos();
+            let edge_y = cy + (radius + 5.0) * mid_angle.sin();
+            let elbow_x = cx + (radius + 20.0) * mid_angle.cos();
+            let elbow_y = cy + (radius + 20.0) * mid_angle.sin();
+            // Text extends horizontally from the elbow
+            let text_x = if right_side { cx + radius + 30.0 } else { cx - radius - 30.0 };
+            let text_y = elbow_y;
 
             outside_labels.push(OutsideLabel {
-                x: label_x,
-                y: label_y,
                 content: label_text,
-                anchor,
-                leader_x1,
-                leader_y1,
-                leader_x2,
-                leader_y2,
+                right_side,
+                edge_x, edge_y,
+                elbow_x, elbow_y,
+                text_x, text_y,
             });
         }
 
         angle = end_angle;
     }
 
-    // Anti-overlap pass for outside labels: sort by y, nudge adjacent labels apart
-    outside_labels.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+    // Anti-overlap: process right and left sides independently
     let min_gap = 14.0;
-    for i in 1..outside_labels.len() {
-        let prev_y = outside_labels[i - 1].y;
-        let curr_y = outside_labels[i].y;
-        if curr_y - prev_y < min_gap {
-            outside_labels[i].y = prev_y + min_gap;
+    for side in [true, false] {
+        let mut indices: Vec<usize> = outside_labels.iter().enumerate()
+            .filter(|(_, l)| l.right_side == side)
+            .map(|(i, _)| i)
+            .collect();
+        indices.sort_by(|a, b| outside_labels[*a].text_y.partial_cmp(&outside_labels[*b].text_y).unwrap());
+        for j in 1..indices.len() {
+            let prev_y = outside_labels[indices[j - 1]].text_y;
+            if outside_labels[indices[j]].text_y - prev_y < min_gap {
+                outside_labels[indices[j]].text_y = prev_y + min_gap;
+            }
         }
     }
 
-    // Render outside labels and leader lines
+    // Render outside labels with two-segment leader lines
     for label in &outside_labels {
+        // Segment 1: radial line from pie edge to elbow
         scene.add(Primitive::Line {
-            x1: label.leader_x1,
-            y1: label.leader_y1,
-            x2: label.leader_x2,
-            y2: label.leader_y2,
+            x1: label.edge_x,
+            y1: label.edge_y,
+            x2: label.elbow_x,
+            y2: label.elbow_y,
             stroke: "#666".into(),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
+        // Segment 2: connector from elbow to text position (tracks nudged y)
+        scene.add(Primitive::Line {
+            x1: label.elbow_x,
+            y1: label.elbow_y,
+            x2: label.text_x,
+            y2: label.text_y,
+            stroke: "#666".into(),
+            stroke_width: 1.0,
+            stroke_dasharray: None,
+        });
+        let anchor = if label.right_side { TextAnchor::Start } else { TextAnchor::End };
         scene.add(Primitive::Text {
-            x: label.x,
-            y: label.y,
+            x: label.text_x,
+            y: label.text_y,
             content: label.content.clone(),
             size: 12,
-            anchor: match label.anchor { TextAnchor::Start => TextAnchor::Start, TextAnchor::End => TextAnchor::End, TextAnchor::Middle => TextAnchor::Middle },
+            anchor,
             rotate: None,
         });
     }
@@ -1255,7 +1279,10 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
 
-    add_axes_and_grid(&mut scene, &computed, &layout);
+    let all_pies = plots.iter().all(|p| matches!(p, Plot::Pie(_)));
+    if !all_pies {
+        add_axes_and_grid(&mut scene, &computed, &layout);
+    }
     add_labels_and_title(&mut scene, &computed, &layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 

@@ -133,6 +133,22 @@ impl Layout {
                 }
             }
 
+            if let Plot::Pie(pp) = plot {
+                if let Some(ref _label) = pp.legend_label {
+                    has_legend = true;
+                    let total: f64 = pp.slices.iter().map(|s| s.value).sum();
+                    for slice in &pp.slices {
+                        let entry_label = if pp.show_percent {
+                            let pct = slice.value / total * 100.0;
+                            format!("{} ({:.1}%)", slice.label, pct)
+                        } else {
+                            slice.label.clone()
+                        };
+                        max_label_len = max_label_len.max(entry_label.len());
+                    }
+                }
+            }
+
             if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) {
                 has_colorbar = true;
             }
@@ -271,7 +287,7 @@ impl ComputedLayout {
         let font_size = 14.0;
         let tick_space = 20.0;
 
-        let margin_top = if layout.title.is_some() { font_size * 2.0 } else { font_size * 0.5 };
+        let margin_top = if layout.title.is_some() { font_size * 3.0 } else { font_size * 0.5 };
         let margin_bottom = font_size * 2.0 + tick_space;
         let margin_left = font_size * 2.0 + tick_space;
         let mut margin_right = font_size;

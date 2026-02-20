@@ -11,7 +11,7 @@ fn test_pie_basic() {
                     .with_slice("hot sauce", 35.0, "green")
                     .with_slice("cheese", 25.0, "orange")
                     .with_slice("beans", 40.0, "tomato")
-                    .with_inner_radius(80.0);
+                    .with_inner_radius(60.0);
 
 
     let plots = vec![Plot::Pie(pie.clone())];
@@ -63,7 +63,7 @@ fn test_pie_auto_labels() {
         .with_slice("Small", 4.0, "gold")
         .with_slice("Medium", 22.5, "seagreen")
         .with_percent()
-        .with_inner_radius(60.0);
+        .with_inner_radius(50.0);
 
     let plots = vec![Plot::Pie(pie.clone())];
     let layout = Layout::auto_from_plots(&plots)
