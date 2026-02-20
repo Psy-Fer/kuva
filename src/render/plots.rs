@@ -226,10 +226,26 @@ impl Plot {
                 Some(((0.0, cols as f64), (0.0, rows as f64)))
             }
             Plot::Brick(bp) => {
-                let rows = bp.sequences.len();
-                // let cols = bp.sequences.first().map_or(0, |row| row.len());
-                let cols = bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0);
-                Some(((0.0, cols as f64), (0.0, rows as f64)))
+                let rows = if let Some(ref exp) = bp.strigar_exp {
+                    exp.len()
+                } else {
+                    bp.sequences.len()
+                };
+
+                let max_width = if let Some(ref exp) = bp.strigar_exp {
+                    if let Some(ref ml) = bp.motif_lengths {
+                        // Variable-width: sum motif lengths per row
+                        exp.iter().map(|s| {
+                            s.chars().map(|c| *ml.get(&c).unwrap_or(&1) as f64).sum::<f64>()
+                        }).fold(0.0f64, f64::max)
+                    } else {
+                        exp.iter().map(|s| s.len()).max().unwrap_or(0) as f64
+                    }
+                } else {
+                    bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0) as f64
+                };
+
+                Some(((0.0 - bp.x_offset, max_width - bp.x_offset), (0.0, rows as f64)))
             }
         }
     }
