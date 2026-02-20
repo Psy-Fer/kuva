@@ -95,6 +95,19 @@ impl Scene {
     }
 }
 
+/// Build an SVG path string from a sequence of (x, y) screen-coordinate points.
+pub fn build_path(points: &[(f64, f64)]) -> String {
+    let mut path = String::new();
+    for (i, &(x, y)) in points.iter().enumerate() {
+        if i == 0 {
+            path += &format!("M {x} {y} ");
+        } else {
+            path += &format!("L {x} {y} ");
+        }
+    }
+    path
+}
+
 fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
     if band.x.len() < 2 { return; }
     let mut path = String::new();
@@ -274,22 +287,12 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
         add_band(band, scene, computed);
     }
 
-    // Add the line path
-    //TODO: export this function
     if line.data.len() >= 2 {
-        let mut path = String::new();
-        for (i, &coords) in line.data.iter().enumerate() {
-            let sx = computed.map_x(coords.x);
-            let sy = computed.map_y(coords.y);
-            if i == 0 {
-                path += &format!("M {sx} {sy} ");
-            } else {
-                path += &format!("L {sx} {sy} ");
-            }
-        }
-
+        let points: Vec<(f64, f64)> = line.data.iter()
+            .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
+            .collect();
         scene.add(Primitive::Path {
-            d: path,
+            d: build_path(&points),
             fill: None,
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
@@ -307,18 +310,8 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
     match series.style {
         SeriesStyle::Line => {
             if points.len() >= 2 {
-                let mut pathstr = String::new();
-                for (i, &coords) in points.iter().enumerate() {
-                    let sx = coords.0;
-                    let sy = coords.1;
-                    if i == 0 {
-                        pathstr += &format!("M {sx} {sy} ");
-                    } else {
-                        pathstr += &format!("L {sx} {sy} ");
-                    }
-                }
                 scene.add(Primitive::Path {
-                        d: pathstr,
+                        d: build_path(&points),
                         fill: None,
                         stroke: series.color.clone(),
                         stroke_width: series.stroke_width,
@@ -338,18 +331,8 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
         }
         SeriesStyle::Both => {
             if points.len() >= 2 {
-                let mut pathstr = String::new();
-                for (i, &coords) in points.iter().enumerate() {
-                    let sx = coords.0;
-                    let sy = coords.1;
-                    if i == 0 {
-                        pathstr += &format!("M {sx} {sy} ");
-                    } else {
-                        pathstr += &format!("L {sx} {sy} ");
-                    }
-                }
                 scene.add(Primitive::Path {
-                        d: pathstr,
+                        d: build_path(&points),
                         fill: None,
                         stroke: series.color.clone(),
                         stroke_width: series.stroke_width,
