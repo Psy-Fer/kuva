@@ -5,6 +5,7 @@
 pub struct PiePlot {
     pub slices: Vec<PieSlice>,
     pub inner_radius: f64, // 0.0 = full pie, >0.0 = donut
+    pub legend_label: Option<String>,
 }
 
 /// each slice of the pie
@@ -25,13 +26,19 @@ impl PiePlot {
         Self {
             slices: vec![],
             inner_radius: 0.0,
+            legend_label: None,
         }
     }
 
-    pub fn with_slice<L: Into<String>, C: Into<String>>(mut self, label: L, value: f64, color: C) -> Self {
+    pub fn with_slice<L, V, C>(mut self, label: L, value: V, color: C) -> Self
+    where
+        L: Into<String>,
+        V: Into<f64>,
+        C: Into<String>,
+    {
         self.slices.push(PieSlice {
             label: label.into(),
-            value,
+            value: value.into(),
             color: color.into(),
         });
         self
@@ -39,6 +46,11 @@ impl PiePlot {
 
     pub fn with_inner_radius(mut self, r: f64) -> Self {
         self.inner_radius = r;
+        self
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
         self
     }
 }

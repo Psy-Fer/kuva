@@ -7,6 +7,7 @@ pub struct Histogram {
     pub range: Option<(f64, f64)>,
     pub color: String,
     pub normalize: bool,
+    pub legend_label: Option<String>,
 }
 
 impl Histogram {
@@ -17,6 +18,7 @@ impl Histogram {
             range: None,
             color: "black".to_string(),
             normalize: false,
+            legend_label: None,
         }
     }
 
@@ -45,8 +47,13 @@ impl Histogram {
         self
     }
 
-    pub fn normalize(mut self) -> Self {
+    pub fn with_normalize(mut self) -> Self {
         self.normalize = true;
+        self
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
         self
     }
 }

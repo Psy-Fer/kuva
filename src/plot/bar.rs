@@ -80,7 +80,7 @@ impl BarPlot {
         self
     }
 
-    pub fn with_color<T: Into<String>>(mut self, color: T) -> Self {
+    pub fn with_color<S: Into<String>>(mut self, color: S) -> Self {
         let c = color.into();
         for group in &mut self.groups {
             for bar in &mut group.bars {

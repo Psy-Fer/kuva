@@ -46,6 +46,7 @@ pub struct Heatmap {
     pub col_labels: Option<Vec<String>>,
     pub color_map: ColorMap,      // Enum for color scale
     pub show_values: bool,        // Optional value overlay
+    pub legend_label: Option<String>,
 }
 
 
@@ -57,6 +58,7 @@ impl Heatmap {
             col_labels: None,
             color_map: ColorMap::Viridis,
             show_values: false,
+            legend_label: None,
         }
     }
 
@@ -91,6 +93,11 @@ impl Heatmap {
 
     pub fn show_values(mut self) -> Self {
         self.show_values = true;
+        self
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
         self
     }
 }

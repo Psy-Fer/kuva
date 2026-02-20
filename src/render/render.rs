@@ -1298,6 +1298,54 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     })
                 }
             }
+            Plot::Box(boxplot) => {
+                if let Some(label) = &boxplot.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: boxplot.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Violin(violin) => {
+                if let Some(label) = &violin.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: violin.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Histogram(hist) => {
+                if let Some(label) = &hist.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: hist.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Heatmap(heatmap) => {
+                if let Some(label) = &heatmap.legend_label {
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: "gray".into(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Pie(pie) => {
+                if let Some(label) = &pie.legend_label {
+                    let color = pie.slices.first()
+                        .map(|s| s.color.clone())
+                        .unwrap_or_else(|| "gray".into());
+                    legend.entries.push(LegendEntry {
+                        label: label.clone(),
+                        color,
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
             _ => {}
         }
     }

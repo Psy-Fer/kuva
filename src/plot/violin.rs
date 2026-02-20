@@ -4,6 +4,7 @@ pub struct ViolinPlot {
     pub groups: Vec<ViolinGroup>,
     pub color: String,
     pub width: f64,
+    pub legend_label: Option<String>,
 }
 
 pub struct ViolinGroup {
@@ -17,6 +18,7 @@ impl ViolinPlot {
             groups: vec![],
             color: "black".into(),
             width: 30.0,
+            legend_label: None,
         }
     }
 
@@ -33,13 +35,18 @@ impl ViolinPlot {
         self
     }
 
-    pub fn with_color<T: Into<String>>(mut self, color: T) -> Self {
+    pub fn with_color<S: Into<String>>(mut self, color: S) -> Self {
         self.color = color.into();
         self
     }
 
     pub fn with_width(mut self, width: f64) -> Self {
         self.width = width;
+        self
+    }
+
+    pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
+        self.legend_label = Some(label.into());
         self
     }
 }
