@@ -9,6 +9,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 - **SVG output** — clean, scalable vector graphics
 - **Multi-plot support** — overlay multiple plots on shared axes with automatic legends
 - **Auto-layout** — automatic axis scaling, tick generation, and margin computation
+- **Log-scale axes** — logarithmic scaling for data spanning orders of magnitude, with 1-2-5 tick marks
 - **Built-in statistics** — linear regression, KDE, percentiles, Pearson correlation
 
 ## Plot Types
@@ -103,6 +104,34 @@ let layout = Layout::auto_from_plots(&plots)
 let scene = render_multiple(plots, layout);
 ```
 
+## Log-Scale Example
+
+```rust
+use visus::plot::ScatterPlot;
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+use visus::backend::svg::SvgBackend;
+
+let scatter = ScatterPlot::new()
+    .with_data(vec![
+        (1.0, 0.001), (10.0, 0.1), (100.0, 10.0),
+        (1000.0, 1000.0), (10000.0, 10000.0),
+    ])
+    .with_color("teal");
+
+let plots = vec![Plot::Scatter(scatter)];
+
+let layout = Layout::auto_from_plots(&plots)
+    .with_log_scale()          // both axes log, or use .with_log_x() / .with_log_y()
+    .with_title("Log-Scale Scatter")
+    .with_x_label("X (log)")
+    .with_y_label("Y (log)");
+
+let scene = render_multiple(plots, layout);
+let svg = SvgBackend.render_scene(&scene);
+```
+
 ## TODO
 
 ### Plot types
@@ -117,7 +146,7 @@ let scene = render_multiple(plots, layout);
 
 ### Layout & axes
 - [ ] Subplot grid / multi-panel figures (subplots side by side)
-- [ ] Logarithmic axis scales
+- [x] Logarithmic axis scales
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
 - [ ] Custom tick formatting (e.g. percentages, scientific notation)
