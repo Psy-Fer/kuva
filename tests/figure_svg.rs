@@ -273,3 +273,106 @@ fn figure_shared_x_column() {
     assert!(svg.contains("Y1"));
     assert!(svg.contains("Y2"));
 }
+
+#[test]
+fn figure_negative_y_only() {
+    // Y spans negative, X stays positive — y-axis should pad below zero
+    let plots: Vec<Vec<Plot>> = vec![
+        vec![Plot::Scatter(
+            ScatterPlot::new()
+                .with_data(vec![(1.0, -3.0), (3.0, 2.0), (5.0, -7.0), (7.0, 4.0)])
+                .with_color("blue"),
+        )],
+    ];
+
+    let figure = Figure::new(1, 1)
+        .with_plots(plots);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_negative_y.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // x min should be 0 (all positive, clamped)
+    assert!(svg.contains(">0.0<"));
+    // y should go below -7: pad_min(-7.0) = -7 - 1 = -8
+    assert!(svg.contains(">-8.0<"));
+}
+
+#[test]
+fn figure_negative_x_only() {
+    // X spans negative, Y stays positive
+    let plots: Vec<Vec<Plot>> = vec![
+        vec![Plot::Scatter(
+            ScatterPlot::new()
+                .with_data(vec![(-6.0, 1.0), (-2.0, 5.0), (3.0, 3.0), (8.0, 7.0)])
+                .with_color("red"),
+        )],
+    ];
+
+    let figure = Figure::new(1, 1)
+        .with_plots(plots);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_negative_x.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // x min = -6, pad_min(-6) = -7, rounded by auto_nice_range to -8
+    assert!(svg.contains(">-8.0<"));
+    // y min should be 0 (all positive, clamped)
+    assert!(svg.contains(">0.0<"));
+}
+
+#[test]
+fn figure_both_axes_negative() {
+    // Both axes span negative ranges
+    let plots: Vec<Vec<Plot>> = vec![
+        vec![Plot::Line(
+            LinePlot::new()
+                .with_data(vec![(-5.0, -4.0), (-1.0, -8.0), (3.0, -2.0), (6.0, -6.0)])
+                .with_color("green"),
+        )],
+    ];
+
+    let figure = Figure::new(1, 1)
+        .with_plots(plots);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_both_negative.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // x: min=-5, pad_min(-5) = -5 - 1 = -6; max=6, pad_max(6) = 7
+    assert!(svg.contains(">-6.0<"));
+    assert!(svg.contains(">7.0<"));
+    // y: all negative. min=-8, pad_min(-8) = -8 - 1 = -9; max=-2, pad_max(-2) = -1
+    assert!(svg.contains(">-9.0<"));
+    assert!(svg.contains(">-1.0<"));
+}
+
+#[test]
+fn figure_large_negative_values() {
+    // Values below -10 should use the 5% rule
+    let plots: Vec<Vec<Plot>> = vec![
+        vec![Plot::Scatter(
+            ScatterPlot::new()
+                .with_data(vec![(-50.0, -20.0), (-10.0, 30.0), (40.0, -40.0), (80.0, 60.0)])
+                .with_color("purple"),
+        )],
+    ];
+
+    let figure = Figure::new(1, 1)
+        .with_plots(plots);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_large_negatives.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // x: min=-50, pad_min(-50) = -50 * 1.05 = -52.5; max=80, pad_max(80) = 80 * 1.05 = 84
+    // y: min=-40, pad_min(-40) = -40 * 1.05 = -42; max=60, pad_max(60) = 60 * 1.05 = 63
+    // These get rounded by auto_nice_range, so just verify the SVG renders
+    // and that negative ticks appear
+    assert!(svg.contains(">-"));
+}
