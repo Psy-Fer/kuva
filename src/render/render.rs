@@ -882,6 +882,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
 
     let has_variable_width = brickplot.motif_lengths.is_some();
+    // Strigar mode: always start at 0 (comparing repeat lengths directly)
+    let x_offset = if brickplot.strigar_exp.is_some() { 0.0 } else { brickplot.x_offset };
 
     for (i, row) in rows.iter().enumerate() {
         let mut x_pos: f64 = 0.0;
@@ -895,8 +897,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 
             let color = brickplot.template.as_ref().unwrap().get(&value).unwrap();
 
-            let x0 = computed.map_x(x_start - brickplot.x_offset);
-            let x1 = computed.map_x(x_start + width - brickplot.x_offset);
+            let x0 = computed.map_x(x_start - x_offset);
+            let x1 = computed.map_x(x_start + width - x_offset);
             let y0 = computed.map_y(i as f64 + 1.0);
             let y1 = computed.map_y(i as f64);
             scene.add(Primitive::Rect {
@@ -924,8 +926,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 };
                 let x_start = if has_variable_width { x_pos } else { j as f64 };
 
-                let x0 = computed.map_x(x_start - brickplot.x_offset);
-                let x1 = computed.map_x(x_start + width - brickplot.x_offset);
+                let x0 = computed.map_x(x_start - x_offset);
+                let x1 = computed.map_x(x_start + width - x_offset);
                 let y0 = computed.map_y(i as f64 + 1.0);
                 let y1 = computed.map_y(i as f64);
                 scene.add(Primitive::Text {
