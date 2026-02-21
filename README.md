@@ -133,6 +133,54 @@ let scene = render_multiple(plots, layout);
 let svg = SvgBackend.render_scene(&scene);
 ```
 
+## Subplot / Figure Layout Example
+
+Arrange multiple independent subplots in a grid with shared axes, merged cells, and panel labels:
+
+```rust
+use visus::plot::{ScatterPlot, LinePlot};
+use visus::render::figure::Figure;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+use visus::backend::svg::SvgBackend;
+
+let scatter = ScatterPlot::new()
+    .with_data(vec![(1.0, 2.0), (3.0, 5.0), (5.0, 3.0)])
+    .with_color("blue");
+
+let line = LinePlot::new()
+    .with_data(vec![(0.0, 0.0), (2.0, 4.0), (4.0, 3.0)])
+    .with_color("red");
+
+let plots = vec![
+    vec![Plot::Scatter(scatter)],
+    vec![Plot::Line(line)],
+];
+
+let layouts = vec![
+    Layout::auto_from_plots(&plots[0]).with_title("Scatter"),
+    Layout::auto_from_plots(&plots[1]).with_title("Line"),
+];
+
+let figure = Figure::new(1, 2)
+    .with_title("My Figure")
+    .with_plots(plots)
+    .with_layouts(layouts)
+    .with_shared_y_all()
+    .with_labels();
+
+let scene = figure.render();
+let svg = SvgBackend.render_scene(&scene);
+```
+
+Features:
+- **Grid layout** — `Figure::new(rows, cols)` creates an `rows x cols` grid
+- **Merged cells** — `.with_structure(vec![vec![0,1], vec![2], vec![3]])` for spanning
+- **Shared axes** — `.with_shared_y_all()`, `.with_shared_x_all()`, per-row/column variants
+- **Panel labels** — `.with_labels()` adds bold A, B, C labels for papers
+- **Figure title** — `.with_title()` adds a centered title above all subplots
+- **Configurable sizing** — `.with_cell_size(w, h)`, `.with_spacing(px)`, `.with_padding(px)`
+
 ## TODO
 
 ### Plot types
@@ -146,7 +194,7 @@ let svg = SvgBackend.render_scene(&scene);
 - [ ] Waterfall charts
 
 ### Layout & axes
-- [ ] Subplot grid / multi-panel figures (subplots side by side)
+- [x] Subplot grid / multi-panel figures (subplots side by side)
 - [x] Logarithmic axis scales
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
