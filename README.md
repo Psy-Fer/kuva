@@ -8,16 +8,19 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 - **Generic numeric inputs** — accepts `i32`, `u32`, `f32`, `f64` seamlessly via `Into<f64>`
 - **SVG output** — clean, scalable vector graphics
 - **Multi-plot support** — overlay multiple plots on shared axes with automatic legends
+- **Subplot figures** — grid layouts with shared axes, merged cells, panel labels, and shared legends
 - **Auto-layout** — automatic axis scaling, tick generation, and margin computation
 - **Log-scale axes** — logarithmic scaling for data spanning orders of magnitude, with 1-2-5 tick marks
+- **Annotations** — text labels with arrows, reference lines (horizontal/vertical), and shaded regions
+- **Error bars & bands** — symmetric/asymmetric error bars on scatter and line plots, confidence interval bands
 - **Built-in statistics** — linear regression, KDE, percentiles, Pearson correlation
 
 ## Plot Types
 
 | Type | Description |
 |------|-------------|
-| Scatter | Points with optional trend lines, error bars, equation/correlation display |
-| Line | Connected line segments with configurable stroke |
+| Scatter | Points with optional trend lines, error bars, bands, equation/correlation display |
+| Line | Connected line segments with error bars, bands, and configurable stroke |
 | Bar | Single or grouped bars with categorical x-axis |
 | Histogram | Binned frequency distribution with optional normalization |
 | 2D Histogram | Bivariate density with colormaps and correlation |
@@ -176,31 +179,26 @@ let svg = SvgBackend.render_scene(&scene);
 Features:
 - **Grid layout** — `Figure::new(rows, cols)` creates an `rows x cols` grid
 - **Merged cells** — `.with_structure(vec![vec![0,1], vec![2], vec![3]])` for spanning
-- **Shared axes** — `.with_shared_y_all()`, `.with_shared_x_all()`, per-row/column variants
-- **Panel labels** — `.with_labels()` adds bold A, B, C labels for papers
+- **Shared axes** — `.with_shared_y_all()`, `.with_shared_x_all()`, per-row/column/slice variants
+- **Panel labels** — `.with_labels()` adds bold A, B, C labels (also numeric, lowercase, or custom)
+- **Shared legends** — `.with_shared_legend()` or `.with_shared_legend_bottom()` for figure-wide legends
 - **Figure title** — `.with_title()` adds a centered title above all subplots
 - **Configurable sizing** — `.with_cell_size(w, h)`, `.with_spacing(px)`, `.with_padding(px)`
 
 ## TODO
 
 ### Plot types
-- [ ] Stretched bar plots
 - [ ] Stacked bar plots
 - [ ] Area / filled line plots
 - [ ] Step plots
-- [x] Error band / shaded confidence interval plots
 - [ ] Contour plots
 - [ ] Bubble plots (scatter with variable size per point)
 - [ ] Waterfall charts
 
 ### Layout & axes
-- [x] Subplot grid / multi-panel figures (subplots side by side)
-- [x] Logarithmic axis scales
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
 - [ ] Custom tick formatting (e.g. percentages, scientific notation)
-- [x] Configurable legend positioning
-- [x] Colorbar / continuous color legend for heatmaps
 
 ### Styling
 - [ ] Line styles (dashed, dotted, dash-dot)
@@ -213,11 +211,6 @@ Features:
 - [ ] PNG rasterization
 - [ ] PDF output
 - [ ] CLI binary: `cat data.txt | visus --histogram -o hist.svg`
-
-### Annotations & interactivity
-- [x] Text annotations with arrows
-- [x] Horizontal / vertical reference lines
-- [x] Shaded regions
 
 ## License
 
