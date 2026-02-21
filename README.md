@@ -23,7 +23,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | 2D Histogram | Bivariate density with colormaps and correlation |
 | Box | Quartiles, median, whiskers (1.5×IQR) |
 | Violin | Kernel density estimation shape |
-| Pie | Slices with labels, supports donut charts via inner radius |
+| Pie | Slices with labels (inside/outside/auto), percentages, leader lines, donut charts, per-slice legend |
 | Series | Index-based 1D data with line, point, or both styles |
 | Heatmap | 2D matrix with colormaps (Viridis, Inferno, Grayscale, custom) |
 | Band | Filled area between upper and lower curves (confidence intervals) |
