@@ -32,287 +32,263 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         stroke_dasharray: None,
     });
 
-    // if y categories
+    // Always compute tick positions for grid lines
+    let x_ticks = if layout.log_x {
+        render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
+    } else {
+        render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
+    };
+    let y_ticks = if layout.log_y {
+        render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
+    } else {
+        render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.y_ticks)
+    };
+
+    // Draw grid lines (always, regardless of suppress flags)
+    if layout.show_grid {
+        for (i, tx) in x_ticks.iter().enumerate() {
+            if i == 0 { continue; }
+            let x = map_x(*tx);
+            scene.add(Primitive::Line {
+                x1: x,
+                y1: computed.margin_top,
+                x2: x,
+                y2: computed.height - computed.margin_bottom,
+                stroke: "#ccc".to_string(),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+        }
+        // Horizontal grid lines (only for non-category axes, or y_categories)
+        if layout.x_categories.is_none() || layout.y_categories.is_some() {
+            for (i, ty) in y_ticks.iter().enumerate() {
+                if i == 0 { continue; }
+                let y = map_y(*ty);
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left,
+                    y1: y,
+                    x2: computed.width - computed.margin_right,
+                    y2: y,
+                    stroke: "#ccc".to_string(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
+        }
+    }
+
+    // Draw tick marks and labels
     if let Some(categories) = &layout.y_categories {
-        // draw x axis category labels and ticks
-        for (i, label) in categories.iter().enumerate() {
-            let y_val = i as f64 + 1.0; // match y-positioning
-            let y_pos = computed.map_y(y_val);
+        if !layout.suppress_y_ticks {
+            for (i, label) in categories.iter().enumerate() {
+                let y_val = i as f64 + 1.0;
+                let y_pos = computed.map_y(y_val);
 
-            // Draw label
-            scene.add(Primitive::Text {
-                x: computed.margin_left - 10.0,
-                y: y_pos + 20.0,
-                content: label.clone(),
-                size: 10,
-                anchor: TextAnchor::End,
-                rotate: None,
-            });
-    
-            // Optional: draw a small tick
-            scene.add(Primitive::Line {
-                x1: computed.margin_left - 5.0,
-                y1: y_pos,
-                x2: computed.margin_left,
-                y2: y_pos,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
-        }
-        // x axis
-        let x_ticks = if layout.log_x {
-            render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
-        } else {
-            render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks)
-        };
-        for (i, tx) in x_ticks.iter().enumerate() {
+                scene.add(Primitive::Text {
+                    x: computed.margin_left - 10.0,
+                    y: y_pos + 20.0,
+                    content: label.clone(),
+                    size: 10,
+                    anchor: TextAnchor::End,
+                    rotate: None,
+                    bold: false,
+                });
 
-            let x = map_x(*tx);
-
-            // X ticks
-            scene.add(Primitive::Line {
-                x1: x,
-                y1: computed.height - computed.margin_bottom,
-                x2: x,
-                y2: computed.height - computed.margin_bottom + 5.0,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
-
-            // X tick labels
-            let label = if layout.log_x {
-                render_utils::format_log_tick(*tx)
-            } else {
-                format!("{:.1}", tx)
-            };
-            scene.add(Primitive::Text {
-                x,
-                y: computed.height - computed.margin_bottom + 15.0,
-                content: label,
-                size: 10,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-            });
-
-            // Grid lines
-            if layout.show_grid {
-                if i != 0 {
-                    // Vertical grid
-                    scene.add(Primitive::Line {
-                        x1: x,
-                        y1: computed.margin_top,
-                        x2: x,
-                        y2: computed.height - computed.margin_bottom,
-                        stroke: "#ccc".to_string(),
-                        stroke_width: 1.0,
-                        stroke_dasharray: None,
-                    });
-                }
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left - 5.0,
+                    y1: y_pos,
+                    x2: computed.margin_left,
+                    y2: y_pos,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
             }
         }
+        if !layout.suppress_x_ticks {
+            for tx in x_ticks.iter() {
+                let x = map_x(*tx);
 
+                scene.add(Primitive::Line {
+                    x1: x,
+                    y1: computed.height - computed.margin_bottom,
+                    x2: x,
+                    y2: computed.height - computed.margin_bottom + 5.0,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+
+                let label = if layout.log_x {
+                    render_utils::format_log_tick(*tx)
+                } else {
+                    format!("{:.1}", tx)
+                };
+                scene.add(Primitive::Text {
+                    x,
+                    y: computed.height - computed.margin_bottom + 15.0,
+                    content: label,
+                    size: 10,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
     }
-    // if x categories
     else if let Some(categories) = &layout.x_categories {
-        // draw x axis category labels and ticks
-        for (i, label) in categories.iter().enumerate() {
-            let x_val = i as f64 + 1.0; // match x-positioning
-            let x_pos = computed.map_x(x_val);
-    
-            // Draw label
-            scene.add(Primitive::Text {
-                x: x_pos,
-                y: computed.height - computed.margin_bottom + 15.0,
-                content: label.clone(),
-                size: 10,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-            });
-    
-            // Optional: draw a small tick
-            scene.add(Primitive::Line {
-                x1: x_pos,
-                y1: computed.height - computed.margin_bottom,
-                x2: x_pos,
-                y2: computed.height - computed.margin_bottom + 5.0,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
+        if !layout.suppress_x_ticks {
+            for (i, label) in categories.iter().enumerate() {
+                let x_val = i as f64 + 1.0;
+                let x_pos = computed.map_x(x_val);
+
+                scene.add(Primitive::Text {
+                    x: x_pos,
+                    y: computed.height - computed.margin_bottom + 15.0,
+                    content: label.clone(),
+                    size: 10,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+
+                scene.add(Primitive::Line {
+                    x1: x_pos,
+                    y1: computed.height - computed.margin_bottom,
+                    x2: x_pos,
+                    y2: computed.height - computed.margin_bottom + 5.0,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
         }
 
-        let y_ticks = if layout.log_y {
-            render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
-        } else {
-            render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks)
-        };
+        if !layout.suppress_y_ticks {
+            for ty in y_ticks.iter() {
+                let y = map_y(*ty);
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left - 5.0,
+                    y1: y,
+                    x2: computed.margin_left,
+                    y2: y,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
 
-        for ty in y_ticks {
-            let y = map_y(ty);
-            // Y ticks
-            scene.add(Primitive::Line {
-                x1: computed.margin_left - 5.0,
-                y1: y,
-                x2: computed.margin_left,
-                y2: y,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
-
-            // Y tick labels
-            let label = if layout.log_y {
-                render_utils::format_log_tick(ty)
-            } else {
-                format!("{:.1}", ty)
-            };
-            scene.add(Primitive::Text {
-                x: computed.margin_left - 15.0,
-                y,
-                content: label,
-                size: 10,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-            });
+                let label = if layout.log_y {
+                    render_utils::format_log_tick(*ty)
+                } else {
+                    format!("{:.1}", ty)
+                };
+                scene.add(Primitive::Text {
+                    x: computed.margin_left - 15.0,
+                    y,
+                    content: label,
+                    size: 10,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
         }
     }
-    // if regular axes
+    // regular axes
     else {
-        // Draw value ticks and labels
+        if !layout.suppress_x_ticks {
+            for tx in x_ticks.iter() {
+                let x = map_x(*tx);
 
-        // x axis
-        let x_ticks = if layout.log_x {
-            render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
-        } else {
-            render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.ticks)
-        };
-        for (i, tx) in x_ticks.iter().enumerate() {
+                scene.add(Primitive::Line {
+                    x1: x,
+                    y1: computed.height - computed.margin_bottom,
+                    x2: x,
+                    y2: computed.height - computed.margin_bottom + 5.0,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
 
-            let x = map_x(*tx);
-
-            // X ticks
-            scene.add(Primitive::Line {
-                x1: x,
-                y1: computed.height - computed.margin_bottom,
-                x2: x,
-                y2: computed.height - computed.margin_bottom + 5.0,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
-
-            // X tick labels
-            let label = if layout.log_x {
-                render_utils::format_log_tick(*tx)
-            } else {
-                format!("{:.1}", tx)
-            };
-            scene.add(Primitive::Text {
-                x,
-                y: computed.height - computed.margin_bottom + 15.0,
-                content: label,
-                size: 10,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-            });
-
-            // Grid lines
-            if layout.show_grid {
-                if i != 0 {
-                    // Vertical grid
-                    scene.add(Primitive::Line {
-                        x1: x,
-                        y1: computed.margin_top,
-                        x2: x,
-                        y2: computed.height - computed.margin_bottom,
-                        stroke: "#ccc".to_string(),
-                        stroke_width: 1.0,
-                        stroke_dasharray: None,
-                    });
-                }
+                let label = if layout.log_x {
+                    render_utils::format_log_tick(*tx)
+                } else {
+                    format!("{:.1}", tx)
+                };
+                scene.add(Primitive::Text {
+                    x,
+                    y: computed.height - computed.margin_bottom + 15.0,
+                    content: label,
+                    size: 10,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
             }
         }
 
-        // y axis
-        let y_ticks = if layout.log_y {
-            render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
-        } else {
-            render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.ticks)
-        };
-        for (i, ty) in y_ticks.iter().enumerate() {
+        if !layout.suppress_y_ticks {
+            for ty in y_ticks.iter() {
+                let y = map_y(*ty);
 
-            let y = map_y(*ty);
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left - 5.0,
+                    y1: y,
+                    x2: computed.margin_left,
+                    y2: y,
+                    stroke: "black".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
 
-            // Y ticks
-            scene.add(Primitive::Line {
-                x1: computed.margin_left - 5.0,
-                y1: y,
-                x2: computed.margin_left,
-                y2: y,
-                stroke: "black".into(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
-
-            // Y tick labels
-            let label = if layout.log_y {
-                render_utils::format_log_tick(*ty)
-            } else {
-                format!("{:.1}", ty)
-            };
-            scene.add(Primitive::Text {
-                x: computed.margin_left - 15.0,
-                y,
-                content: label,
-                size: 10,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-            });
-
-            if layout.show_grid {
-                if i != 0 {
-                    // Horizontal grid
-                    scene.add(Primitive::Line {
-                        x1: computed.margin_left,
-                        y1: y,
-                        x2: computed.width - computed.margin_right,
-                        y2: y,
-                        stroke: "#ccc".to_string(),
-                        stroke_width: 1.0,
-                        stroke_dasharray: None,
-                    });
-                }
+                let label = if layout.log_y {
+                    render_utils::format_log_tick(*ty)
+                } else {
+                    format!("{:.1}", ty)
+                };
+                scene.add(Primitive::Text {
+                    x: computed.margin_left - 15.0,
+                    y,
+                    content: label,
+                    size: 10,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
             }
         }
-
     }
 }
 
 pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
-    if let Some(label) = &layout.x_label {
-        scene.add(Primitive::Text {
-            x: computed.width / 2.0,
-            y: computed.height - computed.margin_bottom / 4.0,
-            content: label.clone(),
-            size: 14,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-        });
+    if !layout.suppress_x_ticks {
+        if let Some(label) = &layout.x_label {
+            scene.add(Primitive::Text {
+                x: computed.width / 2.0,
+                y: computed.height - computed.margin_bottom / 4.0,
+                content: label.clone(),
+                size: 14,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+                bold: false,
+            });
+        }
     }
 
     // Y Axis Label
-    if let Some(label) = &layout.y_label {
-        scene.add(Primitive::Text {
-            x: 20.0,
-            y: computed.height / 2.0,
-            content: label.clone(),
-            size: 14,
-            anchor: TextAnchor::Middle,
-            rotate: Some(-90.0),
-        });
+    if !layout.suppress_y_ticks {
+        if let Some(label) = &layout.y_label {
+            scene.add(Primitive::Text {
+                x: 20.0,
+                y: computed.height / 2.0,
+                content: label.clone(),
+                size: 14,
+                anchor: TextAnchor::Middle,
+                rotate: Some(-90.0),
+                bold: false,
+            });
+        }
     }
 
     // Title
@@ -324,6 +300,7 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
             size: 16,
             anchor: TextAnchor::Middle,
             rotate: None,
+            bold: false,
         });
     }
 }

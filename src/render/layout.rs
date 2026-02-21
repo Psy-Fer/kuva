@@ -25,6 +25,8 @@ pub struct Layout {
     pub annotations: Vec<TextAnnotation>,
     pub reference_lines: Vec<ReferenceLine>,
     pub shaded_regions: Vec<ShadedRegion>,
+    pub suppress_x_ticks: bool,
+    pub suppress_y_ticks: bool,
 }
 
 impl Layout {
@@ -50,6 +52,8 @@ impl Layout {
             annotations: Vec::new(),
             reference_lines: Vec::new(),
             shaded_regions: Vec::new(),
+            suppress_x_ticks: false,
+            suppress_y_ticks: false,
         }
     }
 
@@ -152,6 +156,21 @@ impl Layout {
             if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) {
                 has_colorbar = true;
             }
+        }
+
+        // Add a small margin so data points don't land exactly on axis edges.
+        // Category-based plots (bar, box, violin, brick) already have built-in
+        // padding in their bounds(), so only pad continuous-axis plots.
+        // Grid-based plots (heatmap, histogram2d) also skip padding.
+        let has_x_cats = x_labels.is_some();
+        let has_y_cats = y_labels.is_some();
+        if !has_x_cats && !has_colorbar && x_max > x_min {
+            x_max = pad_max(x_max);
+            x_min = pad_min(x_min);
+        }
+        if !has_y_cats && !has_colorbar && y_max > y_min {
+            y_max = pad_max(y_max);
+            y_min = pad_min(y_min);
         }
 
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));
@@ -275,7 +294,8 @@ pub struct ComputedLayout {
 
     pub x_range: (f64, f64),
     pub y_range: (f64, f64),
-    pub ticks: usize,
+    pub x_ticks: usize,
+    pub y_ticks: usize,
     pub legend_position: LegendPosition,
     pub legend_width: f64,
     pub log_x: bool,
@@ -288,8 +308,8 @@ impl ComputedLayout {
         let tick_space = 20.0;
 
         let margin_top = if layout.title.is_some() { font_size * 3.0 } else { font_size * 0.5 };
-        let margin_bottom = font_size * 2.0 + tick_space;
-        let margin_left = font_size * 2.0 + tick_space;
+        let margin_bottom = if layout.suppress_x_ticks { font_size * 0.5 } else { font_size * 2.0 + tick_space };
+        let margin_left = if layout.suppress_y_ticks { font_size * 0.5 } else { font_size * 2.0 + tick_space };
         let mut margin_right = font_size;
 
         if layout.show_legend {
@@ -327,7 +347,8 @@ impl ComputedLayout {
             margin_right,
             x_range: (x_min, x_max),
             y_range: (y_min, y_max),
-            ticks: layout.ticks,
+            x_ticks,
+            y_ticks,
             legend_position: layout.legend_position,
             legend_width: layout.legend_width,
             log_x: layout.log_x,
@@ -363,5 +384,28 @@ impl ComputedLayout {
         } else {
             self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
         }
+    }
+}
+
+/// Pad the maximum axis value so data doesn't sit on the edge.
+/// Values below 10 get +1, values >= 10 get *1.05.
+fn pad_max(v: f64) -> f64 {
+    if v.abs() < 10.0 {
+        v + 1.0
+    } else {
+        v * 1.05
+    }
+}
+
+/// Pad the minimum axis value.
+/// Non-negative values clamp to 0. Values between -10 and 0 get -1.
+/// Values <= -10 get *1.05 (which makes them more negative).
+fn pad_min(v: f64) -> f64 {
+    if v >= 0.0 {
+        0.0
+    } else if v > -10.0 {
+        v - 1.0
+    } else {
+        v * 1.05
     }
 }

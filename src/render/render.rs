@@ -32,6 +32,7 @@ pub enum Primitive {
         size: u32,
         anchor: TextAnchor,
         rotate: Option<f64>,
+        bold: bool,
     },
     Line {
         x1: f64,
@@ -59,7 +60,10 @@ pub enum Primitive {
         stroke_width: Option<f64>,
         opacity: Option<f64>,
     },
-
+    GroupStart {
+        transform: Option<String>,
+    },
+    GroupEnd,
 }
 
 #[derive(Debug)]
@@ -273,6 +277,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                             size: 12,
                             anchor: TextAnchor::Start,
                             rotate: None,
+                            bold: false,
                         });
                     }
                 }
@@ -490,6 +495,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
             size: 14,
             anchor: TextAnchor::End,
             rotate: None,
+            bold: false,
         });
     }
 }
@@ -729,6 +735,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 size: 12,
                 anchor: TextAnchor::Middle,
                 rotate: None,
+                bold: false,
             });
         } else {
             let right_side = mid_angle.cos() >= 0.0;
@@ -798,6 +805,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             size: 12,
             anchor,
             rotate: None,
+            bold: false,
         });
     }
 }
@@ -852,6 +860,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                     size: 12,
                     anchor: TextAnchor::Middle,
                     rotate: None,
+                    bold: false,
                 });
             }
         }
@@ -926,6 +935,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     size: 12,
                     anchor: TextAnchor::Middle,
                     rotate: None,
+                    bold: false,
                 });
 
                 x_pos += width;
@@ -989,6 +999,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
             anchor: TextAnchor::Start,
             size: 12,
             rotate: None,
+            bold: false,
         });
         // add shape with colour
         match entry.shape {
@@ -1092,6 +1103,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             size: 10,
             anchor: TextAnchor::Start,
             rotate: None,
+            bold: false,
         });
     }
 
@@ -1104,6 +1116,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             size: 11,
             anchor: TextAnchor::Middle,
             rotate: None,
+            bold: false,
         });
     }
 }

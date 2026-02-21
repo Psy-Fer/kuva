@@ -4,3 +4,4 @@ pub mod layout;
 pub mod plots;
 pub mod axis;
 pub mod annotations;
+pub mod figure;
