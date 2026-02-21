@@ -1,4 +1,4 @@
-use visus::plot::{ScatterPlot, LinePlot};
+use visus::plot::{ScatterPlot, LinePlot, LegendEntry, LegendShape};
 use visus::backend::svg::SvgBackend;
 use visus::render::figure::Figure;
 use visus::render::layout::Layout;
@@ -375,4 +375,128 @@ fn figure_large_negative_values() {
     // These get rounded by auto_nice_range, so just verify the SVG renders
     // and that negative ticks appear
     assert!(svg.contains(">-"));
+}
+
+fn scatter_with_legend(color: &str, label: &str) -> Vec<Plot> {
+    vec![Plot::Scatter(
+        ScatterPlot::new()
+            .with_data(vec![(1.0, 2.0), (3.0, 5.0), (5.0, 3.0), (7.0, 8.0)])
+            .with_color(color)
+            .with_legend(label),
+    )]
+}
+
+#[test]
+fn figure_panel_legends() {
+    // 1x2 figure where each subplot has its own legend
+    let figure = Figure::new(1, 2)
+        .with_plots(vec![
+            scatter_with_legend("blue", "Blue data"),
+            scatter_with_legend("red", "Red data"),
+        ]);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_panel_legends.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Blue data"));
+    assert!(svg.contains("Red data"));
+}
+
+#[test]
+fn figure_shared_legend_right() {
+    // 2x2 figure with shared legend on the right
+    let figure = Figure::new(2, 2)
+        .with_plots(vec![
+            scatter_with_legend("blue", "Blue"),
+            scatter_with_legend("red", "Red"),
+            scatter_with_legend("green", "Green"),
+            scatter_with_legend("blue", "Blue"), // duplicate label
+        ])
+        .with_shared_legend();
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_shared_legend_right.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Should have the shared legend entries (deduplicated: Blue, Red, Green)
+    assert!(svg.contains("Blue"));
+    assert!(svg.contains("Red"));
+    assert!(svg.contains("Green"));
+    // Count occurrences of "Blue" legend label — should appear once (deduplicated)
+    // in the shared legend, not in per-panel legends (suppressed)
+    let blue_count = svg.matches(">Blue<").count();
+    assert_eq!(blue_count, 1, "Expected 1 occurrence of Blue in shared legend, got {blue_count}");
+}
+
+#[test]
+fn figure_shared_legend_bottom() {
+    // 1x2 figure with shared legend at bottom
+    let figure = Figure::new(1, 2)
+        .with_plots(vec![
+            scatter_with_legend("blue", "Sample A"),
+            scatter_with_legend("red", "Sample B"),
+        ])
+        .with_shared_legend_bottom();
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_shared_legend_bottom.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Sample A"));
+    assert!(svg.contains("Sample B"));
+    // Shared legend should increase the figure height (bottom position)
+    // Per-panel legends should be suppressed
+    let a_count = svg.matches(">Sample A<").count();
+    assert_eq!(a_count, 1, "Expected 1 occurrence of Sample A, got {a_count}");
+}
+
+#[test]
+fn figure_shared_legend_manual_entries() {
+    // Provide custom legend entries manually
+    let manual_entries = vec![
+        LegendEntry { label: "Custom 1".into(), color: "orange".into(), shape: LegendShape::Circle },
+        LegendEntry { label: "Custom 2".into(), color: "purple".into(), shape: LegendShape::Line },
+    ];
+
+    let figure = Figure::new(1, 2)
+        .with_plots(vec![
+            scatter_plot("blue"),
+            scatter_plot("red"),
+        ])
+        .with_shared_legend()
+        .with_shared_legend_entries(manual_entries);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_shared_legend_manual.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Custom 1"));
+    assert!(svg.contains("Custom 2"));
+}
+
+#[test]
+fn figure_keep_panel_legends() {
+    // Shared legend + keep panel legends
+    let figure = Figure::new(1, 2)
+        .with_plots(vec![
+            scatter_with_legend("blue", "Blue"),
+            scatter_with_legend("red", "Red"),
+        ])
+        .with_shared_legend()
+        .with_keep_panel_legends();
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_keep_panel_legends.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Both shared legend and per-panel legends should render
+    // "Blue" appears in shared legend + panel legend = at least 2
+    let blue_count = svg.matches(">Blue<").count();
+    assert!(blue_count >= 2, "Expected Blue in both shared and panel legends, got {blue_count}");
 }

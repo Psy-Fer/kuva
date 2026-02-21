@@ -1,6 +1,13 @@
 use crate::render::layout::Layout;
 use crate::render::plots::Plot;
-use crate::render::render::{Primitive, Scene, TextAnchor, render_multiple};
+use crate::render::render::{Primitive, Scene, TextAnchor, render_multiple, collect_legend_entries, render_legend_at};
+use crate::plot::legend::LegendEntry;
+
+#[derive(Debug, Clone)]
+pub enum FigureLegendPosition {
+    Right,
+    Bottom,
+}
 
 #[derive(Debug, Clone)]
 pub enum LabelStyle {
@@ -73,6 +80,9 @@ pub struct Figure {
     padding: f64,
     cell_width: f64,
     cell_height: f64,
+    shared_legend: Option<FigureLegendPosition>,
+    shared_legend_entries: Option<Vec<LegendEntry>>,
+    keep_panel_legends: bool,
 }
 
 impl Figure {
@@ -93,6 +103,9 @@ impl Figure {
             padding: 10.0,
             cell_width: 350.0,
             cell_height: 280.0,
+            shared_legend: None,
+            shared_legend_entries: None,
+            keep_panel_legends: false,
         }
     }
 
@@ -204,23 +217,100 @@ impl Figure {
         self
     }
 
+    /// Add a shared legend to the right of the figure (auto-collected from plots).
+    pub fn with_shared_legend(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::Right);
+        self
+    }
+
+    /// Add a shared legend below the figure (auto-collected from plots).
+    pub fn with_shared_legend_bottom(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::Bottom);
+        self
+    }
+
+    /// Override shared legend position.
+    pub fn with_shared_legend_position(mut self, pos: FigureLegendPosition) -> Self {
+        self.shared_legend = Some(pos);
+        self
+    }
+
+    /// Provide manual legend entries instead of auto-collecting.
+    pub fn with_shared_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
+        self.shared_legend_entries = Some(entries);
+        self
+    }
+
+    /// Keep per-panel legends visible alongside the shared legend.
+    pub fn with_keep_panel_legends(mut self) -> Self {
+        self.keep_panel_legends = true;
+        self
+    }
+
     pub fn render(self) -> Scene {
         let Figure {
             rows, cols, structure, mut plots, layouts: user_layouts,
             title, title_size, labels, shared_x, shared_y,
             spacing, padding, cell_width, cell_height,
+            shared_legend, shared_legend_entries, keep_panel_legends,
         } = self;
 
         validate_structure(&structure, rows, cols);
 
+        // Collect shared legend entries before we move plots into cells
+        let legend_entries: Option<Vec<LegendEntry>> = if shared_legend.is_some() {
+            Some(if let Some(manual) = shared_legend_entries {
+                manual
+            } else {
+                // Auto-collect from all panels, deduplicate by label
+                let mut all_entries = Vec::new();
+                let mut seen_labels = std::collections::HashSet::new();
+                for panel_plots in &plots {
+                    for entry in collect_legend_entries(panel_plots) {
+                        if seen_labels.insert(entry.label.clone()) {
+                            all_entries.push(entry);
+                        }
+                    }
+                }
+                all_entries
+            })
+        } else {
+            None
+        };
+
+        // Compute shared legend dimensions
+        let legend_spacing = 20.0;
+        let (legend_width, legend_height) = if let Some(ref entries) = legend_entries {
+            if entries.is_empty() {
+                (0.0, 0.0)
+            } else {
+                let max_label_len = entries.iter().map(|e| e.label.len()).max().unwrap_or(0);
+                let w = (max_label_len as f64 * 7.0 + 35.0).max(80.0);
+                let h = entries.len() as f64 * 18.0 + 20.0;
+                (w, h)
+            }
+        } else {
+            (0.0, 0.0)
+        };
+
         let figure_title_height = if title.is_some() { 30.0 } else { 0.0 };
-        let total_width = cols as f64 * cell_width
+        let grid_width = cols as f64 * cell_width
             + (cols as f64 - 1.0) * spacing
             + 2.0 * padding;
-        let total_height = rows as f64 * cell_height
+        let grid_height = rows as f64 * cell_height
             + (rows as f64 - 1.0) * spacing
             + 2.0 * padding
             + figure_title_height;
+
+        let (total_width, total_height) = match shared_legend.as_ref() {
+            Some(FigureLegendPosition::Right) if legend_entries.as_ref().map_or(false, |e| !e.is_empty()) => {
+                (grid_width + legend_width + legend_spacing, grid_height)
+            }
+            Some(FigureLegendPosition::Bottom) if legend_entries.as_ref().map_or(false, |e| !e.is_empty()) => {
+                (grid_width, grid_height + legend_height + legend_spacing)
+            }
+            _ => (grid_width, grid_height),
+        };
 
         let mut master = Scene::new(total_width, total_height);
 
@@ -239,6 +329,13 @@ impl Figure {
 
         // Apply shared axis rules
         apply_shared_axes(&structure, &shared_y, &shared_x, &mut layouts, rows, cols);
+
+        // Suppress per-panel legends when shared legend is active
+        if shared_legend.is_some() && !keep_panel_legends {
+            for layout in layouts.iter_mut() {
+                layout.show_legend = false;
+            }
+        }
 
         // Pad plots with empty vecs so indexing is safe
         while plots.len() < structure.len() {
@@ -299,6 +396,25 @@ impl Figure {
             });
         }
 
+        // Render shared legend
+        if let (Some(ref pos), Some(ref entries)) = (&shared_legend, &legend_entries) {
+            if !entries.is_empty() {
+                let (lx, ly) = match pos {
+                    FigureLegendPosition::Right => {
+                        let lx = grid_width + legend_spacing / 2.0;
+                        let ly = figure_title_height + padding + (grid_height - figure_title_height) / 2.0 - legend_height / 2.0;
+                        (lx, ly)
+                    }
+                    FigureLegendPosition::Bottom => {
+                        let lx = grid_width / 2.0 - legend_width / 2.0;
+                        let ly = grid_height + legend_spacing / 2.0;
+                        (lx, ly)
+                    }
+                };
+                render_legend_at(entries, &mut master, lx, ly, legend_width);
+            }
+        }
+
         master
     }
 }
@@ -308,6 +424,8 @@ fn clone_layout(l: &Layout) -> Layout {
     let mut new = Layout::new(l.x_range, l.y_range);
     new.width = l.width;
     new.height = l.height;
+    new.data_x_range = l.data_x_range;
+    new.data_y_range = l.data_y_range;
     new.ticks = l.ticks;
     new.show_grid = l.show_grid;
     new.x_label = l.x_label.clone();

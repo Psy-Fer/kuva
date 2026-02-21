@@ -65,17 +65,18 @@ pub fn auto_nice_range(data_min: f64, data_max: f64, target_ticks: usize) -> (f6
 
 /// Compute a nice log-scale range that fully includes the data
 pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
-    let clamped_min = if data_min <= 0.0 {
-        eprintln!("warning: log scale data_min ({}) <= 0, clamping to 1e-10", data_min);
-        1e-10
-    } else {
-        data_min
-    };
     let clamped_max = if data_max <= 0.0 {
         eprintln!("warning: log scale data_max ({}) <= 0, clamping to 1.0", data_max);
         1.0
     } else {
         data_max
+    };
+    let clamped_min = if data_min <= 0.0 {
+        // Use a reasonable lower bound relative to max (~7 decades spread)
+        // This handles the common case where pad_min() zeroed out a small positive value
+        clamped_max * 1e-7
+    } else {
+        data_min
     };
 
     let nice_min = prev_log_tick(clamped_min);
@@ -107,16 +108,24 @@ fn prev_log_tick(value: f64) -> f64 {
     else { base * 0.5 }
 }
 
-/// Generate tick marks for a log-scale axis
-/// Major ticks at powers of 10, minor ticks at 2x and 5x each decade
+/// Generate tick marks for a log-scale axis.
+/// For narrow ranges (≤ 3 decades), include 2x and 5x sub-ticks.
+/// For wider ranges, only powers of 10.
 pub fn generate_ticks_log(min: f64, max: f64) -> Vec<f64> {
     let log_min = min.max(1e-10).log10().floor() as i32;
     let log_max = max.log10().ceil() as i32;
+    let decades = (log_max - log_min) as usize;
+
+    let multipliers: &[f64] = if decades <= 3 {
+        &[1.0, 2.0, 5.0]
+    } else {
+        &[1.0]
+    };
 
     let mut ticks = Vec::new();
     for exp in log_min..=log_max {
         let base = 10f64.powi(exp);
-        for &mult in &[1.0, 2.0, 5.0] {
+        for &mult in multipliers {
             let tick = base * mult;
             if tick >= min * (1.0 - 1e-8) && tick <= max * (1.0 + 1e-8) {
                 ticks.push(tick);

@@ -28,4 +28,4 @@ pub use heatmap::{Heatmap, ColorMap};
 pub use brick::BrickPlot;
 pub use band::BandPlot;
 
-pub use legend::{Legend, LegendPosition};
+pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

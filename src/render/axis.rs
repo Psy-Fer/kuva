@@ -46,23 +46,27 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
     // Draw grid lines (always, regardless of suppress flags)
     if layout.show_grid {
-        for (i, tx) in x_ticks.iter().enumerate() {
-            if i == 0 { continue; }
-            let x = map_x(*tx);
-            scene.add(Primitive::Line {
-                x1: x,
-                y1: computed.margin_top,
-                x2: x,
-                y2: computed.height - computed.margin_bottom,
-                stroke: "#ccc".to_string(),
-                stroke_width: 1.0,
-                stroke_dasharray: None,
-            });
+        // Vertical grid lines (skip for category x-axes like boxplot, bar, violin)
+        if layout.x_categories.is_none() && layout.y_categories.is_none() {
+            for (i, tx) in x_ticks.iter().enumerate() {
+                // Skip first tick on linear axes (it sits on the axis line)
+                if i == 0 && !layout.log_x { continue; }
+                let x = map_x(*tx);
+                scene.add(Primitive::Line {
+                    x1: x,
+                    y1: computed.margin_top,
+                    x2: x,
+                    y2: computed.height - computed.margin_bottom,
+                    stroke: "#ccc".to_string(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
         }
-        // Horizontal grid lines (only for non-category axes, or y_categories)
-        if layout.x_categories.is_none() || layout.y_categories.is_some() {
+        // Horizontal grid lines (draw when y-axis is numeric)
+        if layout.y_categories.is_none() {
             for (i, ty) in y_ticks.iter().enumerate() {
-                if i == 0 { continue; }
+                if i == 0 && !layout.log_y { continue; }
                 let y = map_y(*ty);
                 scene.add(Primitive::Line {
                     x1: computed.margin_left,

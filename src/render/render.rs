@@ -1286,6 +1286,201 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
 
 
+/// Collect legend entries from a slice of plots.
+pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
+    let mut entries = Vec::new();
+    for plot in plots {
+        match plot {
+            Plot::Bar(barplot) => {
+                if let Some(label) = barplot.legend_label.clone() {
+                    for (i, barval) in barplot.groups.first().unwrap().bars.iter().enumerate() {
+                        entries.push(LegendEntry {
+                            label: format!("{}", label.get(i).unwrap()),
+                            color: barval.color.clone(),
+                            shape: LegendShape::Rect,
+                        });
+                    }
+                }
+            }
+            Plot::Line(line) => {
+                if let Some(label) = &line.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: line.color.clone(),
+                        shape: LegendShape::Line,
+                    });
+                }
+            }
+            Plot::Scatter(scatter) => {
+                if let Some(label) = &scatter.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: scatter.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Series(series) => {
+                if let Some(label) = &series.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: series.color.clone(),
+                        shape: LegendShape::Circle,
+                    });
+                }
+            }
+            Plot::Brick(brickplot) => {
+                let labels = brickplot.template.as_ref().unwrap();
+                let motifs = brickplot.motifs.as_ref();
+                for (letter, color) in labels {
+                    let label = if let Some(m) = motifs {
+                        m.get(letter).cloned().unwrap_or(letter.to_string())
+                    } else {
+                        letter.to_string()
+                    };
+                    entries.push(LegendEntry {
+                        label,
+                        color: color.clone(),
+                        shape: LegendShape::Rect,
+                    })
+                }
+            }
+            Plot::Box(boxplot) => {
+                if let Some(label) = &boxplot.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: boxplot.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Violin(violin) => {
+                if let Some(label) = &violin.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: violin.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Histogram(hist) => {
+                if let Some(label) = &hist.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: hist.color.clone(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Heatmap(heatmap) => {
+                if let Some(label) = &heatmap.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: "gray".into(),
+                        shape: LegendShape::Rect,
+                    });
+                }
+            }
+            Plot::Pie(pie) => {
+                if pie.legend_label.is_some() {
+                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+                    for slice in &pie.slices {
+                        let label = if pie.show_percent {
+                            let pct = slice.value / total * 100.0;
+                            if slice.label.is_empty() {
+                                format!("{:.1}%", pct)
+                            } else {
+                                format!("{} ({:.1}%)", slice.label, pct)
+                            }
+                        } else {
+                            slice.label.clone()
+                        };
+                        entries.push(LegendEntry {
+                            label,
+                            color: slice.color.clone(),
+                            shape: LegendShape::Rect,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    entries
+}
+
+/// Render legend entries at an arbitrary (x, y) position on a scene.
+pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f64, width: f64) {
+    let legend_padding = 10.0;
+    let line_height = 18.0;
+    let legend_height = entries.len() as f64 * line_height + legend_padding * 2.0;
+
+    // Background
+    scene.add(Primitive::Rect {
+        x: x - legend_padding + 5.0,
+        y: y - legend_padding,
+        width,
+        height: legend_height,
+        fill: "white".into(),
+        stroke: None,
+        stroke_width: None,
+        opacity: None,
+    });
+
+    // Border
+    scene.add(Primitive::Rect {
+        x: x - legend_padding + 5.0,
+        y: y - legend_padding,
+        width,
+        height: legend_height,
+        fill: "none".into(),
+        stroke: Some("black".into()),
+        stroke_width: Some(1.0),
+        opacity: None,
+    });
+
+    let mut legend_y = y;
+    for entry in entries {
+        scene.add(Primitive::Text {
+            x: x + 25.0,
+            y: legend_y + 5.0,
+            content: entry.label.clone(),
+            anchor: TextAnchor::Start,
+            size: 12,
+            rotate: None,
+            bold: false,
+        });
+        match entry.shape {
+            LegendShape::Rect => scene.add(Primitive::Rect {
+                x: x + 5.0,
+                y: legend_y - 5.0,
+                width: 12.0,
+                height: 12.0,
+                fill: entry.color.clone(),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            }),
+            LegendShape::Line => scene.add(Primitive::Line {
+                x1: x + 5.0,
+                y1: legend_y + 2.0,
+                x2: x + 5.0 + 12.0,
+                y2: legend_y + 2.0,
+                stroke: entry.color.clone(),
+                stroke_width: 2.0,
+                stroke_dasharray: None,
+            }),
+            LegendShape::Circle => scene.add(Primitive::Circle {
+                cx: x + 5.0 + 6.0,
+                cy: legend_y + 1.0,
+                r: 5.0,
+                fill: entry.color.clone(),
+            }),
+        }
+        legend_y += line_height;
+    }
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -1345,128 +1540,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     // create legend
-    // only bar, line, and scatter have legends for now
-    let mut legend = Legend::default();
-    for plot in plots.iter() {
-        match plot {
-            Plot::Bar(barplot) => {
-                if let Some(label) = barplot.legend_label.clone() {
-                    for (i, barval) in barplot.groups.first().unwrap().bars.iter().enumerate() {
-                        legend.entries.push(LegendEntry {
-                            label: format!("{}", label.get(i).unwrap()),
-                            color: barval.color.clone(),
-                            shape: LegendShape::Rect,
-                        });
-                        eprintln!("label:{}", label.get(i).unwrap());
-                    }
-                }
-            }
-            Plot::Line(line) => {
-                if let Some(label) = &line.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: line.color.clone(),
-                        shape: LegendShape::Line,
-                    });
-                }
-            }
-            Plot::Scatter(scatter) => {
-                if let Some(label) = &scatter.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: scatter.color.clone(),
-                        shape: LegendShape::Rect,
-                    });
-                }
-            }
-            Plot::Series(series) => {
-                if let Some(label) = &series.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: series.color.clone(),
-                        shape: LegendShape::Circle,
-                    });
-                }
-            }
-            Plot::Brick(brickplot) => {
-                let labels = brickplot.template.as_ref().unwrap();
-                let motifs = brickplot.motifs.as_ref();
-                for (letter, color) in labels {
-                    let label = if let Some(m) = motifs {
-                        m.get(letter).cloned().unwrap_or(letter.to_string())
-                    } else {
-                        letter.to_string()
-                    };
-                    legend.entries.push(LegendEntry {
-                        label,
-                        color: color.clone(),
-                        shape: LegendShape::Rect,
-                    })
-                }
-            }
-            Plot::Box(boxplot) => {
-                if let Some(label) = &boxplot.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: boxplot.color.clone(),
-                        shape: LegendShape::Rect,
-                    });
-                }
-            }
-            Plot::Violin(violin) => {
-                if let Some(label) = &violin.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: violin.color.clone(),
-                        shape: LegendShape::Rect,
-                    });
-                }
-            }
-            Plot::Histogram(hist) => {
-                if let Some(label) = &hist.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: hist.color.clone(),
-                        shape: LegendShape::Rect,
-                    });
-                }
-            }
-            Plot::Heatmap(heatmap) => {
-                if let Some(label) = &heatmap.legend_label {
-                    legend.entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: "gray".into(),
-                        shape: LegendShape::Rect,
-                    });
-                }
-            }
-            Plot::Pie(pie) => {
-                if pie.legend_label.is_some() {
-                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
-                    for slice in &pie.slices {
-                        let label = if pie.show_percent {
-                            let pct = slice.value / total * 100.0;
-                            if slice.label.is_empty() {
-                                format!("{:.1}%", pct)
-                            } else {
-                                format!("{} ({:.1}%)", slice.label, pct)
-                            }
-                        } else {
-                            slice.label.clone()
-                        };
-                        legend.entries.push(LegendEntry {
-                            label,
-                            color: slice.color.clone(),
-                            shape: LegendShape::Rect,
-                        });
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if layout.show_legend {
+    let entries = collect_legend_entries(&plots);
+    if layout.show_legend && !entries.is_empty() {
+        let legend = Legend { entries, position: layout.legend_position };
         add_legend(&legend, &mut scene, &computed);
     }
 

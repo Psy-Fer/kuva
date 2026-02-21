@@ -271,7 +271,9 @@ impl Plot {
                     bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0) as f64
                 };
 
-                Some(((0.0 - bp.x_offset, max_width - bp.x_offset), (0.0, rows as f64)))
+                // Strigar mode: always start at 0 (comparing repeat lengths directly)
+                let offset = if bp.strigar_exp.is_some() { 0.0 } else { bp.x_offset };
+                Some(((0.0 - offset, max_width - offset), (0.0, rows as f64)))
             }
         }
     }

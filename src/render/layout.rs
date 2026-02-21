@@ -9,6 +9,9 @@ pub struct Layout {
     pub height: Option<f64>,
     pub x_range: (f64, f64),
     pub y_range: (f64, f64),
+    /// Raw data range before padding (used by log scale to avoid pad_min issues)
+    pub data_x_range: Option<(f64, f64)>,
+    pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
     pub x_label: Option<String>,
@@ -36,6 +39,8 @@ impl Layout {
             height: None,
             x_range,
             y_range,
+            data_x_range: None,
+            data_y_range: None,
             ticks: 5,
             show_grid: true,
             x_label: None,
@@ -158,6 +163,10 @@ impl Layout {
             }
         }
 
+        // Save raw data range before padding (log scale needs it)
+        let raw_x = (x_min, x_max);
+        let raw_y = (y_min, y_max);
+
         // Add a small margin so data points don't land exactly on axis edges.
         // Category-based plots (bar, box, violin, brick) already have built-in
         // padding in their bounds(), so only pad continuous-axis plots.
@@ -174,6 +183,8 @@ impl Layout {
         }
 
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));
+        layout.data_x_range = Some(raw_x);
+        layout.data_y_range = Some(raw_y);
         if let Some(labels) = x_labels {
             layout = layout.with_x_categories(labels);
         }
@@ -327,13 +338,16 @@ impl ComputedLayout {
         let x_ticks = render_utils::auto_tick_count(width);
         let y_ticks = render_utils::auto_tick_count(height);
 
+        // For log scale, prefer the raw data range (before pad_min clamped to 0)
         let (x_min, x_max) = if layout.log_x {
-            render_utils::auto_nice_range_log(layout.x_range.0, layout.x_range.1)
+            let (xlo, xhi) = layout.data_x_range.unwrap_or(layout.x_range);
+            render_utils::auto_nice_range_log(xlo, xhi)
         } else {
             render_utils::auto_nice_range(layout.x_range.0, layout.x_range.1, x_ticks)
         };
         let (y_min, y_max) = if layout.log_y {
-            render_utils::auto_nice_range_log(layout.y_range.0, layout.y_range.1)
+            let (ylo, yhi) = layout.data_y_range.unwrap_or(layout.y_range);
+            render_utils::auto_nice_range_log(ylo, yhi)
         } else {
             render_utils::auto_nice_range(layout.y_range.0, layout.y_range.1, y_ticks)
         };
