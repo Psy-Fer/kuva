@@ -38,22 +38,24 @@ impl SvgBackend {
                         r#"<circle cx="{cx}" cy="{cy}" r="{r}" fill="{fill}" />"#,
                     ));
                 }
-                Primitive::Text { x, y, content, size, anchor, rotate } => {
+                Primitive::Text { x, y, content, size, anchor, rotate, bold } => {
                     let anchor_str = match anchor {
                         TextAnchor::Start => "start",
                         TextAnchor::Middle => "middle",
                         TextAnchor::End => "end",
                     };
-                
+
                     let transform = if let Some(angle) = rotate {
                         format!(r#" transform="rotate({angle},{x},{y})""#)
                     } else {
                         "".into()
                     };
-                
+
+                    let bold_str = if *bold { r#" font-weight="bold""# } else { "" };
+
                     let escaped = escape_xml(content);
                     svg.push_str(&format!(
-                        r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{transform}>{escaped}</text>"#
+                        r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}"{bold_str}{transform}>{escaped}</text>"#
                     ));
                 }
                 Primitive::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_dasharray } => {
@@ -82,6 +84,16 @@ impl SvgBackend {
                     }
 
                     svg.push_str(" />");
+                }
+                Primitive::GroupStart { transform } => {
+                    svg.push_str("<g");
+                    if let Some(t) = transform {
+                        svg.push_str(&format!(r#" transform="{t}""#));
+                    }
+                    svg.push_str(">");
+                }
+                Primitive::GroupEnd => {
+                    svg.push_str("</g>");
                 }
                 Primitive::Rect { x, y, width, height, fill, stroke, stroke_width, opacity} => {
                      svg.push_str(&format!(
