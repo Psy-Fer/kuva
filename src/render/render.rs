@@ -1057,10 +1057,21 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
 
     let has_variable_width = brickplot.motif_lengths.is_some();
-    // Strigar mode: always start at 0 (comparing repeat lengths directly)
-    let x_offset = if brickplot.strigar_exp.is_some() { 0.0 } else { brickplot.x_offset };
+    // Resolve the offset for a given row index.
+    // Strigar mode always uses 0; DNA mode uses the per-row value if available,
+    // otherwise falls back to the global x_offset.
+    let row_offset = |i: usize| -> f64 {
+        if brickplot.strigar_exp.is_some() {
+            0.0
+        } else if let Some(ref offsets) = brickplot.x_offsets {
+            offsets.get(i).copied().flatten().unwrap_or(brickplot.x_offset)
+        } else {
+            brickplot.x_offset
+        }
+    };
 
     for (i, row) in rows.iter().enumerate() {
+        let x_offset = row_offset(i);
         let mut x_pos: f64 = 0.0;
         for (j, value) in row.chars().enumerate() {
             let width = if let Some(ref ml) = brickplot.motif_lengths {
@@ -1092,6 +1103,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
     if brickplot.show_values {
         for (i, row) in rows.iter().enumerate() {
+            let x_offset = row_offset(i);
             let mut x_pos: f64 = 0.0;
             for (j, value) in row.chars().enumerate() {
                 let width = if let Some(ref ml) = brickplot.motif_lengths {

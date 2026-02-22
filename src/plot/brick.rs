@@ -1,5 +1,19 @@
 use std::collections::HashMap;
 
+/// Allows `with_x_offsets` to accept plain `f64` values (auto-wrapped as `Some`)
+/// as well as explicit `Option<f64>` values (for `None` fallback entries).
+pub trait IntoRowOffset {
+    fn into_row_offset(self) -> Option<f64>;
+}
+
+impl IntoRowOffset for f64 {
+    fn into_row_offset(self) -> Option<f64> { Some(self) }
+}
+
+impl IntoRowOffset for Option<f64> {
+    fn into_row_offset(self) -> Option<f64> { self }
+}
+
 
 fn canonical_rotation(s: &str) -> String {
     let n = s.len();
@@ -56,7 +70,7 @@ pub struct BrickPlot {
     pub strigar_exp: Option<Vec<String>>, // expanded strigar, so 3A-> AAA
     pub template: Option<HashMap<char, String>>, // letter: colour - A: greeen
     pub x_offset: f64, // offset for x axis zero, to set the start of area of interest
-    pub x_offsets: Option<Vec<f64>>, // ordered list of zero offsets matching the same order as names and sequences
+    pub x_offsets: Option<Vec<Option<f64>>>, // per-row offsets; None entries fall back to the global x_offset
     pub motif_lengths: Option<HashMap<char, usize>>, // global letter → motif nucleotide length (for variable-width bricks)
     pub show_values: bool, // show the letters or not
 }
@@ -209,10 +223,22 @@ impl BrickPlot {
         self
     }
 
-    // a global x_offset
-    // TODO: do per read offset, so it's the repeat start site in the read
+    /// A single offset applied to every row.
     pub fn with_x_offset(mut self, x_offset: f64) -> Self {
         self.x_offset = x_offset;
+        self
+    }
+
+    /// Per-row offsets (same order as sequences/names). Plain `f64` values are
+    /// automatically treated as `Some(v)`; pass `None` explicitly for any row
+    /// that should fall back to the global `x_offset`. Rows beyond the length
+    /// of the iterator also fall back to the global value.
+    pub fn with_x_offsets<T, I>(mut self, offsets: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoRowOffset,
+    {
+        self.x_offsets = Some(offsets.into_iter().map(|x| x.into_row_offset()).collect());
         self
     }
 

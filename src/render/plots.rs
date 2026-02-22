@@ -290,9 +290,24 @@ impl Plot {
                     bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0) as f64
                 };
 
-                // Strigar mode: always start at 0 (comparing repeat lengths directly)
-                let offset = if bp.strigar_exp.is_some() { 0.0 } else { bp.x_offset };
-                Some(((0.0 - offset, max_width - offset), (0.0, rows as f64)))
+                // Strigar mode: always start at 0 (comparing repeat lengths directly).
+                // DNA mode with per-row offsets: find the true x extent across all rows.
+                let (x_min, x_max) = if bp.strigar_exp.is_some() {
+                    (0.0, max_width)
+                } else if let Some(ref offsets) = bp.x_offsets {
+                    let seqs = &bp.sequences;
+                    let mut lo = f64::INFINITY;
+                    let mut hi = f64::NEG_INFINITY;
+                    for (i, seq) in seqs.iter().enumerate() {
+                        let off = offsets.get(i).copied().flatten().unwrap_or(bp.x_offset);
+                        lo = lo.min(0.0 - off);
+                        hi = hi.max(seq.len() as f64 - off);
+                    }
+                    (lo, hi)
+                } else {
+                    (0.0 - bp.x_offset, max_width - bp.x_offset)
+                };
+                Some(((x_min, x_max), (0.0, rows as f64)))
             }
         }
     }
