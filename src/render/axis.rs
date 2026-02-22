@@ -266,6 +266,63 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     }
 }
 
+pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
+    let Some((y2_min, y2_max)) = computed.y2_range else { return; };
+    let theme = &computed.theme;
+    let axis_x = computed.width - computed.margin_right;
+
+    // Right y-axis line
+    scene.add(Primitive::Line {
+        x1: axis_x, y1: computed.margin_top,
+        x2: axis_x, y2: computed.height - computed.margin_bottom,
+        stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+    });
+
+    if layout.suppress_y2_ticks { return; }
+
+    let y2_ticks = if layout.log_y2 {
+        render_utils::generate_ticks_log(y2_min, y2_max)
+    } else {
+        render_utils::generate_ticks(y2_min, y2_max, computed.y_ticks)
+    };
+
+    for ty in y2_ticks.iter() {
+        let y = computed.map_y2(*ty);
+
+        scene.add(Primitive::Line {
+            x1: axis_x, y1: y, x2: axis_x + 5.0, y2: y,
+            stroke: theme.tick_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+        });
+
+        let label = if layout.log_y2 && matches!(computed.y2_tick_format, TickFormat::Auto) {
+            render_utils::format_log_tick(*ty)
+        } else {
+            computed.y2_tick_format.format(*ty)
+        };
+        scene.add(Primitive::Text {
+            x: axis_x + 8.0,
+            y: y + computed.tick_size as f64 * 0.35,
+            content: label,
+            size: computed.tick_size,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+        });
+    }
+
+    if let Some(ref label) = layout.y2_label {
+        scene.add(Primitive::Text {
+            x: axis_x + computed.y2_axis_width - computed.label_size as f64 * 0.5,
+            y: computed.height / 2.0,
+            content: label.clone(),
+            size: computed.label_size,
+            anchor: TextAnchor::Middle,
+            rotate: Some(90.0),
+            bold: false,
+        });
+    }
+}
+
 pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     // X Axis Label
     if !layout.suppress_x_ticks {

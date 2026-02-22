@@ -1,7 +1,7 @@
 use crate::render::render_utils::{self, percentile, simple_kde, linear_regression, pearson_corr};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
-use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
+use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
 use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
 use crate::render::theme::Theme;
 
@@ -1127,10 +1127,10 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
     let (legend_x, mut legend_y) = match computed.legend_position {
         LegendPosition::TopRight => {
-            (computed.width - computed.margin_right + 10.0, computed.margin_top)
+            (computed.width - computed.margin_right + computed.y2_axis_width + 10.0, computed.margin_top)
         }
         LegendPosition::BottomRight => {
-            (computed.width - computed.margin_right + 10.0,
+            (computed.width - computed.margin_right + computed.y2_axis_width + 10.0,
              computed.height - computed.margin_bottom - legend_height)
         }
         LegendPosition::TopLeft => {
@@ -1815,6 +1815,68 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 break; // one colorbar per figure
             }
         }
+    }
+
+    scene
+}
+
+/// Render two groups of plots on a shared x-axis with independent left (primary) and right (secondary) y-axes.
+pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -> Scene {
+    let mut primary = primary;
+    let mut secondary = secondary;
+    if let Some(ref palette) = layout.palette {
+        let mut color_idx = 0;
+        for plot in primary.iter_mut().chain(secondary.iter_mut()) {
+            match plot {
+                Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
+                Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) | Plot::Band(_) => {
+                    plot.set_color(&palette[color_idx]);
+                    color_idx += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let computed = ComputedLayout::from_layout(&layout);
+    let computed_y2 = computed.for_y2();
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+
+    add_axes_and_grid(&mut scene, &computed, &layout);
+    add_y2_axis(&mut scene, &computed, &layout);
+    add_labels_and_title(&mut scene, &computed, &layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+
+    for plot in primary.iter() {
+        match plot {
+            Plot::Scatter(s) => add_scatter(s, &mut scene, &computed),
+            Plot::Line(l)    => add_line(l, &mut scene, &computed),
+            Plot::Series(s)  => add_series(s, &mut scene, &computed),
+            Plot::Band(b)    => add_band(b, &mut scene, &computed),
+            _ => {}
+        }
+    }
+    for plot in secondary.iter() {
+        match plot {
+            Plot::Scatter(s) => add_scatter(s, &mut scene, &computed_y2),
+            Plot::Line(l)    => add_line(l, &mut scene, &computed_y2),
+            Plot::Series(s)  => add_series(s, &mut scene, &computed_y2),
+            Plot::Band(b)    => add_band(b, &mut scene, &computed_y2),
+            _ => {}
+        }
+    }
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    let mut all_plots_for_legend: Vec<Plot> = primary;
+    all_plots_for_legend.extend(secondary);
+    let entries = collect_legend_entries(&all_plots_for_legend);
+    if layout.show_legend && !entries.is_empty() {
+        let legend = Legend { entries, position: layout.legend_position };
+        add_legend(&legend, &mut scene, &computed);
     }
 
     scene

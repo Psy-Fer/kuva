@@ -120,6 +120,12 @@ pub struct Layout {
     pub palette: Option<Palette>,
     pub x_tick_format: TickFormat,
     pub y_tick_format: TickFormat,
+    pub y2_range: Option<(f64, f64)>,
+    pub data_y2_range: Option<(f64, f64)>,
+    pub y2_label: Option<String>,
+    pub log_y2: bool,
+    pub y2_tick_format: TickFormat,
+    pub suppress_y2_ticks: bool,
 }
 
 impl Layout {
@@ -158,6 +164,12 @@ impl Layout {
             palette: None,
             x_tick_format: TickFormat::Auto,
             y_tick_format: TickFormat::Auto,
+            y2_range: None,
+            data_y2_range: None,
+            y2_label: None,
+            log_y2: false,
+            y2_tick_format: TickFormat::Auto,
+            suppress_y2_ticks: false,
         }
     }
 
@@ -449,9 +461,60 @@ impl Layout {
         self.y_tick_format = fmt;
         self
     }
+
+    pub fn with_y2_range(mut self, min: f64, max: f64) -> Self {
+        self.y2_range = Some((min, max));
+        self
+    }
+
+    pub fn with_y2_label<S: Into<String>>(mut self, label: S) -> Self {
+        self.y2_label = Some(label.into());
+        self
+    }
+
+    pub fn with_log_y2(mut self) -> Self {
+        self.log_y2 = true;
+        self
+    }
+
+    pub fn with_y2_tick_format(mut self, fmt: TickFormat) -> Self {
+        self.y2_tick_format = fmt;
+        self
+    }
+
+    /// Auto-compute y2_range from secondary plots, also expanding x_range to cover them.
+    pub fn with_y2_auto(mut self, secondary: &[Plot]) -> Self {
+        let mut x_min = self.x_range.0;
+        let mut x_max = self.x_range.1;
+        let mut y2_min = f64::INFINITY;
+        let mut y2_max = f64::NEG_INFINITY;
+        for plot in secondary {
+            if let Some(((xlo, xhi), (ylo, yhi))) = plot.bounds() {
+                x_min = x_min.min(xlo);
+                x_max = x_max.max(xhi);
+                y2_min = y2_min.min(ylo);
+                y2_max = y2_max.max(yhi);
+            }
+        }
+        self.x_range = (x_min, x_max);
+        let raw = (y2_min, y2_max);
+        self.data_y2_range = Some(raw);
+        if y2_max > y2_min {
+            y2_max = pad_max(y2_max);
+            y2_min = pad_min(y2_min);
+        }
+        self.y2_range = Some((y2_min, y2_max));
+        self
+    }
+
+    /// Convenience: auto-range both axes from separate plot lists.
+    pub fn auto_from_twin_y_plots(primary: &[Plot], secondary: &[Plot]) -> Self {
+        Layout::auto_from_plots(primary).with_y2_auto(secondary)
+    }
 }
 
 
+#[derive(Clone)]
 pub struct ComputedLayout {
     pub width: f64,
     pub height: f64,
@@ -476,6 +539,11 @@ pub struct ComputedLayout {
     pub theme: Theme,
     pub x_tick_format: TickFormat,
     pub y_tick_format: TickFormat,
+    pub y2_range: Option<(f64, f64)>,
+    pub log_y2: bool,
+    pub y2_tick_format: TickFormat,
+    /// Pixel width consumed by the y2 axis (ticks + labels). 0.0 when no y2 axis.
+    pub y2_axis_width: f64,
 }
 
 impl ComputedLayout {
@@ -504,6 +572,12 @@ impl ComputedLayout {
         };
         let mut margin_right = label_size;
 
+        let y2_axis_width = if layout.y2_range.is_some() && !layout.suppress_y2_ticks {
+            label_size + tick_size * 3.0 + 15.0
+        } else {
+            0.0
+        };
+        margin_right += y2_axis_width;
         if layout.show_legend {
             margin_right += layout.legend_width;
         }
@@ -533,6 +607,17 @@ impl ComputedLayout {
             render_utils::auto_nice_range(layout.y_range.0, layout.y_range.1, y_ticks)
         };
 
+        let y2_range = if let Some((ylo, yhi)) = layout.y2_range {
+            if layout.log_y2 {
+                let (ylo, yhi) = layout.data_y2_range.unwrap_or((ylo, yhi));
+                Some(render_utils::auto_nice_range_log(ylo, yhi))
+            } else {
+                Some(render_utils::auto_nice_range(ylo, yhi, y_ticks))
+            }
+        } else {
+            None
+        };
+
         Self {
             width,
             height,
@@ -556,6 +641,10 @@ impl ComputedLayout {
             theme: layout.theme.clone(),
             x_tick_format: layout.x_tick_format.clone(),
             y_tick_format: layout.y_tick_format.clone(),
+            y2_range,
+            log_y2: layout.log_y2,
+            y2_tick_format: layout.y2_tick_format.clone(),
+            y2_axis_width,
         }
     }
 
@@ -587,6 +676,35 @@ impl ComputedLayout {
         } else {
             self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
         }
+    }
+
+    pub fn map_y2(&self, y: f64) -> f64 {
+        if let Some((y2_min, y2_max)) = self.y2_range {
+            if self.log_y2 {
+                let y = y.max(1e-10);
+                let log_min = y2_min.log10();
+                let log_max = y2_max.log10();
+                self.height - self.margin_bottom
+                    - (y.log10() - log_min) / (log_max - log_min) * self.plot_height()
+            } else {
+                self.height - self.margin_bottom
+                    - (y - y2_min) / (y2_max - y2_min) * self.plot_height()
+            }
+        } else {
+            self.map_y(y)
+        }
+    }
+
+    /// Clone self with y_range = y2_range, log_y = log_y2, y_tick_format = y2_tick_format.
+    /// Used to render secondary-axis plots through existing add_* functions unchanged.
+    pub fn for_y2(&self) -> ComputedLayout {
+        let mut c = self.clone();
+        if let Some(y2) = self.y2_range {
+            c.y_range = y2;
+        }
+        c.log_y = self.log_y2;
+        c.y_tick_format = self.y2_tick_format.clone();
+        c
     }
 }
 

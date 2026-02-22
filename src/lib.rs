@@ -5,3 +5,4 @@ pub mod render;
 pub use render::theme::Theme;
 pub use render::palette::Palette;
 pub use render::layout::TickFormat;
+pub use render::render::render_twin_y;
