@@ -16,6 +16,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 - **Built-in statistics** — linear regression, KDE, percentiles, Pearson correlation
 - **Color palettes** — named colorblind-safe palettes (Wong, Tol, IBM) and general-purpose palettes (Category10, Pastel, Bold), with auto-cycling via `Layout::with_palette()`
 - **Themes** — light (default), dark, minimal, and solarized themes
+- **Tick formatting** — `TickFormat` enum for per-axis label control: smart auto, fixed decimals, integer, scientific notation, percentages, or fully custom
 
 ## Plot Types
 
@@ -241,6 +242,43 @@ Condition-based aliases: `deuteranopia()`, `protanopia()` → Wong; `tritanopia(
 
 Custom palettes: `Palette::custom("mine", vec!["red".into(), "green".into(), "blue".into()])`.
 
+## Tick Formatting
+
+Control how tick labels are rendered on each axis with `TickFormat`:
+
+```rust
+use visus::TickFormat;
+use visus::render::layout::Layout;
+use std::sync::Arc;
+
+// Both axes: smart auto (integers as "5", not "5.0"; sci notation for extremes)
+let layout = Layout::new((0.0, 100.0), (0.0, 1.0));
+
+// Per-axis: x as percentage, y as scientific notation
+let layout = Layout::new((0.0, 1.0), (0.0, 100_000.0))
+    .with_x_tick_format(TickFormat::Percent)   // 0.5 → "50.0%"
+    .with_y_tick_format(TickFormat::Sci);       // 12300 → "1.23e4"
+
+// Fixed decimal places
+let layout = Layout::new((0.0, 10.0), (0.0, 10.0))
+    .with_tick_format(TickFormat::Fixed(2));    // 3.1 → "3.10"
+
+// Custom formatter
+let layout = Layout::new((0.0, 100.0), (0.0, 100.0))
+    .with_tick_format(TickFormat::Custom(Arc::new(|v| format!("{}px", v as i32))));
+```
+
+| Variant | Example output |
+|---------|---------------|
+| `Auto` | `"5"`, `"3.14"`, `"1.23e4"` (smart default) |
+| `Fixed(2)` | `"3.14"`, `"0.00"` |
+| `Integer` | `"5"`, `"-3"` |
+| `Sci` | `"1.23e4"`, `"3.5e-3"` |
+| `Percent` | `"45.0%"` (value × 100) |
+| `Custom(f)` | any string |
+
+Log-scale axes retain their `1 / 10 / 100` style labels by default; specifying an explicit format overrides this.
+
 ## TODO
 
 ### Plot types
@@ -250,7 +288,6 @@ Custom palettes: `Palette::custom("mine", vec!["red".into(), "green".into(), "bl
 ### Layout & axes
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
-- [ ] Custom tick formatting (e.g. percentages, scientific notation)
 
 ### Backends & output
 - [ ] PNG rasterization
