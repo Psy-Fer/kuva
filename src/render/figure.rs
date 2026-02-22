@@ -455,6 +455,8 @@ fn clone_layout(l: &Layout) -> Layout {
     new.body_size = l.body_size;
     new.theme = l.theme.clone();
     new.palette = None; // Palette is consumed at render_multiple level, not cloned per-cell
+    new.x_tick_format = l.x_tick_format.clone();
+    new.y_tick_format = l.y_tick_format.clone();
     new
 }
 

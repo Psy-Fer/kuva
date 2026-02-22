@@ -282,8 +282,8 @@ fn test_scatter_log_x_only() {
     // X ticks should be log formatted (powers of 10)
     assert!(svg.contains(">1<") || svg.contains(">1</text>"));
     assert!(svg.contains(">100<") || svg.contains(">100</text>"));
-    // Y ticks should be linear (decimal)
-    assert!(svg.contains(".0</text>"));
+    // Y ticks should be linear (integer values in this range)
+    assert!(svg.contains(">0</text>") || svg.contains(">20</text>") || svg.contains(">40</text>"));
 }
 
 #[test]

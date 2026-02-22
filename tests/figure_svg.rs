@@ -294,9 +294,9 @@ fn figure_negative_y_only() {
 
     assert!(svg.contains("<svg"));
     // x min should be 0 (all positive, clamped)
-    assert!(svg.contains(">0.0<"));
+    assert!(svg.contains(">0<"));
     // y should go below -7: pad_min(-7.0) = -7 - 1 = -8
-    assert!(svg.contains(">-8.0<"));
+    assert!(svg.contains(">-8<"));
 }
 
 #[test]
@@ -319,9 +319,9 @@ fn figure_negative_x_only() {
 
     assert!(svg.contains("<svg"));
     // x min = -6, pad_min(-6) = -7, rounded by auto_nice_range to -8
-    assert!(svg.contains(">-8.0<"));
+    assert!(svg.contains(">-8<"));
     // y min should be 0 (all positive, clamped)
-    assert!(svg.contains(">0.0<"));
+    assert!(svg.contains(">0<"));
 }
 
 #[test]
@@ -344,11 +344,11 @@ fn figure_both_axes_negative() {
 
     assert!(svg.contains("<svg"));
     // x: min=-5, pad_min(-5) = -5 - 1 = -6; max=6, pad_max(6) = 7
-    assert!(svg.contains(">-6.0<"));
-    assert!(svg.contains(">7.0<"));
+    assert!(svg.contains(">-6<"));
+    assert!(svg.contains(">7<"));
     // y: all negative. min=-8, pad_min(-8) = -8 - 1 = -9; max=-2, pad_max(-2) = -1
-    assert!(svg.contains(">-9.0<"));
-    assert!(svg.contains(">-1.0<"));
+    assert!(svg.contains(">-9<"));
+    assert!(svg.contains(">-1<"));
 }
 
 #[test]

@@ -1,5 +1,5 @@
 use crate::render::render::{Scene, Primitive, TextAnchor};
-use crate::render::layout::{Layout, ComputedLayout};
+use crate::render::layout::{Layout, ComputedLayout, TickFormat};
 use crate::render::render_utils;
 
 
@@ -125,10 +125,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_x {
+                let label = if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*tx)
                 } else {
-                    format!("{:.1}", tx)
+                    computed.x_tick_format.format(*tx)
                 };
                 scene.add(Primitive::Text {
                     x,
@@ -183,10 +183,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_y {
+                let label = if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
-                    format!("{:.1}", ty)
+                    computed.y_tick_format.format(*ty)
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - 8.0,
@@ -216,10 +216,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_x {
+                let label = if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*tx)
                 } else {
-                    format!("{:.1}", tx)
+                    computed.x_tick_format.format(*tx)
                 };
                 scene.add(Primitive::Text {
                     x,
@@ -247,10 +247,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_y {
+                let label = if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
-                    format!("{:.1}", ty)
+                    computed.y_tick_format.format(*ty)
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - 8.0,

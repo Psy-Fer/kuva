@@ -215,8 +215,8 @@ fn test_line_log_y() {
     // Y axis should have log ticks
     assert!(svg.contains(">1</text>"));
     assert!(svg.contains(">100</text>") || svg.contains(">1000</text>"));
-    // X axis should have linear ticks
-    assert!(svg.contains(".0</text>"));
+    // X axis should have linear (integer) ticks
+    assert!(svg.contains(">0</text>") || svg.contains(">2</text>") || svg.contains(">4</text>"));
 }
 
 #[test]

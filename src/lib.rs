@@ -4,3 +4,4 @@ pub mod render;
 
 pub use render::theme::Theme;
 pub use render::palette::Palette;
+pub use render::layout::TickFormat;

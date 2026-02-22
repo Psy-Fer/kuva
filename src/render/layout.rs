@@ -1,9 +1,88 @@
+use std::sync::Arc;
 use crate::render::render_utils;
 use crate::render::plots::Plot;
 use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 use crate::render::theme::Theme;
 use crate::render::palette::Palette;
 use crate::plot::legend::LegendPosition;
+
+/// Controls how tick labels are formatted on an axis.
+pub enum TickFormat {
+    /// Smart default: integers as "5", minimal decimals, scientific notation for extremes.
+    Auto,
+    /// Exactly n decimal places: `Fixed(2)` → `"3.14"`.
+    Fixed(usize),
+    /// Round to nearest integer: `"5"`.
+    Integer,
+    /// ASCII scientific notation: `"1.23e4"`, `"3.5e-2"`.
+    Sci,
+    /// Multiply by 100 and append `%`: `0.45` → `"45.0%"`.
+    Percent,
+    /// Custom formatter function.
+    Custom(Arc<dyn Fn(f64) -> String + Send + Sync>),
+}
+
+impl Clone for TickFormat {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Auto      => Self::Auto,
+            Self::Fixed(n)  => Self::Fixed(*n),
+            Self::Integer   => Self::Integer,
+            Self::Sci       => Self::Sci,
+            Self::Percent   => Self::Percent,
+            Self::Custom(f) => Self::Custom(Arc::clone(f)),
+        }
+    }
+}
+
+impl TickFormat {
+    pub fn format(&self, v: f64) -> String {
+        match self {
+            Self::Auto      => tick_format_auto(v),
+            Self::Fixed(n)  => format!("{:.*}", n, v),
+            Self::Integer   => format!("{:.0}", v),
+            Self::Sci       => tick_format_sci(v),
+            Self::Percent   => format!("{:.1}%", v * 100.0),
+            Self::Custom(f) => f(v),
+        }
+    }
+}
+
+fn tick_format_auto(v: f64) -> String {
+    if v.fract().abs() < 1e-9 {
+        format!("{:.0}", v)
+    } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {
+        tick_format_sci(v)
+    } else {
+        let s = format!("{:.3}", v);
+        let s = s.trim_end_matches('0');
+        let s = s.trim_end_matches('.');
+        s.to_string()
+    }
+}
+
+fn tick_format_sci(v: f64) -> String {
+    let raw = format!("{:e}", v);
+    // raw looks like "1.23e4" or "1e0" or "3.5e-3"
+    if let Some(e_pos) = raw.find('e') {
+        let mantissa = &raw[..e_pos];
+        let exponent = &raw[e_pos + 1..];
+        // Strip trailing zeros from mantissa
+        let mantissa = if mantissa.contains('.') {
+            let m = mantissa.trim_end_matches('0').trim_end_matches('.');
+            m
+        } else {
+            mantissa
+        };
+        if exponent == "0" {
+            mantissa.to_string()
+        } else {
+            format!("{}e{}", mantissa, exponent)
+        }
+    } else {
+        raw
+    }
+}
 
 /// Defines the layout of the plot
 pub struct Layout {
@@ -39,6 +118,8 @@ pub struct Layout {
     pub body_size: u32,
     pub theme: Theme,
     pub palette: Option<Palette>,
+    pub x_tick_format: TickFormat,
+    pub y_tick_format: TickFormat,
 }
 
 impl Layout {
@@ -75,6 +156,8 @@ impl Layout {
             body_size: 12,
             theme: Theme::default(),
             palette: None,
+            x_tick_format: TickFormat::Auto,
+            y_tick_format: TickFormat::Auto,
         }
     }
 
@@ -347,6 +430,25 @@ impl Layout {
         self.palette = Some(palette);
         self
     }
+
+    /// Set the same tick format for both axes.
+    pub fn with_tick_format(mut self, fmt: TickFormat) -> Self {
+        self.x_tick_format = fmt.clone();
+        self.y_tick_format = fmt;
+        self
+    }
+
+    /// Set the tick format for the x-axis only.
+    pub fn with_x_tick_format(mut self, fmt: TickFormat) -> Self {
+        self.x_tick_format = fmt;
+        self
+    }
+
+    /// Set the tick format for the y-axis only.
+    pub fn with_y_tick_format(mut self, fmt: TickFormat) -> Self {
+        self.y_tick_format = fmt;
+        self
+    }
 }
 
 
@@ -372,6 +474,8 @@ pub struct ComputedLayout {
     pub tick_size: u32,
     pub body_size: u32,
     pub theme: Theme,
+    pub x_tick_format: TickFormat,
+    pub y_tick_format: TickFormat,
 }
 
 impl ComputedLayout {
@@ -450,6 +554,8 @@ impl ComputedLayout {
             tick_size: layout.tick_size,
             body_size: layout.body_size,
             theme: layout.theme.clone(),
+            x_tick_format: layout.x_tick_format.clone(),
+            y_tick_format: layout.y_tick_format.clone(),
         }
     }
 
