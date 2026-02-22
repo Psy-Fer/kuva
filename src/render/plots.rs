@@ -232,22 +232,19 @@ impl Plot {
                 } else {
                     let x_min = 0.5;
                     let x_max = vp.groups.len() as f64 + 0.5;
-            
+
                     let mut y_min = f64::INFINITY;
                     let mut y_max = f64::NEG_INFINITY;
-            
+
                     for group in &vp.groups {
                         if group.values.is_empty() { continue; }
-            
-                        for &v in &group.values {
-                            y_min = y_min.min(v);
-                            y_max = y_max.max(v);
-                        }
+                        let g_min = group.values.iter().cloned().fold(f64::INFINITY, f64::min);
+                        let g_max = group.values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                        let h = vp.bandwidth.unwrap_or_else(|| render_utils::silverman_bandwidth(&group.values));
+                        y_min = y_min.min(g_min - 3.0 * h);
+                        y_max = y_max.max(g_max + 3.0 * h);
                     }
-                    // let padding = 0.05 * (y_max - y_min);
-                    // y_min -= padding;
-                    // y_max += padding;
-            
+
                     Some(((x_min, x_max), (y_min, y_max)))
                 }
             }

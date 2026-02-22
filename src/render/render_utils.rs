@@ -151,19 +151,45 @@ pub fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 
-/// gaussian bump kde
-/// TODO: I can do better lol
+/// Silverman's rule of thumb for automatic KDE bandwidth selection.
+/// h = 0.9 * A * n^(-1/5), where A = min(σ, IQR/1.34)
+pub fn silverman_bandwidth(values: &[f64]) -> f64 {
+    let n = values.len();
+    if n < 2 { return 1.0; }
+
+    let mean = values.iter().sum::<f64>() / n as f64;
+    let std_dev = (values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+        / (n - 1) as f64).sqrt();
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let iqr = percentile(&sorted, 75.0) - percentile(&sorted, 25.0);
+
+    let a = if iqr > 0.0 { std_dev.min(iqr / 1.34) } else { std_dev };
+    if a == 0.0 { return 1.0; } // degenerate: all identical values
+
+    0.9 * a * (n as f64).powf(-0.2)
+}
+
+/// Gaussian kernel density estimate.
+/// Extends the evaluation range by 3*bandwidth on each side so Gaussian tails
+/// taper smoothly rather than terminating sharply at the data extremes.
 pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
+    if values.is_empty() || samples == 0 { return Vec::new(); }
+
     let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
     let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let step = (max - min) / samples as f64;
+
+    let lo = min - 3.0 * bandwidth;
+    let hi = max + 3.0 * bandwidth;
+    let step = (hi - lo) / (samples - 1).max(1) as f64;
 
     (0..samples).map(|i| {
-        let x = min + i as f64 * step;
-        let y = values.iter().map(|v| {
+        let x = lo + i as f64 * step;
+        let y: f64 = values.iter().map(|v| {
             let u = (x - v) / bandwidth;
             (-0.5 * u * u).exp()
-        }).sum::<f64>();
+        }).sum();
         (x, y)
     }).collect()
 }

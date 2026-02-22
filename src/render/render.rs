@@ -1,4 +1,4 @@
-use crate::render::render_utils::{self, percentile, simple_kde, linear_regression, pearson_corr};
+use crate::render::render_utils::{self, percentile, linear_regression, pearson_corr};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
@@ -754,10 +754,14 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
     let theme = &computed.theme;
 
     for (i, group) in violin.groups.iter().enumerate() {
+        if group.values.is_empty() { continue; }
         let x_center = computed.map_x((i + 1) as f64);
 
-        // Compute KDE
-        let kde = simple_kde(&group.values, 0.3, 50); // 0.3 bandwidth, 50 steps
+        // Compute KDE with auto or manual bandwidth
+        let h = violin.bandwidth
+            .unwrap_or_else(|| render_utils::silverman_bandwidth(&group.values));
+        let kde = render_utils::simple_kde(&group.values, h, violin.kde_samples);
+        if kde.is_empty() { continue; }
 
         // Normalize
         let max_density = kde.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);

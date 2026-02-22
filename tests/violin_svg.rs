@@ -75,6 +75,81 @@ fn test_violin_random_data() {
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
-    
-    
+}
+
+#[test]
+fn test_violin_silverman_auto() {
+    let mut rng = rand::rng();
+    let normal = Normal::new(0.0, 1.0).unwrap();
+    let values: Vec<f64> = (0..500).map(|_| normal.sample(&mut rng)).collect();
+
+    let violin = ViolinPlot::new()
+        .with_group("Auto", values)
+        .with_color("steelblue")
+        .with_width(30.0);
+
+    let plots = vec![Plot::Violin(violin)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Auto Bandwidth");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/violin_silverman_auto.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<path"));
+}
+
+#[test]
+fn test_violin_manual_bandwidth() {
+    let mut rng = rand::rng();
+    let normal = Normal::new(0.0, 1.0).unwrap();
+    let values: Vec<f64> = (0..300).map(|_| normal.sample(&mut rng)).collect();
+
+    let violin = ViolinPlot::new()
+        .with_group("Manual", values)
+        .with_color("coral")
+        .with_width(30.0)
+        .with_bandwidth(0.5);
+
+    let plots = vec![Plot::Violin(violin)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Manual Bandwidth 0.5");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/violin_manual_bandwidth.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+}
+
+#[test]
+fn test_violin_degenerate_constant() {
+    // All identical values — previously caused step=0 and NaN x-values
+    let values: Vec<f64> = vec![5.0; 50];
+
+    let violin = ViolinPlot::new()
+        .with_group("Constant", values)
+        .with_color("green")
+        .with_width(30.0);
+
+    let plots = vec![Plot::Violin(violin)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Degenerate Constant");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/violin_degenerate_constant.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+}
+
+#[test]
+fn test_violin_single_value() {
+    let violin = ViolinPlot::new()
+        .with_group("Single", vec![3.14f64])
+        .with_color("orange")
+        .with_width(30.0);
+
+    let plots = vec![Plot::Violin(violin)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Single Value");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/violin_single_value.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
 }

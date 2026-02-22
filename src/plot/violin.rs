@@ -5,6 +5,8 @@ pub struct ViolinPlot {
     pub color: String,
     pub width: f64,
     pub legend_label: Option<String>,
+    pub bandwidth: Option<f64>,
+    pub kde_samples: usize,
 }
 
 pub struct ViolinGroup {
@@ -19,6 +21,8 @@ impl ViolinPlot {
             color: "black".into(),
             width: 30.0,
             legend_label: None,
+            bandwidth: None,
+            kde_samples: 200,
         }
     }
 
@@ -47,6 +51,16 @@ impl ViolinPlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_bandwidth(mut self, h: f64) -> Self {
+        self.bandwidth = Some(h);
+        self
+    }
+
+    pub fn with_kde_samples(mut self, n: usize) -> Self {
+        self.kde_samples = n;
         self
     }
 }
