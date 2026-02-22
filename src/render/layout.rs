@@ -218,6 +218,11 @@ impl Layout {
                 x_labels = Some(labels);
             }
 
+            if let Plot::Waterfall(wp) = plot {
+                let labels = wp.bars.iter().map(|b| b.label.clone()).collect::<Vec<_>>();
+                x_labels = Some(labels);
+            }
+
             if let Plot::Bar(bp) = plot {
                 let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);

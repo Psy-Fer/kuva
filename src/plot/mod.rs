@@ -10,6 +10,7 @@ pub mod series;
 pub mod heatmap;
 pub mod brick;
 pub mod band;
+pub mod waterfall;
 
 pub mod legend;
 
@@ -27,5 +28,6 @@ pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
 pub use brick::BrickPlot;
 pub use band::BandPlot;
+pub use waterfall::{WaterfallPlot, WaterfallBar, WaterfallKind};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

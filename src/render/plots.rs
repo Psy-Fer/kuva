@@ -10,6 +10,7 @@ use crate::plot::brick::BrickPlot;
 
 use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
 use crate::plot::band::BandPlot;
+use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -27,6 +28,7 @@ pub enum Plot {
     Heatmap(Heatmap),
     Brick(BrickPlot),
     Band(BandPlot),
+    Waterfall(WaterfallPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -268,6 +270,29 @@ impl Plot {
                 let x_max = b.x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
                 let y_min = b.y_lower.iter().cloned().fold(f64::INFINITY, f64::min);
                 let y_max = b.y_upper.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                Some(((x_min, x_max), (y_min, y_max)))
+            }
+            Plot::Waterfall(wp) => {
+                if wp.bars.is_empty() { return None; }
+                let x_min = 0.5;
+                let x_max = wp.bars.len() as f64 + 0.5;
+                let mut running = 0.0_f64;
+                let mut y_min = 0.0_f64;
+                let mut y_max = 0.0_f64;
+                for bar in &wp.bars {
+                    match bar.kind {
+                        WaterfallKind::Delta => {
+                            let base = running;
+                            running += bar.value;
+                            y_min = y_min.min(base).min(running);
+                            y_max = y_max.max(base).max(running);
+                        }
+                        WaterfallKind::Total => {
+                            y_min = y_min.min(0.0).min(running);
+                            y_max = y_max.max(0.0).max(running);
+                        }
+                    }
+                }
                 Some(((x_min, x_max), (y_min, y_max)))
             }
             Plot::Brick(bp) => {
