@@ -1,4 +1,5 @@
 
+use crate::plot::strip::StripStyle;
 
 pub struct ViolinPlot {
     pub groups: Vec<ViolinGroup>,
@@ -7,6 +8,10 @@ pub struct ViolinPlot {
     pub legend_label: Option<String>,
     pub bandwidth: Option<f64>,
     pub kde_samples: usize,
+    pub overlay: Option<StripStyle>,
+    pub overlay_color: String,
+    pub overlay_size: f64,
+    pub overlay_seed: u64,
 }
 
 pub struct ViolinGroup {
@@ -23,10 +28,14 @@ impl ViolinPlot {
             legend_label: None,
             bandwidth: None,
             kde_samples: 200,
+            overlay: None,
+            overlay_color: "rgba(0,0,0,0.45)".into(),
+            overlay_size: 3.0,
+            overlay_seed: 42,
         }
     }
 
-    pub fn with_group<T, U, I>(mut self, label: T, values: I) -> Self 
+    pub fn with_group<T, U, I>(mut self, label: T, values: I) -> Self
     where
         T: Into<String>,
         I: IntoIterator<Item = U>,
@@ -61,6 +70,26 @@ impl ViolinPlot {
 
     pub fn with_kde_samples(mut self, n: usize) -> Self {
         self.kde_samples = n;
+        self
+    }
+
+    pub fn with_strip(mut self, jitter: f64) -> Self {
+        self.overlay = Some(StripStyle::Strip { jitter });
+        self
+    }
+
+    pub fn with_swarm_overlay(mut self) -> Self {
+        self.overlay = Some(StripStyle::Swarm);
+        self
+    }
+
+    pub fn with_overlay_color<S: Into<String>>(mut self, color: S) -> Self {
+        self.overlay_color = color.into();
+        self
+    }
+
+    pub fn with_overlay_size(mut self, size: f64) -> Self {
+        self.overlay_size = size;
         self
     }
 }

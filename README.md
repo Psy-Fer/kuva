@@ -34,6 +34,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | Heatmap | 2D matrix with colormaps (Viridis, Inferno, Grayscale, custom) |
 | Band | Filled area between upper and lower curves (confidence intervals) |
 | Brick | Character-level sequence visualization (DNA/RNA templates) |
+| Waterfall | Floating bars showing cumulative change; Delta and Total bar kinds |
 
 ## Quick Start
 
@@ -279,15 +280,45 @@ let layout = Layout::new((0.0, 100.0), (0.0, 100.0))
 
 Log-scale axes retain their `1 / 10 / 100` style labels by default; specifying an explicit format overrides this.
 
+## Waterfall Chart Example
+
+Visualise how an initial value evolves through a sequence of positive and negative increments:
+
+```rust
+use visus::plot::WaterfallPlot;
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+use visus::backend::svg::SvgBackend;
+
+let wf = WaterfallPlot::new()
+    .with_delta("Revenue", 500.0)
+    .with_delta("Cost",   -200.0)
+    .with_total("Gross Profit")     // bar from zero to running total
+    .with_delta("OpEx",    -80.0)
+    .with_delta("Tax",     -30.0)
+    .with_total("Net Profit")
+    .with_connectors()              // dashed horizontal connector lines
+    .with_values();                 // value labels above/below each bar
+
+let plots = vec![Plot::Waterfall(wf)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("P&L Waterfall")
+    .with_y_label("USD");
+
+let scene = render_multiple(plots, layout);
+let svg = SvgBackend.render_scene(&scene);
+```
+
+Delta bars float from the running cumulative total; positive bars use `color_positive` (default green), negative bars use `color_negative` (default red). Total bars reach from zero to the current running total and use `color_total` (default steelblue). Override with `.with_color_positive()`, `.with_color_negative()`, `.with_color_total()`.
+
 ## TODO
 
 ### Plot types
 - [ ] Contour plots
-- [ ] Waterfall charts
-
-### Layout & axes
-- [ ] Secondary Y-axis (twin axes)
-- [ ] Date/time axis support
+- [ ] Swarm / strip / jitter plots
+- [ ] Candlestick chart
+- [ ] Bioinformatics plots (volcano, manhattan, dot, upset, synteny, …)
 
 ### Backends & output
 - [ ] PNG rasterization

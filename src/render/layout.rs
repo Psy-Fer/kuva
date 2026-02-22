@@ -208,6 +208,15 @@ impl Layout {
                 y_max = y_max.max(ymax);
             }
 
+            if let Plot::Strip(sp) = plot {
+                let labels = sp.groups.iter().map(|g| g.label.clone()).collect();
+                x_labels = Some(labels);
+                if let Some(ref label) = sp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
             if let Plot::Box(bp) = plot {
                 let labels = bp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);
@@ -613,8 +622,8 @@ impl ComputedLayout {
         if layout.show_colorbar {
             margin_right += 85.0; // 20px bar + 50px labels + 15px gap
         }
-        let plot_width = 400.0;
-        let plot_height = 300.0;
+        let plot_width = 600.0;
+        let plot_height = 450.0;
 
         let width = layout.width.unwrap_or(margin_left + plot_width + margin_right);
         let height = layout.height.unwrap_or(margin_top + plot_height + margin_bottom);

@@ -13,6 +13,7 @@ use crate::plot::band::BandPlot;
 use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 use crate::plot::pie::PieLabelPosition;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
+use crate::plot::strip::{StripPlot, StripStyle};
 
 
 use crate::plot::Legend;
@@ -749,6 +750,22 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             });
         }
     }
+
+    // Overlay strip/swarm points after boxes
+    if let Some(ref style) = boxplot.overlay {
+        for (i, group) in boxplot.groups.iter().enumerate() {
+            add_strip_points(
+                &group.values,
+                (i + 1) as f64,
+                style,
+                &boxplot.overlay_color,
+                boxplot.overlay_size,
+                boxplot.overlay_seed.wrapping_add(i as u64),
+                scene,
+                computed,
+            );
+        }
+    }
 }
 
 fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -799,6 +816,22 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
             opacity: None,
             stroke_dasharray: None,
         });
+    }
+
+    // Overlay strip/swarm points after violin shapes
+    if let Some(ref style) = violin.overlay {
+        for (i, group) in violin.groups.iter().enumerate() {
+            add_strip_points(
+                &group.values,
+                (i + 1) as f64,
+                style,
+                &violin.overlay_color,
+                violin.overlay_size,
+                violin.overlay_seed.wrapping_add(i as u64),
+                scene,
+                computed,
+            );
+        }
     }
 }
 
@@ -1131,6 +1164,65 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 x_pos += width;
             }
         }
+    }
+}
+
+fn add_strip_points(
+    values: &[f64],
+    x_center_data: f64,
+    style: &StripStyle,
+    color: &str,
+    point_size: f64,
+    seed: u64,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+) {
+    use rand::SeedableRng;
+    use rand::Rng;
+    use rand::rngs::SmallRng;
+
+    match style {
+        StripStyle::Center => {
+            let cx = computed.map_x(x_center_data);
+            for &v in values {
+                let cy = computed.map_y(v);
+                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+            }
+        }
+        StripStyle::Strip { jitter } => {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            for &v in values {
+                let offset: f64 = (rng.random::<f64>() - 0.5) * jitter;
+                let cx = computed.map_x(x_center_data + offset);
+                let cy = computed.map_y(v);
+                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+            }
+        }
+        StripStyle::Swarm => {
+            let y_screen: Vec<f64> = values.iter().map(|&v| computed.map_y(v)).collect();
+            let x_offsets = render_utils::beeswarm_positions(&y_screen, point_size);
+            let cx_center = computed.map_x(x_center_data);
+            for (i, &v) in values.iter().enumerate() {
+                let cx = cx_center + x_offsets[i];
+                let cy = computed.map_y(v);
+                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+            }
+        }
+    }
+}
+
+fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    for (i, group) in strip.groups.iter().enumerate() {
+        add_strip_points(
+            &group.values,
+            (i + 1) as f64,
+            &strip.style,
+            &strip.color,
+            strip.point_size,
+            strip.seed.wrapping_add(i as u64),
+            scene,
+            computed,
+        );
     }
 }
 
@@ -1647,6 +1739,21 @@ pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     scene
 }
 
+// render_strip
+pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_strip(strip, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
+
 /// Collect legend entries from a slice of plots.
 pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
     let mut entries = Vec::new();
@@ -1747,6 +1854,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: wp.color_positive.clone(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
+            Plot::Strip(sp) => {
+                if let Some(ref label) = sp.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: sp.color.clone(),
+                        shape: LegendShape::Circle,
                         dasharray: None,
                     });
                 }
@@ -1876,7 +1993,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             match plot {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
-                Plot::Band(_) => {
+                Plot::Band(_) | Plot::Strip(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -1938,6 +2055,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Waterfall(w) => {
                 add_waterfall(&w, &mut scene, &computed);
+            }
+            Plot::Strip(s) => {
+                add_strip(&s, &mut scene, &computed);
             }
         }
     }

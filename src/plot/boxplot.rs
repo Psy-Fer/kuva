@@ -1,10 +1,15 @@
 
+use crate::plot::strip::StripStyle;
 
 pub struct BoxPlot {
     pub groups: Vec<BoxGroup>,
     pub color: String,
     pub width: f64,
     pub legend_label: Option<String>,
+    pub overlay: Option<StripStyle>,
+    pub overlay_color: String,
+    pub overlay_size: f64,
+    pub overlay_seed: u64,
 }
 
 pub struct BoxGroup {
@@ -19,6 +24,10 @@ impl BoxPlot {
             color: "black".into(),
             width: 0.8,
             legend_label: None,
+            overlay: None,
+            overlay_color: "rgba(0,0,0,0.45)".into(),
+            overlay_size: 3.0,
+            overlay_seed: 42,
         }
     }
 
@@ -47,6 +56,26 @@ impl BoxPlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_strip(mut self, jitter: f64) -> Self {
+        self.overlay = Some(StripStyle::Strip { jitter });
+        self
+    }
+
+    pub fn with_swarm_overlay(mut self) -> Self {
+        self.overlay = Some(StripStyle::Swarm);
+        self
+    }
+
+    pub fn with_overlay_color<S: Into<String>>(mut self, color: S) -> Self {
+        self.overlay_color = color.into();
+        self
+    }
+
+    pub fn with_overlay_size(mut self, size: f64) -> Self {
+        self.overlay_size = size;
         self
     }
 }

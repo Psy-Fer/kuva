@@ -229,6 +229,53 @@ pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
 }
 
 
+/// Greedy beeswarm layout: returns x pixel offsets from group center for each
+/// point such that no two points overlap (Euclidean distance ≥ 2*point_r).
+/// Placement tries x=0, then ±step, ±2×step, … (step = point_r).
+pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
+    let n = y_screen.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    let mut result = vec![0.0f64; n];
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| y_screen[a].partial_cmp(&y_screen[b]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut placed: Vec<(f64, f64)> = Vec::with_capacity(n);
+    let min_dist_sq = (2.0 * point_r) * (2.0 * point_r);
+    let step = point_r;
+
+    for &idx in &order {
+        let y = y_screen[idx];
+        let mut chosen_x = 0.0;
+
+        // k=0 → x=0; k=1 → +step; k=2 → -step; k=3 → +2*step; k=4 → -2*step; …
+        for k in 0usize..=2000 {
+            let x_try = if k == 0 {
+                0.0
+            } else {
+                let magnitude = ((k + 1) / 2) as f64 * step;
+                if k % 2 == 1 { magnitude } else { -magnitude }
+            };
+            let ok = placed.iter().all(|&(px, py)| {
+                let dx = x_try - px;
+                let dy = y - py;
+                dx * dx + dy * dy >= min_dist_sq
+            });
+            if ok {
+                chosen_x = x_try;
+                break;
+            }
+        }
+
+        placed.push((chosen_x, y));
+        result[idx] = chosen_x;
+    }
+
+    result
+}
+
 // Pearson correlation coefficient (r)
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
     let n = data.len();

@@ -11,6 +11,7 @@ use crate::plot::brick::BrickPlot;
 use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
 use crate::plot::band::BandPlot;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
+use crate::plot::strip::StripPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -29,6 +30,7 @@ pub enum Plot {
     Brick(BrickPlot),
     Band(BandPlot),
     Waterfall(WaterfallPlot),
+    Strip(StripPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -86,6 +88,7 @@ impl Plot {
             Plot::Box(b) => b.color = color.into(),
             Plot::Violin(v) => v.color = color.into(),
             Plot::Band(b) => b.color = color.into(),
+            Plot::Strip(s) => s.color = color.into(),
             _ => {}
         }
     }
@@ -293,6 +296,21 @@ impl Plot {
                         }
                     }
                 }
+                Some(((x_min, x_max), (y_min, y_max)))
+            }
+            Plot::Strip(sp) => {
+                if sp.groups.is_empty() { return None; }
+                let x_min = 0.5;
+                let x_max = sp.groups.len() as f64 + 0.5;
+                let mut y_min = f64::INFINITY;
+                let mut y_max = f64::NEG_INFINITY;
+                for g in &sp.groups {
+                    for &v in &g.values {
+                        y_min = y_min.min(v);
+                        y_max = y_max.max(v);
+                    }
+                }
+                if y_min == f64::INFINITY { return None; }
                 Some(((x_min, x_max), (y_min, y_max)))
             }
             Plot::Brick(bp) => {
