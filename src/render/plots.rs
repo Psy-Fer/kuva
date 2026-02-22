@@ -73,6 +73,21 @@ fn _bounds_from_1d(points: &[f64]) -> Option<((f64, f64), (f64, f64))> {
 
 
 impl Plot {
+    /// Set the primary color for single-color plot types.
+    /// Multi-element plots (Bar, Pie, Brick) and grid plots (Heatmap, Histogram2d) are skipped.
+    pub fn set_color(&mut self, color: &str) {
+        match self {
+            Plot::Scatter(s) => s.color = color.into(),
+            Plot::Line(l) => l.color = color.into(),
+            Plot::Series(s) => s.color = color.into(),
+            Plot::Histogram(h) => h.color = color.into(),
+            Plot::Box(b) => b.color = color.into(),
+            Plot::Violin(v) => v.color = color.into(),
+            Plot::Band(b) => b.color = color.into(),
+            _ => {}
+        }
+    }
+
     pub fn bounds(&self) -> Option<((f64, f64), (f64, f64))> {
         match self {
             

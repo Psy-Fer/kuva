@@ -1727,6 +1727,23 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
+    // Auto-assign palette colors to single-color plot types
+    let mut plots = plots;
+    if let Some(ref palette) = layout.palette {
+        let mut color_idx = 0;
+        for plot in plots.iter_mut() {
+            match plot {
+                Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
+                Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
+                Plot::Band(_) => {
+                    plot.set_color(&palette[color_idx]);
+                    color_idx += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();

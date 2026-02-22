@@ -6,3 +6,4 @@ pub mod axis;
 pub mod annotations;
 pub mod figure;
 pub mod theme;
+pub mod palette;

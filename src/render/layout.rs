@@ -2,6 +2,7 @@ use crate::render::render_utils;
 use crate::render::plots::Plot;
 use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 use crate::render::theme::Theme;
+use crate::render::palette::Palette;
 use crate::plot::legend::LegendPosition;
 
 /// Defines the layout of the plot
@@ -37,6 +38,7 @@ pub struct Layout {
     pub tick_size: u32,
     pub body_size: u32,
     pub theme: Theme,
+    pub palette: Option<Palette>,
 }
 
 impl Layout {
@@ -72,6 +74,7 @@ impl Layout {
             tick_size: 10,
             body_size: 12,
             theme: Theme::default(),
+            palette: None,
         }
     }
 
@@ -337,6 +340,11 @@ impl Layout {
             self.font_family = Some(font.clone());
         }
         self.theme = theme;
+        self
+    }
+
+    pub fn with_palette(mut self, palette: Palette) -> Self {
+        self.palette = Some(palette);
         self
     }
 }
