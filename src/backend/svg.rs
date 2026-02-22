@@ -67,7 +67,7 @@ impl SvgBackend {
                     }
                     svg.push_str(" />");
                 }
-                Primitive::Path { d, fill, stroke, stroke_width, opacity } => {
+                Primitive::Path { d, fill, stroke, stroke_width, opacity, stroke_dasharray } => {
                     svg.push_str(&format!(
                         r#"<path d="{d}" stroke="{stroke}" stroke-width="{stroke_width}""#
                     ));
@@ -80,7 +80,11 @@ impl SvgBackend {
                     }
 
                     if let Some(opacity) = opacity {
-                        svg.push_str(&format!(r#" fill-opacity="{opacity}%""#));
+                        svg.push_str(&format!(r#" fill-opacity="{opacity}""#));
+                    }
+
+                    if let Some(dash) = stroke_dasharray {
+                        svg.push_str(&format!(r#" stroke-dasharray="{dash}""#));
                     }
 
                     svg.push_str(" />");
@@ -107,7 +111,7 @@ impl SvgBackend {
                         svg.push_str(&format!(r#" stroke-width="{width}""#));
                     }
                     if let Some(opacity) = opacity {
-                        svg.push_str(&format!(r#" fill-opacity="{opacity}%""#));
+                        svg.push_str(&format!(r#" fill-opacity="{opacity}""#));
                     }
 
                 
