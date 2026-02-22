@@ -14,6 +14,8 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 - **Annotations** — text labels with arrows, reference lines (horizontal/vertical), and shaded regions
 - **Error bars & bands** — symmetric/asymmetric error bars on scatter and line plots, confidence interval bands
 - **Built-in statistics** — linear regression, KDE, percentiles, Pearson correlation
+- **Color palettes** — named colorblind-safe palettes (Wong, Tol, IBM) and general-purpose palettes (Category10, Pastel, Bold), with auto-cycling via `Layout::with_palette()`
+- **Themes** — light (default), dark, minimal, and solarized themes
 
 ## Plot Types
 
@@ -185,27 +187,70 @@ Features:
 - **Figure title** — `.with_title()` adds a centered title above all subplots
 - **Configurable sizing** — `.with_cell_size(w, h)`, `.with_spacing(px)`, `.with_padding(px)`
 
+## Color Palettes
+
+Use named palettes for colorblind-safe or publication-ready color schemes. Colors auto-cycle across plots:
+
+```rust
+use visus::Palette;
+use visus::plot::{ScatterPlot, LinePlot};
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+
+// Auto-cycle: palette colors assigned to each plot automatically
+let s1 = ScatterPlot::new().with_data(vec![(1.0, 2.0), (2.0, 3.0)]).with_legend("A");
+let s2 = ScatterPlot::new().with_data(vec![(1.0, 4.0), (2.0, 1.0)]).with_legend("B");
+let s3 = ScatterPlot::new().with_data(vec![(1.0, 5.0), (2.0, 6.0)]).with_legend("C");
+
+let plots = vec![Plot::Scatter(s1), Plot::Scatter(s2), Plot::Scatter(s3)];
+
+let layout = Layout::auto_from_plots(&plots)
+    .with_palette(Palette::wong())   // colorblind-safe
+    .with_title("Auto-Cycled Colors");
+
+let scene = render_multiple(plots, layout);
+```
+
+Or index into a palette manually:
+
+```rust
+use visus::Palette;
+
+let pal = Palette::wong();
+let color_a = &pal[0]; // "#E69F00"
+let color_b = &pal[1]; // "#56B4E9"
+// Wraps on overflow: pal[8] == pal[0]
+```
+
+Available palettes:
+
+| Constructor | Colors | Notes |
+|-------------|--------|-------|
+| `Palette::wong()` | 8 | Bang Wong, Nature Methods 2011 — colorblind-safe |
+| `Palette::okabe_ito()` | 8 | Alias for Wong |
+| `Palette::tol_bright()` | 7 | Paul Tol qualitative bright |
+| `Palette::tol_muted()` | 10 | Paul Tol qualitative muted |
+| `Palette::tol_light()` | 9 | Paul Tol qualitative light |
+| `Palette::ibm()` | 5 | IBM Design Language |
+| `Palette::category10()` | 10 | Tableau/D3 Category10 (default) |
+| `Palette::pastel()` | 10 | Softer pastel |
+| `Palette::bold()` | 10 | High-saturation vivid |
+
+Condition-based aliases: `deuteranopia()`, `protanopia()` → Wong; `tritanopia()` → Tol Bright.
+
+Custom palettes: `Palette::custom("mine", vec!["red".into(), "green".into(), "blue".into()])`.
+
 ## TODO
 
 ### Plot types
-- [ ] Stacked bar plots
-- [ ] Area / filled line plots
-- [ ] Step plots
 - [ ] Contour plots
-- [ ] Bubble plots (scatter with variable size per point)
 - [ ] Waterfall charts
 
 ### Layout & axes
 - [ ] Secondary Y-axis (twin axes)
 - [ ] Date/time axis support
 - [ ] Custom tick formatting (e.g. percentages, scientific notation)
-
-### Styling
-- [ ] Line styles (dashed, dotted, dash-dot)
-- [ ] Marker shapes (square, triangle, diamond, cross)
-- [ ] Configurable font sizes and font families
-- [ ] Theme support (dark mode, publication-ready, etc.)
-- [ ] Custom color palettes / color cycles
 
 ### Backends & output
 - [ ] PNG rasterization
