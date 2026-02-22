@@ -68,3 +68,28 @@ fn test_bar_categories_svg_output_builder() {
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
 }
+
+#[test]
+fn test_bar_stacked() {
+    let bar = BarPlot::new()
+        .with_group("Q1", vec![(10.0, "tomato"), (15.0, "skyblue"), (8.0, "gold")])
+        .with_group("Q2", vec![(12.0, "tomato"), (10.0, "skyblue"), (14.0, "gold")])
+        .with_group("Q3", vec![(8.0, "tomato"), (18.0, "skyblue"), (6.0, "gold")])
+        .with_legend(vec!["Product A", "Product B", "Product C"])
+        .with_stacked();
+
+    let plots = vec![Plot::Bar(bar)];
+
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Stacked Bar Plot")
+        .with_y_label("Revenue");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/bar_stacked.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("tomato"));
+    assert!(svg.contains("skyblue"));
+    assert!(svg.contains("gold"));
+}

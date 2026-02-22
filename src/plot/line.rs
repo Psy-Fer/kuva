@@ -63,6 +63,9 @@ pub struct LinePlot {
     pub legend_label: Option<String>,
     pub band: Option<BandPlot>,
     pub line_style: LineStyle,
+    pub step: bool,
+    pub fill: bool,
+    pub fill_opacity: f64,
 }
 
 impl LinePlot {
@@ -74,6 +77,9 @@ impl LinePlot {
             legend_label: None,
             band: None,
             line_style: LineStyle::default(),
+            step: false,
+            fill: false,
+            fill_opacity: 0.3,
         }
     }
 
@@ -206,6 +212,21 @@ impl LinePlot {
 
     pub fn with_dashdot(mut self) -> Self {
         self.line_style = LineStyle::DashDot;
+        self
+    }
+
+    pub fn with_step(mut self) -> Self {
+        self.step = true;
+        self
+    }
+
+    pub fn with_fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
+
+    pub fn with_fill_opacity(mut self, opacity: f64) -> Self {
+        self.fill_opacity = opacity;
         self
     }
 }

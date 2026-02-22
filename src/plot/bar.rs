@@ -4,6 +4,7 @@ pub struct BarPlot {
     pub groups: Vec<BarGroup>,
     pub width: f64,
     pub legend_label: Option<Vec<String>>,
+    pub stacked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -23,7 +24,8 @@ impl BarPlot {
         Self {
             groups: vec![],
             width: 0.8,
-            legend_label: None
+            legend_label: None,
+            stacked: false,
         }
     }
 
@@ -90,9 +92,12 @@ impl BarPlot {
         self
     }
 
+    pub fn with_stacked(mut self) -> Self {
+        self.stacked = true;
+        self
+    }
+
     fn default_color(&self) -> String {
         "steelblue".into()
     }
-
-
 }

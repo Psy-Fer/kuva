@@ -75,3 +75,69 @@ fn test_line_styles() {
     assert!(svg.contains(r#"stroke-dasharray="2 4""#)); // dotted
     assert!(svg.contains(r#"stroke-dasharray="8 4 2 4""#)); // dashdot
 }
+
+#[test]
+fn test_line_step() {
+    let data: Vec<(f64, f64)> = (0..10).map(|x| (x as f64, (x as f64).sin())).collect();
+    let n = data.len();
+
+    let plot = LinePlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_step();
+
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Step Plot");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/line_step.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Step path should have more L segments than data points (2 per step after the first)
+    let l_count = svg.matches(" L ").count();
+    assert!(l_count > n, "step path should have more L segments than data points");
+}
+
+#[test]
+fn test_line_area() {
+    let plot = LinePlot::new()
+        .with_data((0..100).map(|x| (x as f64 / 10.0, (x as f64 / 10.0).sin())))
+        .with_color("coral")
+        .with_fill();
+
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Area Plot");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/line_area.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("fill-opacity"));
+    assert!(svg.contains(" Z"));
+}
+
+#[test]
+fn test_line_step_area() {
+    let plot = LinePlot::new()
+        .with_data((0..20).map(|x| (x as f64, (x as f64 * 0.5).sin())))
+        .with_color("seagreen")
+        .with_step()
+        .with_fill()
+        .with_fill_opacity(0.4);
+
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Step Area Plot");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/line_step_area.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("fill-opacity"));
+    assert!(svg.contains(" Z"));
+}

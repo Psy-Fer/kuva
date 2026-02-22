@@ -114,6 +114,22 @@ pub fn build_path(points: &[(f64, f64)]) -> String {
     path
 }
 
+/// Build an SVG step-path (staircase) from a sequence of (x, y) screen-coordinate points.
+/// For each pair of consecutive points, inserts a horizontal segment to x1 before moving to y1.
+pub fn build_step_path(points: &[(f64, f64)]) -> String {
+    let mut path = String::new();
+    for (i, &(x, y)) in points.iter().enumerate() {
+        if i == 0 {
+            path += &format!("M {x} {y} ");
+        } else {
+            let prev_y = points[i - 1].1;
+            path += &format!("L {x} {prev_y} ");
+            path += &format!("L {x} {y} ");
+        }
+    }
+    path
+}
+
 fn draw_marker(scene: &mut Scene, marker: MarkerShape, cx: f64, cy: f64, size: f64, fill: &str) {
     match marker {
         MarkerShape::Circle => {
@@ -381,8 +397,34 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
         let points: Vec<(f64, f64)> = line.data.iter()
             .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
             .collect();
+
+        let stroke_d = if line.step {
+            build_step_path(&points)
+        } else {
+            build_path(&points)
+        };
+
+        // Draw fill area behind the stroke line
+        if line.fill {
+            let baseline_y = computed.map_y(computed.y_range.0.max(0.0));
+            let first_x = points.first().unwrap().0;
+            let last_x = points.last().unwrap().0;
+            let fill_d = format!(
+                "{}L {last_x} {baseline_y} L {first_x} {baseline_y} Z",
+                stroke_d
+            );
+            scene.add(Primitive::Path {
+                d: fill_d,
+                fill: Some(line.color.clone()),
+                stroke: "none".into(),
+                stroke_width: 0.0,
+                opacity: Some(line.fill_opacity),
+                stroke_dasharray: None,
+            });
+        }
+
         scene.add(Primitive::Path {
-            d: build_path(&points),
+            d: stroke_d,
             fill: None,
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
@@ -445,30 +487,53 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
 }
 
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
-    // for each tick, make a group, then within the groups do the bars
     for (i, group) in bar.groups.iter().enumerate() {
-        let group_x = i as f64 + 1.0; // make bar groups at 1, 2, etc...
-        let n = group.bars.len();
+        let group_x = i as f64 + 1.0;
         let total_width = bar.width;
-        let single_width = total_width / n as f64; // each individual bar as fraction
-    
-        for (j, bar) in group.bars.iter().enumerate() {
-            let x = group_x - total_width / 2.0 + single_width * (j as f64 + 0.5);
-            let x0 = computed.map_x(x - single_width / 2.0);
-            let x1 = computed.map_x(x + single_width / 2.0);
-            let y0 = computed.map_y(0.0); // all bars start at y=0
-            let y1 = computed.map_y(bar.value);
-    
-            scene.add(Primitive::Rect {
-                x: x0,
-                y: y1.min(y0),
-                width: (x1 - x0).abs(),
-                height: (y0 - y1).abs(),
-                fill: bar.color.clone(),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+
+        if bar.stacked {
+            let mut y_accum = 0.0;
+            for bar_val in &group.bars {
+                let x0 = computed.map_x(group_x - total_width / 2.0);
+                let x1 = computed.map_x(group_x + total_width / 2.0);
+                let y0 = computed.map_y(y_accum);
+                let y1 = computed.map_y(y_accum + bar_val.value);
+
+                scene.add(Primitive::Rect {
+                    x: x0,
+                    y: y1.min(y0),
+                    width: (x1 - x0).abs(),
+                    height: (y0 - y1).abs(),
+                    fill: bar_val.color.clone(),
+                    stroke: None,
+                    stroke_width: None,
+                    opacity: None,
+                });
+
+                y_accum += bar_val.value;
+            }
+        } else {
+            let n = group.bars.len();
+            let single_width = total_width / n as f64;
+
+            for (j, bar_val) in group.bars.iter().enumerate() {
+                let x = group_x - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                let x0 = computed.map_x(x - single_width / 2.0);
+                let x1 = computed.map_x(x + single_width / 2.0);
+                let y0 = computed.map_y(0.0);
+                let y1 = computed.map_y(bar_val.value);
+
+                scene.add(Primitive::Rect {
+                    x: x0,
+                    y: y1.min(y0),
+                    width: (x1 - x0).abs(),
+                    height: (y0 - y1).abs(),
+                    fill: bar_val.color.clone(),
+                    stroke: None,
+                    stroke_width: None,
+                    opacity: None,
+                });
+            }
         }
     }
 }

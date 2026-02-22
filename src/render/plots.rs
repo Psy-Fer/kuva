@@ -143,16 +143,23 @@ impl Plot {
 
                 if bp.groups.is_empty() {
                     None
-                } 
+                }
                 else {
                     let x_min = 0.5;
                     let x_max = bp.groups.len() as f64 + 0.5;
                     let y_min = 0.0;
-    
+
                     let mut y_max = f64::NEG_INFINITY;
-                    for group in &bp.groups {
-                        for bar in &group.bars {
-                            y_max = y_max.max(bar.value);
+                    if bp.stacked {
+                        for group in &bp.groups {
+                            let sum: f64 = group.bars.iter().map(|b| b.value).sum();
+                            y_max = y_max.max(sum);
+                        }
+                    } else {
+                        for group in &bp.groups {
+                            for bar in &group.bars {
+                                y_max = y_max.max(bar.value);
+                            }
                         }
                     }
 
