@@ -7,3 +7,4 @@ pub mod annotations;
 pub mod figure;
 pub mod theme;
 pub mod palette;
+pub mod datetime;

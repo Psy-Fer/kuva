@@ -35,12 +35,16 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     });
 
     // Always compute tick positions for grid lines
-    let x_ticks = if layout.log_x {
+    let x_ticks: Vec<f64> = if let Some(ref dt) = layout.x_datetime {
+        dt.generate_ticks(computed.x_range.0, computed.x_range.1)
+    } else if layout.log_x {
         render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
     } else {
         render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
     };
-    let y_ticks = if layout.log_y {
+    let y_ticks: Vec<f64> = if let Some(ref dt) = layout.y_datetime {
+        dt.generate_ticks(computed.y_range.0, computed.y_range.1)
+    } else if layout.log_y {
         render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
     } else {
         render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.y_ticks)
@@ -51,8 +55,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         // Vertical grid lines (skip for category x-axes like boxplot, bar, violin)
         if layout.x_categories.is_none() && layout.y_categories.is_none() {
             for (i, tx) in x_ticks.iter().enumerate() {
-                // Skip first tick on linear axes (it sits on the axis line)
-                if i == 0 && !layout.log_x { continue; }
+                // Skip first tick on linear axes (it sits on the axis line).
+                // Datetime ticks are calendar-snapped and don't land on the axis edge.
+                if i == 0 && !layout.log_x && layout.x_datetime.is_none() { continue; }
                 let x = map_x(*tx);
                 scene.add(Primitive::Line {
                     x1: x,
@@ -68,7 +73,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         // Horizontal grid lines (draw when y-axis is numeric)
         if layout.y_categories.is_none() {
             for (i, ty) in y_ticks.iter().enumerate() {
-                if i == 0 && !layout.log_y { continue; }
+                if i == 0 && !layout.log_y && layout.y_datetime.is_none() { continue; }
                 let y = map_y(*ty);
                 scene.add(Primitive::Line {
                     x1: computed.margin_left,
@@ -125,18 +130,24 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
+                let label = if let Some(ref dt) = layout.x_datetime {
+                    dt.format_tick(*tx)
+                } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*tx)
                 } else {
                     computed.x_tick_format.format(*tx)
+                };
+                let (anchor, rotate) = match layout.x_tick_rotate {
+                    Some(angle) => (TextAnchor::End, Some(angle)),
+                    None        => (TextAnchor::Middle, None),
                 };
                 scene.add(Primitive::Text {
                     x,
                     y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label,
                     size: computed.tick_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
+                    anchor,
+                    rotate,
                     bold: false,
                 });
             }
@@ -183,7 +194,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
+                let label = if let Some(ref dt) = layout.y_datetime {
+                    dt.format_tick(*ty)
+                } else if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
                     computed.y_tick_format.format(*ty)
@@ -216,18 +229,24 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
+                let label = if let Some(ref dt) = layout.x_datetime {
+                    dt.format_tick(*tx)
+                } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*tx)
                 } else {
                     computed.x_tick_format.format(*tx)
+                };
+                let (anchor, rotate) = match layout.x_tick_rotate {
+                    Some(angle) => (TextAnchor::End, Some(angle)),
+                    None        => (TextAnchor::Middle, None),
                 };
                 scene.add(Primitive::Text {
                     x,
                     y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label,
                     size: computed.tick_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
+                    anchor,
+                    rotate,
                     bold: false,
                 });
             }
@@ -247,7 +266,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     stroke_dasharray: None,
                 });
 
-                let label = if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
+                let label = if let Some(ref dt) = layout.y_datetime {
+                    dt.format_tick(*ty)
+                } else if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
                     computed.y_tick_format.format(*ty)

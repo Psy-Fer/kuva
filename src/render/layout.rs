@@ -5,6 +5,7 @@ use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 use crate::render::theme::Theme;
 use crate::render::palette::Palette;
 use crate::plot::legend::LegendPosition;
+use crate::render::datetime::DateTimeAxis;
 
 /// Controls how tick labels are formatted on an axis.
 pub enum TickFormat {
@@ -126,6 +127,9 @@ pub struct Layout {
     pub log_y2: bool,
     pub y2_tick_format: TickFormat,
     pub suppress_y2_ticks: bool,
+    pub x_datetime: Option<DateTimeAxis>,
+    pub y_datetime: Option<DateTimeAxis>,
+    pub x_tick_rotate: Option<f64>,
 }
 
 impl Layout {
@@ -170,6 +174,9 @@ impl Layout {
             log_y2: false,
             y2_tick_format: TickFormat::Auto,
             suppress_y2_ticks: false,
+            x_datetime: None,
+            y_datetime: None,
+            x_tick_rotate: None,
         }
     }
 
@@ -482,6 +489,21 @@ impl Layout {
         self
     }
 
+    pub fn with_x_datetime(mut self, axis: DateTimeAxis) -> Self {
+        self.x_datetime = Some(axis);
+        self
+    }
+
+    pub fn with_y_datetime(mut self, axis: DateTimeAxis) -> Self {
+        self.y_datetime = Some(axis);
+        self
+    }
+
+    pub fn with_x_tick_rotate(mut self, angle: f64) -> Self {
+        self.x_tick_rotate = Some(angle);
+        self
+    }
+
     /// Auto-compute y2_range from secondary plots, also expanding x_range to cover them.
     pub fn with_y2_auto(mut self, secondary: &[Plot]) -> Self {
         let mut x_min = self.x_range.0;
@@ -561,6 +583,8 @@ impl ComputedLayout {
         // Bottom: tick mark (5) + gap (5) + tick label + gap (5) + axis label + padding
         let margin_bottom = if layout.suppress_x_ticks {
             10.0
+        } else if layout.x_tick_rotate.is_some() {
+            tick_size + label_size + 45.0
         } else {
             tick_size + label_size + 25.0
         };

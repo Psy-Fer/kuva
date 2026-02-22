@@ -463,6 +463,9 @@ fn clone_layout(l: &Layout) -> Layout {
     new.log_y2 = l.log_y2;
     new.y2_tick_format = l.y2_tick_format.clone();
     new.suppress_y2_ticks = l.suppress_y2_ticks;
+    new.x_datetime = l.x_datetime.clone();
+    new.y_datetime = l.y_datetime.clone();
+    new.x_tick_rotate = l.x_tick_rotate;
     new
 }
 
