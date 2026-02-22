@@ -174,7 +174,7 @@ pub fn add_shaded_regions(regions: &[ShadedRegion], scene: &mut Scene, computed:
             fill: region.color.clone(),
             stroke: None,
             stroke_width: None,
-            opacity: Some(region.opacity * 100.0),
+            opacity: Some(region.opacity),
         });
     }
 }
@@ -292,6 +292,7 @@ pub fn add_text_annotations(annotations: &[TextAnnotation], scene: &mut Scene, c
                     stroke: ann.color.clone(),
                     stroke_width: 1.0,
                     opacity: None,
+                    stroke_dasharray: None,
                 });
             }
         }

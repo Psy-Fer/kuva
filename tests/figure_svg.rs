@@ -458,8 +458,8 @@ fn figure_shared_legend_bottom() {
 fn figure_shared_legend_manual_entries() {
     // Provide custom legend entries manually
     let manual_entries = vec![
-        LegendEntry { label: "Custom 1".into(), color: "orange".into(), shape: LegendShape::Circle },
-        LegendEntry { label: "Custom 2".into(), color: "purple".into(), shape: LegendShape::Line },
+        LegendEntry { label: "Custom 1".into(), color: "orange".into(), shape: LegendShape::Circle, dasharray: None },
+        LegendEntry { label: "Custom 2".into(), color: "purple".into(), shape: LegendShape::Line, dasharray: None },
     ];
 
     let figure = Figure::new(1, 2)

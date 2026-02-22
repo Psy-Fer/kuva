@@ -1,5 +1,5 @@
 use rand::Rng;
-use visus::plot::scatter::{ScatterPlot, TrendLine};
+use visus::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
 use visus::backend::svg::SvgBackend;
 use visus::render::render::{render_scatter, render_multiple};
 use visus::render::layout::Layout;
@@ -169,4 +169,86 @@ fn test_scatter_log_scale() {
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
+}
+
+#[test]
+fn test_scatter_markers() {
+    let circle = ScatterPlot::new()
+        .with_data(vec![(1.0, 1.0), (2.0, 2.0), (3.0, 1.5)])
+        .with_color("blue")
+        .with_size(5.0)
+        .with_marker(MarkerShape::Circle)
+        .with_legend("Circle");
+
+    let square = ScatterPlot::new()
+        .with_data(vec![(1.0, 3.0), (2.0, 4.0), (3.0, 3.5)])
+        .with_color("red")
+        .with_size(5.0)
+        .with_marker(MarkerShape::Square)
+        .with_legend("Square");
+
+    let triangle = ScatterPlot::new()
+        .with_data(vec![(1.0, 5.0), (2.0, 6.0), (3.0, 5.5)])
+        .with_color("green")
+        .with_size(5.0)
+        .with_marker(MarkerShape::Triangle)
+        .with_legend("Triangle");
+
+    let diamond = ScatterPlot::new()
+        .with_data(vec![(1.0, 7.0), (2.0, 8.0), (3.0, 7.5)])
+        .with_color("purple")
+        .with_size(5.0)
+        .with_marker(MarkerShape::Diamond)
+        .with_legend("Diamond");
+
+    let plots = vec![
+        Plot::Scatter(circle),
+        Plot::Scatter(square),
+        Plot::Scatter(triangle),
+        Plot::Scatter(diamond),
+    ];
+
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Marker Shapes")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_markers.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));  // Circle markers
+    assert!(svg.contains("<rect"));    // Square markers
+}
+
+#[test]
+fn test_bubble_plot() {
+    let data: Vec<(f64, f64)> = vec![
+        (1.0, 2.0), (2.0, 3.0), (3.0, 5.0),
+        (4.0, 4.0), (5.0, 6.0), (6.0, 3.0),
+    ];
+    let sizes = vec![3.0, 6.0, 10.0, 4.0, 8.0, 12.0];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_sizes(sizes);
+
+    let plot = vec![Plot::Scatter(scatter)];
+
+    let layout = Layout::auto_from_plots(&plot)
+        .with_title("Bubble Plot")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/bubble_plot.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+    // Verify varying radii: the smallest (r=3) and largest (r=12) should both appear
+    assert!(svg.contains(r#"r="3""#));
+    assert!(svg.contains(r#"r="12""#));
 }

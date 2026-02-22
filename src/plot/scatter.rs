@@ -1,4 +1,19 @@
 
+#[derive(Debug, Clone, Copy)]
+pub enum MarkerShape {
+    Circle,
+    Square,
+    Triangle,
+    Diamond,
+    Cross,
+    Plus,
+}
+
+impl Default for MarkerShape {
+    fn default() -> Self {
+        MarkerShape::Circle
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrendLine {
@@ -27,14 +42,16 @@ use crate::plot::band::BandPlot;
 pub struct ScatterPlot {
     pub data: Vec<ScatterPoint>,
     pub color: String,
-    pub size: f64, // radius of circle point...diff markers will be interesting to add lol
+    pub size: f64,
     pub legend_label: Option<String>,
-    pub trend: Option<TrendLine>, // add trend line
+    pub trend: Option<TrendLine>,
     pub trend_color: String,
     pub show_equation: bool,
     pub show_correlation: bool,
     pub trend_width: f64,
     pub band: Option<BandPlot>,
+    pub marker: MarkerShape,
+    pub sizes: Option<Vec<f64>>,
 }
 
 
@@ -51,6 +68,8 @@ impl ScatterPlot {
             show_correlation: false,
             trend_width: 1.0,
             band: None,
+            marker: MarkerShape::default(),
+            sizes: None,
         }
     }
 
@@ -187,6 +206,20 @@ impl ScatterPlot {
         let band = BandPlot::new(x, y_lower, y_upper)
             .with_color(self.color.clone());
         self.band = Some(band);
+        self
+    }
+
+    pub fn with_marker(mut self, marker: MarkerShape) -> Self {
+        self.marker = marker;
+        self
+    }
+
+    pub fn with_sizes<T, I>(mut self, sizes: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        self.sizes = Some(sizes.into_iter().map(|s| s.into()).collect());
         self
     }
 }

@@ -1,4 +1,30 @@
 
+#[derive(Debug, Clone)]
+pub enum LineStyle {
+    Solid,
+    Dashed,
+    Dotted,
+    DashDot,
+    Custom(String),
+}
+
+impl Default for LineStyle {
+    fn default() -> Self {
+        LineStyle::Solid
+    }
+}
+
+impl LineStyle {
+    pub fn dasharray(&self) -> Option<String> {
+        match self {
+            LineStyle::Solid => None,
+            LineStyle::Dashed => Some("8 4".into()),
+            LineStyle::Dotted => Some("2 4".into()),
+            LineStyle::DashDot => Some("8 4 2 4".into()),
+            LineStyle::Custom(s) => Some(s.clone()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScatterPoint {
@@ -36,6 +62,7 @@ pub struct LinePlot {
     pub stroke_width: f64,
     pub legend_label: Option<String>,
     pub band: Option<BandPlot>,
+    pub line_style: LineStyle,
 }
 
 impl LinePlot {
@@ -46,6 +73,7 @@ impl LinePlot {
             stroke_width: 2.0,
             legend_label: None,
             band: None,
+            line_style: LineStyle::default(),
         }
     }
 
@@ -158,6 +186,26 @@ impl LinePlot {
         let band = BandPlot::new(x, y_lower, y_upper)
             .with_color(self.color.clone());
         self.band = Some(band);
+        self
+    }
+
+    pub fn with_line_style(mut self, style: LineStyle) -> Self {
+        self.line_style = style;
+        self
+    }
+
+    pub fn with_dashed(mut self) -> Self {
+        self.line_style = LineStyle::Dashed;
+        self
+    }
+
+    pub fn with_dotted(mut self) -> Self {
+        self.line_style = LineStyle::Dotted;
+        self
+    }
+
+    pub fn with_dashdot(mut self) -> Self {
+        self.line_style = LineStyle::DashDot;
         self
     }
 }

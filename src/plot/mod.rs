@@ -15,8 +15,8 @@ pub mod legend;
 
 // pub mod types;
 
-pub use scatter::ScatterPlot;
-pub use line::LinePlot;
+pub use scatter::{ScatterPlot, MarkerShape};
+pub use line::{LinePlot, LineStyle};
 pub use bar::BarPlot;
 pub use histogram::Histogram;
 pub use histogram2d::Histogram2D;

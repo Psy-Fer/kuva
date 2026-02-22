@@ -4,7 +4,7 @@ use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
 use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
 
-use crate::plot::scatter::{ScatterPlot, TrendLine};
+use crate::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
 use crate::plot::line::LinePlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::histogram::Histogram;
@@ -49,6 +49,7 @@ pub enum Primitive {
         stroke: String,
         stroke_width: f64,
         opacity: Option<f64>,
+        stroke_dasharray: Option<String>,
     },
     Rect {
         x: f64,
@@ -113,6 +114,83 @@ pub fn build_path(points: &[(f64, f64)]) -> String {
     path
 }
 
+fn draw_marker(scene: &mut Scene, marker: MarkerShape, cx: f64, cy: f64, size: f64, fill: &str) {
+    match marker {
+        MarkerShape::Circle => {
+            scene.add(Primitive::Circle { cx, cy, r: size, fill: fill.into() });
+        }
+        MarkerShape::Square => {
+            scene.add(Primitive::Rect {
+                x: cx - size,
+                y: cy - size,
+                width: size * 2.0,
+                height: size * 2.0,
+                fill: fill.into(),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+        }
+        MarkerShape::Triangle => {
+            let h = size * 1.7; // equilateral-ish
+            let d = format!(
+                "M{},{} L{},{} L{},{} Z",
+                cx, cy - h * 0.6,
+                cx - size, cy + h * 0.4,
+                cx + size, cy + h * 0.4,
+            );
+            scene.add(Primitive::Path {
+                d,
+                fill: Some(fill.into()),
+                stroke: fill.into(),
+                stroke_width: 0.5,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+        MarkerShape::Diamond => {
+            let s = size * 1.3;
+            let d = format!(
+                "M{},{} L{},{} L{},{} L{},{} Z",
+                cx, cy - s,
+                cx + s, cy,
+                cx, cy + s,
+                cx - s, cy,
+            );
+            scene.add(Primitive::Path {
+                d,
+                fill: Some(fill.into()),
+                stroke: fill.into(),
+                stroke_width: 0.5,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+        MarkerShape::Cross => {
+            let s = size * 0.9;
+            scene.add(Primitive::Line {
+                x1: cx - s, y1: cy - s, x2: cx + s, y2: cy + s,
+                stroke: fill.into(), stroke_width: 1.5, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx - s, y1: cy + s, x2: cx + s, y2: cy - s,
+                stroke: fill.into(), stroke_width: 1.5, stroke_dasharray: None,
+            });
+        }
+        MarkerShape::Plus => {
+            let s = size * 0.9;
+            scene.add(Primitive::Line {
+                x1: cx - s, y1: cy, x2: cx + s, y2: cy,
+                stroke: fill.into(), stroke_width: 1.5, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx, y1: cy - s, x2: cx, y2: cy + s,
+                stroke: fill.into(), stroke_width: 1.5, stroke_dasharray: None,
+            });
+        }
+    }
+}
+
 fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
     if band.x.len() < 2 { return; }
     let mut path = String::new();
@@ -138,7 +216,8 @@ fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
         fill: Some(band.color.clone()),
         stroke: "none".into(),
         stroke_width: 0.0,
-        opacity: Some(band.opacity * 100.0),
+        opacity: Some(band.opacity),
+        stroke_dasharray: None,
     });
 }
 
@@ -149,13 +228,18 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     }
 
     // Draw points
-    for point in &scatter.data {
-        scene.add(Primitive::Circle {
-            cx:  computed.map_x(point.x),
-            cy: computed.map_y(point.y),
-            r: scatter.size,
-            fill: scatter.color.clone(),
-        });
+    for (i, point) in scatter.data.iter().enumerate() {
+        let size = scatter.sizes.as_ref()
+            .and_then(|s| s.get(i).copied())
+            .unwrap_or(scatter.size);
+        draw_marker(
+            scene,
+            scatter.marker,
+            computed.map_x(point.x),
+            computed.map_y(point.y),
+            size,
+            &scatter.color,
+        );
 
         // x error
         if let Some((neg, pos)) = point.x_err {
@@ -303,6 +387,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke: line.color.clone(),
             stroke_width: line.stroke_width,
             opacity: None,
+            stroke_dasharray: line.line_style.dasharray(),
         });
     }
 }
@@ -322,6 +407,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         stroke: series.color.clone(),
                         stroke_width: series.stroke_width,
                         opacity: None,
+                        stroke_dasharray: None,
                 });
             }
         }
@@ -343,6 +429,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                         stroke: series.color.clone(),
                         stroke_width: series.stroke_width,
                         opacity: None,
+                        stroke_dasharray: None,
                 });
             }
             for (x, y) in points {
@@ -628,6 +715,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
             stroke: "black".into(),
             stroke_width: 0.5,
             opacity: None,
+            stroke_dasharray: None,
         });
     }
 }
@@ -701,6 +789,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke: slice.color.clone(),
             stroke_width: 1.0,
             opacity: None,
+            stroke_dasharray: None,
         });
 
         // Build label text
@@ -1022,7 +1111,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
                 y2: legend_y + 2.0,
                 stroke: entry.color.clone(),
                 stroke_width: 2.0,
-                stroke_dasharray: None,
+                stroke_dasharray: entry.dasharray.clone(),
             }),
             LegendShape::Circle => scene.add(Primitive::Circle {
                 cx: legend_x + 5.0 + 6.0,
@@ -1030,6 +1119,9 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
                 r: 5.0,
                 fill: entry.color.clone(),
             }),
+            LegendShape::Marker(marker) => {
+                draw_marker(scene, marker, legend_x + 5.0 + 6.0, legend_y + 1.0, 5.0, &entry.color);
+            }
         }
 
         legend_y += line_height;
@@ -1300,6 +1392,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             label: format!("{}", label.get(i).unwrap()),
                             color: barval.color.clone(),
                             shape: LegendShape::Rect,
+                            dasharray: None,
                         });
                     }
                 }
@@ -1310,6 +1403,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: line.color.clone(),
                         shape: LegendShape::Line,
+                        dasharray: line.line_style.dasharray(),
                     });
                 }
             }
@@ -1318,7 +1412,8 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     entries.push(LegendEntry {
                         label: label.clone(),
                         color: scatter.color.clone(),
-                        shape: LegendShape::Rect,
+                        shape: LegendShape::Marker(scatter.marker),
+                        dasharray: None,
                     });
                 }
             }
@@ -1328,6 +1423,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: series.color.clone(),
                         shape: LegendShape::Circle,
+                        dasharray: None,
                     });
                 }
             }
@@ -1344,6 +1440,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label,
                         color: color.clone(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
                     })
                 }
             }
@@ -1353,6 +1450,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: boxplot.color.clone(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
                     });
                 }
             }
@@ -1362,6 +1460,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: violin.color.clone(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
                     });
                 }
             }
@@ -1371,6 +1470,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: hist.color.clone(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
                     });
                 }
             }
@@ -1380,6 +1480,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         label: label.clone(),
                         color: "gray".into(),
                         shape: LegendShape::Rect,
+                        dasharray: None,
                     });
                 }
             }
@@ -1401,6 +1502,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             label,
                             color: slice.color.clone(),
                             shape: LegendShape::Rect,
+                            dasharray: None,
                         });
                     }
                 }
@@ -1470,7 +1572,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
                 y2: legend_y + 2.0,
                 stroke: entry.color.clone(),
                 stroke_width: 2.0,
-                stroke_dasharray: None,
+                stroke_dasharray: entry.dasharray.clone(),
             }),
             LegendShape::Circle => scene.add(Primitive::Circle {
                 cx: x + 5.0 + 6.0,
@@ -1478,6 +1580,9 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
                 r: 5.0,
                 fill: entry.color.clone(),
             }),
+            LegendShape::Marker(marker) => {
+                draw_marker(scene, marker, x + 5.0 + 6.0, legend_y + 1.0, 5.0, &entry.color);
+            }
         }
         legend_y += line_height;
     }

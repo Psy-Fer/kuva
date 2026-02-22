@@ -1,15 +1,20 @@
 use std::sync::Arc;
 
+use crate::plot::scatter::MarkerShape;
+
 pub struct LegendEntry {
     pub label: String,
     pub color: String,
     pub shape: LegendShape, // useful for scatter vs line
+    pub dasharray: Option<String>,
 }
 
+#[derive(Clone, Copy)]
 pub enum LegendShape {
     Rect,
     Line,
     Circle,
+    Marker(MarkerShape),
 }
 
 #[derive(Default)]
