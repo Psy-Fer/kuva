@@ -12,6 +12,7 @@ use crate::plot::histogram::Histogram;
 use crate::plot::band::BandPlot;
 use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot, SeriesStyle, ViolinPlot};
 use crate::plot::pie::PieLabelPosition;
+use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 
 
 use crate::plot::Legend;
@@ -1133,6 +1134,106 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
 }
 
+fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let mut running = 0.0_f64;
+    let mut prev_connection_y: Option<f64> = None;
+    let half = waterfall.bar_width / 2.0;
+
+    for (i, bar) in waterfall.bars.iter().enumerate() {
+        let x_center = (i + 1) as f64;
+        let x0 = computed.map_x(x_center - half);
+        let x1 = computed.map_x(x_center + half);
+
+        let (base, top, color) = match bar.kind {
+            WaterfallKind::Delta => {
+                let base = running;
+                running += bar.value;
+                let color = if bar.value >= 0.0 {
+                    waterfall.color_positive.clone()
+                } else {
+                    waterfall.color_negative.clone()
+                };
+                (base, running, color)
+            }
+            WaterfallKind::Total => {
+                (0.0, running, waterfall.color_total.clone())
+            }
+        };
+
+        // Connector: dashed horizontal line from previous bar's right edge to this bar's left edge
+        if waterfall.show_connectors {
+            if let Some(py) = prev_connection_y {
+                let prev_x_right = computed.map_x(i as f64 + half);
+                scene.add(Primitive::Line {
+                    x1: prev_x_right,
+                    y1: py,
+                    x2: x0,
+                    y2: py,
+                    stroke: "gray".into(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: Some("4,3".into()),
+                });
+            }
+        }
+
+        // Bar rect
+        let y_screen_lo = computed.map_y(base.min(top));
+        let y_screen_hi = computed.map_y(base.max(top));
+        let bar_height = (y_screen_lo - y_screen_hi).abs();
+        if bar_height > 0.0 {
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: y_screen_hi,
+                width: (x1 - x0).abs(),
+                height: bar_height,
+                fill: color,
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+        }
+
+        // Value label
+        if waterfall.show_values {
+            let (display, label_y) = match bar.kind {
+                WaterfallKind::Delta => {
+                    let s = if bar.value >= 0.0 {
+                        format!("+{:.2}", bar.value)
+                    } else {
+                        format!("{:.2}", bar.value)
+                    };
+                    let ly = if bar.value >= 0.0 {
+                        y_screen_hi - 5.0
+                    } else {
+                        y_screen_lo + 15.0
+                    };
+                    (s, ly)
+                }
+                WaterfallKind::Total => {
+                    let s = format!("{:.2}", running);
+                    let ly = if running >= 0.0 {
+                        y_screen_hi - 5.0
+                    } else {
+                        y_screen_lo + 15.0
+                    };
+                    (s, ly)
+                }
+            };
+            scene.add(Primitive::Text {
+                x: (x0 + x1) / 2.0,
+                y: label_y,
+                content: display,
+                size: computed.body_size,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+                bold: false,
+            });
+        }
+
+        prev_connection_y = Some(computed.map_y(running));
+    }
+}
+
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
     let theme = &computed.theme;
 
@@ -1532,6 +1633,20 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
 
 
+pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_waterfall(waterfall, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
+
 /// Collect legend entries from a slice of plots.
 pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
     let mut entries = Vec::new();
@@ -1621,6 +1736,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     entries.push(LegendEntry {
                         label: label.clone(),
                         color: hist.color.clone(),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
+            Plot::Waterfall(wp) => {
+                if let Some(ref label) = wp.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: wp.color_positive.clone(),
                         shape: LegendShape::Rect,
                         dasharray: None,
                     });
@@ -1810,6 +1935,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Band(b) => {
                 add_band(&b, &mut scene, &computed);
+            }
+            Plot::Waterfall(w) => {
+                add_waterfall(&w, &mut scene, &computed);
             }
         }
     }
