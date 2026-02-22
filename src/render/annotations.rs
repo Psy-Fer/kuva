@@ -216,7 +216,7 @@ pub fn add_reference_lines(lines: &[ReferenceLine], scene: &mut Scene, computed:
                 x: tx,
                 y: ty,
                 content: label.clone(),
-                size: 10,
+                size: computed.tick_size,
                 anchor,
                 rotate: None,
                 bold: false,

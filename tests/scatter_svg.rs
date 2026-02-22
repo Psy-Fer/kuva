@@ -252,3 +252,128 @@ fn test_bubble_plot() {
     assert!(svg.contains(r#"r="3""#));
     assert!(svg.contains(r#"r="12""#));
 }
+
+#[test]
+fn test_scatter_log_x_only() {
+    // Log X with linear Y — e.g. dose-response
+    let data: Vec<(f64, f64)> = vec![
+        (0.01, 5.0), (0.1, 12.0), (1.0, 45.0),
+        (10.0, 78.0), (100.0, 95.0), (1000.0, 99.0),
+    ];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("darkred")
+        .with_size(5.0);
+
+    let plot = vec![Plot::Scatter(scatter)];
+    let layout = Layout::auto_from_plots(&plot)
+        .with_log_x()
+        .with_title("Log X / Linear Y")
+        .with_x_label("Concentration")
+        .with_y_label("Response (%)");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_log_x.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+    // X ticks should be log formatted (powers of 10)
+    assert!(svg.contains(">1<") || svg.contains(">1</text>"));
+    assert!(svg.contains(">100<") || svg.contains(">100</text>"));
+    // Y ticks should be linear (decimal)
+    assert!(svg.contains(".0</text>"));
+}
+
+#[test]
+fn test_scatter_log_y_only() {
+    // Linear X with log Y — e.g. exponential growth
+    let data: Vec<(f64, f64)> = vec![
+        (1.0, 2.0), (2.0, 8.0), (3.0, 30.0),
+        (4.0, 120.0), (5.0, 500.0), (6.0, 2000.0),
+        (7.0, 8000.0),
+    ];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("navy")
+        .with_size(5.0);
+
+    let plot = vec![Plot::Scatter(scatter)];
+    let layout = Layout::auto_from_plots(&plot)
+        .with_log_y()
+        .with_title("Linear X / Log Y")
+        .with_x_label("Time")
+        .with_y_label("Population");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_log_y.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+    // Y ticks should be log formatted
+    assert!(svg.contains(">1</text>"));
+    assert!(svg.contains(">1000</text>"));
+}
+
+#[test]
+fn test_scatter_log_small_values() {
+    // Very small values (sub-unity range)
+    let data: Vec<(f64, f64)> = vec![
+        (0.001, 0.0001), (0.005, 0.0008),
+        (0.02, 0.003), (0.1, 0.015),
+        (0.5, 0.08), (1.0, 0.5),
+    ];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("purple")
+        .with_size(5.0);
+
+    let plot = vec![Plot::Scatter(scatter)];
+    let layout = Layout::auto_from_plots(&plot)
+        .with_log_scale()
+        .with_title("Log Scale — Small Values")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_log_small.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+    // Should have sub-unity tick labels
+    assert!(svg.contains("1e-"));
+}
+
+#[test]
+fn test_scatter_log_narrow_range() {
+    // Narrow range (< 3 decades) should show 2x and 5x sub-ticks
+    let data: Vec<(f64, f64)> = vec![
+        (5.0, 10.0), (10.0, 25.0), (20.0, 50.0),
+        (50.0, 80.0), (100.0, 200.0),
+    ];
+
+    let scatter = ScatterPlot::new()
+        .with_data(data)
+        .with_color("teal")
+        .with_size(6.0);
+
+    let plot = vec![Plot::Scatter(scatter)];
+    let layout = Layout::auto_from_plots(&plot)
+        .with_log_scale()
+        .with_title("Log Scale — Narrow Range (sub-ticks)")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let scene = render_multiple(plot, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/scatter_log_narrow.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Narrow range should have 2x/5x sub-ticks (e.g. "20", "50")
+    assert!(svg.contains(">20</text>") || svg.contains(">50</text>"));
+}

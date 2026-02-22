@@ -92,7 +92,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     x: computed.margin_left - 10.0,
                     y: y_pos + 20.0,
                     content: label.clone(),
-                    size: 10,
+                    size: computed.tick_size,
                     anchor: TextAnchor::End,
                     rotate: None,
                     bold: false,
@@ -130,9 +130,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x,
-                    y: computed.height - computed.margin_bottom + 15.0,
+                    y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label,
-                    size: 10,
+                    size: computed.tick_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
@@ -148,9 +148,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
                 scene.add(Primitive::Text {
                     x: x_pos,
-                    y: computed.height - computed.margin_bottom + 15.0,
+                    y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label.clone(),
-                    size: 10,
+                    size: computed.tick_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
@@ -187,11 +187,11 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     format!("{:.1}", ty)
                 };
                 scene.add(Primitive::Text {
-                    x: computed.margin_left - 15.0,
-                    y,
+                    x: computed.margin_left - 8.0,
+                    y: y + computed.tick_size as f64 * 0.35,
                     content: label,
-                    size: 10,
-                    anchor: TextAnchor::Middle,
+                    size: computed.tick_size,
+                    anchor: TextAnchor::End,
                     rotate: None,
                     bold: false,
                 });
@@ -221,9 +221,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x,
-                    y: computed.height - computed.margin_bottom + 15.0,
+                    y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label,
-                    size: 10,
+                    size: computed.tick_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
@@ -251,11 +251,11 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     format!("{:.1}", ty)
                 };
                 scene.add(Primitive::Text {
-                    x: computed.margin_left - 15.0,
-                    y,
+                    x: computed.margin_left - 8.0,
+                    y: y + computed.tick_size as f64 * 0.35,
                     content: label,
-                    size: 10,
-                    anchor: TextAnchor::Middle,
+                    size: computed.tick_size,
+                    anchor: TextAnchor::End,
                     rotate: None,
                     bold: false,
                 });
@@ -270,9 +270,9 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         if let Some(label) = &layout.x_label {
             scene.add(Primitive::Text {
                 x: computed.width / 2.0,
-                y: computed.height - computed.margin_bottom / 4.0,
+                y: computed.height - computed.label_size as f64 * 0.5,
                 content: label.clone(),
-                size: 14,
+                size: computed.label_size,
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
@@ -284,10 +284,10 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
     if !layout.suppress_y_ticks {
         if let Some(label) = &layout.y_label {
             scene.add(Primitive::Text {
-                x: 20.0,
+                x: computed.label_size as f64,
                 y: computed.height / 2.0,
                 content: label.clone(),
-                size: 14,
+                size: computed.label_size,
                 anchor: TextAnchor::Middle,
                 rotate: Some(-90.0),
                 bold: false,
@@ -301,7 +301,7 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
             x: computed.width / 2.0,
             y: computed.margin_top / 2.0,
             content: title.clone(),
-            size: 16,
+            size: computed.title_size,
             anchor: TextAnchor::Middle,
             rotate: None,
             bold: false,

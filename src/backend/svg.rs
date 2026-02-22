@@ -15,8 +15,13 @@ pub struct SvgBackend;
 impl SvgBackend {
     pub fn render_scene(&self, scene: &Scene) -> String {
         // create svg with width and height
+        let font_attr = if let Some(ref family) = scene.font_family {
+            format!(r#" font-family="{family}""#)
+        } else {
+            String::new()
+        };
         let mut svg = format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"{font_attr}>"#,
             w = scene.width,
             h = scene.height
         );

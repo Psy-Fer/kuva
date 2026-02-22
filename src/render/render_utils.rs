@@ -63,7 +63,8 @@ pub fn auto_nice_range(data_min: f64, data_max: f64, target_ticks: usize) -> (f6
     (nice_min, nice_max)
 }
 
-/// Compute a nice log-scale range that fully includes the data
+/// Compute a nice log-scale range that fully includes the data.
+/// Rounds to powers of 10 so boundaries always align with generated ticks.
 pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
     let clamped_max = if data_max <= 0.0 {
         eprintln!("warning: log scale data_max ({}) <= 0, clamping to 1.0", data_max);
@@ -79,33 +80,15 @@ pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
         data_min
     };
 
-    let nice_min = prev_log_tick(clamped_min);
-    let nice_max = next_log_tick(clamped_max);
-    (nice_min, nice_max)
-}
+    let nice_min = 10f64.powf(clamped_min.log10().floor());
+    let nice_max = 10f64.powf(clamped_max.log10().ceil());
 
-/// Find the next 1-2-5 tick strictly above a value
-fn next_log_tick(value: f64) -> f64 {
-    let decade = value.log10().floor() as i32;
-    let base = 10f64.powi(decade);
-    let mult = value / base;
-
-    if mult < 1.0 - 1e-8 { base }
-    else if mult < 2.0 - 1e-8 { base * 2.0 }
-    else if mult < 5.0 - 1e-8 { base * 5.0 }
-    else { base * 10.0 }
-}
-
-/// Find the previous 1-2-5 tick strictly below a value
-fn prev_log_tick(value: f64) -> f64 {
-    let decade = value.log10().floor() as i32;
-    let base = 10f64.powi(decade);
-    let mult = value / base;
-
-    if mult > 5.0 + 1e-8 { base * 5.0 }
-    else if mult > 2.0 + 1e-8 { base * 2.0 }
-    else if mult > 1.0 + 1e-8 { base }
-    else { base * 0.5 }
+    // Ensure at least one decade of range
+    if (nice_max / nice_min - 1.0).abs() < 1e-8 {
+        (nice_min / 10.0, nice_max * 10.0)
+    } else {
+        (nice_min, nice_max)
+    }
 }
 
 /// Generate tick marks for a log-scale axis.

@@ -313,6 +313,8 @@ impl Figure {
         };
 
         let mut master = Scene::new(total_width, total_height);
+        // Inherit font_family from first user layout if set
+        master.font_family = user_layouts.first().and_then(|l| l.font_family.clone());
 
         // Build a layout for each structure slot
         let mut layouts: Vec<Layout> = Vec::new();
@@ -411,7 +413,8 @@ impl Figure {
                         (lx, ly)
                     }
                 };
-                render_legend_at(entries, &mut master, lx, ly, legend_width);
+                let body_size = user_layouts.first().map_or(12, |l| l.body_size);
+                render_legend_at(entries, &mut master, lx, ly, legend_width, body_size);
             }
         }
 
@@ -441,6 +444,11 @@ fn clone_layout(l: &Layout) -> Layout {
     new.log_y = l.log_y;
     new.suppress_x_ticks = l.suppress_x_ticks;
     new.suppress_y_ticks = l.suppress_y_ticks;
+    new.font_family = l.font_family.clone();
+    new.title_size = l.title_size;
+    new.label_size = l.label_size;
+    new.tick_size = l.tick_size;
+    new.body_size = l.body_size;
     new
 }
 

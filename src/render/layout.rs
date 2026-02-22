@@ -30,6 +30,11 @@ pub struct Layout {
     pub shaded_regions: Vec<ShadedRegion>,
     pub suppress_x_ticks: bool,
     pub suppress_y_ticks: bool,
+    pub font_family: Option<String>,
+    pub title_size: u32,
+    pub label_size: u32,
+    pub tick_size: u32,
+    pub body_size: u32,
 }
 
 impl Layout {
@@ -59,6 +64,11 @@ impl Layout {
             shaded_regions: Vec::new(),
             suppress_x_ticks: false,
             suppress_y_ticks: false,
+            font_family: None,
+            title_size: 16,
+            label_size: 14,
+            tick_size: 10,
+            body_size: 12,
         }
     }
 
@@ -292,6 +302,31 @@ impl Layout {
         self.shaded_regions.push(region);
         self
     }
+
+    pub fn with_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.font_family = Some(family.into());
+        self
+    }
+
+    pub fn with_title_size(mut self, size: u32) -> Self {
+        self.title_size = size;
+        self
+    }
+
+    pub fn with_label_size(mut self, size: u32) -> Self {
+        self.label_size = size;
+        self
+    }
+
+    pub fn with_tick_size(mut self, size: u32) -> Self {
+        self.tick_size = size;
+        self
+    }
+
+    pub fn with_body_size(mut self, size: u32) -> Self {
+        self.body_size = size;
+        self
+    }
 }
 
 
@@ -311,17 +346,38 @@ pub struct ComputedLayout {
     pub legend_width: f64,
     pub log_x: bool,
     pub log_y: bool,
+    pub font_family: Option<String>,
+    pub title_size: u32,
+    pub label_size: u32,
+    pub tick_size: u32,
+    pub body_size: u32,
 }
 
 impl ComputedLayout {
     pub fn from_layout(layout: &Layout) -> Self {
-        let font_size = 14.0;
-        let tick_space = 20.0;
+        let title_size = layout.title_size as f64;
+        let label_size = layout.label_size as f64;
+        let tick_size = layout.tick_size as f64;
 
-        let margin_top = if layout.title.is_some() { font_size * 3.0 } else { font_size * 0.5 };
-        let margin_bottom = if layout.suppress_x_ticks { font_size * 0.5 } else { font_size * 2.0 + tick_space };
-        let margin_left = if layout.suppress_y_ticks { font_size * 0.5 } else { font_size * 2.0 + tick_space };
-        let mut margin_right = font_size;
+        // Top: title height + padding, or small padding if no title
+        let margin_top = if layout.title.is_some() {
+            title_size + label_size + 12.0
+        } else {
+            10.0
+        };
+        // Bottom: tick mark (5) + gap (5) + tick label + gap (5) + axis label + padding
+        let margin_bottom = if layout.suppress_x_ticks {
+            10.0
+        } else {
+            tick_size + label_size + 25.0
+        };
+        // Left: axis label + gap + tick label width + gap to axis
+        let margin_left = if layout.suppress_y_ticks {
+            10.0
+        } else {
+            label_size + tick_size * 3.0 + 15.0
+        };
+        let mut margin_right = label_size;
 
         if layout.show_legend {
             margin_right += layout.legend_width;
@@ -367,6 +423,11 @@ impl ComputedLayout {
             legend_width: layout.legend_width,
             log_x: layout.log_x,
             log_y: layout.log_y,
+            font_family: layout.font_family.clone(),
+            title_size: layout.title_size,
+            label_size: layout.label_size,
+            tick_size: layout.tick_size,
+            body_size: layout.body_size,
         }
     }
 

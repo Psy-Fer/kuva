@@ -79,6 +79,7 @@ pub struct Scene {
     pub width: f64,
     pub height: f64,
     pub background_color: Option<String>,
+    pub font_family: Option<String>,
     pub elements: Vec<Primitive>,
 }
 
@@ -87,6 +88,7 @@ impl Scene {
         Self { width,
                height,
                background_color: Some("white".to_string()),
+               font_family: None,
                elements: vec![] }
     }
 
@@ -374,7 +376,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                             x: computed.margin_left + 10.0,
                             y: computed.margin_top + 20.0,
                             content: label,
-                            size: 12,
+                            size: computed.body_size,
                             anchor: TextAnchor::Start,
                             rotate: None,
                             bold: false,
@@ -644,7 +646,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
             x: computed.width - 120.0,
             y: computed.margin_top + 20.0,
             content: format!("r = {:.2}", corr),
-            size: 14,
+            size: computed.body_size,
             anchor: TextAnchor::End,
             rotate: None,
             bold: false,
@@ -787,21 +789,25 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
-    // Center pie in the plot area, not the full canvas
+    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+
+    let has_outside = matches!(pie.label_position, PieLabelPosition::Outside | PieLabelPosition::Auto);
+
+    let leader_gap = 30.0;
+    let pad = 5.0;
+
+    // Size radius from vertical space; canvas was already widened in render_pie
+    let radius = if has_outside {
+        computed.plot_height() / 2.0 - pad
+    } else {
+        computed.plot_width().min(computed.plot_height()) / 2.0 - 10.0
+    };
+
+    // Center pie in the plot area (width may have been adjusted by render_pie)
     let cx = computed.margin_left + computed.plot_width() / 2.0;
     let cy = computed.margin_top + computed.plot_height() / 2.0;
-
-    // Reduce radius when outside labels need space
-    let has_outside = match pie.label_position {
-        PieLabelPosition::Outside | PieLabelPosition::Auto => true,
-        _ => false,
-    };
-    let label_margin = if has_outside { 40.0 } else { 10.0 };
-    let radius = computed.plot_width().min(computed.plot_height()) / 2.0 - label_margin;
     let inner_radius = pie.inner_radius;
     let inside_label_radius = (radius + inner_radius) / 2.0;
-
-    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
     let mut angle = 0.0;
 
     // Collect outside labels for anti-overlap pass
@@ -886,7 +892,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 x: label_x,
                 y: label_y,
                 content: label_text,
-                size: 12,
+                size: computed.body_size,
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
@@ -898,7 +904,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             let elbow_x = cx + (radius + 20.0) * mid_angle.cos();
             let elbow_y = cy + (radius + 20.0) * mid_angle.sin();
             // Text extends horizontally from the elbow
-            let text_x = if right_side { cx + radius + 30.0 } else { cx - radius - 30.0 };
+            let text_x = if right_side { cx + radius + leader_gap } else { cx - radius - leader_gap };
             let text_y = elbow_y;
 
             outside_labels.push(OutsideLabel {
@@ -914,7 +920,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     // Anti-overlap: process right and left sides independently
-    let min_gap = 14.0;
+    let min_gap = computed.body_size as f64 + 2.0;
     for side in [true, false] {
         let mut indices: Vec<usize> = outside_labels.iter().enumerate()
             .filter(|(_, l)| l.right_side == side)
@@ -956,7 +962,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             x: label.text_x,
             y: label.text_y,
             content: label.content.clone(),
-            size: 12,
+            size: computed.body_size,
             anchor,
             rotate: None,
             bold: false,
@@ -1011,7 +1017,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                     x: x0 + ((x1-x0).abs() / 2.0),
                     y: y0 + ((y1-y0).abs() / 2.0),
                     content: format!("{:.2}", value),
-                    size: 12,
+                    size: computed.body_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
@@ -1088,7 +1094,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     x: x0 + ((x1-x0).abs() / 2.0),
                     y: y0 + ((y1-y0).abs() / 2.0),
                     content: format!("{}", value),
-                    size: 12,
+                    size: computed.body_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
@@ -1153,7 +1159,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
             y: legend_y + 5.0,
             content: entry.label.clone(),
             anchor: TextAnchor::Start,
-            size: 12,
+            size: computed.body_size,
             rotate: None,
             bold: false,
         });
@@ -1259,7 +1265,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             x: bar_x + bar_width + 6.0,
             y: y + 4.0,
             content: format!("{:.1}", tick),
-            size: 10,
+            size: computed.tick_size,
             anchor: TextAnchor::Start,
             rotate: None,
             bold: false,
@@ -1272,7 +1278,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             x: bar_x + bar_width / 2.0,
             y: bar_y - 6.0,
             content: label.clone(),
-            size: 11,
+            size: computed.tick_size,
             anchor: TextAnchor::Middle,
             rotate: None,
             bold: false,
@@ -1283,10 +1289,11 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
 
 /// render_scatter
 pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
-    
+
     let computed = ComputedLayout::from_layout(&layout);
-        
+
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
     
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1305,6 +1312,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1323,6 +1331,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1341,6 +1350,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1359,6 +1369,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1377,6 +1388,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1395,6 +1407,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1410,8 +1423,43 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
 pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let mut computed = ComputedLayout::from_layout(&layout);
+
+    // Widen canvas for outside pie labels before rendering title/labels
+    let has_outside = matches!(pie.label_position, PieLabelPosition::Outside | PieLabelPosition::Auto);
+    if has_outside {
+        let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+        let char_width = computed.body_size as f64 * 0.6;
+        let max_label_px = pie.slices.iter().map(|slice| {
+            let frac = slice.value / total;
+            let place_inside = match pie.label_position {
+                PieLabelPosition::None | PieLabelPosition::Inside => true,
+                PieLabelPosition::Outside => false,
+                PieLabelPosition::Auto => frac >= pie.min_label_fraction,
+            };
+            if place_inside { return 0.0; }
+            let label_text = if pie.show_percent {
+                let pct = frac * 100.0;
+                if slice.label.is_empty() { format!("{:.1}%", pct) }
+                else { format!("{} ({:.1}%)", slice.label, pct) }
+            } else {
+                slice.label.clone()
+            };
+            label_text.len() as f64 * char_width
+        }).fold(0.0f64, f64::max);
+
+        let leader_gap = 30.0;
+        let pad = 5.0;
+        let radius = computed.plot_height() / 2.0 - pad;
+        let needed_half = radius + leader_gap + max_label_px + pad;
+        let needed_plot_width = needed_half * 2.0;
+        if needed_plot_width > computed.plot_width() {
+            computed.width = needed_plot_width + computed.margin_left + computed.margin_right;
+        }
+    }
+
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1430,6 +1478,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1579,7 +1628,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
 }
 
 /// Render legend entries at an arbitrary (x, y) position on a scene.
-pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f64, width: f64) {
+pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f64, width: f64, body_size: u32) {
     let legend_padding = 10.0;
     let line_height = 18.0;
     let legend_height = entries.len() as f64 * line_height + legend_padding * 2.0;
@@ -1615,7 +1664,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
             y: legend_y + 5.0,
             content: entry.label.clone(),
             anchor: TextAnchor::Start,
-            size: 12,
+            size: body_size,
             rotate: None,
             bold: false,
         });
@@ -1658,6 +1707,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
 
     let all_pies = plots.iter().all(|p| matches!(p, Plot::Pie(_)));
     if !all_pies {
