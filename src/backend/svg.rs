@@ -20,8 +20,13 @@ impl SvgBackend {
         } else {
             String::new()
         };
+        let fill_attr = if let Some(ref color) = scene.text_color {
+            format!(r#" fill="{color}""#)
+        } else {
+            String::new()
+        };
         let mut svg = format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"{font_attr}>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"{font_attr}{fill_attr}>"#,
             w = scene.width,
             h = scene.height
         );

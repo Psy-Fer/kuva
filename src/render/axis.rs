@@ -9,6 +9,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     let map_x = |x| computed.map_x(x);
     let map_y = |y| computed.map_y(y);
 
+    let theme = &computed.theme;
+
     // Draw axes
     // X axis
     scene.add(Primitive::Line {
@@ -16,7 +18,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y1: computed.height - computed.margin_bottom,
         x2: computed.width - computed.margin_right,
         y2: computed.height - computed.margin_bottom,
-        stroke: "red".into(),
+        stroke: theme.axis_color.clone(),
         stroke_width: 1.0,
         stroke_dasharray: None,
     });
@@ -27,7 +29,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y1: computed.margin_top,
         x2: computed.margin_left,
         y2: computed.height - computed.margin_bottom,
-        stroke: "green".into(),
+        stroke: theme.axis_color.clone(),
         stroke_width: 1.0,
         stroke_dasharray: None,
     });
@@ -57,7 +59,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.margin_top,
                     x2: x,
                     y2: computed.height - computed.margin_bottom,
-                    stroke: "#ccc".to_string(),
+                    stroke: theme.grid_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -73,7 +75,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.width - computed.margin_right,
                     y2: y,
-                    stroke: "#ccc".to_string(),
+                    stroke: theme.grid_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -103,7 +105,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y_pos,
                     x2: computed.margin_left,
                     y2: y_pos,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -118,7 +120,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.height - computed.margin_bottom,
                     x2: x,
                     y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -161,7 +163,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.height - computed.margin_bottom,
                     x2: x_pos,
                     y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -176,7 +178,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.margin_left,
                     y2: y,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -209,7 +211,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.height - computed.margin_bottom,
                     x2: x,
                     y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -240,7 +242,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.margin_left,
                     y2: y,
-                    stroke: "black".into(),
+                    stroke: theme.tick_color.clone(),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });

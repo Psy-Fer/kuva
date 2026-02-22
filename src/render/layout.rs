@@ -1,6 +1,7 @@
 use crate::render::render_utils;
 use crate::render::plots::Plot;
 use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
+use crate::render::theme::Theme;
 use crate::plot::legend::LegendPosition;
 
 /// Defines the layout of the plot
@@ -35,6 +36,7 @@ pub struct Layout {
     pub label_size: u32,
     pub tick_size: u32,
     pub body_size: u32,
+    pub theme: Theme,
 }
 
 impl Layout {
@@ -69,6 +71,7 @@ impl Layout {
             label_size: 14,
             tick_size: 10,
             body_size: 12,
+            theme: Theme::default(),
         }
     }
 
@@ -327,6 +330,15 @@ impl Layout {
         self.body_size = size;
         self
     }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.show_grid = theme.show_grid;
+        if let Some(ref font) = theme.font_family {
+            self.font_family = Some(font.clone());
+        }
+        self.theme = theme;
+        self
+    }
 }
 
 
@@ -351,6 +363,7 @@ pub struct ComputedLayout {
     pub label_size: u32,
     pub tick_size: u32,
     pub body_size: u32,
+    pub theme: Theme,
 }
 
 impl ComputedLayout {
@@ -423,11 +436,12 @@ impl ComputedLayout {
             legend_width: layout.legend_width,
             log_x: layout.log_x,
             log_y: layout.log_y,
-            font_family: layout.font_family.clone(),
+            font_family: layout.font_family.clone().or(layout.theme.font_family.clone()),
             title_size: layout.title_size,
             label_size: layout.label_size,
             tick_size: layout.tick_size,
             body_size: layout.body_size,
+            theme: layout.theme.clone(),
         }
     }
 

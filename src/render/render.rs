@@ -3,6 +3,7 @@ use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title};
 use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
+use crate::render::theme::Theme;
 
 use crate::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
 use crate::plot::line::LinePlot;
@@ -79,6 +80,7 @@ pub struct Scene {
     pub width: f64,
     pub height: f64,
     pub background_color: Option<String>,
+    pub text_color: Option<String>,
     pub font_family: Option<String>,
     pub elements: Vec<Primitive>,
 }
@@ -88,6 +90,7 @@ impl Scene {
         Self { width,
                height,
                background_color: Some("white".to_string()),
+               text_color: None,
                font_family: None,
                elements: vec![] }
     }
@@ -101,6 +104,11 @@ impl Scene {
     pub fn add(&mut self, p: Primitive) {
         self.elements.push(p);
     }
+}
+
+fn apply_theme(scene: &mut Scene, theme: &Theme) {
+    scene.background_color = Some(theme.background.clone());
+    scene.text_color = Some(theme.text_color.clone());
 }
 
 /// Build an SVG path string from a sequence of (x, y) screen-coordinate points.
@@ -656,6 +664,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
 
 
 fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let theme = &computed.theme;
     
     
     for (i, group) in boxplot.groups.iter().enumerate() {
@@ -701,7 +710,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y1: ymed,
             x2: x1,
             y2: ymed,
-            stroke: "white".into(),
+            stroke: theme.box_median.clone(),
             stroke_width: 1.5,
             stroke_dasharray: None,
         });
@@ -742,6 +751,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
 }
 
 fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let theme = &computed.theme;
 
     for (i, group) in violin.groups.iter().enumerate() {
         let x_center = computed.map_x((i + 1) as f64);
@@ -779,7 +789,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
         scene.add(Primitive::Path {
             d: path_data,
             fill: Some(violin.color.clone()),
-            stroke: "black".into(),
+            stroke: theme.violin_border.clone(),
             stroke_width: 0.5,
             opacity: None,
             stroke_dasharray: None,
@@ -788,6 +798,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 }
 
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let theme = &computed.theme;
 
     let total: f64 = pie.slices.iter().map(|s| s.value).sum();
 
@@ -943,7 +954,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             y1: label.edge_y,
             x2: label.elbow_x,
             y2: label.elbow_y,
-            stroke: "#666".into(),
+            stroke: theme.pie_leader.clone(),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
@@ -953,7 +964,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             y1: label.elbow_y,
             x2: label.text_x,
             y2: label.text_y,
-            stroke: "#666".into(),
+            stroke: theme.pie_leader.clone(),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
@@ -1107,6 +1118,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 }
 
 fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
+    let theme = &computed.theme;
 
     let legend_width = computed.legend_width;
     let legend_padding = 10.0;
@@ -1135,7 +1147,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         y: legend_y - legend_padding,
         width: legend_width,
         height: legend_height,
-        fill: "white".into(),
+        fill: theme.legend_bg.clone(),
         stroke: None,
         stroke_width: None,
         opacity: None,
@@ -1147,7 +1159,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         width: legend_width,
         height: legend_height,
         fill: "none".into(),
-        stroke: Some("black".into()),
+        stroke: Some(theme.legend_border.clone()),
         stroke_width: Some(1.0),
         opacity: None,
     });
@@ -1200,6 +1212,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 }
 
 fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayout) {
+    let theme = &computed.theme;
     let bar_width = 20.0;
     let bar_height = computed.plot_height() * 0.8;
     let bar_x = computed.width - 70.0; // rightmost area
@@ -1227,14 +1240,14 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
         });
     }
 
-    // Black border around the bar
+    // Border around the bar
     scene.add(Primitive::Rect {
         x: bar_x,
         y: bar_y,
         width: bar_width,
         height: bar_height,
         fill: "none".into(),
-        stroke: Some("black".into()),
+        stroke: Some(theme.colorbar_border.clone()),
         stroke_width: Some(1.0),
         opacity: None,
     });
@@ -1255,7 +1268,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
             y1: y,
             x2: bar_x + bar_width + 4.0,
             y2: y,
-            stroke: "black".into(),
+            stroke: theme.colorbar_border.clone(),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
@@ -1294,6 +1307,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
     
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1313,6 +1327,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1332,6 +1347,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1351,6 +1367,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1370,6 +1387,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1389,6 +1407,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1408,6 +1427,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1460,6 +1480,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1479,6 +1500,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -1628,7 +1650,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
 }
 
 /// Render legend entries at an arbitrary (x, y) position on a scene.
-pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f64, width: f64, body_size: u32) {
+pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f64, width: f64, body_size: u32, theme: &Theme) {
     let legend_padding = 10.0;
     let line_height = 18.0;
     let legend_height = entries.len() as f64 * line_height + legend_padding * 2.0;
@@ -1639,7 +1661,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
         y: y - legend_padding,
         width,
         height: legend_height,
-        fill: "white".into(),
+        fill: theme.legend_bg.clone(),
         stroke: None,
         stroke_width: None,
         opacity: None,
@@ -1652,7 +1674,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
         width,
         height: legend_height,
         fill: "none".into(),
-        stroke: Some("black".into()),
+        stroke: Some(theme.legend_border.clone()),
         stroke_width: Some(1.0),
         opacity: None,
     });
@@ -1708,6 +1730,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
 
     let all_pies = plots.iter().all(|p| matches!(p, Plot::Pie(_)));
     if !all_pies {
