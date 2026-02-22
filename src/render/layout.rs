@@ -198,6 +198,7 @@ impl Layout {
 
         let mut has_legend: bool = false;
         let mut has_colorbar: bool = false;
+        let mut has_manhattan: bool = false;
         let mut max_label_len: usize = 0;
 
         for plot in plots {
@@ -300,6 +301,14 @@ impl Layout {
                     max_label_len = max_label_len.max(4); // "Down"
                 }
             }
+
+            if let Plot::Manhattan(mp) = plot {
+                if mp.legend_label.is_some() {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(12); // "Genome-wide"
+                }
+                has_manhattan = true;
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
@@ -340,6 +349,14 @@ impl Layout {
 
         if has_colorbar {
             layout.show_colorbar = true;
+        }
+
+        if has_manhattan {
+            // Suppress numeric x tick labels and tick marks; chromosome names are drawn by add_manhattan.
+            layout.x_tick_format = TickFormat::Custom(Arc::new(|_| String::new()));
+            layout.suppress_x_ticks = true;
+            // Disable horizontal grid lines so threshold lines pop out clearly.
+            layout.show_grid = false;
         }
 
         layout
@@ -602,8 +619,9 @@ impl ComputedLayout {
             10.0
         };
         // Bottom: tick mark (5) + gap (5) + tick label + gap (5) + axis label + padding
+        // When ticks are suppressed, still keep room for custom labels (e.g., chromosome names).
         let margin_bottom = if layout.suppress_x_ticks {
-            10.0
+            tick_size + 15.0
         } else if layout.x_tick_rotate.is_some() {
             tick_size + label_size + 45.0
         } else {

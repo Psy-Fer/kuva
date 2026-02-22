@@ -13,6 +13,7 @@ use crate::plot::band::BandPlot;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::StripPlot;
 use crate::plot::volcano::VolcanoPlot;
+use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -33,6 +34,7 @@ pub enum Plot {
     Waterfall(WaterfallPlot),
     Strip(StripPlot),
     Volcano(VolcanoPlot),
+    Manhattan(ManhattanPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -327,6 +329,18 @@ impl Plot {
                     let y = -(p.pvalue.max(floor)).log10();
                     y_max = y_max.max(y);
                 }
+                Some(((x_min, x_max), (0.0, y_max)))
+            }
+            Plot::Manhattan(mp) => {
+                if mp.points.is_empty() { return None; }
+                let floor = mp.floor();
+                let x_min = mp.spans.iter().map(|s| s.x_start).fold(f64::INFINITY, f64::min);
+                let x_max = mp.spans.iter().map(|s| s.x_end).fold(f64::NEG_INFINITY, f64::max);
+                if !x_min.is_finite() { return None; }
+                // Ensure genome-wide threshold is always visible
+                let y_max = mp.points.iter()
+                    .map(|p| -(p.pvalue.max(floor)).log10())
+                    .fold(mp.genome_wide, f64::max);
                 Some(((x_min, x_max), (0.0, y_max)))
             }
             Plot::Brick(bp) => {

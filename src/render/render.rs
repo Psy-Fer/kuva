@@ -15,6 +15,7 @@ use crate::plot::pie::PieLabelPosition;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::{StripPlot, StripStyle};
 use crate::plot::volcano::{VolcanoPlot, LabelStyle};
+use crate::plot::manhattan::ManhattanPlot;
 
 
 use crate::plot::Legend;
@@ -1661,6 +1662,176 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let floor = mp.floor();
+    let plot_left  = computed.margin_left;
+    let plot_right = computed.width - computed.margin_right;
+    let plot_top   = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+
+    // 1. Threshold lines (genome-wide and suggestive)
+    let gw_y = mp.genome_wide;
+    if gw_y >= computed.y_range.0 && gw_y <= computed.y_range.1 {
+        let sy = computed.map_y(gw_y);
+        scene.add(Primitive::Line {
+            x1: plot_left, y1: sy, x2: plot_right, y2: sy,
+            stroke: "#cc3333".into(),
+            stroke_width: 1.0,
+            stroke_dasharray: Some("4 4".into()),
+        });
+    }
+    let sg_y = mp.suggestive;
+    if sg_y >= computed.y_range.0 && sg_y <= computed.y_range.1 {
+        let sy = computed.map_y(sg_y);
+        scene.add(Primitive::Line {
+            x1: plot_left, y1: sy, x2: plot_right, y2: sy,
+            stroke: "#888888".into(),
+            stroke_width: 1.0,
+            stroke_dasharray: Some("4 4".into()),
+        });
+    }
+
+    // 2. Chromosome divider lines (faint verticals between chromosomes)
+    for span in mp.spans.iter().skip(1) {
+        let sx = computed.map_x(span.x_start);
+        if sx >= plot_left && sx <= plot_right {
+            scene.add(Primitive::Line {
+                x1: sx, y1: plot_top, x2: sx, y2: plot_bottom,
+                stroke: computed.theme.grid_color.clone(),
+                stroke_width: 0.5,
+                stroke_dasharray: None,
+            });
+        }
+    }
+
+    // 3. Draw points, one chromosome at a time for correct coloring.
+    // Points are clamped to their chromosome's pixel band so they don't bleed over dividers.
+    for (span_idx, span) in mp.spans.iter().enumerate() {
+        let color = if let Some(ref pal) = mp.palette {
+            pal[span_idx].to_string()
+        } else if span_idx % 2 == 0 {
+            mp.color_a.clone()
+        } else {
+            mp.color_b.clone()
+        };
+        let band_left  = computed.map_x(span.x_start).max(plot_left);
+        let band_right = computed.map_x(span.x_end).min(plot_right);
+        for p in mp.points.iter().filter(|p| p.chromosome == span.name) {
+            let y_val = -(p.pvalue.max(floor)).log10();
+            let cx = computed.map_x(p.x).clamp(band_left, band_right);
+            let cy = computed.map_y(y_val);
+            scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: color.clone() });
+        }
+    }
+
+    // 4. Chromosome labels in the bottom margin.
+    // Skip bands that are too narrow to fit a label (e.g., MT at genome scale is ~0 px).
+    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
+    let min_label_px = 6.0_f64; // below this the band is invisible; anything above gets a label
+    for span in &mp.spans {
+        let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
+        let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
+        if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
+            scene.add(Primitive::Text {
+                x: mid_x,
+                y: label_y,
+                content: span.name.clone(),
+                size: computed.tick_size,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+                bold: false,
+            });
+        }
+    }
+
+    // 5. Top-hit labels
+    if mp.label_top == 0 {
+        return;
+    }
+
+    // Collect points above genome-wide threshold, sort by screen y ascending (most significant first)
+    let mut sig_points: Vec<(f64, f64, String)> = mp.points.iter()
+        .filter(|p| -(p.pvalue.max(floor)).log10() >= mp.genome_wide)
+        .map(|p| {
+            let y_val = -(p.pvalue.max(floor)).log10();
+            let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
+            (computed.map_x(p.x), computed.map_y(y_val), label)
+        })
+        .collect();
+    sig_points.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    sig_points.truncate(mp.label_top);
+
+    match mp.label_style {
+        LabelStyle::Exact => {
+            for (cx, cy, name) in &sig_points {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: cy - mp.point_size - 2.0,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+        LabelStyle::Nudge => {
+            let mut labels: Vec<(f64, f64, String)> = sig_points.iter()
+                .map(|(cx, cy, name)| (*cx, cy - mp.point_size - 2.0, name.clone()))
+                .collect();
+            labels.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            let min_gap = computed.body_size as f64 + 2.0;
+            for j in 1..labels.len() {
+                let prev_y = labels[j - 1].1;
+                if (prev_y - labels[j].1).abs() < min_gap {
+                    labels[j].1 = prev_y - min_gap;
+                }
+            }
+            for (cx, label_y, name) in &labels {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: *label_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+        LabelStyle::Arrow { offset_x, offset_y } => {
+            for (cx, cy, name) in &sig_points {
+                let text_x = cx + offset_x;
+                let text_y = cy - offset_y;
+                let dx = cx - text_x;
+                let dy = cy - text_y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > mp.point_size + 3.0 {
+                    let scale = (len - mp.point_size - 3.0) / len;
+                    let end_x = text_x + dx * scale;
+                    let end_y = text_y + dy * scale;
+                    scene.add(Primitive::Line {
+                        x1: text_x, y1: text_y, x2: end_x, y2: end_y,
+                        stroke: "#666666".into(),
+                        stroke_width: 0.8,
+                        stroke_dasharray: None,
+                    });
+                }
+                let anchor = if offset_x >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
+                scene.add(Primitive::Text {
+                    x: text_x,
+                    y: text_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+    }
+}
+
 pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
@@ -1670,6 +1841,20 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_volcano(vp, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
+
+pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_manhattan(mp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
@@ -2089,6 +2274,22 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     });
                 }
             }
+            Plot::Manhattan(mp) => {
+                if mp.legend_label.is_some() {
+                    entries.push(LegendEntry {
+                        label: "Genome-wide".into(),
+                        color: "#cc3333".into(),
+                        shape: LegendShape::Line,
+                        dasharray: Some("4 4".into()),
+                    });
+                    entries.push(LegendEntry {
+                        label: "Suggestive".into(),
+                        color: "#888888".into(),
+                        shape: LegendShape::Line,
+                        dasharray: Some("4 4".into()),
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -2185,6 +2386,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
+                // Manhattan uses per-chromosome coloring; skip palette auto-cycling.
                 _ => {}
             }
         }
@@ -2249,6 +2451,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Volcano(v) => {
                 add_volcano(v, &mut scene, &computed);
+            }
+            Plot::Manhattan(m) => {
+                add_manhattan(m, &mut scene, &computed);
             }
         }
     }
