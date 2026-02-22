@@ -12,6 +12,7 @@ use crate::plot::{Heatmap, Histogram2D, PiePlot, SeriesPlot};
 use crate::plot::band::BandPlot;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::StripPlot;
+use crate::plot::volcano::VolcanoPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -31,6 +32,7 @@ pub enum Plot {
     Band(BandPlot),
     Waterfall(WaterfallPlot),
     Strip(StripPlot),
+    Volcano(VolcanoPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -312,6 +314,20 @@ impl Plot {
                 }
                 if y_min == f64::INFINITY { return None; }
                 Some(((x_min, x_max), (y_min, y_max)))
+            }
+            Plot::Volcano(vp) => {
+                if vp.points.is_empty() { return None; }
+                let floor = vp.floor();
+                let mut x_min = f64::INFINITY;
+                let mut x_max = f64::NEG_INFINITY;
+                let mut y_max = f64::NEG_INFINITY;
+                for p in &vp.points {
+                    x_min = x_min.min(p.log2fc);
+                    x_max = x_max.max(p.log2fc);
+                    let y = -(p.pvalue.max(floor)).log10();
+                    y_max = y_max.max(y);
+                }
+                Some(((x_min, x_max), (0.0, y_max)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {

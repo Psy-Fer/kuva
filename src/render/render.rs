@@ -14,6 +14,7 @@ use crate::plot::{BoxPlot, BrickPlot, Heatmap, Histogram2D, PiePlot, SeriesPlot,
 use crate::plot::pie::PieLabelPosition;
 use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::{StripPlot, StripStyle};
+use crate::plot::volcano::{VolcanoPlot, LabelStyle};
 
 
 use crate::plot::Legend;
@@ -1509,6 +1510,171 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
 }
 
 
+fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let floor = vp.floor();
+
+    // Draw threshold lines (behind points)
+    let threshold_color = "#888888";
+    let plot_left = computed.margin_left;
+    let plot_right = computed.width - computed.margin_right;
+    let plot_top = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+
+    // Horizontal significance line at -log10(p_cutoff)
+    let y_sig = -vp.p_cutoff.log10();
+    if y_sig >= computed.y_range.0 && y_sig <= computed.y_range.1 {
+        let sy = computed.map_y(y_sig);
+        scene.add(Primitive::Line {
+            x1: plot_left, y1: sy, x2: plot_right, y2: sy,
+            stroke: threshold_color.into(),
+            stroke_width: 1.0,
+            stroke_dasharray: Some("4 4".into()),
+        });
+    }
+
+    // Vertical fc cutoff lines at ±fc_cutoff
+    for &fc_val in &[-vp.fc_cutoff, vp.fc_cutoff] {
+        if fc_val >= computed.x_range.0 && fc_val <= computed.x_range.1 {
+            let sx = computed.map_x(fc_val);
+            scene.add(Primitive::Line {
+                x1: sx, y1: plot_top, x2: sx, y2: plot_bottom,
+                stroke: threshold_color.into(),
+                stroke_width: 1.0,
+                stroke_dasharray: Some("4 4".into()),
+            });
+        }
+    }
+
+    // Draw points: NS first, then Down, then Up
+    for pass in 0..3u8 {
+        for p in &vp.points {
+            let is_up = p.log2fc >= vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
+            let is_down = p.log2fc <= -vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
+            let color = match (pass, is_up, is_down) {
+                (0, false, false) => &vp.color_ns,
+                (1, false, true)  => &vp.color_down,
+                (2, true, false)  => &vp.color_up,
+                _ => continue,
+            };
+            let y_val = -(p.pvalue.max(floor)).log10();
+            let cx = computed.map_x(p.log2fc);
+            let cy = computed.map_y(y_val);
+            scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: color.clone() });
+        }
+    }
+
+    // Draw labels if label_top > 0
+    if vp.label_top == 0 {
+        return;
+    }
+
+    // Collect significant points, sort by pvalue ascending, take top N
+    let mut sig_points: Vec<(f64, f64, &str)> = vp.points.iter()
+        .filter(|p| p.pvalue <= vp.p_cutoff)
+        .map(|p| {
+            let y_val = -(p.pvalue.max(floor)).log10();
+            (computed.map_x(p.log2fc), computed.map_y(y_val), p.name.as_str())
+        })
+        .collect();
+    // Sort by pvalue ascending = highest -log10(p) = smallest cy
+    sig_points.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    sig_points.truncate(vp.label_top);
+
+    match vp.label_style {
+        LabelStyle::Exact => {
+            for (cx, cy, name) in &sig_points {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: cy - vp.point_size - 2.0,
+                    content: name.to_string(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+        LabelStyle::Nudge => {
+            // Build label positions: initially just above each point
+            let mut labels: Vec<(f64, f64, String)> = sig_points.iter()
+                .map(|(cx, cy, name)| (*cx, cy - vp.point_size - 2.0, name.to_string()))
+                .collect();
+
+            // Sort by cx (x screen position, left to right)
+            labels.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+            // Greedy vertical nudge: push y up when adjacent labels are too close
+            let min_gap = computed.body_size as f64 + 2.0;
+            for j in 1..labels.len() {
+                let prev_y = labels[j - 1].1;
+                let curr_y = labels[j].1;
+                if (prev_y - curr_y).abs() < min_gap {
+                    labels[j].1 = prev_y - min_gap;
+                }
+            }
+
+            for (cx, label_y, name) in &labels {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: *label_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+        LabelStyle::Arrow { offset_x, offset_y } => {
+            for (cx, cy, name) in &sig_points {
+                let text_x = cx + offset_x;
+                let text_y = cy - offset_y;
+
+                // Leader line from text toward point, stopping short
+                let dx = cx - text_x;
+                let dy = cy - text_y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > vp.point_size + 3.0 {
+                    let scale = (len - vp.point_size - 3.0) / len;
+                    let end_x = text_x + dx * scale;
+                    let end_y = text_y + dy * scale;
+                    scene.add(Primitive::Line {
+                        x1: text_x, y1: text_y, x2: end_x, y2: end_y,
+                        stroke: "#666666".into(),
+                        stroke_width: 0.8,
+                        stroke_dasharray: None,
+                    });
+                }
+
+                let anchor = if offset_x >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
+                scene.add(Primitive::Text {
+                    x: text_x,
+                    y: text_y,
+                    content: name.to_string(),
+                    size: computed.body_size,
+                    anchor,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+    }
+}
+
+pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_volcano(vp, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
+
 /// render_scatter
 pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
@@ -1901,6 +2067,28 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Volcano(vp) => {
+                if vp.legend_label.is_some() {
+                    entries.push(LegendEntry {
+                        label: "Up".into(),
+                        color: vp.color_up.clone(),
+                        shape: LegendShape::Circle,
+                        dasharray: None,
+                    });
+                    entries.push(LegendEntry {
+                        label: "Down".into(),
+                        color: vp.color_down.clone(),
+                        shape: LegendShape::Circle,
+                        dasharray: None,
+                    });
+                    entries.push(LegendEntry {
+                        label: "NS".into(),
+                        color: vp.color_ns.clone(),
+                        shape: LegendShape::Circle,
+                        dasharray: None,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -2058,6 +2246,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Strip(s) => {
                 add_strip(&s, &mut scene, &computed);
+            }
+            Plot::Volcano(v) => {
+                add_volcano(v, &mut scene, &computed);
             }
         }
     }

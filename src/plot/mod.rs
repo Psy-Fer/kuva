@@ -12,6 +12,7 @@ pub mod brick;
 pub mod band;
 pub mod waterfall;
 pub mod strip;
+pub mod volcano;
 
 pub mod legend;
 
@@ -31,5 +32,6 @@ pub use brick::BrickPlot;
 pub use band::BandPlot;
 pub use waterfall::{WaterfallPlot, WaterfallBar, WaterfallKind};
 pub use strip::{StripPlot, StripGroup, StripStyle};
+pub use volcano::{VolcanoPlot, VolcanoPoint, LabelStyle};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

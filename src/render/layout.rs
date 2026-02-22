@@ -293,6 +293,13 @@ impl Layout {
             if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) {
                 has_colorbar = true;
             }
+
+            if let Plot::Volcano(vp) = plot {
+                if vp.legend_label.is_some() {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(4); // "Down"
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
