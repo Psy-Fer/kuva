@@ -14,6 +14,7 @@ use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::StripPlot;
 use crate::plot::volcano::VolcanoPlot;
 use crate::plot::manhattan::ManhattanPlot;
+use crate::plot::dotplot::DotPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -35,6 +36,7 @@ pub enum Plot {
     Strip(StripPlot),
     Volcano(VolcanoPlot),
     Manhattan(ManhattanPlot),
+    DotPlot(DotPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -343,6 +345,11 @@ impl Plot {
                     .fold(mp.genome_wide, f64::max);
                 Some(((x_min, x_max), (0.0, y_max)))
             }
+            Plot::DotPlot(dp) => {
+                if dp.x_categories.is_empty() { return None; }
+                Some(((0.5, dp.x_categories.len() as f64 + 0.5),
+                      (0.5, dp.y_categories.len() as f64 + 0.5)))
+            }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {
                     exp.len()
@@ -413,6 +420,20 @@ impl Plot {
                     min_value: 0.0,
                     max_value: max_count,
                     label: Some("Count".to_string()),
+                })
+            }
+            Plot::DotPlot(dp) => {
+                let label = dp.color_legend_label.clone()?;
+                let (min, max) = dp.color_range.unwrap_or_else(|| dp.color_extent());
+                let cmap = dp.color_map.clone();
+                Some(ColorBarInfo {
+                    map_fn: Arc::new(move |t| {
+                        let norm = (t - min) / (max - min + f64::EPSILON);
+                        cmap.map(norm.clamp(0.0, 1.0))
+                    }),
+                    min_value: min,
+                    max_value: max,
+                    label: Some(label),
                 })
             }
             _ => None,

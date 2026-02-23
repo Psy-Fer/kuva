@@ -309,6 +309,22 @@ impl Layout {
                 }
                 has_manhattan = true;
             }
+
+            if let Plot::DotPlot(dp) = plot {
+                x_labels = Some(dp.x_categories.clone());
+                // Reverse so y_cat[0] appears at the TOP (map_y maps larger values to top)
+                y_labels = Some(dp.y_categories.iter().rev().cloned().collect());
+                let dot_has_both = dp.size_label.is_some() && dp.color_legend_label.is_some();
+                // Colorbar handled by stacked renderer when both are present
+                if dp.color_legend_label.is_some() && !dot_has_both {
+                    has_colorbar = true;
+                }
+                if dp.size_label.is_some() {
+                    has_legend = true;
+                    // Entry labels are short numbers like "100.0" (5 chars)
+                    max_label_len = max_label_len.max(5);
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
@@ -341,10 +357,22 @@ impl Layout {
             layout = layout.with_y_categories(labels);
         }
 
+        // DotPlot with both size legend + colorbar uses a single stacked column
+        let has_dot_stacked = plots.iter().any(|p| {
+            if let Plot::DotPlot(dp) = p {
+                dp.size_label.is_some() && dp.color_legend_label.is_some()
+            } else { false }
+        });
+
         if has_legend {
             layout = layout.with_show_legend();
             let dynamic_width = max_label_len as f64 * 7.0 + 35.0;
             layout.legend_width = dynamic_width.max(80.0);
+        }
+
+        if has_dot_stacked {
+            // Single column wide enough for the stacked colorbar + size-legend
+            layout.legend_width = 75.0;
         }
 
         if has_colorbar {

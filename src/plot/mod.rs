@@ -14,6 +14,7 @@ pub mod waterfall;
 pub mod strip;
 pub mod volcano;
 pub mod manhattan;
+pub mod dotplot;
 
 pub mod legend;
 
@@ -35,5 +36,6 @@ pub use waterfall::{WaterfallPlot, WaterfallBar, WaterfallKind};
 pub use strip::{StripPlot, StripGroup, StripStyle};
 pub use volcano::{VolcanoPlot, VolcanoPoint, LabelStyle};
 pub use manhattan::{ManhattanPlot, ManhattanPoint, ChromSpan, GenomeBuild};
+pub use dotplot::{DotPlot, DotPoint};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

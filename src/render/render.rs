@@ -16,6 +16,7 @@ use crate::plot::waterfall::{WaterfallPlot, WaterfallKind};
 use crate::plot::strip::{StripPlot, StripStyle};
 use crate::plot::volcano::{VolcanoPlot, LabelStyle};
 use crate::plot::manhattan::ManhattanPlot;
+use crate::plot::dotplot::DotPlot;
 
 
 use crate::plot::Legend;
@@ -1416,6 +1417,16 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
             LegendShape::Marker(marker) => {
                 draw_marker(scene, marker, legend_x + 5.0 + 6.0, legend_y + 1.0, 5.0, &entry.color);
             }
+            LegendShape::CircleSize(r) => {
+                let swatch_half = 8.0;
+                let draw_r = r.min(swatch_half);
+                scene.add(Primitive::Circle {
+                    cx: legend_x + 5.0 + 6.0,
+                    cy: legend_y + 1.0,
+                    r: draw_r,
+                    fill: entry.color.clone(),
+                });
+            }
         }
 
         legend_y += line_height;
@@ -2105,6 +2116,202 @@ pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
     scene
 }
 
+fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    const EPSILON: f64 = f64::EPSILON;
+
+    let (size_min, size_max) = dp.size_range.unwrap_or_else(|| dp.size_extent());
+    let (color_min, color_max) = dp.color_range.unwrap_or_else(|| dp.color_extent());
+
+    let n_x = dp.x_categories.len() as f64;
+    let n_y = dp.y_categories.len() as f64;
+    let n_y_usize = dp.y_categories.len();
+
+    let cell_w = if n_x > 0.0 { computed.plot_width() / n_x } else { 1.0 };
+    let cell_h = if n_y > 0.0 { computed.plot_height() / n_y } else { 1.0 };
+    // Cap effective max radius so circles never bleed outside their grid cell
+    let effective_max_r = dp.max_radius.min((cell_w.min(cell_h) / 2.0) * 0.9);
+
+    for pt in &dp.points {
+        let xi = dp.x_categories.iter().position(|c| c == &pt.x_cat);
+        let yi = dp.y_categories.iter().position(|c| c == &pt.y_cat);
+
+        let (xi, yi) = match (xi, yi) {
+            (Some(xi), Some(yi)) => (xi, yi),
+            _ => continue,
+        };
+
+        // y is REVERSED: y_cat[0] is rendered at the top (map_y maps larger values to top)
+        let cx = computed.map_x(xi as f64 + 1.0);
+        let cy = computed.map_y((n_y_usize - yi) as f64);
+
+        let norm_size  = (pt.size  - size_min)  / (size_max  - size_min  + EPSILON);
+        let norm_color = (pt.color - color_min) / (color_max - color_min + EPSILON);
+
+        let r    = dp.min_radius + norm_size.clamp(0.0, 1.0) * (effective_max_r - dp.min_radius);
+        let fill = dp.color_map.map(norm_color.clamp(0.0, 1.0));
+
+        scene.add(Primitive::Circle { cx, cy, r, fill });
+    }
+}
+
+/// Draw DotPlot size legend (top) and colorbar (bottom) stacked in the same right-margin column.
+fn add_dot_stacked_legends(
+    size_title: &str,
+    size_entries: &[LegendEntry],
+    info: &ColorBarInfo,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+) {
+    let theme = &computed.theme;
+    let legend_x = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
+    let legend_width = computed.legend_width;
+    let line_height = 18.0;
+    let legend_padding = 10.0;
+
+    // --- Size legend (top) ---
+    // Title text sits above the box; the box starts below the title baseline
+    // so the background rect doesn't paint over the text.
+    let title_y = computed.margin_top + computed.tick_size as f64;
+    // box visual top = box_top - legend_padding; we want this >= title_y + 4
+    let box_top = title_y + legend_padding + 4.0;
+    let size_legend_height = size_entries.len() as f64 * line_height + legend_padding * 2.0;
+
+    // Background (drawn before title so title text sits on top)
+    scene.add(Primitive::Rect {
+        x: legend_x - legend_padding + 5.0,
+        y: box_top - legend_padding,
+        width: legend_width,
+        height: size_legend_height,
+        fill: theme.legend_bg.clone(),
+        stroke: None,
+        stroke_width: None,
+        opacity: None,
+    });
+    // Border
+    scene.add(Primitive::Rect {
+        x: legend_x - legend_padding + 5.0,
+        y: box_top - legend_padding,
+        width: legend_width,
+        height: size_legend_height,
+        fill: "none".into(),
+        stroke: Some(theme.legend_border.clone()),
+        stroke_width: Some(1.0),
+        opacity: None,
+    });
+    // Title drawn after the rects so it paints on top of them
+    scene.add(Primitive::Text {
+        x: legend_x + legend_width * 0.5 - legend_padding,
+        y: title_y,
+        content: size_title.to_string(),
+        size: computed.tick_size,
+        anchor: TextAnchor::Middle,
+        rotate: None,
+        bold: false,
+    });
+
+    let mut legend_y = box_top;
+    for entry in size_entries {
+        scene.add(Primitive::Text {
+            x: legend_x + 25.0,
+            y: legend_y + 5.0,
+            content: entry.label.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+        });
+        if let LegendShape::CircleSize(r) = entry.shape {
+            scene.add(Primitive::Circle {
+                cx: legend_x + 5.0 + 6.0,
+                cy: legend_y + 1.0,
+                r: r.min(8.0),
+                fill: entry.color.clone(),
+            });
+        }
+        legend_y += line_height;
+    }
+
+    // --- Colorbar (bottom) ---
+    let gap = 15.0;
+    let bar_x = legend_x;
+    let bar_width = 20.0;
+    let colorbar_top = box_top - legend_padding + size_legend_height + gap;
+
+    // Colorbar label/title
+    if let Some(ref label) = info.label {
+        scene.add(Primitive::Text {
+            x: bar_x + bar_width * 0.5,
+            y: colorbar_top - 6.0,
+            content: label.clone(),
+            size: computed.tick_size,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+            bold: false,
+        });
+    }
+
+    let bar_y = colorbar_top;
+    let bar_height = (computed.height - computed.margin_bottom - bar_y - gap).max(50.0);
+
+    // Gradient slices
+    let num_slices = 50;
+    let slice_height = bar_height / num_slices as f64;
+    for i in 0..num_slices {
+        let t = 1.0 - (i as f64 / (num_slices - 1) as f64);
+        let value = info.min_value + t * (info.max_value - info.min_value);
+        let color = (info.map_fn)(value);
+        let y = bar_y + i as f64 * slice_height;
+        scene.add(Primitive::Rect {
+            x: bar_x,
+            y,
+            width: bar_width,
+            height: slice_height + 0.5,
+            fill: color,
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+    // Border
+    scene.add(Primitive::Rect {
+        x: bar_x,
+        y: bar_y,
+        width: bar_width,
+        height: bar_height,
+        fill: "none".into(),
+        stroke: Some(theme.colorbar_border.clone()),
+        stroke_width: Some(1.0),
+        opacity: None,
+    });
+
+    // Tick marks and labels
+    let ticks = render_utils::generate_ticks(info.min_value, info.max_value, 5);
+    let range = info.max_value - info.min_value;
+    for tick in &ticks {
+        if *tick < info.min_value || *tick > info.max_value { continue; }
+        let frac = (tick - info.min_value) / range;
+        let y = bar_y + bar_height - frac * bar_height;
+        scene.add(Primitive::Line {
+            x1: bar_x + bar_width,
+            y1: y,
+            x2: bar_x + bar_width + 4.0,
+            y2: y,
+            stroke: theme.colorbar_border.clone(),
+            stroke_width: 1.0,
+            stroke_dasharray: None,
+        });
+        scene.add(Primitive::Text {
+            x: bar_x + bar_width + 6.0,
+            y: y + 4.0,
+            content: format!("{:.1}", tick),
+            size: computed.tick_size,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+        });
+    }
+}
+
 /// Collect legend entries from a slice of plots.
 pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
     let mut entries = Vec::new();
@@ -2290,6 +2497,21 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     });
                 }
             }
+            Plot::DotPlot(dp) => {
+                if dp.size_label.is_some() {
+                    let (size_min, size_max) = dp.size_range.unwrap_or_else(|| dp.size_extent());
+                    for &pct in &[0.25_f64, 0.50, 0.75, 1.0] {
+                        let value_at_pct = size_min + pct * (size_max - size_min);
+                        let radius_at_pct = dp.max_radius * pct;
+                        entries.push(LegendEntry {
+                            label: format!("{:.1}", value_at_pct),
+                            color: "#444444".into(),
+                            shape: LegendShape::CircleSize(radius_at_pct),
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -2365,6 +2587,16 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
             }),
             LegendShape::Marker(marker) => {
                 draw_marker(scene, marker, x + 5.0 + 6.0, legend_y + 1.0, 5.0, &entry.color);
+            }
+            LegendShape::CircleSize(r) => {
+                let swatch_half = 8.0;
+                let draw_r = r.min(swatch_half);
+                scene.add(Primitive::Circle {
+                    cx: x + 5.0 + 6.0,
+                    cy: legend_y + 1.0,
+                    r: draw_r,
+                    fill: entry.color.clone(),
+                });
             }
         }
         legend_y += line_height;
@@ -2455,24 +2687,52 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Manhattan(m) => {
                 add_manhattan(m, &mut scene, &computed);
             }
+            Plot::DotPlot(d) => {
+                add_dot_plot(d, &mut scene, &computed);
+            }
         }
     }
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
 
-    // create legend
-    let entries = collect_legend_entries(&plots);
-    if layout.show_legend && !entries.is_empty() {
-        let legend = Legend { entries, position: layout.legend_position };
-        add_legend(&legend, &mut scene, &computed);
-    }
+    // Check for DotPlot stacked legend (size legend + colorbar in one column)
+    let dot_stacked = plots.iter().find_map(|p| {
+        if let Plot::DotPlot(dp) = p {
+            if dp.size_label.is_some() && dp.color_legend_label.is_some() {
+                p.colorbar_info().map(|info| (dp, info))
+            } else { None }
+        } else { None }
+    });
 
-    if layout.show_colorbar {
-        for plot in plots.iter() {
-            if let Some(info) = plot.colorbar_info() {
-                add_colorbar(&info, &mut scene, &computed);
-                break; // one colorbar per figure
+    if let Some((dp, info)) = dot_stacked {
+        // Build size entries inline to avoid needing Clone on LegendEntry
+        let (size_min, size_max) = dp.size_range.unwrap_or_else(|| dp.size_extent());
+        let mut size_entries = Vec::new();
+        for &pct in &[0.25_f64, 0.50, 0.75, 1.0] {
+            let value_at_pct = size_min + pct * (size_max - size_min);
+            let radius_at_pct = dp.max_radius * pct;
+            size_entries.push(LegendEntry {
+                label: format!("{:.1}", value_at_pct),
+                color: "#444444".into(),
+                shape: LegendShape::CircleSize(radius_at_pct),
+                dasharray: None,
+            });
+        }
+        let title = dp.size_label.as_deref().unwrap_or("");
+        add_dot_stacked_legends(title, &size_entries, &info, &mut scene, &computed);
+    } else {
+        let entries = collect_legend_entries(&plots);
+        if layout.show_legend && !entries.is_empty() {
+            let legend = Legend { entries, position: layout.legend_position };
+            add_legend(&legend, &mut scene, &computed);
+        }
+        if layout.show_colorbar {
+            for plot in plots.iter() {
+                if let Some(info) = plot.colorbar_info() {
+                    add_colorbar(&info, &mut scene, &computed);
+                    break; // one colorbar per figure
+                }
             }
         }
     }

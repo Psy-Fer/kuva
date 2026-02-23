@@ -117,39 +117,67 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             }
         }
         if !layout.suppress_x_ticks {
-            for tx in x_ticks.iter() {
-                let x = map_x(*tx);
+            if let Some(x_cats) = &layout.x_categories {
+                // Both x and y are category axes (e.g. DotPlot): draw x category labels
+                for (i, label) in x_cats.iter().enumerate() {
+                    let x_val = i as f64 + 1.0;
+                    let x_pos = computed.map_x(x_val);
 
-                scene.add(Primitive::Line {
-                    x1: x,
-                    y1: computed.height - computed.margin_bottom,
-                    x2: x,
-                    y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: theme.tick_color.clone(),
-                    stroke_width: 1.0,
-                    stroke_dasharray: None,
-                });
+                    scene.add(Primitive::Text {
+                        x: x_pos,
+                        y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
+                        content: label.clone(),
+                        size: computed.tick_size,
+                        anchor: TextAnchor::Middle,
+                        rotate: layout.x_tick_rotate,
+                        bold: false,
+                    });
 
-                let label = if let Some(ref dt) = layout.x_datetime {
-                    dt.format_tick(*tx)
-                } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
-                    render_utils::format_log_tick(*tx)
-                } else {
-                    computed.x_tick_format.format(*tx)
-                };
-                let (anchor, rotate) = match layout.x_tick_rotate {
-                    Some(angle) => (TextAnchor::End, Some(angle)),
-                    None        => (TextAnchor::Middle, None),
-                };
-                scene.add(Primitive::Text {
-                    x,
-                    y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
-                    content: label,
-                    size: computed.tick_size,
-                    anchor,
-                    rotate,
-                    bold: false,
-                });
+                    scene.add(Primitive::Line {
+                        x1: x_pos,
+                        y1: computed.height - computed.margin_bottom,
+                        x2: x_pos,
+                        y2: computed.height - computed.margin_bottom + 5.0,
+                        stroke: theme.tick_color.clone(),
+                        stroke_width: 1.0,
+                        stroke_dasharray: None,
+                    });
+                }
+            } else {
+                for tx in x_ticks.iter() {
+                    let x = map_x(*tx);
+
+                    scene.add(Primitive::Line {
+                        x1: x,
+                        y1: computed.height - computed.margin_bottom,
+                        x2: x,
+                        y2: computed.height - computed.margin_bottom + 5.0,
+                        stroke: theme.tick_color.clone(),
+                        stroke_width: 1.0,
+                        stroke_dasharray: None,
+                    });
+
+                    let label = if let Some(ref dt) = layout.x_datetime {
+                        dt.format_tick(*tx)
+                    } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
+                        render_utils::format_log_tick(*tx)
+                    } else {
+                        computed.x_tick_format.format(*tx)
+                    };
+                    let (anchor, rotate) = match layout.x_tick_rotate {
+                        Some(angle) => (TextAnchor::End, Some(angle)),
+                        None        => (TextAnchor::Middle, None),
+                    };
+                    scene.add(Primitive::Text {
+                        x,
+                        y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
+                        content: label,
+                        size: computed.tick_size,
+                        anchor,
+                        rotate,
+                        bold: false,
+                    });
+                }
             }
         }
     }

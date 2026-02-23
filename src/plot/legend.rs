@@ -15,6 +15,7 @@ pub enum LegendShape {
     Line,
     Circle,
     Marker(MarkerShape),
+    CircleSize(f64),  // circle with explicit pixel radius; used by the size legend
 }
 
 #[derive(Default)]
