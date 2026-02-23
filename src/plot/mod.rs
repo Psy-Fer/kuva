@@ -15,6 +15,7 @@ pub mod strip;
 pub mod volcano;
 pub mod manhattan;
 pub mod dotplot;
+pub mod upset;
 
 pub mod legend;
 
@@ -37,5 +38,6 @@ pub use strip::{StripPlot, StripGroup, StripStyle};
 pub use volcano::{VolcanoPlot, VolcanoPoint, LabelStyle};
 pub use manhattan::{ManhattanPlot, ManhattanPoint, ChromSpan, GenomeBuild};
 pub use dotplot::{DotPlot, DotPoint};
+pub use upset::{UpSetPlot, UpSetIntersection, UpSetSort};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

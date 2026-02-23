@@ -387,6 +387,11 @@ impl Layout {
             layout.show_grid = false;
         }
 
+        // UpSet plots manage their own axes; disable the standard grid.
+        if plots.iter().any(|p| matches!(p, Plot::UpSet(_))) {
+            layout.show_grid = false;
+        }
+
         layout
     }
 

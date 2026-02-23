@@ -17,6 +17,7 @@ use crate::plot::strip::{StripPlot, StripStyle};
 use crate::plot::volcano::{VolcanoPlot, LabelStyle};
 use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
+use crate::plot::upset::UpSetPlot;
 
 
 use crate::plot::Legend;
@@ -2603,6 +2604,247 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
     }
 }
 
+fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if up.set_names.is_empty() {
+        return;
+    }
+    let sorted = up.sorted_intersections();
+    if sorted.is_empty() {
+        return;
+    }
+
+    let n_sets = up.set_names.len();
+    let n_cols = sorted.len();
+
+    let theme = &computed.theme;
+    let pl = computed.margin_left;
+    let pr = computed.width - computed.margin_right;
+    let pt = computed.margin_top;
+    let pb = computed.height - computed.margin_bottom;
+    let pw = pr - pl;
+    let ph = pb - pt;
+
+    let tick_size = computed.tick_size as f64;
+    let label_size = computed.label_size as f64;
+
+    // Left panel layout (left → right): [bar_area][count_gap][name_area]
+    let max_name_len = up.set_names.iter().map(|n| n.len()).max().unwrap_or(0);
+    let name_area = (max_name_len as f64 * tick_size * 0.6 + 10.0).max(40.0).min(120.0);
+    let bar_area = if up.show_set_sizes {
+        (pw * 0.18).max(50.0).min(150.0)
+    } else {
+        0.0
+    };
+    // Reserve a fixed zone for count labels so they never overlap the set names.
+    let count_gap = if up.show_counts && up.show_set_sizes { 28.0 } else { 0.0 };
+    let left_panel_w = bar_area + count_gap + name_area;
+
+    // Top panel: intersection size bars (55 % of plot height).
+    let inter_bar_h = ph * 0.55;
+
+    // Dot-matrix region.
+    let mat_l = pl + left_panel_w;
+    let mat_t = pt + inter_bar_h;
+    let mat_r = pr;
+    let mat_b = pb;
+
+    let dot_col_w = if n_cols > 0 { (mat_r - mat_l) / n_cols as f64 } else { 1.0 };
+    let dot_row_h = if n_sets > 0 { (mat_b - mat_t) / n_sets as f64 } else { 1.0 };
+    let dot_r = (dot_col_w.min(dot_row_h) * 0.35).max(3.0).min(12.0);
+    let bar_half_w = (dot_col_w * 0.3).max(3.0);
+
+    let max_inter = sorted.iter().map(|i| i.count).max().unwrap_or(1) as f64;
+    let max_set = up.set_sizes.iter().copied().max().unwrap_or(1) as f64;
+
+    // ── Set-size bars (left panel, left portion) ────────────────────────────
+    if up.show_set_sizes {
+        let bar_x_start = pl;
+        let bar_x_end = pl + bar_area;
+        let bar_half_h = (dot_row_h * 0.25).max(3.0).min(12.0);
+
+        // Axis line (right edge of bar area).
+        scene.add(Primitive::Line {
+            x1: bar_x_end, y1: mat_t,
+            x2: bar_x_end, y2: mat_b,
+            stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+        });
+        // Baseline.
+        scene.add(Primitive::Line {
+            x1: bar_x_start, y1: mat_b,
+            x2: bar_x_end, y2: mat_b,
+            stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+        });
+
+        for (j, &size) in up.set_sizes.iter().enumerate() {
+            let cy = mat_t + (j as f64 + 0.5) * dot_row_h;
+            let bar_w = size as f64 / max_set * bar_area;
+
+            // Bars grow leftward from the right edge (zero baseline at bar_x_end).
+            scene.add(Primitive::Rect {
+                x: bar_x_end - bar_w,
+                y: cy - bar_half_h,
+                width: bar_w,
+                height: bar_half_h * 2.0,
+                fill: up.bar_color.clone(),
+                stroke: None, stroke_width: None, opacity: None,
+            });
+
+            if up.show_counts {
+                // Fixed position in the count_gap zone — never encroaches on name_area.
+                scene.add(Primitive::Text {
+                    x: pl + bar_area + 3.0,
+                    y: cy + tick_size * 0.35,
+                    content: format!("{}", size),
+                    size: computed.tick_size,
+                    anchor: TextAnchor::Start, rotate: None, bold: false,
+                });
+            }
+        }
+
+        // "Set size" axis label.
+        scene.add(Primitive::Text {
+            x: bar_x_start + bar_area / 2.0,
+            y: mat_t - tick_size - 4.0,
+            content: "Set size".to_string(),
+            size: computed.label_size,
+            anchor: TextAnchor::Middle, rotate: None, bold: false,
+        });
+    }
+
+    // ── Set names (right portion of left panel) ──────────────────────────────
+    let name_x = mat_l - 5.0; // right-aligned just before dot matrix
+    for (j, name) in up.set_names.iter().enumerate() {
+        let cy = mat_t + (j as f64 + 0.5) * dot_row_h;
+        scene.add(Primitive::Text {
+            x: name_x,
+            y: cy + tick_size * 0.35,
+            content: name.clone(),
+            size: computed.tick_size,
+            anchor: TextAnchor::End, rotate: None, bold: false,
+        });
+    }
+
+    // ── Intersection-size bars (top panel) ───────────────────────────────────
+    let bar_y_max = pt + inter_bar_h - 5.0; // baseline
+    let bar_y_min = pt + tick_size + 2.0;   // top of tallest bar
+    let bar_h_range = (bar_y_max - bar_y_min).max(1.0);
+
+    // Left axis line for intersection bars.
+    scene.add(Primitive::Line {
+        x1: mat_l, y1: bar_y_min,
+        x2: mat_l, y2: bar_y_max,
+        stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+    });
+    // Baseline.
+    scene.add(Primitive::Line {
+        x1: mat_l, y1: bar_y_max,
+        x2: mat_r, y2: bar_y_max,
+        stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+    });
+
+    // Y-axis ticks for intersection bars.
+    let n_yticks = 4;
+    for ti in 0..=n_yticks {
+        let frac = ti as f64 / n_yticks as f64;
+        let val = (max_inter * frac).round() as usize;
+        let y = bar_y_max - frac * bar_h_range;
+
+        scene.add(Primitive::Line {
+            x1: mat_l - 4.0, y1: y,
+            x2: mat_l, y2: y,
+            stroke: theme.tick_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+        });
+        scene.add(Primitive::Text {
+            x: mat_l - 7.0,
+            y: y + tick_size * 0.35,
+            content: format!("{}", val),
+            size: computed.tick_size,
+            anchor: TextAnchor::End, rotate: None, bold: false,
+        });
+    }
+
+    // "Intersection size" Y-axis label (rotated, left of the tick labels).
+    scene.add(Primitive::Text {
+        x: mat_l - 7.0 - tick_size * 2.5 - label_size * 0.5,
+        y: (bar_y_min + bar_y_max) / 2.0,
+        content: "Intersection size".to_string(),
+        size: computed.label_size,
+        anchor: TextAnchor::Middle,
+        rotate: Some(-90.0),
+        bold: false,
+    });
+
+    // Intersection bars.
+    for (i, inter) in sorted.iter().enumerate() {
+        let cx = mat_l + (i as f64 + 0.5) * dot_col_w;
+        let bar_h = (inter.count as f64 / max_inter * bar_h_range).max(0.0);
+        let bar_x = cx - bar_half_w;
+        let bar_y = bar_y_max - bar_h;
+
+        scene.add(Primitive::Rect {
+            x: bar_x, y: bar_y,
+            width: bar_half_w * 2.0, height: bar_h,
+            fill: up.bar_color.clone(),
+            stroke: None, stroke_width: None, opacity: None,
+        });
+
+        if up.show_counts && bar_h > 0.0 {
+            scene.add(Primitive::Text {
+                x: cx,
+                y: bar_y - 2.0,
+                content: format!("{}", inter.count),
+                size: computed.tick_size,
+                anchor: TextAnchor::Middle, rotate: None, bold: false,
+            });
+        }
+    }
+
+    // ── Dot matrix ───────────────────────────────────────────────────────────
+    // Light horizontal separator lines.
+    for j in 0..=n_sets {
+        let y = mat_t + j as f64 * dot_row_h;
+        scene.add(Primitive::Line {
+            x1: mat_l, y1: y,
+            x2: mat_r, y2: y,
+            stroke: theme.grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
+        });
+    }
+
+    for (i, inter) in sorted.iter().enumerate() {
+        let cx = mat_l + (i as f64 + 0.5) * dot_col_w;
+
+        let filled_rows: Vec<usize> = (0..n_sets)
+            .filter(|&j| inter.mask & (1u64 << j) != 0)
+            .collect();
+
+        // Connector line between the topmost and bottommost filled dots.
+        if filled_rows.len() >= 2 {
+            let top_j = *filled_rows.first().unwrap();
+            let bot_j = *filled_rows.last().unwrap();
+            let top_cy = mat_t + (top_j as f64 + 0.5) * dot_row_h;
+            let bot_cy = mat_t + (bot_j as f64 + 0.5) * dot_row_h;
+            scene.add(Primitive::Line {
+                x1: cx, y1: top_cy,
+                x2: cx, y2: bot_cy,
+                stroke: up.dot_color.clone(),
+                stroke_width: (dot_r * 0.5).max(2.0),
+                stroke_dasharray: None,
+            });
+        }
+
+        for j in 0..n_sets {
+            let cy = mat_t + (j as f64 + 0.5) * dot_row_h;
+            let filled = inter.mask & (1u64 << j) != 0;
+            let fill = if filled {
+                up.dot_color.clone()
+            } else {
+                up.dot_empty_color.clone()
+            };
+            scene.add(Primitive::Circle { cx, cy, r: dot_r, fill });
+        }
+    }
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -2629,8 +2871,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let all_pies = plots.iter().all(|p| matches!(p, Plot::Pie(_)));
-    if !all_pies {
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_)));
+    if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -2689,6 +2931,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::DotPlot(d) => {
                 add_dot_plot(d, &mut scene, &computed);
+            }
+            Plot::UpSet(u) => {
+                add_upset(u, &mut scene, &computed);
             }
         }
     }

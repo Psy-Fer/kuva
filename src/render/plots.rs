@@ -15,6 +15,7 @@ use crate::plot::strip::StripPlot;
 use crate::plot::volcano::VolcanoPlot;
 use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
+use crate::plot::upset::UpSetPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -37,6 +38,7 @@ pub enum Plot {
     Volcano(VolcanoPlot),
     Manhattan(ManhattanPlot),
     DotPlot(DotPlot),
+    UpSet(UpSetPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -349,6 +351,10 @@ impl Plot {
                 if dp.x_categories.is_empty() { return None; }
                 Some(((0.5, dp.x_categories.len() as f64 + 0.5),
                       (0.5, dp.y_categories.len() as f64 + 0.5)))
+            }
+            Plot::UpSet(_) => {
+                // Dummy bounds — UpSet renders in pixel space and ignores map_x/map_y.
+                Some(((0.0, 1.0), (0.0, 1.0)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {

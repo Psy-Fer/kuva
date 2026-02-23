@@ -24,7 +24,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 |------|-------------|
 | Scatter | Points with optional trend lines, error bars, bands, equation/correlation display |
 | Line | Connected line segments with error bars, bands, and configurable stroke |
-| Bar | Single or grouped bars with categorical x-axis |
+| Bar | Single, grouped, or stacked bars with categorical x-axis |
 | Histogram | Binned frequency distribution with optional normalization |
 | 2D Histogram | Bivariate density with colormaps and correlation |
 | Box | Quartiles, median, whiskers (1.5×IQR) |
@@ -35,6 +35,11 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | Band | Filled area between upper and lower curves (confidence intervals) |
 | Brick | Character-level sequence visualization (DNA/RNA templates) |
 | Waterfall | Floating bars showing cumulative change; Delta and Total bar kinds |
+| Strip | Jitter/strip plots with center or swarm modes; overlayable on Box or Violin |
+| Volcano | log2FC vs −log10(p) with threshold lines, up/down/NS colouring, gene labels |
+| Manhattan | Genome-wide association plots with per-chromosome colouring, significance thresholds, gene labels |
+| Dot | 2D grid of circles encoding two variables via size and colour; sparse/matrix input, stacked size-legend + colorbar |
+| UpSet | Set-intersection visualisation: intersection-size bars, dot matrix, optional set-size bars |
 
 ## Quick Start
 
@@ -312,13 +317,59 @@ let svg = SvgBackend.render_scene(&scene);
 
 Delta bars float from the running cumulative total; positive bars use `color_positive` (default green), negative bars use `color_negative` (default red). Total bars reach from zero to the current running total and use `color_total` (default steelblue). Override with `.with_color_positive()`, `.with_color_negative()`, `.with_color_total()`.
 
+## UpSet Plot Example
+
+Visualise set intersections with the standard UpSet layout — intersection-size bars on top, dot matrix in the centre, and optional set-size bars on the left:
+
+```rust
+use visus::plot::UpSetPlot;
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
+use visus::backend::svg::SvgBackend;
+
+// Build directly from raw element sets — intersections are computed automatically.
+let up = UpSetPlot::new().with_sets(vec![
+    ("Set A", vec!["apple", "banana", "cherry", "date"]),
+    ("Set B", vec!["banana", "cherry", "elderberry"]),
+    ("Set C", vec!["cherry", "fig", "grape"]),
+]);
+
+let plots = vec![Plot::UpSet(up)];
+let layout = Layout::auto_from_plots(&plots).with_title("Gene Set Overlap");
+
+let scene = render_multiple(plots, layout);
+let svg = SvgBackend.render_scene(&scene);
+std::fs::write("upset.svg", svg).unwrap();
+```
+
+Or supply precomputed `(mask, count)` pairs for large datasets:
+
+```rust
+let up = UpSetPlot::new()
+    .with_data(
+        vec!["DEG up", "DEG down", "GWAS hits"],
+        vec![312usize, 198, 87],
+        vec![
+            (0b001u64, 240), // DEG up only
+            (0b010,    150), // DEG down only
+            (0b100,     40), // GWAS only
+            (0b011,     48), // DEG up ∩ DEG down
+            (0b101,     30), // DEG up ∩ GWAS
+            (0b110,     22), // DEG down ∩ GWAS
+            (0b111,     17), // all three
+        ],
+    )
+    .with_sort(visus::plot::UpSetSort::ByFrequency)
+    .with_max_visible(10);
+```
+
 ## TODO
 
 ### Plot types
 - [ ] Contour plots
-- [ ] Swarm / strip / jitter plots
 - [ ] Candlestick chart
-- [ ] Bioinformatics plots (volcano, manhattan, dot, upset, synteny, …)
+- [ ] Bioinformatic plots — circos, Phylo tree, synteny, chord, Sankey
 
 ### Backends & output
 - [ ] PNG rasterization
