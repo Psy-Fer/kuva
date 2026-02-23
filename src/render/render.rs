@@ -18,6 +18,7 @@ use crate::plot::volcano::{VolcanoPlot, LabelStyle};
 use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
+use crate::plot::stacked_area::StackedAreaPlot;
 
 
 use crate::plot::Legend;
@@ -2513,6 +2514,18 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::StackedArea(sa) => {
+                for k in 0..sa.series.len() {
+                    if let Some(Some(ref label)) = sa.labels.get(k) {
+                        entries.push(LegendEntry {
+                            label: label.clone(),
+                            color: sa.resolve_color(k).to_string(),
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -2845,6 +2858,91 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+fn add_stacked_area(sa: &StackedAreaPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if sa.x.is_empty() || sa.series.is_empty() { return; }
+    let n = sa.x.len();
+
+    // Precompute per-column totals for normalisation
+    let totals: Vec<f64> = if sa.normalized {
+        (0..n).map(|i| {
+            sa.series.iter().map(|s| s.get(i).copied().unwrap_or(0.0)).sum::<f64>()
+        }).collect()
+    } else {
+        vec![1.0; n]
+    };
+
+    let scale = if sa.normalized { 100.0 } else { 1.0 };
+
+    // cumulative baseline per column (grows as we draw each series)
+    let mut lower: Vec<f64> = vec![0.0; n];
+
+    for k in 0..sa.series.len() {
+        let series = &sa.series[k];
+        let color = sa.resolve_color(k).to_string();
+
+        // Compute upper edge for this series
+        let upper: Vec<f64> = (0..n).map(|i| {
+            let raw = series.get(i).copied().unwrap_or(0.0);
+            let t = totals[i].max(f64::EPSILON);
+            lower[i] + raw / t * scale
+        }).collect();
+
+        // Build closed SVG path: forward along upper, backward along lower
+        let mut path = String::new();
+        for (i, &x) in sa.x.iter().enumerate() {
+            let sx = computed.map_x(x);
+            let sy = computed.map_y(upper[i]);
+            if i == 0 {
+                path += &format!("M {sx} {sy} ");
+            } else {
+                path += &format!("L {sx} {sy} ");
+            }
+        }
+        for i in (0..n).rev() {
+            let sx = computed.map_x(sa.x[i]);
+            let sy = computed.map_y(lower[i]);
+            path += &format!("L {sx} {sy} ");
+        }
+        path += "Z";
+
+        scene.add(Primitive::Path {
+            d: path,
+            fill: Some(color.clone()),
+            stroke: "none".into(),
+            stroke_width: 0.0,
+            opacity: Some(sa.fill_opacity),
+            stroke_dasharray: None,
+        });
+
+        // Optional stroke along the top edge
+        if sa.show_strokes {
+            let mut stroke_path = String::new();
+            for (i, &x) in sa.x.iter().enumerate() {
+                let sx = computed.map_x(x);
+                let sy = computed.map_y(upper[i]);
+                if i == 0 {
+                    stroke_path += &format!("M {sx} {sy} ");
+                } else {
+                    stroke_path += &format!("L {sx} {sy} ");
+                }
+            }
+            scene.add(Primitive::Path {
+                d: stroke_path,
+                fill: None,
+                stroke: color,
+                stroke_width: sa.stroke_width,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+
+        // Advance lower to current upper for the next series
+        for i in 0..n {
+            lower[i] = upper[i];
+        }
+    }
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -2934,6 +3032,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::UpSet(u) => {
                 add_upset(u, &mut scene, &computed);
+            }
+            Plot::StackedArea(sa) => {
+                add_stacked_area(sa, &mut scene, &computed);
             }
         }
     }

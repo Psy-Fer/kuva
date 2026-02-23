@@ -16,6 +16,7 @@ use crate::plot::volcano::VolcanoPlot;
 use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
+use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -39,6 +40,7 @@ pub enum Plot {
     Manhattan(ManhattanPlot),
     DotPlot(DotPlot),
     UpSet(UpSetPlot),
+    StackedArea(StackedAreaPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -355,6 +357,20 @@ impl Plot {
             Plot::UpSet(_) => {
                 // Dummy bounds — UpSet renders in pixel space and ignores map_x/map_y.
                 Some(((0.0, 1.0), (0.0, 1.0)))
+            }
+            Plot::StackedArea(sa) => {
+                if sa.x.is_empty() || sa.series.is_empty() { return None; }
+                let x_min = sa.x.iter().cloned().fold(f64::INFINITY, f64::min);
+                let x_max = sa.x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let n = sa.x.len();
+                let y_max = if sa.normalized {
+                    100.0
+                } else {
+                    (0..n)
+                        .map(|i| sa.series.iter().map(|s| s.get(i).copied().unwrap_or(0.0)).sum::<f64>())
+                        .fold(0.0_f64, f64::max)
+                };
+                Some(((x_min, x_max), (0.0, y_max)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {

@@ -325,6 +325,13 @@ impl Layout {
                     max_label_len = max_label_len.max(5);
                 }
             }
+
+            if let Plot::StackedArea(sa) = plot {
+                for label in sa.labels.iter().flatten() {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
@@ -338,8 +345,18 @@ impl Layout {
         let has_x_cats = x_labels.is_some();
         let has_y_cats = y_labels.is_some();
         if !has_x_cats && !has_colorbar && x_max > x_min {
-            x_max = pad_max(x_max);
-            x_min = pad_min(x_min);
+            let x_range = x_max - x_min;
+            if x_min > 0.0 && x_min > x_range {
+                // Large positive offset (e.g. years, genomic positions): padding
+                // relative to the absolute value would push the axis to start at 0.
+                // Instead pad by a fraction of the data range.
+                let pad = x_range * 0.05;
+                x_min -= pad;
+                x_max += pad;
+            } else {
+                x_max = pad_max(x_max);
+                x_min = pad_min(x_min);
+            }
         }
         if !has_y_cats && !has_colorbar && y_max > y_min {
             y_max = pad_max(y_max);
