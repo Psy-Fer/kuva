@@ -19,6 +19,7 @@ use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
+use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
 
 
 use crate::plot::Legend;
@@ -2526,6 +2527,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Candlestick(cp) => {
+                if let Some(ref label) = cp.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: cp.color_up.clone(),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -2943,6 +2954,126 @@ fn add_stacked_area(sa: &StackedAreaPlot, scene: &mut Scene, computed: &Computed
     }
 }
 
+fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if cp.candles.is_empty() { return; }
+
+    let continuous = cp.candles.iter().any(|c| c.x.is_some());
+    let n = cp.candles.len();
+
+    // Compute slot pixel width for body sizing
+    let slot_px = if continuous {
+        if n > 1 {
+            // Use average spacing between consecutive candles
+            let xs: Vec<f64> = cp.candles.iter().filter_map(|c| c.x).collect();
+            if xs.len() > 1 {
+                let span = xs[xs.len() - 1] - xs[0];
+                let avg_spacing = span / (xs.len() - 1) as f64;
+                computed.map_x(computed.x_range.0 + avg_spacing) - computed.map_x(computed.x_range.0)
+            } else {
+                computed.plot_width()
+            }
+        } else {
+            computed.plot_width()
+        }
+    } else {
+        // categorical: width of one slot = map_x(1.5) - map_x(0.5)
+        computed.map_x(1.5) - computed.map_x(0.5)
+    };
+    let body_w = slot_px * cp.candle_width;
+
+    // Price panel bottom pixel coordinate
+    let price_bottom_px = if cp.show_volume {
+        computed.margin_top + computed.plot_height() * (1.0 - cp.volume_ratio) - 4.0
+    } else {
+        computed.margin_top + computed.plot_height()
+    };
+
+    let y_min = computed.y_range.0;
+    let y_max = computed.y_range.1;
+    let map_y_price = |v: f64| -> f64 {
+        let t = (y_max - v) / (y_max - y_min);
+        computed.margin_top + t * (price_bottom_px - computed.margin_top)
+    };
+
+    let candle_color = |c: &CandleDataPoint| -> &str {
+        if c.close > c.open { &cp.color_up }
+        else if c.close < c.open { &cp.color_down }
+        else { &cp.color_doji }
+    };
+
+    for (i, candle) in cp.candles.iter().enumerate() {
+        let x_val = if continuous {
+            candle.x.unwrap_or(i as f64 + 1.0)
+        } else {
+            i as f64 + 1.0
+        };
+        let x_center = computed.map_x(x_val);
+        let color = candle_color(candle).to_string();
+
+        // Wick
+        scene.add(Primitive::Line {
+            x1: x_center,
+            y1: map_y_price(candle.high),
+            x2: x_center,
+            y2: map_y_price(candle.low),
+            stroke: color.clone(),
+            stroke_width: cp.wick_width,
+            stroke_dasharray: None,
+        });
+
+        // Body
+        let body_top    = map_y_price(candle.open.max(candle.close));
+        let body_bottom = map_y_price(candle.open.min(candle.close));
+        let body_h = (body_bottom - body_top).max(1.0);
+        scene.add(Primitive::Rect {
+            x: x_center - body_w / 2.0,
+            y: body_top,
+            width: body_w,
+            height: body_h,
+            fill: color.clone(),
+            stroke: Some(color.clone()),
+            stroke_width: Some(0.5),
+            opacity: None,
+        });
+    }
+
+    // Volume panel
+    if cp.show_volume {
+        let vol_panel_top    = price_bottom_px + 4.0;
+        let vol_panel_bottom = computed.margin_top + computed.plot_height() - 2.0;
+        let vol_panel_h      = vol_panel_bottom - vol_panel_top;
+
+        let vol_max = cp.candles.iter()
+            .filter_map(|c| c.volume)
+            .fold(0.0_f64, f64::max);
+
+        if vol_max > 0.0 {
+            for (i, candle) in cp.candles.iter().enumerate() {
+                if let Some(vol) = candle.volume {
+                    let x_val = if continuous {
+                        candle.x.unwrap_or(i as f64 + 1.0)
+                    } else {
+                        i as f64 + 1.0
+                    };
+                    let x_center = computed.map_x(x_val);
+                    let color = candle_color(candle).to_string();
+                    let bar_h = (vol / vol_max) * vol_panel_h;
+                    scene.add(Primitive::Rect {
+                        x: x_center - body_w / 2.0,
+                        y: vol_panel_bottom - bar_h,
+                        width: body_w,
+                        height: bar_h,
+                        fill: color,
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: Some(0.5),
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -3035,6 +3166,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::StackedArea(sa) => {
                 add_stacked_area(sa, &mut scene, &computed);
+            }
+            Plot::Candlestick(cp) => {
+                add_candlestick(cp, &mut scene, &computed);
             }
         }
     }

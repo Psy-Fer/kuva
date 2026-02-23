@@ -332,6 +332,18 @@ impl Layout {
                     max_label_len = max_label_len.max(label.len());
                 }
             }
+
+            if let Plot::Candlestick(cp) = plot {
+                let continuous = cp.candles.iter().any(|c| c.x.is_some());
+                if !continuous {
+                    let labels = cp.candles.iter().map(|c| c.label.clone()).collect();
+                    x_labels = Some(labels);
+                }
+                if let Some(ref label) = cp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

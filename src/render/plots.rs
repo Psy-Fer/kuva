@@ -17,6 +17,7 @@ use crate::plot::manhattan::ManhattanPlot;
 use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
+use crate::plot::candlestick::CandlestickPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -41,6 +42,7 @@ pub enum Plot {
     DotPlot(DotPlot),
     UpSet(UpSetPlot),
     StackedArea(StackedAreaPlot),
+    Candlestick(CandlestickPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -371,6 +373,21 @@ impl Plot {
                         .fold(0.0_f64, f64::max)
                 };
                 Some(((x_min, x_max), (0.0, y_max)))
+            }
+            Plot::Candlestick(cp) => {
+                if cp.candles.is_empty() { return None; }
+                let continuous = cp.candles.iter().any(|c| c.x.is_some());
+                let (x_min, x_max) = if continuous {
+                    (
+                        cp.candles.iter().filter_map(|c| c.x).fold(f64::INFINITY, f64::min),
+                        cp.candles.iter().filter_map(|c| c.x).fold(f64::NEG_INFINITY, f64::max),
+                    )
+                } else {
+                    (0.5, cp.candles.len() as f64 + 0.5)
+                };
+                let y_min = cp.candles.iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
+                let y_max = cp.candles.iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
+                Some(((x_min, x_max), (y_min, y_max)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {
