@@ -22,6 +22,7 @@ use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
 use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
+use crate::plot::sankey::{SankeyPlot, SankeyLinkColor};
 
 
 use crate::plot::Legend;
@@ -93,6 +94,8 @@ pub struct Scene {
     pub text_color: Option<String>,
     pub font_family: Option<String>,
     pub elements: Vec<Primitive>,
+    /// Raw SVG strings to emit inside a `<defs>` block (e.g. linearGradients).
+    pub defs: Vec<String>,
 }
 
 impl Scene {
@@ -102,7 +105,8 @@ impl Scene {
                background_color: Some("white".to_string()),
                text_color: None,
                font_family: None,
-               elements: vec![] }
+               elements: vec![],
+               defs: vec![] }
     }
 
     pub fn with_background(mut self, color: Option<&str>) -> Self {
@@ -2560,6 +2564,22 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Sankey(s) => {
+                if s.legend_label.is_some() {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    for (i, node) in s.nodes.iter().enumerate() {
+                        let color = node.color.clone()
+                            .unwrap_or_else(|| fallback[i % fallback.len()].to_string());
+                        entries.push(LegendEntry {
+                            label: node.label.clone(),
+                            color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             Plot::Contour(cp) => {
                 if let Some(ref label) = cp.legend_label {
                     if !cp.filled {
@@ -3623,6 +3643,229 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     scene
 }
 
+fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    if sankey.nodes.is_empty() || sankey.links.is_empty() { return; }
+
+    let n = sankey.nodes.len();
+    let fallback = Palette::category10();
+    let node_color = |i: usize| -> String {
+        sankey.nodes[i].color.clone()
+            .unwrap_or_else(|| fallback[i % fallback.len()].to_string())
+    };
+
+    // ── Step 1: Column assignment ──
+    let mut col: Vec<Option<usize>> = sankey.nodes.iter().map(|nd| nd.column).collect();
+
+    // Seed column 0 for nodes with no incoming links (pure sources).
+    let mut has_incoming = vec![false; n];
+    for link in &sankey.links {
+        has_incoming[link.target] = true;
+    }
+    for i in 0..n {
+        if col[i].is_none() && !has_incoming[i] {
+            col[i] = Some(0);
+        }
+    }
+
+    // Iteratively propagate: col[tgt] = max(col[tgt], col[src] + 1)
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for link in &sankey.links {
+            let src = link.source;
+            let tgt = link.target;
+            if let Some(sc) = col[src] {
+                let new_tgt_col = sc + 1;
+                if col[tgt].map_or(true, |tc| tc < new_tgt_col) {
+                    col[tgt] = Some(new_tgt_col);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    // Assign any remaining unresolved nodes (cycle members) to max_col + 1.
+    let max_assigned = col.iter().flatten().copied().max().unwrap_or(0);
+    for c in col.iter_mut() {
+        if c.is_none() {
+            *c = Some(max_assigned + 1);
+        }
+    }
+    let col: Vec<usize> = col.into_iter().map(|c| c.unwrap()).collect();
+    let n_cols = col.iter().copied().max().unwrap_or(0) + 1;
+
+    // ── Step 2: Node flow totals ──
+    let mut out_flow = vec![0.0_f64; n];
+    let mut in_flow = vec![0.0_f64; n];
+    for link in &sankey.links {
+        out_flow[link.source] += link.value;
+        in_flow[link.target] += link.value;
+    }
+    let node_flow: Vec<f64> = (0..n)
+        .map(|i| out_flow[i].max(in_flow[i]))
+        .collect();
+
+    // ── Step 3: Vertical layout per column ──
+    let plot_h = computed.plot_height();
+    let plot_w = computed.plot_width();
+
+    // nodes_in_col[c] = ordered list of node indices in column c
+    let mut nodes_in_col: Vec<Vec<usize>> = vec![vec![]; n_cols];
+    for i in 0..n {
+        nodes_in_col[col[i]].push(i);
+    }
+
+    let mut node_y = vec![0.0_f64; n];
+    let mut node_h = vec![0.0_f64; n];
+
+    for c in 0..n_cols {
+        let members = &nodes_in_col[c];
+        if members.is_empty() { continue; }
+        let m = members.len();
+        let total_gap = (m - 1) as f64 * sankey.node_gap;
+        let usable_h = (plot_h - total_gap).max(1.0);
+        let total_col_flow: f64 = members.iter().map(|&i| node_flow[i]).sum();
+        if total_col_flow <= 0.0 { continue; }
+
+        let total_h: f64 = members.iter().map(|&i| {
+            (node_flow[i] / total_col_flow) * usable_h
+        }).sum();
+        // Center the column vertically
+        let start_y = computed.margin_top + (plot_h - total_h - total_gap) / 2.0;
+
+        let mut cursor_y = start_y;
+        for &i in members {
+            let h = (node_flow[i] / total_col_flow) * usable_h;
+            node_h[i] = h;
+            node_y[i] = cursor_y;
+            cursor_y += h + sankey.node_gap;
+        }
+    }
+
+    // ── Step 4: Horizontal layout ──
+    let col_w = plot_w / n_cols as f64;
+    let node_x: Vec<f64> = (0..n)
+        .map(|i| computed.margin_left + col[i] as f64 * col_w + (col_w - sankey.node_width) / 2.0)
+        .collect();
+
+    // ── Step 5: Draw node rectangles and labels ──
+    let max_col = col.iter().copied().max().unwrap_or(0);
+    for i in 0..n {
+        // Rectangle
+        scene.add(Primitive::Rect {
+            x: node_x[i],
+            y: node_y[i],
+            width: sankey.node_width,
+            height: node_h[i].max(1.0),
+            fill: node_color(i),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+
+        // Label: left of leftmost col → End anchor; right of rightmost → Start; inner → Start
+        let (lx, anchor) = if col[i] == 0 {
+            (node_x[i] - 6.0, TextAnchor::End)
+        } else {
+            (node_x[i] + sankey.node_width + 6.0, TextAnchor::Start)
+        };
+        let _ = max_col; // both sides get Start except col 0
+        scene.add(Primitive::Text {
+            x: lx,
+            y: node_y[i] + node_h[i] / 2.0 + computed.body_size as f64 * 0.35,
+            content: sankey.nodes[i].label.clone(),
+            size: computed.body_size,
+            anchor,
+            rotate: None,
+            bold: false,
+        });
+    }
+
+    // ── Step 6: Draw ribbons ──
+    // Cursors tracking how far down each node's in/out flow has been consumed.
+    let mut out_cursor = node_y.clone();
+    let mut in_cursor = node_y.clone();
+
+    // Sort links by (target_col, target_node_idx_in_col) for stable ordering.
+    let mut link_order: Vec<usize> = (0..sankey.links.len()).collect();
+    link_order.sort_by_key(|&li| {
+        let tgt = sankey.links[li].target;
+        (col[tgt], nodes_in_col[col[tgt]].iter().position(|&x| x == tgt).unwrap_or(0))
+    });
+
+    for (link_i, &li) in link_order.iter().enumerate() {
+        let link = &sankey.links[li];
+        let src = link.source;
+        let tgt = link.target;
+        if link.value <= 0.0 { continue; }
+        if out_flow[src] <= 0.0 || in_flow[tgt] <= 0.0 { continue; }
+
+        let link_h_out = (link.value / out_flow[src]) * node_h[src];
+        let link_h_in  = (link.value / in_flow[tgt])  * node_h[tgt];
+
+        let x_src = node_x[src] + sankey.node_width;
+        let x_tgt = node_x[tgt];
+        let cx_mid = (x_src + x_tgt) / 2.0;
+
+        let y_src_top = out_cursor[src];
+        let y_src_bot = y_src_top + link_h_out;
+        let y_tgt_top = in_cursor[tgt];
+        let y_tgt_bot = y_tgt_top + link_h_in;
+
+        out_cursor[src] += link_h_out;
+        in_cursor[tgt]  += link_h_in;
+
+        let d = format!(
+            "M {x_src} {y_src_top} \
+             C {cx_mid} {y_src_top} {cx_mid} {y_tgt_top} {x_tgt} {y_tgt_top} \
+             L {x_tgt} {y_tgt_bot} \
+             C {cx_mid} {y_tgt_bot} {cx_mid} {y_src_bot} {x_src} {y_src_bot} Z"
+        );
+
+        let fill = match &sankey.link_color {
+            SankeyLinkColor::Source => node_color(src),
+            SankeyLinkColor::PerLink => link.color.clone().unwrap_or_else(|| node_color(src)),
+            SankeyLinkColor::Gradient => {
+                let grad_id = format!("grad_{link_i}");
+                let src_color = node_color(src);
+                let tgt_color = node_color(tgt);
+                scene.defs.push(format!(
+                    r#"<linearGradient id="{grad_id}" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="{src_color}"/><stop offset="100%" stop-color="{tgt_color}"/></linearGradient>"#
+                ));
+                format!("url(#{grad_id})")
+            }
+        };
+
+        scene.add(Primitive::Path {
+            d,
+            fill: Some(fill),
+            stroke: "none".into(),
+            stroke_width: 0.0,
+            opacity: Some(sankey.link_opacity),
+            stroke_dasharray: None,
+        });
+    }
+}
+
+pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+
+    add_sankey(sankey, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    scene
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -3649,7 +3892,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -3724,6 +3967,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Chord(c) => {
                 add_chord(c, &mut scene, &computed);
+            }
+            Plot::Sankey(s) => {
+                add_sankey(s, &mut scene, &computed);
             }
         }
     }

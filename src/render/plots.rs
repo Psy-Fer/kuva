@@ -20,6 +20,7 @@ use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::CandlestickPlot;
 use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
+use crate::plot::sankey::SankeyPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -47,6 +48,7 @@ pub enum Plot {
     Candlestick(CandlestickPlot),
     Contour(ContourPlot),
     Chord(ChordPlot),
+    Sankey(SankeyPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -402,6 +404,10 @@ impl Plot {
                 Some(((x_min, x_max), (y_min, y_max)))
             }
             Plot::Chord(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((0.0, 1.0), (0.0, 1.0)))
+            }
+            Plot::Sankey(_) => {
                 // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
                 Some(((0.0, 1.0), (0.0, 1.0)))
             }

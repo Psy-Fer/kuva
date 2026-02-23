@@ -40,6 +40,15 @@ impl SvgBackend {
             ));
         }
 
+        // Emit any SVG defs (e.g. linearGradients for Sankey ribbons)
+        if !scene.defs.is_empty() {
+            svg.push_str("<defs>");
+            for d in &scene.defs {
+                svg.push_str(d);
+            }
+            svg.push_str("</defs>");
+        }
+
         // go through each element, and add it to the SVG
         for elem in &scene.elements {
             match elem {

@@ -20,6 +20,7 @@ pub mod stacked_area;
 pub mod candlestick;
 pub mod contour;
 pub mod chord;
+pub mod sankey;
 
 pub mod legend;
 
@@ -47,5 +48,6 @@ pub use stacked_area::StackedAreaPlot;
 pub use candlestick::{CandlestickPlot, CandleDataPoint};
 pub use contour::ContourPlot;
 pub use chord::ChordPlot;
+pub use sankey::{SankeyPlot, SankeyNode, SankeyLink, SankeyLinkColor};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};
