@@ -12,6 +12,7 @@
 - [Violin Plot](./plots/violin.md)
 - [Pie Chart](./plots/pie.md)
 - [Heatmap](./plots/heatmap.md)
+- [Strip Plot](./plots/strip.md)
 
 # Reference
 
