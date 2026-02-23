@@ -11,6 +11,7 @@
 - [Box Plot](./plots/boxplot.md)
 - [Violin Plot](./plots/violin.md)
 - [Pie Chart](./plots/pie.md)
+- [Heatmap](./plots/heatmap.md)
 
 # Reference
 

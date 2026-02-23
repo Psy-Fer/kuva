@@ -312,6 +312,10 @@ impl Plot {
                             y_min = y_min.min(0.0).min(running);
                             y_max = y_max.max(0.0).max(running);
                         }
+                        WaterfallKind::Difference { from, to } => {
+                            y_min = y_min.min(from).min(to);
+                            y_max = y_max.max(from).max(to);
+                        }
                     }
                 }
                 Some(((x_min, x_max), (y_min, y_max)))

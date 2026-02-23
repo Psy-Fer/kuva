@@ -1262,6 +1262,15 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
             WaterfallKind::Total => {
                 (0.0, running, waterfall.color_total.clone())
             }
+            WaterfallKind::Difference { from, to } => {
+                let color = if to >= from {
+                    waterfall.color_positive.clone()
+                } else {
+                    waterfall.color_negative.clone()
+                };
+                // Running total is intentionally unchanged.
+                (from, to, color)
+            }
         };
 
         // Connector: dashed horizontal line from previous bar's right edge to this bar's left edge
@@ -1322,6 +1331,20 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
                     };
                     (s, ly)
                 }
+                WaterfallKind::Difference { from, to } => {
+                    let diff = to - from;
+                    let s = if diff >= 0.0 {
+                        format!("+{:.2}", diff)
+                    } else {
+                        format!("{:.2}", diff)
+                    };
+                    let ly = if diff >= 0.0 {
+                        y_screen_hi - 5.0
+                    } else {
+                        y_screen_lo + 15.0
+                    };
+                    (s, ly)
+                }
             };
             scene.add(Primitive::Text {
                 x: (x0 + x1) / 2.0,
@@ -1334,7 +1357,12 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
             });
         }
 
-        prev_connection_y = Some(computed.map_y(running));
+        // For Difference bars the running total didn't change, so the next
+        // connector should come from the `to` edge of this bar.
+        prev_connection_y = Some(match bar.kind {
+            WaterfallKind::Difference { to, .. } => computed.map_y(to),
+            _ => computed.map_y(running),
+        });
     }
 }
 

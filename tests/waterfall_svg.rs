@@ -52,12 +52,15 @@ fn test_waterfall_with_totals() {
 
 #[test]
 fn test_waterfall_connectors_and_values() {
+    // Alpha=40, Beta=-15, Gamma=+20 → Subtotal=45.
+    // The Difference bar shows the net change from Alpha (40) to Subtotal (45):
+    // a green +5 bar anchored at y=40..45, independent of the running total.
     let wf = WaterfallPlot::new()
         .with_delta("Alpha", 40.0)
         .with_delta("Beta", -15.0)
         .with_delta("Gamma", 20.0)
         .with_total("Subtotal")
-        .with_delta("Delta", -5.0)
+        .with_difference("Net change", 40.0, 45.0)
         .with_connectors()
         .with_values();
 
@@ -71,6 +74,31 @@ fn test_waterfall_connectors_and_values() {
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("4,3"));  // dasharray from connectors
+}
+
+#[test]
+fn test_waterfall_difference() {
+    // Positive difference (green): 40 → 45
+    // Negative difference (red):   50 → 40
+    let wf_pos = WaterfallPlot::new()
+        .with_delta("Start", 40.0)
+        .with_difference("Overall change", 40.0, 45.0)
+        .with_values();
+    let plots = vec![Plot::Waterfall(wf_pos)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Difference +5");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/waterfall_difference_pos.svg", svg.clone()).unwrap();
+    assert!(svg.contains("rgb(68,170,68)"));  // green
+
+    let wf_neg = WaterfallPlot::new()
+        .with_delta("Start", 50.0)
+        .with_difference("Overall change", 50.0, 40.0)
+        .with_values();
+    let plots2 = vec![Plot::Waterfall(wf_neg)];
+    let layout2 = Layout::auto_from_plots(&plots2).with_title("Difference -10");
+    let svg2 = SvgBackend.render_scene(&render_multiple(plots2, layout2));
+    std::fs::write("test_outputs/waterfall_difference_neg.svg", svg2.clone()).unwrap();
+    assert!(svg2.contains("rgb(204,68,68)"));  // red
 }
 
 #[test]

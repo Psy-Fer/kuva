@@ -3,6 +3,9 @@ pub enum WaterfallKind {
     Delta,
     /// Bar from zero to current running total; value field ignored.
     Total,
+    /// Bar anchored to explicit [from, to] values; does not affect the running
+    /// total.  Green when to > from, red when to < from.
+    Difference { from: f64, to: f64 },
 }
 
 pub struct WaterfallBar {
@@ -41,6 +44,18 @@ impl WaterfallPlot {
             label: label.into(),
             value,
             kind: WaterfallKind::Delta,
+        });
+        self
+    }
+
+    /// Add a bar anchored to explicit y-values rather than the running total.
+    /// The bar spans [from, to] and is colored green (to > from) or red (to < from).
+    /// The running total is unaffected.
+    pub fn with_difference<S: Into<String>>(mut self, label: S, from: f64, to: f64) -> Self {
+        self.bars.push(WaterfallBar {
+            label: label.into(),
+            value: 0.0,
+            kind: WaterfallKind::Difference { from, to },
         });
         self
     }
