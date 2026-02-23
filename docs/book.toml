@@ -1,0 +1,10 @@
+[book]
+title = "visus"
+description = "Scientific plotting library for Rust"
+authors = ["James M. Ferguson"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/Psy-Fer/visus"
+edit-url-template = "https://github.com/Psy-Fer/visus/edit/main/docs/src/{path}"
