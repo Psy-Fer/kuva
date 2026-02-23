@@ -21,6 +21,7 @@ use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
 use crate::plot::contour::ContourPlot;
+use crate::plot::chord::ChordPlot;
 
 
 use crate::plot::Legend;
@@ -2538,6 +2539,27 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     });
                 }
             }
+            Plot::Chord(chord) => {
+                if chord.legend_label.is_some() {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    let n = chord.n_nodes();
+                    for i in 0..n {
+                        let color = if let Some(c) = chord.colors.get(i) {
+                            if !c.is_empty() { c.clone() } else { fallback[i % fallback.len()].to_string() }
+                        } else {
+                            fallback[i % fallback.len()].to_string()
+                        };
+                        let label = if let Some(l) = chord.labels.get(i) { l.clone() } else { format!("{i}") };
+                        entries.push(LegendEntry {
+                            label,
+                            color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             Plot::Contour(cp) => {
                 if let Some(ref label) = cp.legend_label {
                     if !cp.filled {
@@ -3389,6 +3411,218 @@ fn add_contour(cp: &ContourPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use std::f64::consts::TAU;
+    use crate::render::palette::Palette;
+
+    let n = chord.n_nodes();
+    if n == 0 { return; }
+
+    // Fallback palette
+    let fallback = Palette::category10();
+    let node_color = |i: usize| -> String {
+        if let Some(c) = chord.colors.get(i) {
+            if !c.is_empty() { return c.clone(); }
+        }
+        fallback[i % fallback.len()].to_string()
+    };
+
+    // Geometry
+    let label_margin = computed.body_size as f64 * 2.5;
+    let outer_r = (computed.plot_width().min(computed.plot_height()) / 2.0 - label_margin).max(10.0);
+    let inner_r = outer_r * chord.pad_fraction;
+    let cx = computed.margin_left + computed.plot_width() / 2.0;
+    let cy = computed.margin_top + computed.plot_height() / 2.0;
+
+    // Row totals and grand total
+    let row_total: Vec<f64> = chord.matrix.iter().map(|row| row.iter().sum()).collect();
+    let grand_total: f64 = row_total.iter().sum();
+    if grand_total <= 0.0 { return; }
+
+    let gap_rad = chord.gap_degrees.to_radians();
+    let usable = TAU - n as f64 * gap_rad;
+
+    // Start angle for each node arc
+    let mut node_start = Vec::with_capacity(n);
+    let mut node_span = Vec::with_capacity(n);
+    let mut angle = -std::f64::consts::FRAC_PI_2; // start at top
+    for i in 0..n {
+        node_start.push(angle);
+        let span = if grand_total > 0.0 { (row_total[i] / grand_total) * usable } else { usable / n as f64 };
+        node_span.push(span);
+        angle += span + gap_rad;
+    }
+
+    // Helper: SVG arc flag
+    let la = |sweep: f64| if sweep > std::f64::consts::PI { 1 } else { 0 };
+
+    // ── Draw outer arc segments (donut slices) ──
+    for i in 0..n {
+        let a0 = node_start[i];
+        let a1 = a0 + node_span[i];
+        let x1o = cx + outer_r * a0.cos();
+        let y1o = cy + outer_r * a0.sin();
+        let x2o = cx + outer_r * a1.cos();
+        let y2o = cy + outer_r * a1.sin();
+        let x2i = cx + inner_r * a1.cos();
+        let y2i = cy + inner_r * a1.sin();
+        let x1i = cx + inner_r * a0.cos();
+        let y1i = cy + inner_r * a0.sin();
+        let laf = la(node_span[i]);
+
+        let d = format!(
+            "M {x1o} {y1o} A {outer_r} {outer_r} 0 {laf} 1 {x2o} {y2o} \
+             L {x2i} {y2i} A {inner_r} {inner_r} 0 {laf} 0 {x1i} {y1i} Z"
+        );
+        let color = node_color(i);
+        scene.add(Primitive::Path {
+            d,
+            fill: Some(color),
+            stroke: "none".into(),
+            stroke_width: 0.0,
+            opacity: None,
+            stroke_dasharray: None,
+        });
+    }
+
+    // ── Draw labels ──
+    // Place labels just outside the arc. Anchor to Start (right side) or End
+    // (left side) so text always extends away from the arc regardless of length.
+    let label_gap = outer_r + computed.body_size as f64 * 1.6;
+    for i in 0..n {
+        let mid = node_start[i] + node_span[i] / 2.0;
+        let lx = cx + label_gap * mid.cos();
+        let ly = cy + label_gap * mid.sin() + computed.body_size as f64 * 0.35;
+
+        let label = if let Some(l) = chord.labels.get(i) { l.clone() } else { format!("{i}") };
+        let anchor = if mid.cos() >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
+
+        scene.add(Primitive::Text {
+            x: lx,
+            y: ly,
+            content: label,
+            size: computed.body_size,
+            anchor,
+            rotate: None,
+            bold: false,
+        });
+    }
+
+    // ── Draw ribbons ──
+    // Sub-arc cursor: for each node, track how much inner arc has been consumed.
+    // Allocate sub-arc widths for each cell [i][j]
+    // We need full forward pass to build all ribbon endpoints before drawing.
+    // Store as: sub_start[i][j] = angle where node i's sub-arc for ribbon (i,j) starts
+    let mut sub_start = vec![vec![0.0f64; n]; n];
+    {
+        // Reset cursors
+        let mut cursors = node_start.clone();
+        for i in 0..n {
+            for j in 0..n {
+                sub_start[i][j] = cursors[i];
+                let flow = chord.matrix.get(i).and_then(|r| r.get(j)).copied().unwrap_or(0.0);
+                if grand_total > 0.0 {
+                    cursors[i] += (flow / grand_total) * usable;
+                }
+            }
+        }
+    }
+
+    for i in 0..n {
+        for j in 0..=i {
+            let flow_ij = chord.matrix.get(i).and_then(|r| r.get(j)).copied().unwrap_or(0.0);
+            let flow_ji = chord.matrix.get(j).and_then(|r| r.get(i)).copied().unwrap_or(0.0);
+
+            // Self-loops
+            if i == j {
+                if flow_ij <= 0.0 { continue; }
+                let a0 = sub_start[i][j];
+                let span = if grand_total > 0.0 { (flow_ij / grand_total) * usable } else { 0.0 };
+                if span <= 0.0 { continue; }
+                let a1 = a0 + span;
+                let laf = la(span);
+                let x1 = cx + inner_r * a0.cos();
+                let y1 = cy + inner_r * a0.sin();
+                let x2 = cx + inner_r * a1.cos();
+                let y2 = cy + inner_r * a1.sin();
+                let d = format!(
+                    "M {x1} {y1} A {inner_r} {inner_r} 0 {laf} 1 {x2} {y2} \
+                     C {cx} {cy} {cx} {cy} {x1} {y1} Z"
+                );
+                scene.add(Primitive::Path {
+                    d,
+                    fill: Some(node_color(i)),
+                    stroke: "none".into(),
+                    stroke_width: 0.0,
+                    opacity: Some(chord.ribbon_opacity),
+                    stroke_dasharray: None,
+                });
+                continue;
+            }
+
+            if flow_ij <= 0.0 && flow_ji <= 0.0 { continue; }
+
+            // Node i sub-arc for ribbon (i→j)
+            let a_i0 = sub_start[i][j];
+            let span_i = if grand_total > 0.0 { (flow_ij / grand_total) * usable } else { 0.0 };
+            let a_i1 = a_i0 + span_i;
+
+            // Node j sub-arc for ribbon (j→i)
+            let a_j0 = sub_start[j][i];
+            let span_j = if grand_total > 0.0 { (flow_ji / grand_total) * usable } else { 0.0 };
+            let a_j1 = a_j0 + span_j;
+
+            let xi1 = cx + inner_r * a_i0.cos();
+            let yi1 = cy + inner_r * a_i0.sin();
+            let xi2 = cx + inner_r * a_i1.cos();
+            let yi2 = cy + inner_r * a_i1.sin();
+            let xj1 = cx + inner_r * a_j0.cos();
+            let yj1 = cy + inner_r * a_j0.sin();
+            let xj2 = cx + inner_r * a_j1.cos();
+            let yj2 = cy + inner_r * a_j1.sin();
+
+            let laf_i = la(span_i);
+            let laf_j = la(span_j);
+
+            let d = format!(
+                "M {xi1} {yi1} \
+                 A {inner_r} {inner_r} 0 {laf_i} 1 {xi2} {yi2} \
+                 C {cx} {cy} {cx} {cy} {xj1} {yj1} \
+                 A {inner_r} {inner_r} 0 {laf_j} 1 {xj2} {yj2} \
+                 C {cx} {cy} {cx} {cy} {xi1} {yi1} Z"
+            );
+
+            scene.add(Primitive::Path {
+                d,
+                fill: Some(node_color(i)),
+                stroke: "none".into(),
+                stroke_width: 0.0,
+                opacity: Some(chord.ribbon_opacity),
+                stroke_dasharray: None,
+            });
+        }
+    }
+
+}
+// Legend for ChordPlot is handled by collect_legend_entries + render_multiple.
+
+pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+
+    add_chord(chord, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    scene
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -3415,7 +3649,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -3487,6 +3721,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Contour(cp) => {
                 add_contour(cp, &mut scene, &computed);
+            }
+            Plot::Chord(c) => {
+                add_chord(c, &mut scene, &computed);
             }
         }
     }

@@ -356,6 +356,15 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Chord(cp) = plot {
+                if cp.legend_label.is_some() {
+                    has_legend = true;
+                    for label in &cp.labels {
+                        max_label_len = max_label_len.max(label.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

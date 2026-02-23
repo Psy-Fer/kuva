@@ -19,6 +19,7 @@ use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::CandlestickPlot;
 use crate::plot::contour::ContourPlot;
+use crate::plot::chord::ChordPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -45,6 +46,7 @@ pub enum Plot {
     StackedArea(StackedAreaPlot),
     Candlestick(CandlestickPlot),
     Contour(ContourPlot),
+    Chord(ChordPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -398,6 +400,10 @@ impl Plot {
                 let y_min = cp.y_coords.iter().cloned().fold(f64::INFINITY, f64::min);
                 let y_max = cp.y_coords.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
                 Some(((x_min, x_max), (y_min, y_max)))
+            }
+            Plot::Chord(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((0.0, 1.0), (0.0, 1.0)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {
