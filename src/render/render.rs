@@ -20,6 +20,7 @@ use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
+use crate::plot::contour::ContourPlot;
 
 
 use crate::plot::Legend;
@@ -2537,6 +2538,20 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     });
                 }
             }
+            Plot::Contour(cp) => {
+                if let Some(ref label) = cp.legend_label {
+                    if !cp.filled {
+                        let line_color = cp.line_color.clone()
+                            .unwrap_or_else(|| cp.color_map.map(0.5));
+                        entries.push(LegendEntry {
+                            label: label.clone(),
+                            color: line_color,
+                            shape: LegendShape::Line,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -3074,6 +3089,306 @@ fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedL
     }
 }
 
+// ── Contour / Marching-Squares ─────────────────────────────────────────────
+
+/// Build the SVG path string for one iso-level using marching squares.
+/// Emits individual "M x1 y1 L x2 y2" segments — no stitching needed.
+///
+/// Grid convention: z[row][col], x_coords[col], y_coords[row].
+/// Cell (col, row) has corners TL=(col,row) TR=(col+1,row) BR=(col+1,row+1) BL=(col,row+1).
+fn contour_path(
+    z: &[Vec<f64>],
+    x_coords: &[f64],
+    y_coords: &[f64],
+    t: f64,
+    computed: &ComputedLayout,
+) -> String {
+    let rows = z.len();
+    if rows < 2 { return String::new(); }
+    let cols = z[0].len();
+    if cols < 2 { return String::new(); }
+
+    let mut d = String::new();
+
+    // Crossing on the horizontal edge between corner (col, row) and (col+1, row).
+    // x interpolates between x_coords[col] and x_coords[col+1]; y is fixed at y_coords[row].
+    let h = |col: usize, row: usize| -> (f64, f64) {
+        let va = z[row][col];
+        let vb = z[row][col + 1];
+        let frac = if (vb - va).abs() < 1e-12 { 0.5 } else { ((t - va) / (vb - va)).clamp(0.0, 1.0) };
+        let wx = x_coords[col] + frac * (x_coords[col + 1] - x_coords[col]);
+        (computed.map_x(wx), computed.map_y(y_coords[row]))
+    };
+
+    // Crossing on the vertical edge between corner (col, row) and (col, row+1).
+    // x is fixed at x_coords[col]; y interpolates between y_coords[row] and y_coords[row+1].
+    let v = |col: usize, row: usize| -> (f64, f64) {
+        let va = z[row][col];
+        let vb = z[row + 1][col];
+        let frac = if (vb - va).abs() < 1e-12 { 0.5 } else { ((t - va) / (vb - va)).clamp(0.0, 1.0) };
+        let wy = y_coords[row] + frac * (y_coords[row + 1] - y_coords[row]);
+        (computed.map_x(x_coords[col]), computed.map_y(wy))
+    };
+
+    // Append one line segment to the path string.
+    let mut seg = |p1: (f64, f64), p2: (f64, f64)| {
+        d += &format!("M{:.2} {:.2} L{:.2} {:.2} ", p1.0, p1.1, p2.0, p2.1);
+    };
+
+    for row in 0..rows - 1 {
+        for col in 0..cols - 1 {
+            let tl = z[row][col];
+            let tr = z[row][col + 1];
+            let br = z[row + 1][col + 1];
+            let bl = z[row + 1][col];
+
+            // Marching squares case: TL=8, TR=4, BR=2, BL=1
+            let case = ((tl >= t) as u8) * 8
+                     + ((tr >= t) as u8) * 4
+                     + ((br >= t) as u8) * 2
+                     + ((bl >= t) as u8);
+
+            // Canonical edge names for this cell:
+            //   top    = h(col, row)       between TL and TR
+            //   bottom = h(col, row+1)     between BL and BR
+            //   left   = v(col, row)       between TL and BL
+            //   right  = v(col+1, row)     between TR and BR
+            let avg = (tl + tr + br + bl) / 4.0;
+
+            match case {
+                0 | 15 => {}
+                1  => seg(v(col,   row), h(col, row + 1)),           // left → bottom
+                2  => seg(h(col, row + 1), v(col + 1, row)),         // bottom → right
+                3  => seg(v(col,   row), v(col + 1, row)),           // left → right
+                4  => seg(h(col,   row), v(col + 1, row)),           // top → right
+                5  => if avg >= t {
+                        seg(h(col, row),     v(col,     row));        // top → left
+                        seg(h(col, row + 1), v(col + 1, row));        // bottom → right
+                    } else {
+                        seg(h(col, row),     v(col + 1, row));        // top → right
+                        seg(h(col, row + 1), v(col,     row));        // bottom → left
+                    }
+                6  => seg(h(col,   row), h(col, row + 1)),           // top → bottom
+                7  => seg(h(col,   row), v(col,   row)),             // top → left
+                8  => seg(h(col,   row), v(col,   row)),             // top → left
+                9  => seg(h(col,   row), h(col, row + 1)),           // top → bottom
+                10 => if avg >= t {
+                        seg(h(col, row),     v(col + 1, row));        // top → right
+                        seg(h(col, row + 1), v(col,     row));        // bottom → left
+                    } else {
+                        seg(h(col, row),     v(col,     row));        // top → left
+                        seg(h(col, row + 1), v(col + 1, row));        // bottom → right
+                    }
+                11 => seg(h(col,   row), v(col + 1, row)),           // top → right
+                12 => seg(v(col,   row), v(col + 1, row)),           // left → right
+                13 => seg(v(col + 1, row), h(col, row + 1)),         // right → bottom
+                14 => seg(v(col,   row), h(col, row + 1)),           // left → bottom
+                _  => {}
+            }
+        }
+    }
+
+    d
+}
+
+/// Build the SVG path string for the filled region {z >= t}, one closed polygon per cell piece.
+#[allow(non_snake_case)]
+/// Uses the per-cell marching-squares polygon table so boundaries follow the iso-line exactly.
+fn contour_fill_path(
+    z: &[Vec<f64>],
+    x_coords: &[f64],
+    y_coords: &[f64],
+    t: f64,
+    computed: &ComputedLayout,
+) -> String {
+    let rows = z.len();
+    if rows < 2 { return String::new(); }
+    let cols = z[0].len();
+    if cols < 2 { return String::new(); }
+
+    let mut d = String::new();
+
+    // Horizontal edge crossing between corner (col, row) and (col+1, row).
+    let h = |col: usize, row: usize| -> (f64, f64) {
+        let va = z[row][col];
+        let vb = z[row][col + 1];
+        let frac = if (vb - va).abs() < 1e-12 { 0.5 } else { ((t - va) / (vb - va)).clamp(0.0, 1.0) };
+        let wx = x_coords[col] + frac * (x_coords[col + 1] - x_coords[col]);
+        (computed.map_x(wx), computed.map_y(y_coords[row]))
+    };
+
+    // Vertical edge crossing between corner (col, row) and (col, row+1).
+    let v = |col: usize, row: usize| -> (f64, f64) {
+        let va = z[row][col];
+        let vb = z[row + 1][col];
+        let frac = if (vb - va).abs() < 1e-12 { 0.5 } else { ((t - va) / (vb - va)).clamp(0.0, 1.0) };
+        let wy = y_coords[row] + frac * (y_coords[row + 1] - y_coords[row]);
+        (computed.map_x(x_coords[col]), computed.map_y(wy))
+    };
+
+    // Append one closed polygon subpath.
+    let mut poly = |verts: &[(f64, f64)]| {
+        if verts.len() < 3 { return; }
+        d += &format!("M{:.2} {:.2}", verts[0].0, verts[0].1);
+        for &(x, y) in &verts[1..] {
+            d += &format!(" L{:.2} {:.2}", x, y);
+        }
+        d += " Z ";
+    };
+
+    for row in 0..rows - 1 {
+        for col in 0..cols - 1 {
+            let tl = z[row][col];
+            let tr = z[row][col + 1];
+            let br = z[row + 1][col + 1];
+            let bl = z[row + 1][col];
+
+            // Marching squares case: TL=8, TR=4, BR=2, BL=1.
+            let case = ((tl >= t) as u8) * 8
+                     + ((tr >= t) as u8) * 4
+                     + ((br >= t) as u8) * 2
+                     + ((bl >= t) as u8);
+
+            // Pixel corners.
+            let tl_p = (computed.map_x(x_coords[col]),     computed.map_y(y_coords[row]));
+            let tr_p = (computed.map_x(x_coords[col + 1]), computed.map_y(y_coords[row]));
+            let br_p = (computed.map_x(x_coords[col + 1]), computed.map_y(y_coords[row + 1]));
+            let bl_p = (computed.map_x(x_coords[col]),     computed.map_y(y_coords[row + 1]));
+
+            // Edge crossings.
+            //   T = top edge   h(col,   row)   between TL and TR
+            //   B = bot edge   h(col,   row+1) between BL and BR
+            //   L = left edge  v(col,   row)   between TL and BL
+            //   R = right edge v(col+1, row)   between TR and BR
+            let avg = (tl + tr + br + bl) / 4.0;
+
+            match case {
+                0  => {}
+                // One corner above — triangle.
+                1  => { let (L, B) = (v(col, row),   h(col, row + 1)); poly(&[bl_p, L, B]); }
+                2  => { let (B, R) = (h(col, row+1), v(col+1, row));   poly(&[br_p, B, R]); }
+                4  => { let (T, R) = (h(col, row),   v(col+1, row));   poly(&[tr_p, T, R]); }
+                8  => { let (T, L) = (h(col, row),   v(col, row));     poly(&[tl_p, T, L]); }
+                // Two adjacent corners above — trapezoid/quad.
+                3  => { let (L, R) = (v(col, row),   v(col+1, row));   poly(&[bl_p, br_p, R, L]); }
+                6  => { let (T, B) = (h(col, row),   h(col, row+1));   poly(&[T, tr_p, br_p, B]); }
+                9  => { let (T, B) = (h(col, row),   h(col, row+1));   poly(&[tl_p, T, B, bl_p]); }
+                12 => { let (L, R) = (v(col, row),   v(col+1, row));   poly(&[tl_p, tr_p, R, L]); }
+                // Two diagonal corners above — saddle: resolve with cell average.
+                5  => {
+                    let (T, B, L, R) = (h(col, row), h(col, row+1), v(col, row), v(col+1, row));
+                    if avg >= t {
+                        // Connected region (hourglass through centre): one hexagon.
+                        poly(&[bl_p, L, T, tr_p, R, B]);
+                    } else {
+                        // Two separate triangles.
+                        poly(&[bl_p, L, B]);
+                        poly(&[tr_p, T, R]);
+                    }
+                }
+                10 => {
+                    let (T, B, L, R) = (h(col, row), h(col, row+1), v(col, row), v(col+1, row));
+                    if avg >= t {
+                        poly(&[tl_p, T, R, br_p, B, L]);
+                    } else {
+                        poly(&[tl_p, T, L]);
+                        poly(&[br_p, B, R]);
+                    }
+                }
+                // Three corners above — pentagon wrapping the single below corner.
+                7  => { let (T, L) = (h(col, row),   v(col, row));     poly(&[T, tr_p, br_p, bl_p, L]); }
+                11 => { let (T, R) = (h(col, row),   v(col+1, row));   poly(&[T, tl_p, bl_p, br_p, R]); }
+                13 => { let (R, B) = (v(col+1, row), h(col, row+1));   poly(&[tl_p, tr_p, R, B, bl_p]); }
+                14 => { let (L, B) = (v(col, row),   h(col, row+1));   poly(&[L, tl_p, tr_p, br_p, B]); }
+                // All four above — full cell.
+                15 => { poly(&[tl_p, tr_p, br_p, bl_p]); }
+                _  => {}
+            }
+        }
+    }
+
+    d
+}
+
+fn add_contour(cp: &ContourPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if cp.z.is_empty() || cp.x_coords.len() < 2 || cp.y_coords.len() < 2 { return; }
+
+    let levels = cp.effective_levels();
+    if levels.is_empty() { return; }
+
+    let (z_min, z_max) = cp.z_range();
+    let z_span = z_max - z_min + f64::EPSILON;
+
+    let level_color = |level: f64| -> String {
+        let norm = (level - z_min) / z_span;
+        cp.color_map.map(norm.clamp(0.0, 1.0))
+    };
+
+    if cp.filled {
+        // Painter's algorithm with per-cell marching-squares polygons.
+        // 1. Fill the entire grid extent with the minimum colormap colour (base layer).
+        let x0_d = cp.x_coords.iter().cloned().fold(f64::INFINITY, f64::min);
+        let x1_d = cp.x_coords.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let y0_d = cp.y_coords.iter().cloned().fold(f64::INFINITY, f64::min);
+        let y1_d = cp.y_coords.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let px0 = computed.map_x(x0_d).min(computed.map_x(x1_d));
+        let px1 = computed.map_x(x0_d).max(computed.map_x(x1_d));
+        let py0 = computed.map_y(y0_d).min(computed.map_y(y1_d));
+        let py1 = computed.map_y(y0_d).max(computed.map_y(y1_d));
+        scene.add(Primitive::Rect {
+            x: px0, y: py0, width: px1 - px0, height: py1 - py0,
+            fill: cp.color_map.map(0.0),
+            stroke: None, stroke_width: None, opacity: None,
+        });
+
+        // 2. For each level (lowest → highest), fill the {z ≥ level} region.
+        //    Higher levels overdraw lower ones, leaving the correct colour per band.
+        for &lvl in &levels {
+            let color = level_color(lvl);
+            let d = contour_fill_path(&cp.z, &cp.x_coords, &cp.y_coords, lvl, computed);
+            if d.is_empty() { continue; }
+            scene.add(Primitive::Path {
+                d,
+                fill: Some(color),
+                stroke: "none".into(),
+                stroke_width: 0.0,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+
+        // 3. Draw iso-lines on top.
+        for &lvl in &levels {
+            let stroke = cp.line_color.clone().unwrap_or_else(|| "black".to_string());
+            let d = contour_path(&cp.z, &cp.x_coords, &cp.y_coords, lvl, computed);
+            if d.is_empty() { continue; }
+            scene.add(Primitive::Path {
+                d,
+                fill: None,
+                stroke,
+                stroke_width: cp.line_width,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+    } else {
+        // Lines-only mode: one path per level, colored by the colormap (or fixed line_color).
+        for &lvl in &levels {
+            let stroke = cp.line_color.clone().unwrap_or_else(|| level_color(lvl));
+            let d = contour_path(&cp.z, &cp.x_coords, &cp.y_coords, lvl, computed);
+            if d.is_empty() { continue; }
+            scene.add(Primitive::Path {
+                d,
+                fill: None,
+                stroke,
+                stroke_width: cp.line_width,
+                opacity: None,
+                stroke_dasharray: None,
+            });
+        }
+    }
+}
+
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
@@ -3169,6 +3484,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Candlestick(cp) => {
                 add_candlestick(cp, &mut scene, &computed);
+            }
+            Plot::Contour(cp) => {
+                add_contour(cp, &mut scene, &computed);
             }
         }
     }

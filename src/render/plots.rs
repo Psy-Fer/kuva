@@ -18,6 +18,7 @@ use crate::plot::dotplot::DotPlot;
 use crate::plot::upset::UpSetPlot;
 use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::CandlestickPlot;
+use crate::plot::contour::ContourPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -43,6 +44,7 @@ pub enum Plot {
     UpSet(UpSetPlot),
     StackedArea(StackedAreaPlot),
     Candlestick(CandlestickPlot),
+    Contour(ContourPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -389,6 +391,14 @@ impl Plot {
                 let y_max = cp.candles.iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
                 Some(((x_min, x_max), (y_min, y_max)))
             }
+            Plot::Contour(cp) => {
+                if cp.z.is_empty() { return None; }
+                let x_min = cp.x_coords.iter().cloned().fold(f64::INFINITY, f64::min);
+                let x_max = cp.x_coords.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let y_min = cp.y_coords.iter().cloned().fold(f64::INFINITY, f64::min);
+                let y_max = cp.y_coords.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                Some(((x_min, x_max), (y_min, y_max)))
+            }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {
                     exp.len()
@@ -473,6 +483,22 @@ impl Plot {
                     min_value: min,
                     max_value: max,
                     label: Some(label),
+                })
+            }
+            Plot::Contour(cp) => {
+                if !cp.filled { return None; }
+                let (z_min, z_max) = cp.z_range();
+                if !z_min.is_finite() || !z_max.is_finite() { return None; }
+                let cmap = cp.color_map.clone();
+                let label = cp.legend_label.clone();
+                Some(ColorBarInfo {
+                    map_fn: Arc::new(move |t| {
+                        let norm = (t - z_min) / (z_max - z_min + f64::EPSILON);
+                        cmap.map(norm.clamp(0.0, 1.0))
+                    }),
+                    min_value: z_min,
+                    max_value: z_max,
+                    label,
                 })
             }
             _ => None,

@@ -344,6 +344,18 @@ impl Layout {
                     max_label_len = max_label_len.max(label.len());
                 }
             }
+
+            if let Plot::Contour(cp) = plot {
+                if cp.filled {
+                    has_colorbar = true;
+                }
+                if let Some(ref label) = cp.legend_label {
+                    if !cp.filled {
+                        has_legend = true;
+                        max_label_len = max_label_len.max(label.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

@@ -18,6 +18,7 @@ pub mod dotplot;
 pub mod upset;
 pub mod stacked_area;
 pub mod candlestick;
+pub mod contour;
 
 pub mod legend;
 
@@ -43,5 +44,6 @@ pub use dotplot::{DotPlot, DotPoint};
 pub use upset::{UpSetPlot, UpSetIntersection, UpSetSort};
 pub use stacked_area::StackedAreaPlot;
 pub use candlestick::{CandlestickPlot, CandleDataPoint};
+pub use contour::ContourPlot;
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};
