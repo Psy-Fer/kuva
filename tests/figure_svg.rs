@@ -318,8 +318,9 @@ fn figure_negative_x_only() {
     std::fs::write("test_outputs/figure_negative_x.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
-    // x min = -6, pad_min(-6) = -7, rounded by auto_nice_range to -8
-    assert!(svg.contains(">-8<"));
+    // x min = -6; 1%-span padding → -6.14 → auto_nice_range step=1 → nice_min=-7
+    // generate_ticks(-7, 9, step=2) starts at ceil(-7/2)*2 = -6
+    assert!(svg.contains(">-6<"));
     // y min should be 0 (all positive, clamped)
     assert!(svg.contains(">0<"));
 }
@@ -343,11 +344,12 @@ fn figure_both_axes_negative() {
     std::fs::write("test_outputs/figure_both_negative.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
-    // x: min=-5, pad_min(-5) = -5 - 1 = -6; max=6, pad_max(6) = 7
+    // x: min=-5, 1%-span padding → -5.11 → nice_min=-6; max=6 → nice_max=7
     assert!(svg.contains(">-6<"));
     assert!(svg.contains(">7<"));
-    // y: all negative. min=-8, pad_min(-8) = -8 - 1 = -9; max=-2, pad_max(-2) = -1
-    assert!(svg.contains(">-9<"));
+    // y: all negative. min=-8, 1%-span → -8.06 → nice_min=-8.5; step=0.5 so -8 is a tick
+    assert!(svg.contains(">-8<"));
+    // -1 appears as an x-axis tick (x data includes -1)
     assert!(svg.contains(">-1<"));
 }
 

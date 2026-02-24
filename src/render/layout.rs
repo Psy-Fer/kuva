@@ -130,6 +130,11 @@ pub struct Layout {
     pub x_datetime: Option<DateTimeAxis>,
     pub y_datetime: Option<DateTimeAxis>,
     pub x_tick_rotate: Option<f64>,
+    /// When true, the computed axis range snaps to the tick boundary that just
+    /// contains the data — no extra breathing-room step is added.  Useful for
+    /// cases like `TickFormat::Percent` where you want the axis to stop exactly
+    /// at 100 % rather than extending to 110 % or 120 %.
+    pub clamp_axis: bool,
 }
 
 impl Layout {
@@ -177,6 +182,7 @@ impl Layout {
             x_datetime: None,
             y_datetime: None,
             x_tick_rotate: None,
+            clamp_axis: false,
         }
     }
 
@@ -403,25 +409,39 @@ impl Layout {
         // Category-based plots (bar, box, violin, brick) already have built-in
         // padding in their bounds(), so only pad continuous-axis plots.
         // Grid-based plots (heatmap, histogram2d) also skip padding.
+        //
+        // Strategy: add 1% of the data span to max (and symmetrically to negative
+        // min). This is just enough to push an exact tick-boundary value above the
+        // boundary so that auto_nice_range's ceil moves it up by exactly one step,
+        // avoiding the old flat "+1" which could expand a 0-1 range to 0-2.
         let has_x_cats = x_labels.is_some();
         let has_y_cats = y_labels.is_some();
         if !has_x_cats && !has_colorbar && x_max > x_min {
-            let x_range = x_max - x_min;
-            if x_min > 0.0 && x_min > x_range {
+            let x_span = x_max - x_min;
+            if x_min > 0.0 && x_min > x_span {
                 // Large positive offset (e.g. years, genomic positions): padding
                 // relative to the absolute value would push the axis to start at 0.
                 // Instead pad by a fraction of the data range.
-                let pad = x_range * 0.05;
+                let pad = x_span * 0.05;
                 x_min -= pad;
                 x_max += pad;
             } else {
-                x_max = pad_max(x_max);
-                x_min = pad_min(x_min);
+                x_max += x_span * 0.01;
+                if x_min >= 0.0 {
+                    x_min = 0.0;
+                } else {
+                    x_min -= x_span * 0.01;
+                }
             }
         }
         if !has_y_cats && !has_colorbar && y_max > y_min {
-            y_max = pad_max(y_max);
-            y_min = pad_min(y_min);
+            let y_span = y_max - y_min;
+            y_max += y_span * 0.01;
+            if y_min >= 0.0 {
+                y_min = 0.0;
+            } else {
+                y_min -= y_span * 0.01;
+            }
         }
 
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));
@@ -653,6 +673,15 @@ impl Layout {
         self
     }
 
+    /// Snap the axis range to the tick boundary that just contains the data,
+    /// with no extra breathing-room step.  Useful for `TickFormat::Percent`
+    /// (so the axis stops at 100 % instead of 110 %) or any domain where the
+    /// data naturally fills the full scale.
+    pub fn with_clamp_axis(mut self) -> Self {
+        self.clamp_axis = true;
+        self
+    }
+
     /// Auto-compute y2_range from secondary plots, also expanding x_range to cover them.
     pub fn with_y2_auto(mut self, secondary: &[Plot]) -> Self {
         let mut x_min = self.x_range.0;
@@ -671,8 +700,13 @@ impl Layout {
         let raw = (y2_min, y2_max);
         self.data_y2_range = Some(raw);
         if y2_max > y2_min {
-            y2_max = pad_max(y2_max);
-            y2_min = pad_min(y2_min);
+            let y2_span = y2_max - y2_min;
+            y2_max += y2_span * 0.01;
+            if y2_min >= 0.0 {
+                y2_min = 0.0;
+            } else {
+                y2_min -= y2_span * 0.01;
+            }
         }
         self.y2_range = Some((y2_min, y2_max));
         self
@@ -767,16 +801,24 @@ impl ComputedLayout {
         let x_ticks = render_utils::auto_tick_count(width);
         let y_ticks = render_utils::auto_tick_count(height);
 
-        // For log scale, prefer the raw data range (before pad_min clamped to 0)
+        // For log scale, prefer the raw data range (before proportional padding).
+        // For clamp_axis, also use the raw range so the boundary lands on the
+        // tick that just contains the data with no extra step.
         let (x_min, x_max) = if layout.log_x {
             let (xlo, xhi) = layout.data_x_range.unwrap_or(layout.x_range);
             render_utils::auto_nice_range_log(xlo, xhi)
+        } else if layout.clamp_axis {
+            let (xlo, xhi) = layout.data_x_range.unwrap_or(layout.x_range);
+            render_utils::auto_nice_range(xlo, xhi, x_ticks)
         } else {
             render_utils::auto_nice_range(layout.x_range.0, layout.x_range.1, x_ticks)
         };
         let (y_min, y_max) = if layout.log_y {
             let (ylo, yhi) = layout.data_y_range.unwrap_or(layout.y_range);
             render_utils::auto_nice_range_log(ylo, yhi)
+        } else if layout.clamp_axis {
+            let (ylo, yhi) = layout.data_y_range.unwrap_or(layout.y_range);
+            render_utils::auto_nice_range(ylo, yhi, y_ticks)
         } else {
             render_utils::auto_nice_range(layout.y_range.0, layout.y_range.1, y_ticks)
         };
@@ -785,6 +827,9 @@ impl ComputedLayout {
             if layout.log_y2 {
                 let (ylo, yhi) = layout.data_y2_range.unwrap_or((ylo, yhi));
                 Some(render_utils::auto_nice_range_log(ylo, yhi))
+            } else if layout.clamp_axis {
+                let (ylo, yhi) = layout.data_y2_range.unwrap_or((ylo, yhi));
+                Some(render_utils::auto_nice_range(ylo, yhi, y_ticks))
             } else {
                 Some(render_utils::auto_nice_range(ylo, yhi, y_ticks))
             }
@@ -882,25 +927,3 @@ impl ComputedLayout {
     }
 }
 
-/// Pad the maximum axis value so data doesn't sit on the edge.
-/// Values below 10 get +1, values >= 10 get *1.05.
-fn pad_max(v: f64) -> f64 {
-    if v.abs() < 10.0 {
-        v + 1.0
-    } else {
-        v * 1.05
-    }
-}
-
-/// Pad the minimum axis value.
-/// Non-negative values clamp to 0. Values between -10 and 0 get -1.
-/// Values <= -10 get *1.05 (which makes them more negative).
-fn pad_min(v: f64) -> f64 {
-    if v >= 0.0 {
-        0.0
-    } else if v > -10.0 {
-        v - 1.0
-    } else {
-        v * 1.05
-    }
-}

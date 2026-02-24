@@ -458,6 +458,49 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke_dasharray: line.line_style.dasharray(),
         });
     }
+
+    // Draw error bars
+    for point in &line.data {
+        // x error
+        if let Some((neg, pos)) = point.x_err {
+            let cy = computed.map_y(point.y);
+            let cx_low  = computed.map_x(point.x - neg);
+            let cx_high = computed.map_x(point.x + pos);
+
+            scene.add(Primitive::Line {
+                x1: cx_low, y1: cy, x2: cx_high, y2: cy,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx_low, y1: cy - 5.0, x2: cx_low, y2: cy + 5.0,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx_high, y1: cy - 5.0, x2: cx_high, y2: cy + 5.0,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+        }
+
+        // y error
+        if let Some((neg, pos)) = point.y_err {
+            let cx = computed.map_x(point.x);
+            let cy_low  = computed.map_y(point.y - neg);
+            let cy_high = computed.map_y(point.y + pos);
+
+            scene.add(Primitive::Line {
+                x1: cx, y1: cy_low, x2: cx, y2: cy_high,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx - 5.0, y1: cy_low, x2: cx + 5.0, y2: cy_low,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: cx - 5.0, y1: cy_high, x2: cx + 5.0, y2: cy_high,
+                stroke: line.color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            });
+        }
+    }
 }
 
 fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout) {

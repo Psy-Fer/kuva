@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use visus::plot::scatter::ScatterPlot;
 use visus::backend::svg::SvgBackend;
-use visus::render::render::render_scatter;
+use visus::render::render::{render_scatter, render_multiple};
 use visus::render::layout::Layout;
+use visus::render::plots::Plot;
 use visus::TickFormat;
 
 fn make_scatter(data: Vec<(f64, f64)>, layout: Layout) -> String {
@@ -143,4 +144,41 @@ fn test_independent() {
     assert!(svg.contains("<svg"));
     assert!(svg.contains('%'), "Independent: x-axis should have '%' from Percent format");
     assert!(svg.contains('e'), "Independent: y-axis should have 'e' from Sci format");
+}
+
+// Data whose y values span exactly 0.0–1.0 (common for proportions/fractions).
+// The old flat +1 padding expanded this to 0–2, showing "200.0%" as the top tick.
+#[test]
+fn test_percent_auto_no_overflow() {
+    let plots = vec![Plot::Scatter(
+        ScatterPlot::new()
+            .with_data(vec![(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)])
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_y_tick_format(TickFormat::Percent);
+    let svg = render_multiple(plots, layout).with_background(Some("white"));
+    let svg = SvgBackend.render_scene(&svg);
+    std::fs::write("test_outputs/tick_format_percent_auto.svg", &svg).unwrap();
+    // With proportional 1%-span padding the axis should extend only one step
+    // beyond the data, not balloon to 200%.
+    assert!(!svg.contains("200.0%"), "auto layout must not push a 0-1 range to 200%");
+}
+
+// with_clamp_axis() should snap the axis to the tick that just contains the
+// data — for 0–1 proportion data this means the y-axis tops out at exactly 100%.
+#[test]
+fn test_percent_clamp_at_100() {
+    let plots = vec![Plot::Scatter(
+        ScatterPlot::new()
+            .with_data(vec![(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)])
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_y_tick_format(TickFormat::Percent)
+        .with_clamp_axis();
+    let svg = render_multiple(plots, layout).with_background(Some("white"));
+    let svg = SvgBackend.render_scene(&svg);
+    std::fs::write("test_outputs/tick_format_percent_clamp.svg", &svg).unwrap();
+    // The highest y tick should be "100.0%" — the axis must not overshoot.
+    assert!(svg.contains("100.0%"), "clamp_axis should produce a 100.0% top tick for 0-1 data");
+    assert!(!svg.contains("110.0%"), "clamp_axis must not extend beyond 100% for 0-1 data");
 }
