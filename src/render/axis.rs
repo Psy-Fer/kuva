@@ -186,14 +186,17 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             for (i, label) in categories.iter().enumerate() {
                 let x_val = i as f64 + 1.0;
                 let x_pos = computed.map_x(x_val);
-
+                let (anchor, rotate) = match layout.x_tick_rotate {
+                    Some(angle) => (TextAnchor::End, Some(angle)),
+                    None        => (TextAnchor::Middle, None),
+                };
                 scene.add(Primitive::Text {
                     x: x_pos,
                     y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                     content: label.clone(),
                     size: computed.tick_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
+                    anchor,
+                    rotate,
                     bold: false,
                 });
 

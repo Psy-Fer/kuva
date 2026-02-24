@@ -40,6 +40,13 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | Manhattan | Genome-wide association plots with per-chromosome colouring, significance thresholds, gene labels |
 | Dot | 2D grid of circles encoding two variables via size and colour; sparse/matrix input, stacked size-legend + colorbar |
 | UpSet | Set-intersection visualisation: intersection-size bars, dot matrix, optional set-size bars |
+| Stacked Area | Layered filled areas for part-to-whole time series; normalized (100%) variant |
+| Candlestick | OHLC bars with optional volume overlay; up/down colors, continuous shading |
+| Contour | Contour lines or filled contours from scattered (x, y, z) data via IDW interpolation |
+| Chord | Flow matrix rendered as arc segments with cubic-Bézier ribbons; symmetric and directed |
+| Sankey | Node-column flow diagram with tapered ribbons; source, gradient, or per-link coloring |
+| Phylogenetic Tree | Rectangular, slanted, or circular dendrogram; Newick, edge-list, UPGMA, or linkage input; clade coloring |
+| Synteny | Sequence bars connected by collinear-block ribbons; forward and inverted (bowtie) blocks |
 
 ## Quick Start
 
@@ -364,12 +371,46 @@ let up = UpSetPlot::new()
     .with_max_visible(10);
 ```
 
+## Documentation
+
+The docs are built with [mdBook](https://rust-lang.github.io/mdBook/). Install it once with:
+
+```bash
+cargo install mdbook
+```
+
+### Regenerate SVG assets
+
+Each plot type has a dedicated example that writes its SVG assets to `docs/src/assets/`. Run them all at once:
+
+```bash
+for ex in scatter line bar histogram histogram2d series band brick \
+          boxplot violin pie heatmap strip waterfall dotplot \
+          stacked_area candlestick contour chord upset volcano manhattan \
+          sankey phylo synteny layout; do
+  cargo run --example $ex
+done
+```
+
+Or regenerate a single plot type:
+
+```bash
+cargo run --example scatter
+```
+
+### Build and preview
+
+```bash
+mdbook build docs        # outputs to docs/book/
+mdbook serve docs        # live-reload preview at http://localhost:3000
+```
+
+---
+
 ## TODO
 
 ### Plot types
-- [ ] Contour plots
-- [ ] Candlestick chart
-- [ ] Bioinformatic plots — circos, Phylo tree, synteny, chord, Sankey
+- [ ] Circos plot
 
 ### Backends & output
 - [ ] PNG rasterization
