@@ -92,12 +92,10 @@ impl ColorMap {
 ///
 /// # Range convention
 ///
-/// The x and y axis extents reported to the layout are `[0, bins_x]` and
-/// `[0, bins_y]` (bin-index space). The render function then maps each bin's
-/// physical coordinate using the same layout. To keep the two spaces aligned,
-/// **start the range at `0.0`** and choose a `bins_*` count equal to or a
-/// simple fraction of the range width. For example, range `(0.0, 30.0)` with
-/// 30 bins gives one bin per unit; range `(0.0, 20.0)` with 25 bins works too.
+/// The x and y axis extents reported to the layout are the physical
+/// `x_range` and `y_range` values supplied to `with_data`. The renderer maps
+/// each bin's physical coordinate through this same range, so the axis ticks
+/// always reflect real data units regardless of bin count.
 ///
 /// # Correlation annotation
 ///

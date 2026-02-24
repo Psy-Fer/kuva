@@ -660,7 +660,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     let max_count = hist2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
 
     let x_bin_width = (hist2d.x_range.1 - hist2d.x_range.0) / hist2d.bins_x as f64;
-    let y_bin_height = (hist2d.y_range.1 - hist2d.y_range.0) / hist2d.bins_x as f64;
+    let y_bin_height = (hist2d.y_range.1 - hist2d.y_range.0) / hist2d.bins_y as f64;
 
     // let cmap = hist2d.color_map.clone();
     // for (i, row) in hist2d.data.iter().enumerate() {

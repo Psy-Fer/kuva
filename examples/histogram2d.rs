@@ -122,22 +122,26 @@ fn bimodal() {
     std::fs::write(format!("{OUT}/bimodal.svg"), svg).unwrap();
 }
 
-/// Effect of bin resolution — coarse (10×10) vs fine (50×50), Grayscale.
+/// Effect of bin resolution — coarse (10×10, Grayscale) vs fine (50×50, Viridis).
 ///
-/// `ColorMap::Grayscale` maps zero counts to white and the maximum count to
-/// black. Coarse binning reveals the overall shape; fine binning shows
-/// finer density structure.
+/// Coarse binning uses `ColorMap::Grayscale` (white → black) to show overall
+/// shape; fine binning uses `ColorMap::Viridis` to reveal finer density
+/// structure with a perceptually uniform colour scale.
 fn bin_resolution() {
     let data = bivariate(8_000, 15.0, 15.0, 3.5, 3.5, 5);
 
-    for (bins, name) in [(10usize, "coarse"), (50, "fine")] {
+    let configs: &[(usize, &str, ColorMap, &str)] = &[
+        (10, "coarse", ColorMap::Grayscale, "Grayscale — 10×10 bins"),
+        (50, "fine",   ColorMap::Viridis,   "Viridis — 50×50 bins"),
+    ];
+    for &(bins, name, ref cmap, title) in configs {
         let hist = Histogram2D::new()
             .with_data(data.clone(), (0.0, 30.0), (0.0, 30.0), bins, bins)
-            .with_color_map(ColorMap::Grayscale);
+            .with_color_map(cmap.clone());
 
         let plots = vec![Plot::Histogram2d(hist)];
         let layout = Layout::auto_from_plots(&plots)
-            .with_title(format!("Grayscale — {}×{} bins", bins, bins))
+            .with_title(title)
             .with_x_label("X")
             .with_y_label("Y");
 

@@ -77,26 +77,33 @@ Two Gaussian clusters in opposite corners of the grid, visible as bright islands
 
 ---
 
-## Bin resolution — Grayscale
+## Bin resolution
 
-Bin count controls the trade-off between noise and detail. `ColorMap::Grayscale` maps zero to white and the maximum to black, useful for printing or publication figures.
+Bin count controls the trade-off between noise and detail.
 
-<img src="../assets/histogram2d/bins_coarse.svg" alt="2D histogram — 10×10 coarse bins, Grayscale" width="420">
-<img src="../assets/histogram2d/bins_fine.svg" alt="2D histogram — 50×50 fine bins, Grayscale" width="420">
+`ColorMap::Grayscale` maps zero to white and the maximum to black — useful for printing or publication figures.
 
-Left: 10×10 bins smooth the distribution but lose detail. Right: 50×50 bins reveal the Gaussian shape but individual cells become noisy at lower sample counts.
+<img src="../assets/histogram2d/bins_coarse.svg" alt="2D histogram — 10×10 coarse bins, Grayscale" width="560">
+
+10×10 bins smooth the distribution and make the Gaussian shape immediately obvious, but lose fine-grained density structure.
+
+`ColorMap::Viridis` (the default) uses a perceptually uniform blue → green → yellow scale, making density gradients easy to read at high resolution.
+
+<img src="../assets/histogram2d/bins_fine.svg" alt="2D histogram — 50×50 fine bins, Viridis" width="560">
+
+50×50 bins reveal the internal shape of the distribution, though individual cells become noisier at lower sample counts.
 
 ---
 
 ## Range convention
 
-The x and y extents passed to `with_data` should **start at `0.0`**. Internally the layout maps bin indices `0..bins_x` and `0..bins_y` onto the plot canvas; the render function converts each bin's physical coordinate using the same mapping. Starting the range at zero keeps both coordinate systems aligned.
+The axis is calibrated directly to the physical `x_range` / `y_range` values you supply, so tick labels always show real data units regardless of bin count. Any `(min, max)` pair works.
 
-| Range | `bins_x` | Bin width | Works? |
-|-------|----------|-----------|--------|
-| `(0.0, 30.0)` | `30` | 1.0 | Yes |
-| `(0.0, 20.0)` | `25` | 0.8 | Yes |
-| `(5.0, 25.0)` | `20` | 1.0 | Off-axis — avoid |
+| Range | `bins_x` | Bin width |
+|-------|----------|-----------|
+| `(0.0, 30.0)` | `30` | 1.0 |
+| `(0.0, 20.0)` | `25` | 0.8 |
+| `(5.0, 25.0)` | `20` | 1.0 |
 
 ---
 
