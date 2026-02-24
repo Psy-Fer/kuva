@@ -22,6 +22,7 @@ fn main() {
 
     basic();
     trend();
+    confidence_band();
     error_bars();
     markers();
     bubble();
@@ -91,6 +92,31 @@ fn trend() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/trend.svg"), svg).unwrap();
+}
+
+/// Scatter with a shaded confidence band.
+fn confidence_band() {
+    let xs: Vec<f64> = (1..=10).map(|i| i as f64).collect();
+    let ys: Vec<f64> = xs.iter().map(|&x| x * 1.8 + 0.5).collect();
+    let lower: Vec<f64> = ys.iter().map(|&y| y - 1.2).collect();
+    let upper: Vec<f64> = ys.iter().map(|&y| y + 1.2).collect();
+
+    let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_size(5.0)
+        .with_band(lower, upper);
+
+    let plots = vec![Plot::Scatter(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Confidence Band")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/confidence_band.svg"), svg).unwrap();
 }
 
 /// Scatter with symmetric error bars on both axes.

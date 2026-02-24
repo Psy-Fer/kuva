@@ -26,22 +26,47 @@ fn canonical_rotation(s: &str) -> String {
         .to_string()
 }
 
+/// Pre-built character-to-color mappings for common biological alphabets.
+///
+/// Call a constructor method to populate the [`template`](BrickTemplate::template)
+/// `HashMap`, then pass it to
+/// [`BrickPlot::with_template`](BrickPlot::with_template).
+///
+/// # Available templates
+///
+/// | Method | Alphabet | Colors |
+/// |--------|----------|--------|
+/// | `.dna()` | A C G T | green / blue / orange / red |
+/// | `.rna()` | A C G U | green / blue / orange / red |
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use visus::plot::brick::BrickTemplate;
+/// use visus::plot::BrickPlot;
+///
+/// let tmpl = BrickTemplate::new().dna();
+/// let plot = BrickPlot::new()
+///     .with_sequences(vec!["ACGTACGT"])
+///     .with_names(vec!["seq_1"])
+///     .with_template(tmpl.template);
+/// ```
 #[derive(Debug, Clone)]
 pub struct BrickTemplate {
+    /// Map from character to CSS color string.
     pub template: HashMap<char, String>,
 }
 
 
-// add a way to auto generate colours from a string of letters
-// this way, motifs from a STRIGAR can be given, A->Z and then assigned to a colour in legend
-// make a legend....
 impl BrickTemplate {
+    /// Create an empty template. Call `.dna()` or `.rna()` to populate it.
     pub fn new() -> Self {
         Self {
             template: HashMap::new(),
         }
     }
 
+    /// Populate with standard DNA colors: A → green, C → blue, G → orange, T → red.
     pub fn dna(mut self) -> Self {
         self.template.insert('A', "rgb(0,150,0)".into());
         self.template.insert('C', "rgb(0,0,255)".into());
@@ -51,6 +76,7 @@ impl BrickTemplate {
         self
     }
 
+    /// Populate with standard RNA colors: A → green, C → blue, G → orange, U → red.
     pub fn rna(mut self) -> Self {
         self.template.insert('A', "green".into());
         self.template.insert('C', "blue".into());
@@ -61,21 +87,82 @@ impl BrickTemplate {
     }
 }
 
+/// Builder for a brick plot — a row-per-sequence visualization where each
+/// character maps to a colored rectangle.
+///
+/// Brick plots are used in bioinformatics to display **DNA/RNA sequences**,
+/// **tandem repeat structures**, and any other character-encoded per-row data.
+/// Each character in a sequence is drawn as a colored brick; the color is
+/// determined by a [`HashMap<char, String>`] template.
+///
+/// # Input modes
+///
+/// | Mode | How to load | Use when |
+/// |------|-------------|----------|
+/// | **Sequence mode** | [`with_sequences`](Self::with_sequences) + [`with_template`](Self::with_template) | Raw DNA/RNA or custom character strings |
+/// | **Strigar mode** | [`with_strigars`](Self::with_strigars) | Structured tandem-repeat motif data (BLADERUNNER format) |
+///
+/// # Alignment
+///
+/// By default all rows start at x = 0. Use [`with_x_offset`](Self::with_x_offset)
+/// to apply a single global offset (e.g. skip a common flanking region), or
+/// [`with_x_offsets`](Self::with_x_offsets) for independent per-row alignment.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::collections::HashMap;
+/// use visus::plot::BrickPlot;
+/// use visus::plot::brick::BrickTemplate;
+/// use visus::backend::svg::SvgBackend;
+/// use visus::render::render::render_multiple;
+/// use visus::render::layout::Layout;
+/// use visus::render::plots::Plot;
+///
+/// let tmpl = BrickTemplate::new().dna();
+///
+/// let plot = BrickPlot::new()
+///     .with_sequences(vec![
+///         "CGGCGATCAGGCCGCACTCATCATCATCATCAT",
+///         "CGGCGATCAGGCCGCACTCATCATCATCATCATCAT",
+///     ])
+///     .with_names(vec!["read_1", "read_2"])
+///     .with_template(tmpl.template)
+///     .with_x_offset(18.0);
+///
+/// let plots = vec![Plot::Brick(plot)];
+/// let layout = Layout::auto_from_plots(&plots)
+///     .with_title("DNA Repeat Region");
+///
+/// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+/// std::fs::write("brick.svg", svg).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct BrickPlot {
-    pub sequences: Vec<String>, //ordered DNA strings...could generalise later
-    pub names: Vec<String>, // ordered names matching each string
-    pub strigars: Option<Vec<(String, String)>>, // strigar strings (motifs, strigar) as they come from bladerunner, also changes the plot to strigar mode
-    pub motifs: Option<HashMap<char, String>>, // motifs in the structure (A: CAG)
-    pub strigar_exp: Option<Vec<String>>, // expanded strigar, so 3A-> AAA
-    pub template: Option<HashMap<char, String>>, // letter: colour - A: greeen
-    pub x_offset: f64, // offset for x axis zero, to set the start of area of interest
-    pub x_offsets: Option<Vec<Option<f64>>>, // per-row offsets; None entries fall back to the global x_offset
-    pub motif_lengths: Option<HashMap<char, usize>>, // global letter → motif nucleotide length (for variable-width bricks)
-    pub show_values: bool, // show the letters or not
+    /// Ordered character sequences — one string per row.
+    pub sequences: Vec<String>,
+    /// Row labels — must match `sequences` in length.
+    pub names: Vec<String>,
+    /// Strigar data: `(motif_string, strigar_string)` pairs used in strigar mode.
+    pub strigars: Option<Vec<(String, String)>>,
+    /// Global letter → k-mer display string (set automatically in strigar mode).
+    pub motifs: Option<HashMap<char, String>>,
+    /// Expanded sequences derived from strigar strings (set automatically).
+    pub strigar_exp: Option<Vec<String>>,
+    /// Character → CSS color string. Built from [`BrickTemplate`] or supplied directly.
+    pub template: Option<HashMap<char, String>>,
+    /// Global x-offset applied to all rows. Default: `0.0`.
+    pub x_offset: f64,
+    /// Per-row offsets. `None` entries fall back to `x_offset`.
+    pub x_offsets: Option<Vec<Option<f64>>>,
+    /// Per-character nucleotide length for variable-width bricks (strigar mode).
+    pub motif_lengths: Option<HashMap<char, usize>>,
+    /// When `true`, draw the character label inside each brick.
+    pub show_values: bool,
 }
 
 impl BrickPlot {
+    /// Create a brick plot with default settings (no data, no template, offset `0.0`).
     pub fn new() -> Self {
         Self {
             sequences: vec![],
@@ -91,8 +178,19 @@ impl BrickPlot {
         }
     }
 
-    pub fn with_sequences<T, I>(mut self, sequences: I) -> Self 
-    where 
+    /// Load sequences — one string per row, ordered top to bottom.
+    ///
+    /// Each character in a string is rendered as one brick (or as a
+    /// variable-width brick in strigar mode). All characters must have an
+    /// entry in the template; unknown characters will cause a panic.
+    ///
+    /// ```rust,no_run
+    /// # use visus::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_sequences(vec!["ACGTACGT", "ACGTACGT"]);
+    /// ```
+    pub fn with_sequences<T, I>(mut self, sequences: I) -> Self
+    where
         I: IntoIterator<Item = T>,
         T: Into<String>,
     {
@@ -101,8 +199,16 @@ impl BrickPlot {
         self
     }
 
-    pub fn with_names<T, I>(mut self, names: I) -> Self 
-    where 
+    /// Load row labels — one name per sequence, rendered on the y-axis.
+    ///
+    /// ```rust,no_run
+    /// # use visus::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_sequences(vec!["ACGT"])
+    ///     .with_names(vec!["read_1"]);
+    /// ```
+    pub fn with_names<T, I>(mut self, names: I) -> Self
+    where
         I: IntoIterator<Item = T>,
         T: Into<String>,
     {
@@ -111,8 +217,33 @@ impl BrickPlot {
         self
     }
 
-    pub fn with_strigars<T, U, I>(mut self, strigars: I) -> Self 
-    where 
+    /// Load strigar data and switch to **strigar mode**.
+    ///
+    /// Accepts `(motif_string, strigar_string)` pairs in
+    /// [BLADERUNNER](https://github.com/Psy-Fer/bladerunner) format:
+    ///
+    /// - **motif string** — comma-separated `kmer:letter` assignments, e.g.
+    ///   `"CAT:A,C:B,T:C"` binds the CAT trinucleotide to local letter `A`.
+    /// - **strigar string** — run-length encoded local letters, e.g.
+    ///   `"10A1B4A1C1A"` expands to ten `A`s, one `B`, four `A`s, etc.
+    ///
+    /// `with_strigars` normalises k-mers across all reads by canonical
+    /// rotation, assigns global letters (A, B, C, …) ordered by frequency,
+    /// auto-generates colors from a 10-color palette, and computes variable
+    /// brick widths proportional to each motif's nucleotide length.
+    ///
+    /// ```rust,no_run
+    /// # use visus::plot::BrickPlot;
+    /// let strigars = vec![
+    ///     ("CAT:A,T:B".to_string(), "14A1B1A".to_string()),
+    ///     ("CAT:A,C:B".to_string(), "12A1B3A".to_string()),
+    /// ];
+    /// let plot = BrickPlot::new()
+    ///     .with_names(vec!["read_1", "read_2"])
+    ///     .with_strigars(strigars);
+    /// ```
+    pub fn with_strigars<T, U, I>(mut self, strigars: I) -> Self
+    where
         I: IntoIterator<Item = (T, U)>,
         T: Into<String>,
         U: Into<String>,
@@ -218,21 +349,63 @@ impl BrickPlot {
 
     }
 
+    /// Set the character-to-color template.
+    ///
+    /// Keys are single characters matching those in the sequences. Values
+    /// are CSS color strings. Build from [`BrickTemplate`] or construct
+    /// manually for custom alphabets.
+    ///
+    /// ```rust,no_run
+    /// use std::collections::HashMap;
+    /// use visus::plot::BrickPlot;
+    ///
+    /// let mut tmpl = HashMap::new();
+    /// tmpl.insert('H', "steelblue".to_string());   // helix
+    /// tmpl.insert('E', "firebrick".to_string());   // strand
+    /// tmpl.insert('C', "#aaaaaa".to_string());     // coil
+    ///
+    /// let plot = BrickPlot::new()
+    ///     .with_sequences(vec!["HHHCCCEEEE"])
+    ///     .with_names(vec!["prot_1"])
+    ///     .with_template(tmpl);
+    /// ```
     pub fn with_template(mut self, template: HashMap<char, String>) -> Self {
         self.template = Some(template);
         self
     }
 
-    /// A single offset applied to every row.
+    /// Apply a single offset to every row.
+    ///
+    /// Shifts all sequences left by `x_offset` characters. Use this to align
+    /// the region of interest at x = 0 when all reads share the same
+    /// flanking prefix.
+    ///
+    /// ```rust,no_run
+    /// # use visus::plot::BrickPlot;
+    /// // Skip an 18-character common prefix so the repeat starts at x = 0
+    /// let plot = BrickPlot::new()
+    ///     .with_x_offset(18.0);
+    /// ```
     pub fn with_x_offset(mut self, x_offset: f64) -> Self {
         self.x_offset = x_offset;
         self
     }
 
-    /// Per-row offsets (same order as sequences/names). Plain `f64` values are
-    /// automatically treated as `Some(v)`; pass `None` explicitly for any row
-    /// that should fall back to the global `x_offset`. Rows beyond the length
-    /// of the iterator also fall back to the global value.
+    /// Apply independent offsets to individual rows.
+    ///
+    /// Accepts an iterable of `f64` or `Option<f64>` values (one per row,
+    /// same order as [`with_sequences`](Self::with_sequences)). Plain `f64`
+    /// values are treated as `Some(v)`; `None` entries fall back to the
+    /// global [`x_offset`](Self::x_offset). Rows beyond the iterator length
+    /// also fall back.
+    ///
+    /// ```rust,no_run
+    /// # use visus::plot::BrickPlot;
+    /// // Three reads with different prefix lengths; fourth falls back to global offset 12.
+    /// let plot = BrickPlot::new()
+    ///     .with_x_offset(12.0)
+    ///     .with_x_offsets(vec![Some(18.0_f64), Some(10.0), None]);
+    /// ```
     pub fn with_x_offsets<T, I>(mut self, offsets: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -242,6 +415,10 @@ impl BrickPlot {
         self
     }
 
+    /// Overlay the character label inside each brick.
+    ///
+    /// Useful for short sequences or large bricks where the letter is readable.
+    /// For long sequences the text may become too small to see.
     pub fn with_values(mut self) -> Self {
         self.show_values = true;
         self

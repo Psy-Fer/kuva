@@ -5,6 +5,9 @@ pub mod render;
 #[cfg(feature = "png")]
 pub use backend::png::PngBackend;
 
+#[cfg(feature = "pdf")]
+pub use backend::pdf::PdfBackend;
+
 pub use render::theme::Theme;
 pub use render::palette::Palette;
 pub use render::layout::TickFormat;

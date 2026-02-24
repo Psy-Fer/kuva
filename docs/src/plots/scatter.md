@@ -84,24 +84,42 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 <img src="../assets/scatter/trend.svg" alt="Scatter with linear trend line" width="560">
 
-### Confidence band
+---
 
-Attach a shaded uncertainty region with `.with_band(y_lower, y_upper)`, where both iterables align with the x positions of the scatter data:
+## Confidence band
+
+Attach a shaded uncertainty region with `.with_band(y_lower, y_upper)`. Both slices must align with the x positions of the scatter data. The band color matches the point color.
 
 ```rust,no_run
-# use visus::plot::scatter::ScatterPlot;
-let x: Vec<f64> = (1..=5).map(|i| i as f64).collect();
-let y: Vec<f64> = x.iter().map(|&xi| xi * 2.0).collect();
-let lower: Vec<f64> = y.iter().map(|&yi| yi - 0.5).collect();
-let upper: Vec<f64> = y.iter().map(|&yi| yi + 0.5).collect();
+use visus::plot::scatter::ScatterPlot;
+use visus::backend::svg::SvgBackend;
+use visus::render::render::render_multiple;
+use visus::render::layout::Layout;
+use visus::render::plots::Plot;
 
-let data: Vec<(f64, f64)> = x.into_iter().zip(y).collect();
+let xs: Vec<f64> = (1..=10).map(|i| i as f64).collect();
+let ys: Vec<f64> = xs.iter().map(|&x| x * 1.8 + 0.5).collect();
+let lower: Vec<f64> = ys.iter().map(|&y| y - 1.2).collect();
+let upper: Vec<f64> = ys.iter().map(|&y| y + 1.2).collect();
+
+let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
 
 let plot = ScatterPlot::new()
     .with_data(data)
     .with_color("steelblue")
+    .with_size(5.0)
     .with_band(lower, upper);
+
+let plots = vec![Plot::Scatter(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Confidence Band")
+    .with_x_label("X")
+    .with_y_label("Y");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 ```
+
+<img src="../assets/scatter/confidence_band.svg" alt="Scatter with confidence band" width="560">
 
 ---
 

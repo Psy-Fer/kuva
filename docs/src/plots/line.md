@@ -239,6 +239,20 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 <img src="../assets/line/error_bars.svg" alt="Line with error bars" width="560">
 
+### Asymmetric errors
+
+Pass `(neg, pos)` tuples instead of scalar values:
+
+```rust,no_run
+# use visus::plot::LinePlot;
+let data: Vec<(f64, f64)> = (0..=4).map(|i| (i as f64, i as f64)).collect();
+let y_err = vec![(0.1_f64, 0.3_f64), (0.2, 0.5), (0.1, 0.4), (0.3, 0.2), (0.2, 0.6)];
+
+let plot = LinePlot::new()
+    .with_data(data)
+    .with_y_err_asymmetric(y_err);
+```
+
 ---
 
 ## Multiple series
