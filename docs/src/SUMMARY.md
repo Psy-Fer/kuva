@@ -14,6 +14,12 @@
 - [Heatmap](./plots/heatmap.md)
 - [Strip Plot](./plots/strip.md)
 - [Waterfall Chart](./plots/waterfall.md)
+- [Dot Plot](./plots/dotplot.md)
+- [Stacked Area Plot](./plots/stacked_area.md)
+- [Candlestick Plot](./plots/candlestick.md)
+- [Contour Plot](./plots/contour.md)
+- [Chord Diagram](./plots/chord.md)
+- [UpSet Plot](./plots/upset.md)
 
 # Reference
 

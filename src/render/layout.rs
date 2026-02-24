@@ -384,6 +384,15 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Synteny(sp) = plot {
+                if sp.legend_label.is_some() {
+                    has_legend = true;
+                    for seq in &sp.sequences {
+                        max_label_len = max_label_len.max(seq.label.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

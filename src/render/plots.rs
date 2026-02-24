@@ -22,6 +22,7 @@ use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
 use crate::plot::sankey::SankeyPlot;
 use crate::plot::phylo::PhyloTree;
+use crate::plot::synteny::SyntenyPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -51,6 +52,7 @@ pub enum Plot {
     Chord(ChordPlot),
     Sankey(SankeyPlot),
     PhyloTree(PhyloTree),
+    Synteny(SyntenyPlot),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -422,6 +424,10 @@ impl Plot {
                 Some(((0.0, 1.0), (0.0, 1.0)))
             }
             Plot::PhyloTree(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((0.0, 1.0), (0.0, 1.0)))
+            }
+            Plot::Synteny(_) => {
                 // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
                 Some(((0.0, 1.0), (0.0, 1.0)))
             }

@@ -24,6 +24,7 @@ use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
 use crate::plot::sankey::{SankeyPlot, SankeyLinkColor};
 use crate::plot::phylo::{PhyloTree, TreeBranchStyle, TreeOrientation};
+use crate::plot::synteny::{SyntenyPlot, Strand};
 
 
 use crate::plot::Legend;
@@ -2637,6 +2638,22 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Synteny(sp) => {
+                if sp.legend_label.is_some() {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    for (i, seq) in sp.sequences.iter().enumerate() {
+                        let color = seq.color.clone()
+                            .unwrap_or_else(|| fallback[i % fallback.len()].to_string());
+                        entries.push(LegendEntry {
+                            label: seq.label.clone(),
+                            color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -3935,7 +3952,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -4016,6 +4033,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::PhyloTree(t) => {
                 add_phylo_tree(t, &mut scene, &computed);
+            }
+            Plot::Synteny(s) => {
+                add_synteny(s, &mut scene, &computed);
             }
         }
     }
@@ -4505,6 +4525,161 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_phylo_tree(tree, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    scene
+}
+
+fn add_synteny(synteny: &SyntenyPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    if synteny.sequences.is_empty() { return; }
+
+    let pw = computed.plot_width();
+    let ph = computed.plot_height();
+    let ml = computed.margin_left;
+    let mt = computed.margin_top;
+    let n = synteny.sequences.len();
+
+    // Reserve left margin for bar labels
+    let max_label_chars = synteny.sequences.iter().map(|s| s.label.len()).max().unwrap_or(0);
+    let label_pad = (max_label_chars as f64 * 7.0 + 15.0).clamp(60.0, 160.0);
+    let edge_pad = 20.0;
+
+    let bar_x_left  = ml + label_pad + edge_pad;
+    let bar_x_right = ml + pw - edge_pad;
+    let bar_px_width = bar_x_right - bar_x_left;
+    let bar_h = synteny.bar_height;
+
+    // Global max for shared scale
+    let global_max = synteny.sequences.iter()
+        .map(|s| s.length)
+        .fold(0.0_f64, f64::max);
+
+    // Evenly distribute bars top-to-bottom
+    let gap = if n > 1 {
+        ((ph - 2.0 * edge_pad - n as f64 * bar_h) / (n - 1) as f64).max(bar_h * 1.5)
+    } else {
+        0.0
+    };
+    let bar_top: Vec<f64> = (0..n)
+        .map(|i| mt + edge_pad + i as f64 * (bar_h + gap))
+        .collect();
+
+    // X-coordinate mapping
+    let x_of = |seq_idx: usize, pos: f64| -> f64 {
+        let raw = if synteny.shared_scale && global_max > 0.0 {
+            bar_x_left + (pos / global_max) * bar_px_width
+        } else {
+            let len = synteny.sequences[seq_idx].length;
+            bar_x_left + if len > 0.0 { (pos / len) * bar_px_width } else { 0.0 }
+        };
+        raw.clamp(bar_x_left, bar_x_right)
+    };
+
+    let fallback = Palette::category10();
+
+    // Step 1 — Draw ribbons (before bars, so bars overlay them)
+    for (block_idx, block) in synteny.blocks.iter().enumerate() {
+        // Ensure r1 = upper row, r2 = lower row
+        let (r1, s1_lo, s1_hi, r2, s2_lo, s2_hi) = if block.seq1 <= block.seq2 {
+            (block.seq1, block.start1, block.end1, block.seq2, block.start2, block.end2)
+        } else {
+            (block.seq2, block.start2, block.end2, block.seq1, block.start1, block.end1)
+        };
+
+        if r1 >= n || r2 >= n { continue; }
+
+        let x1_s = x_of(r1, s1_lo);
+        let x1_e = x_of(r1, s1_hi);
+        let x2_s = x_of(r2, s2_lo);
+        let x2_e = x_of(r2, s2_hi);
+
+        let y1_bot = bar_top[r1] + bar_h;
+        let y2_top = bar_top[r2];
+        let y_mid  = (y1_bot + y2_top) / 2.0;
+
+        // Determine strand: if seq1 > seq2 and strand is Reverse, the swap above
+        // inverts meaning, so we preserve the original strand on the (possibly swapped) pair.
+        let is_inverted = block.strand == Strand::Reverse;
+
+        let color = block.color.clone()
+            .unwrap_or_else(|| fallback[block_idx % fallback.len()].to_string());
+
+        let d = if !is_inverted {
+            // Forward: parallel Bézier sides
+            format!(
+                "M {x1_s} {y1_bot} C {x1_s} {y_mid} {x2_s} {y_mid} {x2_s} {y2_top} \
+                 L {x2_e} {y2_top} C {x2_e} {y_mid} {x1_e} {y_mid} {x1_e} {y1_bot} Z",
+                x1_s=x1_s, y1_bot=y1_bot, y_mid=y_mid, x2_s=x2_s, y2_top=y2_top,
+                x2_e=x2_e, x1_e=x1_e
+            )
+        } else {
+            // Inverted: self-intersecting path — SVG nonzero fill rule fills the crossing
+            format!(
+                "M {x1_s} {y1_bot} C {x1_s} {y_mid} {x2_e} {y_mid} {x2_e} {y2_top} \
+                 L {x2_s} {y2_top} C {x2_s} {y_mid} {x1_e} {y_mid} {x1_e} {y1_bot} Z",
+                x1_s=x1_s, y1_bot=y1_bot, y_mid=y_mid, x2_e=x2_e, y2_top=y2_top,
+                x2_s=x2_s, x1_e=x1_e
+            )
+        };
+
+        scene.elements.push(Primitive::Path {
+            d,
+            fill: Some(color.clone()),
+            stroke: color,
+            stroke_width: 0.3,
+            opacity: Some(synteny.block_opacity),
+            stroke_dasharray: None,
+        });
+    }
+
+    // Step 2 — Draw sequence bars (on top of ribbons)
+    for (i, seq) in synteny.sequences.iter().enumerate() {
+        let bar_color = seq.color.clone().unwrap_or_else(|| "#555555".to_string());
+        let x_right = if synteny.shared_scale && global_max > 0.0 {
+            bar_x_left + (seq.length / global_max) * bar_px_width
+        } else {
+            bar_x_right
+        };
+        scene.elements.push(Primitive::Rect {
+            x: bar_x_left,
+            y: bar_top[i],
+            width: (x_right - bar_x_left).max(0.0),
+            height: bar_h,
+            fill: bar_color,
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+
+    // Step 3 — Bar labels (right-anchored, flush to left of bars)
+    for (i, seq) in synteny.sequences.iter().enumerate() {
+        scene.elements.push(Primitive::Text {
+            x: bar_x_left - 6.0,
+            y: bar_top[i] + bar_h / 2.0 + 4.0,
+            content: seq.label.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::End,
+            rotate: None,
+            bold: false,
+        });
+    }
+}
+
+pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+
+    add_synteny(synteny, &mut scene, &computed);
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);

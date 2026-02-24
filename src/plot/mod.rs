@@ -22,6 +22,7 @@ pub mod contour;
 pub mod chord;
 pub mod sankey;
 pub mod phylo;
+pub mod synteny;
 
 pub mod legend;
 
@@ -51,5 +52,6 @@ pub use contour::ContourPlot;
 pub use chord::ChordPlot;
 pub use sankey::{SankeyPlot, SankeyNode, SankeyLink, SankeyLinkColor};
 pub use phylo::{PhyloTree, PhyloNode, TreeOrientation, TreeBranchStyle};
+pub use synteny::{SyntenyPlot, SyntenyBlock, SyntenySequence, Strand};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};
