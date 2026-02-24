@@ -289,9 +289,9 @@ impl Plot {
                 Some(((0.0, cols as f64), (0.0, rows as f64)))
             }
             Plot::Histogram2d(h2d) => {
-                let rows = h2d.bins.len();
-                let cols = h2d.bins.first().map_or(0, |row| row.len());
-                Some(((0.0, cols as f64), (0.0, rows as f64)))
+                // Return the physical axis range so the layout is calibrated in
+                // data coordinates, matching the physical coords used by the renderer.
+                Some(((h2d.x_range.0, h2d.x_range.1), (h2d.y_range.0, h2d.y_range.1)))
             }
             Plot::Band(b) => {
                 if b.x.is_empty() { return None; }
