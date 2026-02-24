@@ -2,6 +2,9 @@ pub mod plot;
 pub mod backend;
 pub mod render;
 
+#[cfg(feature = "png")]
+pub use backend::png::PngBackend;
+
 pub use render::theme::Theme;
 pub use render::palette::Palette;
 pub use render::layout::TickFormat;

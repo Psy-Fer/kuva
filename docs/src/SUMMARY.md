@@ -8,6 +8,7 @@
 - [Line Plot](./plots/line.md)
 - [Bar Chart](./plots/bar.md)
 - [Histogram](./plots/histogram.md)
+- [2D Histogram](./plots/histogram2d.md)
 - [Box Plot](./plots/boxplot.md)
 - [Violin Plot](./plots/violin.md)
 - [Pie Chart](./plots/pie.md)
@@ -20,6 +21,8 @@
 - [Contour Plot](./plots/contour.md)
 - [Chord Diagram](./plots/chord.md)
 - [UpSet Plot](./plots/upset.md)
+- [Volcano Plot](./plots/volcano.md)
+- [Manhattan Plot](./plots/manhattan.md)
 
 # Reference
 
