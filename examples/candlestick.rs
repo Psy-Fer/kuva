@@ -66,7 +66,8 @@ fn basic() {
     let layout = Layout::auto_from_plots(&[Plot::Candlestick(plot)])
         .with_title("Daily OHLC — November")
         .with_x_label("Date")
-        .with_y_label("Price (USD)");
+        .with_y_label("Price (USD)")
+        .with_x_tick_rotate(-45.0);
 
     // Rebuild — Layout consumed the first clone
     let mut plot2 = CandlestickPlot::new();
@@ -120,7 +121,8 @@ fn volume() {
     let layout = Layout::auto_from_plots(&[Plot::Candlestick(make_plot())])
         .with_title("Daily OHLC with Volume Panel")
         .with_x_label("Date")
-        .with_y_label("Price (USD)");
+        .with_y_label("Price (USD)")
+        .with_x_tick_rotate(-45.0);
 
     let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Candlestick(make_plot())], layout));
     std::fs::write(format!("{OUT}/volume.svg"), svg).unwrap();
