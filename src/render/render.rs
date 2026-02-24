@@ -23,6 +23,7 @@ use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
 use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
 use crate::plot::sankey::{SankeyPlot, SankeyLinkColor};
+use crate::plot::phylo::{PhyloTree, TreeBranchStyle, TreeOrientation};
 
 
 use crate::plot::Legend;
@@ -2622,6 +2623,20 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::PhyloTree(t) => {
+                if t.legend_label.is_some() {
+                    for (node_id, color) in &t.clade_colors {
+                        let label = t.nodes[*node_id].label.clone()
+                            .unwrap_or_else(|| format!("Node {}", node_id));
+                        entries.push(LegendEntry {
+                            label,
+                            color: color.clone(),
+                            shape: LegendShape::Line,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -3920,7 +3935,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -3998,6 +4013,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Sankey(s) => {
                 add_sankey(s, &mut scene, &computed);
+            }
+            Plot::PhyloTree(t) => {
+                add_phylo_tree(t, &mut scene, &computed);
             }
         }
     }
@@ -4110,3 +4128,387 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
 
     scene
 }
+
+// ── Phylogenetic tree ─────────────────────────────────────────────────────────
+
+fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::plot::phylo::post_order_dfs;
+    use std::f64::consts::PI;
+
+    let n_nodes = tree.nodes.len();
+    if n_nodes == 0 { return; }
+
+    // ── Step 1: post-order DFS to assign leaf positions ──────────────────────
+    let post_order = post_order_dfs(tree.root, &tree.nodes);
+
+    let mut pos: Vec<f64> = vec![0.0; n_nodes];
+    let mut leaf_counter = 0usize;
+    for &id in &post_order {
+        if tree.nodes[id].children.is_empty() {
+            pos[id] = leaf_counter as f64;
+            leaf_counter += 1;
+        } else {
+            // mean of children positions
+            let sum: f64 = tree.nodes[id].children.iter().map(|&c| pos[c]).sum();
+            pos[id] = sum / tree.nodes[id].children.len() as f64;
+        }
+    }
+    let n_leaves = leaf_counter;
+    if n_leaves == 0 { return; }
+
+    // Collect ordered leaves for label rendering
+    let leaves: Vec<usize> = post_order.iter()
+        .copied()
+        .filter(|&id| tree.nodes[id].children.is_empty())
+        .collect();
+
+    // ── Step 2: depth (x) positions ──────────────────────────────────────────
+    let depth: Vec<f64>;
+    let max_depth_f: f64;
+
+    if tree.phylogram {
+        // Phylogram: accumulate branch lengths (BFS from root)
+        let mut acc = vec![0.0f64; n_nodes];
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(tree.root);
+        while let Some(id) = queue.pop_front() {
+            for &child in &tree.nodes[id].children {
+                acc[child] = acc[id] + tree.nodes[child].branch_length;
+                queue.push_back(child);
+            }
+        }
+        let max_len = leaves.iter().map(|&l| acc[l]).fold(0.0_f64, f64::max);
+        max_depth_f = if max_len > 0.0 { max_len } else { 1.0 };
+        depth = acc;
+    } else {
+        // Cladogram: leaves align at max depth
+        let mut subtree_depth = vec![0usize; n_nodes];
+        for &id in &post_order {
+            if tree.nodes[id].children.is_empty() {
+                subtree_depth[id] = 0;
+            } else {
+                subtree_depth[id] = tree.nodes[id].children.iter()
+                    .map(|&c| subtree_depth[c] + 1)
+                    .max()
+                    .unwrap_or(0);
+            }
+        }
+        let max_depth = subtree_depth[tree.root];
+        max_depth_f = max_depth as f64;
+        depth = (0..n_nodes).map(|i| (max_depth - subtree_depth[i]) as f64).collect();
+    }
+
+    // ── Step 3: pixel mapping ─────────────────────────────────────────────────
+    let pw = computed.plot_width();
+    let ph = computed.plot_height();
+    let ml = computed.margin_left;
+    let mt = computed.margin_top;
+
+    // Reserve pixels for leaf labels and general padding so labels don't clip.
+    let max_label_chars = tree.nodes.iter()
+        .filter(|n| n.children.is_empty())
+        .filter_map(|n| n.label.as_ref())
+        .map(|l| l.len())
+        .max()
+        .unwrap_or(6);
+    let label_pad = ((max_label_chars as f64) * 7.0 + 20.0).clamp(70.0, 200.0);
+    let edge_pad  = 25.0_f64;
+
+    // Effective rendering area — leaves land inside this box; labels overflow into the reserved strip.
+    let (eff_ml, eff_mt, eff_pw, eff_ph) = match tree.branch_style {
+        TreeBranchStyle::Circular => {
+            let pad = edge_pad + label_pad * 0.55;
+            (ml + pad, mt + pad, (pw - 2.0 * pad).max(50.0), (ph - 2.0 * pad).max(50.0))
+        }
+        _ => match tree.orientation {
+            TreeOrientation::Left => (
+                ml + edge_pad,
+                mt + edge_pad,
+                (pw - label_pad - edge_pad).max(50.0),
+                (ph - 2.0 * edge_pad).max(50.0),
+            ),
+            TreeOrientation::Right => (
+                ml + label_pad,
+                mt + edge_pad,
+                (pw - label_pad - edge_pad).max(50.0),
+                (ph - 2.0 * edge_pad).max(50.0),
+            ),
+            TreeOrientation::Top => (
+                ml + edge_pad,
+                mt + edge_pad,
+                (pw - 2.0 * edge_pad).max(50.0),
+                (ph - label_pad - edge_pad).max(50.0),
+            ),
+            TreeOrientation::Bottom => (
+                ml + edge_pad,
+                mt + label_pad,
+                (pw - 2.0 * edge_pad).max(50.0),
+                (ph - label_pad - edge_pad).max(50.0),
+            ),
+        },
+    };
+
+    let d_frac = |i: usize| -> f64 {
+        if max_depth_f > 0.0 { depth[i] / max_depth_f } else { 0.0 }
+    };
+    let p_frac = |i: usize| -> f64 {
+        (pos[i] + 0.5) / n_leaves as f64
+    };
+
+    let (px, py, r_arr, theta_arr): (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) =
+        if tree.branch_style == TreeBranchStyle::Circular {
+            let cx = eff_ml + eff_pw / 2.0;
+            let cy = eff_mt + eff_ph / 2.0;
+            let max_r = eff_pw.min(eff_ph) * 0.5;
+            let mut pxv = vec![0.0; n_nodes];
+            let mut pyv = vec![0.0; n_nodes];
+            let mut rv   = vec![0.0; n_nodes];
+            let mut tv   = vec![0.0; n_nodes];
+            for i in 0..n_nodes {
+                let r     = d_frac(i) * max_r;
+                let theta = p_frac(i) * 2.0 * PI;
+                rv[i] = r;
+                tv[i] = theta;
+                pxv[i] = cx + r * theta.cos();
+                pyv[i] = cy + r * theta.sin();
+            }
+            (pxv, pyv, rv, tv)
+        } else {
+            let mut pxv = vec![0.0; n_nodes];
+            let mut pyv = vec![0.0; n_nodes];
+            for i in 0..n_nodes {
+                let df = d_frac(i);
+                let pf = p_frac(i);
+                let (x, y) = match tree.orientation {
+                    TreeOrientation::Left => (
+                        eff_ml + df * eff_pw,
+                        eff_mt + pf * eff_ph,
+                    ),
+                    TreeOrientation::Right => (
+                        eff_ml + (1.0 - df) * eff_pw,
+                        eff_mt + pf * eff_ph,
+                    ),
+                    TreeOrientation::Top => (
+                        eff_ml + pf * eff_pw,
+                        eff_mt + df * eff_ph,
+                    ),
+                    TreeOrientation::Bottom => (
+                        eff_ml + pf * eff_pw,
+                        eff_mt + (1.0 - df) * eff_ph,
+                    ),
+                };
+                pxv[i] = x;
+                pyv[i] = y;
+            }
+            (pxv, pyv, vec![0.0; n_nodes], vec![0.0; n_nodes])
+        };
+
+    // ── Step 4: clade color lookup ────────────────────────────────────────────
+    let mut node_color: Vec<String> = vec![tree.branch_color.clone(); n_nodes];
+    for &(clade_root, ref color) in &tree.clade_colors {
+        let mut stack = vec![clade_root];
+        while let Some(id) = stack.pop() {
+            if id < n_nodes {
+                node_color[id] = color.clone();
+                for &child in &tree.nodes[id].children {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+
+    // ── Step 5: draw branches ─────────────────────────────────────────────────
+    let sw = 1.5_f64;
+
+    match tree.branch_style {
+        TreeBranchStyle::Slanted => {
+            for i in 0..n_nodes {
+                if let Some(p) = tree.nodes[i].parent {
+                    scene.elements.push(Primitive::Line {
+                        x1: px[p], y1: py[p],
+                        x2: px[i], y2: py[i],
+                        stroke: node_color[i].clone(),
+                        stroke_width: sw,
+                        stroke_dasharray: None,
+                    });
+                }
+            }
+        }
+        TreeBranchStyle::Rectangular => {
+            let horiz = matches!(tree.orientation, TreeOrientation::Left | TreeOrientation::Right);
+            // Arms
+            for i in 0..n_nodes {
+                if let Some(p) = tree.nodes[i].parent {
+                    if horiz {
+                        scene.elements.push(Primitive::Line {
+                            x1: px[p], y1: py[i],
+                            x2: px[i], y2: py[i],
+                            stroke: node_color[i].clone(),
+                            stroke_width: sw, stroke_dasharray: None,
+                        });
+                    } else {
+                        scene.elements.push(Primitive::Line {
+                            x1: px[i], y1: py[p],
+                            x2: px[i], y2: py[i],
+                            stroke: node_color[i].clone(),
+                            stroke_width: sw, stroke_dasharray: None,
+                        });
+                    }
+                }
+            }
+            // Spines
+            for i in 0..n_nodes {
+                let children = &tree.nodes[i].children;
+                if children.is_empty() { continue; }
+                if horiz {
+                    let y_min = children.iter().map(|&c| py[c]).fold(f64::INFINITY, f64::min);
+                    let y_max = children.iter().map(|&c| py[c]).fold(f64::NEG_INFINITY, f64::max);
+                    scene.elements.push(Primitive::Line {
+                        x1: px[i], y1: y_min, x2: px[i], y2: y_max,
+                        stroke: node_color[i].clone(),
+                        stroke_width: sw, stroke_dasharray: None,
+                    });
+                } else {
+                    let x_min = children.iter().map(|&c| px[c]).fold(f64::INFINITY, f64::min);
+                    let x_max = children.iter().map(|&c| px[c]).fold(f64::NEG_INFINITY, f64::max);
+                    scene.elements.push(Primitive::Line {
+                        x1: x_min, y1: py[i], x2: x_max, y2: py[i],
+                        stroke: node_color[i].clone(),
+                        stroke_width: sw, stroke_dasharray: None,
+                    });
+                }
+            }
+        }
+        TreeBranchStyle::Circular => {
+            let cx = eff_ml + eff_pw / 2.0;
+            let cy = eff_mt + eff_ph / 2.0;
+
+            // Radial arms: at child's theta, from parent radius to child radius
+            for i in 0..n_nodes {
+                if let Some(p) = tree.nodes[i].parent {
+                    let theta_c = theta_arr[i];
+                    let r_p     = r_arr[p];
+                    let x1 = cx + r_p * theta_c.cos();
+                    let y1 = cy + r_p * theta_c.sin();
+                    scene.elements.push(Primitive::Line {
+                        x1, y1, x2: px[i], y2: py[i],
+                        stroke: node_color[i].clone(),
+                        stroke_width: sw, stroke_dasharray: None,
+                    });
+                }
+            }
+            // Arc spines at each internal node's radius
+            for i in 0..n_nodes {
+                let children = &tree.nodes[i].children;
+                if children.is_empty() { continue; }
+                let r_i = r_arr[i];
+                if r_i < 1.0 { continue; }
+
+                let thetas: Vec<f64> = children.iter().map(|&c| theta_arr[c]).collect();
+                let theta_min = thetas.iter().cloned().fold(f64::INFINITY, f64::min);
+                let theta_max = thetas.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+                let x_start = cx + r_i * theta_min.cos();
+                let y_start = cy + r_i * theta_min.sin();
+                let x_end   = cx + r_i * theta_max.cos();
+                let y_end   = cy + r_i * theta_max.sin();
+
+                let arc_span  = theta_max - theta_min;
+                let large_arc = if arc_span > PI { 1 } else { 0 };
+
+                let d = format!(
+                    "M {:.3} {:.3} A {:.3} {:.3} 0 {} 1 {:.3} {:.3}",
+                    x_start, y_start, r_i, r_i, large_arc, x_end, y_end
+                );
+                scene.elements.push(Primitive::Path {
+                    d,
+                    fill: None,
+                    stroke: node_color[i].clone(),
+                    stroke_width: sw,
+                    opacity: None,
+                    stroke_dasharray: None,
+                });
+            }
+        }
+    }
+
+    // ── Step 6: root marker ───────────────────────────────────────────────────
+    scene.elements.push(Primitive::Circle {
+        cx: px[tree.root],
+        cy: py[tree.root],
+        r:  3.0,
+        fill: tree.branch_color.clone(),
+    });
+
+    // ── Step 7: leaf labels ───────────────────────────────────────────────────
+    for &leaf in &leaves {
+        if let Some(ref label) = tree.nodes[leaf].label {
+            let (lx, ly, anchor, rotate) = match tree.branch_style {
+                TreeBranchStyle::Circular => {
+                    let theta  = theta_arr[leaf];
+                    let offset = 8.0;
+                    let lx = px[leaf] + offset * theta.cos();
+                    let ly = py[leaf] + offset * theta.sin() + 4.0;
+                    let anc = if theta.cos() >= 0.0 { TextAnchor::Start } else { TextAnchor::End };
+                    (lx, ly, anc, None)
+                }
+                _ => match tree.orientation {
+                    TreeOrientation::Left =>
+                        (px[leaf] + 6.0, py[leaf] + 4.0, TextAnchor::Start, None),
+                    TreeOrientation::Right =>
+                        (px[leaf] - 6.0, py[leaf] + 4.0, TextAnchor::End, None),
+                    TreeOrientation::Top =>
+                        (px[leaf] + 4.0, py[leaf] + 14.0, TextAnchor::Start, Some(90.0)),
+                    TreeOrientation::Bottom =>
+                        (px[leaf] + 4.0, py[leaf] - 5.0, TextAnchor::Start, Some(90.0)),
+                },
+            };
+            scene.elements.push(Primitive::Text {
+                x: lx, y: ly,
+                content: label.clone(),
+                size: 11,
+                anchor,
+                rotate,
+                bold: false,
+            });
+        }
+    }
+
+    // ── Step 8: support values ────────────────────────────────────────────────
+    if let Some(threshold) = tree.support_threshold {
+        for i in 0..n_nodes {
+            if tree.nodes[i].children.is_empty() { continue; }
+            if let Some(support) = tree.nodes[i].support {
+                if support >= threshold {
+                    scene.elements.push(Primitive::Text {
+                        x: px[i] + 2.0,
+                        y: py[i] - 2.0,
+                        content: format!("{}", support as u32),
+                        size: 10,
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                    });
+                }
+            }
+        }
+    }
+}
+
+pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+
+    add_phylo_tree(tree, &mut scene, &computed);
+
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    scene
+}
+

@@ -57,14 +57,20 @@ impl Histogram {
     /// Set the input data.
     ///
     /// Accepts any iterator of values implementing `Into<f64>`. Values
-    /// outside the active range (data range or explicit range) are
-    /// silently ignored.
+    /// outside the active range are silently ignored.
+    ///
+    /// > **Note:** [`with_range`](Self::with_range) must also be called.
+    /// > Without an explicit range, [`Layout::auto_from_plots`](crate::render::layout::Layout::auto_from_plots)
+    /// > cannot determine the axis extent and the chart will be empty.
     ///
     /// ```rust,no_run
     /// # use visus::plot::Histogram;
-    /// // integer input
+    /// let data = vec![1.1, 2.3, 2.7, 3.2, 3.8];
+    /// let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
+    /// let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     /// let hist = Histogram::new()
-    ///     .with_data(vec![1_i32, 2, 2, 3, 3, 3, 4, 4, 5]);
+    ///     .with_data(data)
+    ///     .with_range((min, max));
     /// ```
     pub fn with_data<T, I>(mut self, data: I) -> Self
     where
@@ -84,17 +90,25 @@ impl Histogram {
         self
     }
 
-    /// Set an explicit data range instead of computing it from the data.
+    /// Set the bin range — **required** for `Layout::auto_from_plots` to work.
     ///
-    /// Useful when comparing multiple histograms that must share the same
-    /// x-axis scale, or when the data contains outliers that would
-    /// otherwise warp the bins.
+    /// Without an explicit range, `bounds()` returns `None` and
+    /// [`Layout::auto_from_plots`](crate::render::layout::Layout::auto_from_plots)
+    /// cannot determine the axis extent, resulting in an empty chart.
+    ///
+    /// Typically pass the data min/max. For overlapping histograms, pass the
+    /// same combined range to both so their x-axes align.
+    ///
+    /// Values outside the range are silently ignored during binning.
     ///
     /// ```rust,no_run
     /// # use visus::plot::Histogram;
+    /// let data = vec![0.1, 0.5, 1.2, 2.8, 3.0];
+    /// let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
+    /// let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     /// let hist = Histogram::new()
-    ///     .with_data(vec![0.1, 0.5, 1.2, 2.8, 3.0])
-    ///     .with_range((0.0, 4.0));  // force bins to cover 0–4
+    ///     .with_data(data)
+    ///     .with_range((min, max));
     /// ```
     pub fn with_range(mut self, range: (f64, f64)) -> Self {
         self.range = Some(range);

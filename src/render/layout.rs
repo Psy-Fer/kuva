@@ -374,6 +374,16 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::PhyloTree(t) = plot {
+                if t.legend_label.is_some() {
+                    has_legend = true;
+                    for (node_id, _) in &t.clade_colors {
+                        let llen = t.nodes[*node_id].label.as_deref().unwrap_or("").len();
+                        max_label_len = max_label_len.max(llen);
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

@@ -21,6 +21,7 @@ use crate::plot::candlestick::CandlestickPlot;
 use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
 use crate::plot::sankey::SankeyPlot;
+use crate::plot::phylo::PhyloTree;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -49,6 +50,7 @@ pub enum Plot {
     Contour(ContourPlot),
     Chord(ChordPlot),
     Sankey(SankeyPlot),
+    PhyloTree(PhyloTree),
 }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
@@ -219,7 +221,11 @@ impl Plot {
                     counts[bin] += 1;
                 }
 
-                let max_y = *counts.iter().max().unwrap_or(&1) as f64;
+                let max_y = if h.normalize {
+                    1.0
+                } else {
+                    *counts.iter().max().unwrap_or(&1) as f64
+                };
 
                 Some((range, (0.0, max_y)))
             }
@@ -412,6 +418,10 @@ impl Plot {
                 Some(((0.0, 1.0), (0.0, 1.0)))
             }
             Plot::Sankey(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((0.0, 1.0), (0.0, 1.0)))
+            }
+            Plot::PhyloTree(_) => {
                 // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
                 Some(((0.0, 1.0), (0.0, 1.0)))
             }

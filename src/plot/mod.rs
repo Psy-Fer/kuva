@@ -21,6 +21,7 @@ pub mod candlestick;
 pub mod contour;
 pub mod chord;
 pub mod sankey;
+pub mod phylo;
 
 pub mod legend;
 
@@ -49,5 +50,6 @@ pub use candlestick::{CandlestickPlot, CandleDataPoint};
 pub use contour::ContourPlot;
 pub use chord::ChordPlot;
 pub use sankey::{SankeyPlot, SankeyNode, SankeyLink, SankeyLinkColor};
+pub use phylo::{PhyloTree, PhyloNode, TreeOrientation, TreeBranchStyle};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition};

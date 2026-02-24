@@ -307,3 +307,168 @@ pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
 
     Some(cov / (var_x.sqrt() * var_y.sqrt()))
 }
+
+// ── Phylogenetic tree helpers ─────────────────────────────────────────────────
+
+/// UPGMA hierarchical clustering. Returns `(nodes, root_id)`.
+///
+/// `labels` must have the same length as `dist` (square symmetric matrix).
+pub fn upgma(labels: &[&str], dist: &[Vec<f64>]) -> (Vec<crate::plot::phylo::PhyloNode>, usize) {
+    use crate::plot::phylo::PhyloNode;
+
+    let n = labels.len();
+    assert!(n >= 1, "UPGMA requires at least one label");
+
+    // Create leaf nodes
+    let mut nodes: Vec<PhyloNode> = (0..n).map(|i| PhyloNode {
+        id: i,
+        label: Some(labels[i].to_string()),
+        parent: None,
+        children: Vec::new(),
+        branch_length: 0.0,
+        support: None,
+    }).collect();
+
+    if n == 1 { return (nodes, 0); }
+
+    // Working distance matrix (extended to hold internal nodes)
+    let total = 2 * n - 1;
+    let mut dm = vec![vec![0.0f64; total]; total];
+    for i in 0..n {
+        for j in 0..n {
+            dm[i][j] = dist[i][j];
+        }
+    }
+
+    let mut active: Vec<usize> = (0..n).collect();
+    let mut size:   Vec<usize> = vec![1; total];
+    let mut height: Vec<f64>   = vec![0.0; total];
+    let mut next_id = n;
+
+    while active.len() > 1 {
+        // Find the pair with minimum distance
+        let mut min_d = f64::INFINITY;
+        let mut best  = (0usize, 1usize); // indices into `active`
+        for ai in 0..active.len() {
+            for aj in (ai + 1)..active.len() {
+                let d = dm[active[ai]][active[aj]];
+                if d < min_d {
+                    min_d = d;
+                    best  = (ai, aj);
+                }
+            }
+        }
+        let (ai, aj) = best;
+        let ci = active[ai];
+        let cj = active[aj];
+
+        let h_new  = min_d / 2.0;
+        let bl_i   = (h_new - height[ci]).max(0.0);
+        let bl_j   = (h_new - height[cj]).max(0.0);
+
+        nodes[ci].branch_length = bl_i;
+        nodes[cj].branch_length = bl_j;
+
+        let new_id   = next_id;
+        let new_size = size[ci] + size[cj];
+        next_id += 1;
+
+        nodes.push(PhyloNode {
+            id: new_id,
+            label: None,
+            parent: None,
+            children: vec![ci, cj],
+            branch_length: 0.0,
+            support: None,
+        });
+        nodes[ci].parent = Some(new_id);
+        nodes[cj].parent = Some(new_id);
+
+        size[new_id]   = new_size;
+        height[new_id] = h_new;
+
+        // Update distances for the new cluster
+        for &ck in &active {
+            if ck == ci || ck == cj { continue; }
+            let d_new = (dm[ck][ci] * size[ci] as f64
+                       + dm[ck][cj] * size[cj] as f64)
+                      / new_size as f64;
+            dm[ck][new_id] = d_new;
+            dm[new_id][ck] = d_new;
+        }
+
+        // Remove ci and cj (remove larger index first to keep smaller valid)
+        if ai < aj {
+            active.remove(aj);
+            active.remove(ai);
+        } else {
+            active.remove(ai);
+            active.remove(aj);
+        }
+        active.push(new_id);
+    }
+
+    let root = active[0];
+    // Ensure all node ids are consistent
+    for (i, node) in nodes.iter_mut().enumerate() { node.id = i; }
+    (nodes, root)
+}
+
+/// Convert a scipy / R linkage matrix into a `PhyloNode` tree.
+///
+/// Each row is `[left_idx, right_idx, distance, n_leaves]`.
+/// Original leaf indices are `0..n`; internal nodes get indices `n..`.
+pub fn linkage_to_nodes(
+    labels:  &[&str],
+    linkage: &[[f64; 4]],
+) -> (Vec<crate::plot::phylo::PhyloNode>, usize) {
+    use crate::plot::phylo::PhyloNode;
+
+    let n = labels.len();
+
+    let mut nodes: Vec<PhyloNode> = (0..n).map(|i| PhyloNode {
+        id: i,
+        label: Some(labels[i].to_string()),
+        parent: None,
+        children: Vec::new(),
+        branch_length: 0.0,
+        support: None,
+    }).collect();
+
+    for (row_idx, row) in linkage.iter().enumerate() {
+        let left  = row[0] as usize;
+        let right = row[1] as usize;
+        let dist  = row[2];
+        let new_id = n + row_idx;
+
+        // Height of a cluster = half its merge distance
+        let height_left  = if left  < n { 0.0 } else { linkage[left  - n][2] / 2.0 };
+        let height_right = if right < n { 0.0 } else { linkage[right - n][2] / 2.0 };
+        let h_new        = dist / 2.0;
+
+        let bl_left  = (h_new - height_left ).max(0.0);
+        let bl_right = (h_new - height_right).max(0.0);
+
+        // Apply branch lengths to the children that already exist in nodes
+        if left < nodes.len() {
+            nodes[left].branch_length = bl_left;
+            nodes[left].parent        = Some(new_id);
+        }
+        if right < nodes.len() {
+            nodes[right].branch_length = bl_right;
+            nodes[right].parent        = Some(new_id);
+        }
+
+        nodes.push(PhyloNode {
+            id: new_id,
+            label: None,
+            parent: None,
+            children: vec![left, right],
+            branch_length: 0.0,
+            support: None,
+        });
+    }
+
+    let root = nodes.len() - 1;
+    (nodes, root)
+}

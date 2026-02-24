@@ -36,13 +36,22 @@ fn normal_samples(mean: f64, std: f64, n: usize, seed: u64) -> Vec<f64> {
     (0..n).map(|_| dist.sample(&mut rng)).collect()
 }
 
+/// Compute (min, max) of a slice — needed to pass an explicit range to .with_range().
+fn data_range(data: &[f64]) -> (f64, f64) {
+    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    (min, max)
+}
+
 /// Basic histogram — 300 samples from a normal distribution.
 fn basic() {
     let data = normal_samples(0.0, 1.0, 300, 42);
+    let range = data_range(&data);
 
     let hist = Histogram::new()
         .with_data(data)
         .with_bins(20)
+        .with_range(range)
         .with_color("steelblue");
 
     let plots = vec![Plot::Histogram(hist)];
@@ -58,12 +67,14 @@ fn basic() {
 /// Effect of bin count — coarse (5 bins) vs fine (40 bins).
 fn bins() {
     let data = normal_samples(0.0, 1.0, 300, 42);
+    let range = data_range(&data);
 
     // Coarse
     {
         let hist = Histogram::new()
             .with_data(data.clone())
             .with_bins(5)
+            .with_range(range)
             .with_color("steelblue");
         let plots = vec![Plot::Histogram(hist)];
         let layout = Layout::auto_from_plots(&plots)
@@ -79,6 +90,7 @@ fn bins() {
         let hist = Histogram::new()
             .with_data(data)
             .with_bins(40)
+            .with_range(range)
             .with_color("steelblue");
         let plots = vec![Plot::Histogram(hist)];
         let layout = Layout::auto_from_plots(&plots)
@@ -93,10 +105,12 @@ fn bins() {
 /// Normalized histogram — tallest bar scaled to 1.0.
 fn normalized() {
     let data = normal_samples(0.0, 1.0, 300, 42);
+    let range = data_range(&data);
 
     let hist = Histogram::new()
         .with_data(data)
         .with_bins(20)
+        .with_range(range)
         .with_color("steelblue")
         .with_normalize();
 
@@ -111,20 +125,31 @@ fn normalized() {
 }
 
 /// Two overlapping distributions using semi-transparent fill colors.
+///
+/// Both histograms share the same range so their x-axes align.
 fn overlapping() {
     let group_a = normal_samples(-1.0, 0.8, 300, 1);
     let group_b = normal_samples(1.0, 0.8, 300, 2);
 
-    // #4682b4 = steelblue, #dc143c = crimson — 80 = 50% opacity in 8-digit hex (RRGGBBAA)
+    // Compute a combined range so both histograms share the same x-axis.
+    let combined_min = group_a.iter().chain(group_b.iter())
+        .cloned().fold(f64::INFINITY, f64::min);
+    let combined_max = group_a.iter().chain(group_b.iter())
+        .cloned().fold(f64::NEG_INFINITY, f64::max);
+    let range = (combined_min, combined_max);
+
+    // #4682b4 = steelblue, #dc143c = crimson — 80 = ~50% opacity in 8-digit hex (RRGGBBAA)
     let hist_a = Histogram::new()
         .with_data(group_a)
         .with_bins(20)
+        .with_range(range)
         .with_color("#4682b480")
         .with_legend("Group A");
 
     let hist_b = Histogram::new()
         .with_data(group_b)
         .with_bins(20)
+        .with_range(range)
         .with_color("#dc143c80")
         .with_legend("Group B");
 
