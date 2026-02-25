@@ -851,8 +851,8 @@ impl ComputedLayout {
         let width = layout.width.unwrap_or(margin_left + plot_width + margin_right);
         let height = layout.height.unwrap_or(margin_top + plot_height + margin_bottom);
 
-        let x_ticks = render_utils::auto_tick_count(width);
-        let y_ticks = render_utils::auto_tick_count(height);
+        let x_ticks = if layout.ticks > 0 { layout.ticks } else { render_utils::auto_tick_count(width) };
+        let y_ticks = if layout.ticks > 0 { layout.ticks } else { render_utils::auto_tick_count(height) };
 
         // For log scale, prefer the raw data range (before proportional padding).
         // For clamp_axis, also use the raw range so the boundary lands on the

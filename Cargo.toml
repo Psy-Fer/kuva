@@ -21,3 +21,8 @@ rand_distr = "0.5.1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 resvg   = { version = "0.44", optional = true }
 svg2pdf = { version = "0.13", optional = true }
+clap    = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "visus"
+path = "src/bin/visus/main.rs"
