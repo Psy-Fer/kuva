@@ -1094,11 +1094,12 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         for (j, &value) in row.iter().enumerate() {
             let color = cmap.map(norm(value));
 
-            // let x = computed.map_x(j as f64);
-            let x0 = computed.map_x(j as f64);
-            let x1 = computed.map_x(j as f64 + 1.0);
-            let y0 = computed.map_y(i as f64 + 1.0);
-            let y1 = computed.map_y(i as f64);
+            // Bounds are (0.5, cols+0.5) / (0.5, rows+0.5) so cell j spans
+            // [j+0.5, j+1.5] in x and cell i spans [i+0.5, i+1.5] in y.
+            let x0 = computed.map_x(j as f64 + 0.5);
+            let x1 = computed.map_x(j as f64 + 1.5);
+            let y0 = computed.map_y(i as f64 + 1.5);
+            let y1 = computed.map_y(i as f64 + 0.5);
             scene.add(Primitive::Rect {
                 x: x0,
                 y: y0,
@@ -1115,10 +1116,10 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     for (i, row) in heatmap.data.iter().enumerate() {
         for (j, &value) in row.iter().enumerate() {
             if heatmap.show_values {
-                let x0 = computed.map_x(j as f64);
-                let x1 = computed.map_x(j as f64 + 1.0);
-                let y0 = computed.map_y(i as f64 + 1.0);
-                let y1 = computed.map_y(i as f64);
+                let x0 = computed.map_x(j as f64 + 0.5);
+                let x1 = computed.map_x(j as f64 + 1.5);
+                let y0 = computed.map_y(i as f64 + 1.5);
+                let y1 = computed.map_y(i as f64 + 0.5);
                 scene.add(Primitive::Text {
                     x: x0 + ((x1-x0).abs() / 2.0),
                     y: y0 + ((y1-y0).abs() / 2.0),

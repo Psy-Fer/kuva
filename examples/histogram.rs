@@ -36,22 +36,14 @@ fn normal_samples(mean: f64, std: f64, n: usize, seed: u64) -> Vec<f64> {
     (0..n).map(|_| dist.sample(&mut rng)).collect()
 }
 
-/// Compute (min, max) of a slice — needed to pass an explicit range to .with_range().
-fn data_range(data: &[f64]) -> (f64, f64) {
-    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    (min, max)
-}
-
 /// Basic histogram — 300 samples from a normal distribution.
 fn basic() {
     let data = normal_samples(0.0, 1.0, 300, 42);
-    let range = data_range(&data);
 
     let hist = Histogram::new()
         .with_data(data)
-        .with_bins(20)
-        .with_range(range)
+        .with_bins(30)
+        .with_range((-3.0, 3.0))
         .with_color("steelblue");
 
     let plots = vec![Plot::Histogram(hist)];
@@ -64,37 +56,36 @@ fn basic() {
     std::fs::write(format!("{OUT}/basic.svg"), svg).unwrap();
 }
 
-/// Effect of bin count — coarse (5 bins) vs fine (40 bins).
+/// Effect of bin count — coarse (6 bins) vs fine (60 bins).
 fn bins() {
     let data = normal_samples(0.0, 1.0, 300, 42);
-    let range = data_range(&data);
 
-    // Coarse
+    // Coarse — 6 bins over [-3, 3]: bin_width = 1.0, ticks at integers
     {
         let hist = Histogram::new()
             .with_data(data.clone())
-            .with_bins(5)
-            .with_range(range)
+            .with_bins(6)
+            .with_range((-3.0, 3.0))
             .with_color("steelblue");
         let plots = vec![Plot::Histogram(hist)];
         let layout = Layout::auto_from_plots(&plots)
-            .with_title("5 Bins")
+            .with_title("6 Bins")
             .with_x_label("Value")
             .with_y_label("Count");
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
         std::fs::write(format!("{OUT}/bins_coarse.svg"), svg).unwrap();
     }
 
-    // Fine
+    // Fine — 60 bins over [-3, 3]: bin_width = 0.1, ticks at integers
     {
         let hist = Histogram::new()
             .with_data(data)
-            .with_bins(40)
-            .with_range(range)
+            .with_bins(60)
+            .with_range((-3.0, 3.0))
             .with_color("steelblue");
         let plots = vec![Plot::Histogram(hist)];
         let layout = Layout::auto_from_plots(&plots)
-            .with_title("40 Bins")
+            .with_title("60 Bins")
             .with_x_label("Value")
             .with_y_label("Count");
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
@@ -105,12 +96,11 @@ fn bins() {
 /// Normalized histogram — tallest bar scaled to 1.0.
 fn normalized() {
     let data = normal_samples(0.0, 1.0, 300, 42);
-    let range = data_range(&data);
 
     let hist = Histogram::new()
         .with_data(data)
-        .with_bins(20)
-        .with_range(range)
+        .with_bins(30)
+        .with_range((-3.0, 3.0))
         .with_color("steelblue")
         .with_normalize();
 
@@ -131,24 +121,20 @@ fn overlapping() {
     let group_a = normal_samples(-1.0, 0.8, 300, 1);
     let group_b = normal_samples(1.0, 0.8, 300, 2);
 
-    // Compute a combined range so both histograms share the same x-axis.
-    let combined_min = group_a.iter().chain(group_b.iter())
-        .cloned().fold(f64::INFINITY, f64::min);
-    let combined_max = group_a.iter().chain(group_b.iter())
-        .cloned().fold(f64::NEG_INFINITY, f64::max);
-    let range = (combined_min, combined_max);
+    // Fixed range covering both distributions — 16 bins over [-4,4]: bin_width=0.5, ticks at even integers.
+    let range = (-4.0_f64, 4.0_f64);
 
     // #4682b4 = steelblue, #dc143c = crimson — 80 = ~50% opacity in 8-digit hex (RRGGBBAA)
     let hist_a = Histogram::new()
         .with_data(group_a)
-        .with_bins(20)
+        .with_bins(16)
         .with_range(range)
         .with_color("#4682b480")
         .with_legend("Group A");
 
     let hist_b = Histogram::new()
         .with_data(group_b)
-        .with_bins(20)
+        .with_bins(16)
         .with_range(range)
         .with_color("#dc143c80")
         .with_legend("Group B");

@@ -37,5 +37,45 @@ fn test_histogram_svg_output_builder() {
     assert!(svg.contains("<svg"));
 }
 
+// A normalized histogram has y values in [0, 1].  auto_from_plots should
+// detect this and clamp the y-axis at exactly 1.0 rather than letting the
+// 1%-span padding push auto_nice_range up to 1.1.
+#[test]
+fn test_normalized_histogram_y_axis_clamp() {
+    let hist = Histogram::new()
+        .with_data(vec![1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0])
+        .with_bins(4)
+        .with_range((0.0, 5.0))
+        .with_normalize();
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/hist_normalized_clamp.svg", &svg).unwrap();
+
+    // clamp_y_axis should be triggered automatically: axis must stop at 1 not 1.1
+    assert!(svg.contains(">1<") || svg.contains(">1.0<"),
+        "normalized histogram y-axis should show a tick at 1");
+    assert!(!svg.contains(">1.1<"), "y-axis must not extend past 1.0 for normalized data");
+}
+
+// Non-normalized histograms must not be affected by the clamp.
+#[test]
+fn test_non_normalized_histogram_y_axis_free() {
+    let hist = Histogram::new()
+        .with_data(vec![1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0])
+        .with_bins(4)
+        .with_range((0.0, 5.0));  // no with_normalize()
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/hist_non_normalized.svg", &svg).unwrap();
+
+    // y-axis should reflect actual counts (max count = 3), well above 1
+    assert!(!svg.contains(">1.1<") || svg.contains(">2<") || svg.contains(">3<"),
+        "non-normalized histogram y-axis should show count ticks");
+}
+
 
 

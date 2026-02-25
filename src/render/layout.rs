@@ -135,6 +135,16 @@ pub struct Layout {
     /// cases like `TickFormat::Percent` where you want the axis to stop exactly
     /// at 100 % rather than extending to 110 % or 120 %.
     pub clamp_axis: bool,
+    /// Like `clamp_axis` but only for the y-axis.  Set automatically by
+    /// `auto_from_plots` when all histograms in the plot list are normalized
+    /// (so that the y-axis tops out at exactly 1.0, not 1.1).
+    pub clamp_y_axis: bool,
+    /// Bin width detected from histogram data by `auto_from_plots`.  When set,
+    /// the x-axis range is taken from the raw data range (no rounding outward)
+    /// and ticks are generated as integer multiples of this width so they fall
+    /// exactly on bar edges.  `None` when no histograms are present or when
+    /// multiple overlapping histograms have differing bin widths.
+    pub x_bin_width: Option<f64>,
 }
 
 impl Layout {
@@ -183,6 +193,8 @@ impl Layout {
             y_datetime: None,
             x_tick_rotate: None,
             clamp_axis: false,
+            clamp_y_axis: false,
+            x_bin_width: None,
         }
     }
 
@@ -490,6 +502,40 @@ impl Layout {
             layout.show_grid = false;
         }
 
+        // For normalized histograms the y range is always [0, 1].  Clamp the
+        // y-axis so it stops at exactly 1.0 rather than rounding up to 1.1.
+        // Only activate when every histogram in the list is normalized (mixing
+        // normalized with un-normalized histograms produces a y_max that is a
+        // count, not 1.0, so clamping is unnecessary there).
+        let any_hist = plots.iter().any(|p| matches!(p, Plot::Histogram(_)));
+        let all_normalized = plots.iter().all(|p| match p {
+            Plot::Histogram(h) => h.normalize,
+            _ => true, // non-histogram plots don't vote
+        });
+        if any_hist && all_normalized {
+            layout.clamp_y_axis = true;
+        }
+
+        // Collect bin widths from all histograms.  When every histogram shares
+        // the same bin width (the common case, including overlapping histograms
+        // with a shared range), store it so the axis code can generate ticks
+        // that fall exactly on bar edges.
+        if any_hist {
+            let bin_widths: Vec<f64> = plots.iter().filter_map(|p| {
+                if let Plot::Histogram(h) = p {
+                    h.range.map(|r| (r.1 - r.0) / h.bins as f64)
+                } else {
+                    None
+                }
+            }).collect();
+            if !bin_widths.is_empty() {
+                let first = bin_widths[0];
+                if bin_widths.iter().all(|&bw| (bw - first).abs() < 1e-9 * first.abs().max(1e-10)) {
+                    layout.x_bin_width = Some(first);
+                }
+            }
+        }
+
         layout
     }
 
@@ -673,12 +719,19 @@ impl Layout {
         self
     }
 
-    /// Snap the axis range to the tick boundary that just contains the data,
+    /// Snap both axes to the tick boundary that just contains the data,
     /// with no extra breathing-room step.  Useful for `TickFormat::Percent`
     /// (so the axis stops at 100 % instead of 110 %) or any domain where the
     /// data naturally fills the full scale.
     pub fn with_clamp_axis(mut self) -> Self {
         self.clamp_axis = true;
+        self
+    }
+
+    /// Like `with_clamp_axis` but only for the y-axis.  Set automatically by
+    /// `auto_from_plots` for normalized histograms; can also be used manually.
+    pub fn with_clamp_y_axis(mut self) -> Self {
+        self.clamp_y_axis = true;
         self
     }
 
@@ -810,13 +863,18 @@ impl ComputedLayout {
         } else if layout.clamp_axis {
             let (xlo, xhi) = layout.data_x_range.unwrap_or(layout.x_range);
             render_utils::auto_nice_range(xlo, xhi, x_ticks)
+        } else if layout.x_bin_width.is_some() {
+            // Histogram: use the exact data range so ticks start and end on bin
+            // boundaries rather than being rounded outward by auto_nice_range.
+            let (xlo, xhi) = layout.data_x_range.unwrap_or(layout.x_range);
+            (xlo, xhi)
         } else {
             render_utils::auto_nice_range(layout.x_range.0, layout.x_range.1, x_ticks)
         };
         let (y_min, y_max) = if layout.log_y {
             let (ylo, yhi) = layout.data_y_range.unwrap_or(layout.y_range);
             render_utils::auto_nice_range_log(ylo, yhi)
-        } else if layout.clamp_axis {
+        } else if layout.clamp_axis || layout.clamp_y_axis {
             let (ylo, yhi) = layout.data_y_range.unwrap_or(layout.y_range);
             render_utils::auto_nice_range(ylo, yhi, y_ticks)
         } else {

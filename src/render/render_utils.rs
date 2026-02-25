@@ -42,6 +42,41 @@ pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
     ticks
 }
 
+/// Generate x-axis ticks for a histogram so every tick falls exactly on a bin
+/// boundary.
+///
+/// Finds the smallest integer multiplier `n` such that `n` divides `total_bins`
+/// evenly and the resulting tick count stays within `target_ticks`.  The tick
+/// step is then `n * bin_width`, guaranteeing alignment with bar edges.
+pub fn generate_ticks_bin_aligned(x_min: f64, x_max: f64, bin_width: f64, target_ticks: usize) -> Vec<f64> {
+    if bin_width <= 0.0 || x_max <= x_min {
+        return generate_ticks(x_min, x_max, target_ticks);
+    }
+
+    let total_bins = ((x_max - x_min) / bin_width).round() as usize;
+    if total_bins == 0 {
+        return vec![x_min, x_max];
+    }
+
+    // Maximum number of tick intervals that keeps labels readable.
+    let target_intervals = (target_ticks.saturating_sub(1)).max(2);
+
+    // Find the smallest n that divides total_bins evenly and gives ≤ target_intervals.
+    let n = (1..=total_bins)
+        .find(|&n| total_bins % n == 0 && total_bins / n <= target_intervals)
+        .unwrap_or(total_bins);
+
+    let step = n as f64 * bin_width;
+    let num_steps = total_bins / n;
+
+    (0..=num_steps)
+        .map(|k| {
+            let v = x_min + k as f64 * step;
+            (v * 1e9).round() / 1e9 // round to suppress float noise
+        })
+        .collect()
+}
+
 /// Estimate a good number of ticks based on axis pixel size
 pub fn auto_tick_count(axis_pixels: f64) -> usize {
     let spacing = 40.0; // pixels between ticks
