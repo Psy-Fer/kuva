@@ -381,15 +381,10 @@ cargo install mdbook
 
 ### Regenerate SVG assets
 
-Each plot type has a dedicated example that writes its SVG assets to `docs/src/assets/`. Run them all at once:
+Each plot type has a dedicated example that writes its SVG assets to `docs/src/assets/`. Regenerate all of them at once with:
 
 ```bash
-for ex in scatter line bar histogram histogram2d series band brick \
-          boxplot violin pie heatmap strip waterfall dotplot \
-          stacked_area candlestick contour chord upset volcano manhattan \
-          sankey phylo synteny layout; do
-  cargo run --example $ex
-done
+bash scripts/gen_docs.sh
 ```
 
 Or regenerate a single plot type:
