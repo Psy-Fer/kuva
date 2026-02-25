@@ -9,19 +9,22 @@ use visus::render::theme::Theme;
 //   Bar / Box / Violin     →  BaseArgs + AxisArgs
 //   Scatter / Line / Hist  →  BaseArgs + AxisArgs + LogArgs
 
-/// Output & appearance
 #[derive(Args, Debug)]
+#[command(next_help_heading = "Output & appearance")]
 pub struct BaseArgs {
     /// Output file. SVG/PNG/PDF inferred from extension. Defaults to SVG on stdout.
     #[arg(short = 'o', long)]
     pub output: Option<std::path::PathBuf>,
 
+    /// Plot title displayed above the chart.
     #[arg(long)]
     pub title: Option<String>,
 
+    /// Canvas width in pixels (default: 800).
     #[arg(long, default_value_t = 800.0)]
     pub width: f64,
 
+    /// Canvas height in pixels (default: 500).
     #[arg(long, default_value_t = 500.0)]
     pub height: f64,
 
@@ -45,13 +48,14 @@ pub struct BaseArgs {
     pub background: Option<String>,
 }
 
-/// Axis options for plots that have numeric axes.
-/// Not applicable to pie charts.
 #[derive(Args, Debug)]
+#[command(next_help_heading = "Axes")]
 pub struct AxisArgs {
+    /// Label for the X axis.
     #[arg(long)]
     pub x_label: Option<String>,
 
+    /// Label for the Y axis.
     #[arg(long)]
     pub y_label: Option<String>,
 
@@ -70,9 +74,8 @@ pub struct AxisArgs {
     pub no_grid: bool,
 }
 
-/// Log-scale options for continuous-axis plots (scatter, line, histogram).
-/// Not applicable to category-axis plots (bar, box, violin) or pie.
 #[derive(Args, Debug)]
+#[command(next_help_heading = "Log scale")]
 pub struct LogArgs {
     /// Log-scale X axis.
     #[arg(long)]

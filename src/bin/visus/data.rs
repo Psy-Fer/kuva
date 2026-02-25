@@ -22,8 +22,8 @@ impl FromStr for ColSpec {
     }
 }
 
-/// Shared input args flattened into every subcommand.
 #[derive(Args, Debug)]
+#[command(next_help_heading = "Input")]
 pub struct InputArgs {
     /// Input file (TSV or CSV). Omit or pass "-" to read from stdin.
     pub input: Option<std::path::PathBuf>,

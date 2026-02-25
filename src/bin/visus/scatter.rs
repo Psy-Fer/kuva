@@ -12,9 +12,6 @@ use crate::output::write_output;
 
 #[derive(Args, Debug)]
 pub struct ScatterArgs {
-    #[command(flatten)]
-    pub input: InputArgs,
-
     /// X-axis column (0-based index or header name; default: 0).
     #[arg(long)]
     pub x: Option<ColSpec>,
@@ -50,6 +47,9 @@ pub struct ScatterArgs {
     /// Show a legend for each series.
     #[arg(long)]
     pub legend: bool,
+
+    #[command(flatten)]
+    pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,

@@ -11,9 +11,6 @@ use crate::output::write_output;
 
 #[derive(Args, Debug)]
 pub struct HistogramArgs {
-    #[command(flatten)]
-    pub input: InputArgs,
-
     /// Value column (0-based index or header name; default: 0).
     #[arg(long)]
     pub value_col: Option<ColSpec>,
@@ -29,6 +26,9 @@ pub struct HistogramArgs {
     /// Normalize counts to a probability density (area = 1).
     #[arg(long)]
     pub normalize: bool,
+
+    #[command(flatten)]
+    pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,

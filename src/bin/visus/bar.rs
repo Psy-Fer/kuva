@@ -11,9 +11,6 @@ use crate::output::write_output;
 
 #[derive(Args, Debug)]
 pub struct BarArgs {
-    #[command(flatten)]
-    pub input: InputArgs,
-
     /// Label column (0-based index or header name; default: 0).
     #[arg(long)]
     pub label_col: Option<ColSpec>,
@@ -29,6 +26,9 @@ pub struct BarArgs {
     /// Bar width as a fraction of the slot (default: 0.8).
     #[arg(long)]
     pub bar_width: Option<f64>,
+
+    #[command(flatten)]
+    pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,

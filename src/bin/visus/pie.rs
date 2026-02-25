@@ -13,9 +13,6 @@ use crate::output::write_output;
 
 #[derive(Args, Debug)]
 pub struct PieArgs {
-    #[command(flatten)]
-    pub input: InputArgs,
-
     /// Label column (0-based index or header name; default: 0).
     #[arg(long)]
     pub label_col: Option<ColSpec>,
@@ -47,6 +44,9 @@ pub struct PieArgs {
     /// Show a legend.
     #[arg(long)]
     pub legend: bool,
+
+    #[command(flatten)]
+    pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,

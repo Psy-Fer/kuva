@@ -11,9 +11,6 @@ use crate::output::write_output;
 
 #[derive(Args, Debug)]
 pub struct ViolinArgs {
-    #[command(flatten)]
-    pub input: InputArgs,
-
     /// Group column (0-based index or header name; default: 0).
     #[arg(long)]
     pub group_col: Option<ColSpec>,
@@ -37,6 +34,9 @@ pub struct ViolinArgs {
     /// Overlay a beeswarm of individual data points.
     #[arg(long)]
     pub swarm: bool,
+
+    #[command(flatten)]
+    pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,
