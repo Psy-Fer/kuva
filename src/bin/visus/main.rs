@@ -8,6 +8,12 @@ mod histogram;
 mod boxplot;
 mod violin;
 mod pie;
+mod strip;
+mod waterfall;
+mod stacked_area;
+mod volcano;
+mod manhattan;
+mod candlestick;
 
 use clap::{Parser, Subcommand};
 
@@ -28,6 +34,13 @@ enum Commands {
     Boxplot(boxplot::BoxArgs),
     Violin(violin::ViolinArgs),
     Pie(pie::PieArgs),
+    Strip(strip::StripArgs),
+    Waterfall(waterfall::WaterfallArgs),
+    #[command(name = "stacked-area")]
+    StackedArea(stacked_area::StackedAreaArgs),
+    Volcano(volcano::VolcanoArgs),
+    Manhattan(manhattan::ManhattanArgs),
+    Candlestick(candlestick::CandlestickArgs),
 }
 
 fn main() {
@@ -39,6 +52,12 @@ fn main() {
         Commands::Boxplot(args) => boxplot::run(args),
         Commands::Violin(args) => violin::run(args),
         Commands::Pie(args) => pie::run(args),
+        Commands::Strip(args) => strip::run(args),
+        Commands::Waterfall(args) => waterfall::run(args),
+        Commands::StackedArea(args) => stacked_area::run(args),
+        Commands::Volcano(args) => volcano::run(args),
+        Commands::Manhattan(args) => manhattan::run(args),
+        Commands::Candlestick(args) => candlestick::run(args),
     };
 
     if let Err(e) = result {
