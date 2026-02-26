@@ -48,6 +48,11 @@ fn run_with_file(args: &[&str]) -> (String, String, i32) {
     )
 }
 
+/// Return the absolute path to an example data file.
+fn data(filename: &str) -> String {
+    format!("{}/examples/data/{}", env!("CARGO_MANIFEST_DIR"), filename)
+}
+
 // ─── tests ────────────────────────────────────────────────────────────────────
 
 /// Piping a TSV scatter through stdin should produce valid SVG on stdout.
@@ -140,4 +145,312 @@ fn test_missing_feature_error() {
     );
 
     let _ = fs::remove_file(&tmp_png);
+}
+
+// ─── Tier 1: SVG output tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_line_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "line", &data("measurements.tsv"),
+        "--x", "time", "--y", "value", "--color-by", "group",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_box_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "box", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_violin_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "violin", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_pie_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "pie", &data("pie.tsv"),
+        "--label-col", "feature", "--value-col", "percentage",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_strip_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "strip", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_waterfall_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "waterfall", &data("waterfall.tsv"),
+        "--label-col", "process", "--value-col", "log2fc",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_stacked_area_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "stacked-area", &data("stacked_area.tsv"),
+        "--x-col", "week", "--group-col", "species", "--y-col", "abundance",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_volcano_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "volcano", &data("volcano.tsv"),
+        "--name-col", "gene", "--x-col", "log2fc", "--y-col", "pvalue",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_manhattan_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "manhattan", &data("gene_stats.tsv"),
+        "--chr-col", "chr", "--pvalue-col", "pvalue",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_candlestick_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "candlestick", &data("candlestick.tsv"),
+        "--label-col", "date",
+        "--open-col", "open", "--high-col", "high",
+        "--low-col", "low", "--close-col", "close",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_heatmap_svg() {
+    let (stdout, stderr, code) = run_with_file(&["heatmap", &data("heatmap.tsv")]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_hist2d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "hist2d", &data("hist2d.tsv"), "--x", "x", "--y", "y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_contour_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "contour", &data("contour.tsv"), "--x", "x", "--y", "y", "--z", "density",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_dot_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "dot", &data("dot.tsv"),
+        "--x-col", "pathway", "--y-col", "cell_type",
+        "--size-col", "pct_expressed", "--color-col", "mean_expr",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_upset_svg() {
+    let (stdout, stderr, code) = run_with_file(&["upset", &data("upset.tsv")]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_chord_svg() {
+    let (stdout, stderr, code) = run_with_file(&["chord", &data("chord.tsv")]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_sankey_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "sankey", &data("sankey.tsv"),
+        "--source-col", "source", "--target-col", "target", "--value-col", "value",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_phylo_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "phylo", &data("phylo.tsv"),
+        "--parent-col", "parent", "--child-col", "child", "--length-col", "length",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_synteny_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "synteny", &data("synteny_seqs.tsv"),
+        "--blocks-file", &data("synteny_blocks.tsv"),
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+// ─── Tier 2: Content verification tests ──────────────────────────────────────
+
+#[test]
+fn test_scatter_has_circles() {
+    let tsv = "x\ty\n1\t2\n3\t4\n5\t3\n";
+    let (stdout, _stderr, code) = run_with_stdin(&["scatter"], tsv);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("<circle"), "scatter SVG should contain <circle elements");
+}
+
+#[test]
+fn test_line_has_path() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "line", &data("measurements.tsv"),
+        "--x", "time", "--y", "value", "--color-by", "group",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<path"), "line SVG should contain <path elements");
+}
+
+#[test]
+fn test_bar_has_rects_and_labels() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "bar", &data("bar.tsv"),
+        "--label-col", "category", "--value-col", "count",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<rect"), "bar SVG should contain <rect elements");
+    assert!(stdout.contains("DNA repair"), "bar SVG should contain category label 'DNA repair'");
+}
+
+#[test]
+fn test_heatmap_has_grid_cells() {
+    let (stdout, stderr, code) = run_with_file(&["heatmap", &data("heatmap.tsv")]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    let rect_count = stdout.matches("<rect").count();
+    assert!(
+        rect_count >= 30,
+        "heatmap SVG should have at least 30 <rect elements; got {rect_count}"
+    );
+}
+
+#[test]
+fn test_volcano_threshold_line() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "volcano", &data("volcano.tsv"),
+        "--name-col", "gene", "--x-col", "log2fc", "--y-col", "pvalue",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("stroke-dasharray"),
+        "volcano SVG should contain dashed threshold lines"
+    );
+}
+
+#[test]
+fn test_manhattan_chromosome_labels() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "manhattan", &data("gene_stats.tsv"),
+        "--chr-col", "chr", "--pvalue-col", "pvalue",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("chr1"),
+        "manhattan SVG should contain chromosome label text 'chr1'"
+    );
+}
+
+#[test]
+fn test_pie_has_paths_and_legend() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "pie", &data("pie.tsv"),
+        "--label-col", "feature", "--value-col", "percentage", "--legend",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<path"), "pie SVG should contain <path elements");
+    assert!(stdout.contains("Intron"), "pie SVG should contain legend entry 'Intron'");
+}
+
+// ─── Tier 3: Error-path tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_bad_column_name() {
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let (_, stderr, code) = run_with_stdin(&["scatter", "--x", "nonexistent_col"], tsv);
+    assert_ne!(code, 0, "should fail when column name does not exist");
+    assert!(
+        stderr.contains("nonexistent_col"),
+        "error message should mention the bad column name; got: {stderr}"
+    );
+}
+
+#[test]
+fn test_empty_stdin() {
+    let (_, stderr, code) = run_with_stdin(&["scatter"], "");
+    assert_ne!(code, 0, "should fail on empty input");
+    assert!(!stderr.is_empty(), "stderr should be non-empty on empty input");
+}
+
+#[test]
+#[cfg(not(feature = "pdf"))]
+fn test_missing_feature_pdf() {
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let tmp_pdf = std::env::temp_dir().join("visus_test_missing.pdf");
+
+    let (_, stderr, code) = run_with_stdin(
+        &["scatter", "-o", tmp_pdf.to_str().unwrap()],
+        tsv,
+    );
+    assert_ne!(code, 0, "should fail when pdf feature is missing");
+    assert!(
+        stderr.contains("pdf"),
+        "error message should mention pdf; got: {stderr}"
+    );
+
+    let _ = fs::remove_file(&tmp_pdf);
+}
+
+#[test]
+fn test_unknown_subcommand() {
+    let (_, _, code) = run_with_file(&["notaplot"]);
+    assert_ne!(code, 0, "unknown subcommand should exit with non-zero code");
 }
