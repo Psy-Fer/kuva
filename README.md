@@ -507,6 +507,16 @@ visus synteny seqs.tsv --blocks-file blocks.tsv --shared-scale
 
 See [`docs/src/cli/index.md`](docs/src/cli/index.md) for the complete flag reference for every subcommand, and `examples/data/` for ready-to-use example datasets.
 
+## Development note
+
+visus was initially built by hand, with a working library and several plot types
+already in place before AI tooling was introduced. From that point, development was
+heavily assisted by Claude (Anthropic) — accelerating the addition of new plot types,
+the CLI binary, tests, and documentation. The architecture, domain knowledge, and
+direction remain the author's own; Claude was used as an accelerant, not an author.
+
+*This disclaimer was written by Claude as an honest assessment of its own role in the project.*
+
 ## License
 
 MIT
