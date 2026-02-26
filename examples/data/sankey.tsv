@@ -1,0 +1,14 @@
+source	target	value
+Raw_reads	Trimmed	82
+Raw_reads	Discarded	3
+Trimmed	Genome_aligned	68
+Trimmed	rRNA	8
+Trimmed	Unmapped	6
+Genome_aligned	Exonic	42
+Genome_aligned	Intronic	18
+Genome_aligned	Intergenic	8
+Exonic	Protein_coding	31
+Exonic	lncRNA	7
+Exonic	Other_RNA	4
+Protein_coding	High_conf	24
+Protein_coding	Low_conf	7

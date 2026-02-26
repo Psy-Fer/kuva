@@ -1,0 +1,57 @@
+pathway	cell_type	mean_expr	pct_expressed
+Glycolysis	Hepatocyte	3.93	70.1
+Glycolysis	Neuron	2.14	30.1
+Glycolysis	Cardiomyocyte	2.98	64.5
+Glycolysis	Skeletal muscle	3.56	77.1
+Glycolysis	Adipocyte	2.47	49.1
+Glycolysis	Epithelial	2.99	65.1
+Glycolysis	Immune cell	2.14	44.8
+TCA cycle	Hepatocyte	3.4	74.2
+TCA cycle	Neuron	2.49	51.7
+TCA cycle	Cardiomyocyte	3.97	63.2
+TCA cycle	Skeletal muscle	3.66	65.7
+TCA cycle	Adipocyte	3.04	48.5
+TCA cycle	Epithelial	2.54	45.5
+TCA cycle	Immune cell	2.05	41.1
+Oxidative phosphorylation	Hepatocyte	3.18	68.9
+Oxidative phosphorylation	Neuron	4.35	93.5
+Oxidative phosphorylation	Cardiomyocyte	4.39	82.0
+Oxidative phosphorylation	Skeletal muscle	4.16	79.7
+Oxidative phosphorylation	Adipocyte	2.78	49.5
+Oxidative phosphorylation	Epithelial	2.82	55.3
+Oxidative phosphorylation	Immune cell	2.66	46.4
+Fatty acid oxidation	Hepatocyte	3.78	74.3
+Fatty acid oxidation	Neuron	2.51	47.7
+Fatty acid oxidation	Cardiomyocyte	4.33	95.0
+Fatty acid oxidation	Skeletal muscle	3.74	72.3
+Fatty acid oxidation	Adipocyte	4.5	93.3
+Fatty acid oxidation	Epithelial	2.66	50.0
+Fatty acid oxidation	Immune cell	2.16	40.6
+Pentose phosphate	Hepatocyte	3.74	79.5
+Pentose phosphate	Neuron	1.68	34.2
+Pentose phosphate	Cardiomyocyte	2.43	51.5
+Pentose phosphate	Skeletal muscle	2.76	51.5
+Pentose phosphate	Adipocyte	2.08	43.3
+Pentose phosphate	Epithelial	2.01	47.0
+Pentose phosphate	Immune cell	2.64	56.7
+Amino acid synthesis	Hepatocyte	2.97	53.9
+Amino acid synthesis	Neuron	2.38	44.2
+Amino acid synthesis	Cardiomyocyte	2.67	54.3
+Amino acid synthesis	Skeletal muscle	2.73	56.1
+Amino acid synthesis	Adipocyte	2.39	47.0
+Amino acid synthesis	Epithelial	2.62	58.7
+Amino acid synthesis	Immune cell	2.37	54.5
+Nucleotide synthesis	Hepatocyte	2.79	43.9
+Nucleotide synthesis	Neuron	1.97	42.7
+Nucleotide synthesis	Cardiomyocyte	2.41	46.3
+Nucleotide synthesis	Skeletal muscle	2.62	55.9
+Nucleotide synthesis	Adipocyte	1.9	36.6
+Nucleotide synthesis	Epithelial	2.59	51.4
+Nucleotide synthesis	Immune cell	3.24	62.9
+One-carbon metabolism	Hepatocyte	2.23	48.1
+One-carbon metabolism	Neuron	2.0	43.5
+One-carbon metabolism	Cardiomyocyte	2.13	44.2
+One-carbon metabolism	Skeletal muscle	2.46	41.6
+One-carbon metabolism	Adipocyte	2.3	48.8
+One-carbon metabolism	Epithelial	2.15	30.6
+One-carbon metabolism	Immune cell	1.8	33.7

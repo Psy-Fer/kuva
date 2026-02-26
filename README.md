@@ -402,15 +402,42 @@ mdbook serve docs        # live-reload preview at http://localhost:3000
 
 ---
 
-## TODO
+## CLI (`visus`)
 
-### Plot types
-- [ ] Circos plot
+The `visus` binary lets you render plots directly from the shell — no Rust required.
 
-### Backends & output
-- [ ] PNG rasterization
-- [ ] PDF output
-- [ ] CLI binary: `cat data.txt | visus --histogram -o hist.svg`
+```bash
+# Scatter plot from a TSV, SVG to stdout
+cat data.tsv | visus scatter | display
+
+# Colour by a group column, write PNG
+visus scatter data.tsv --x time --y expression --color-by condition -o plot.png
+
+# Box plot with swarm overlay
+visus box samples.tsv --group-col group --value-col expression --swarm --title "Expression"
+
+# Histogram with 40 bins, dark theme
+visus histogram values.tsv --bins 40 --theme dark -o hist.svg
+
+# Pie chart with percentages and outside labels
+visus pie shares.tsv --label-col feature --value-col percentage --percent --label-position outside
+
+# Volcano plot, label top 20 genes
+visus volcano gene_stats.tsv --x log2fc --y pvalue --label-col gene --top-n 20
+```
+
+Input is auto-detected TSV or CSV (by extension, then content sniff). Columns are selectable by 0-based index or header name. Output defaults to SVG on stdout; use `-o file.svg/png/pdf` to write a file (PNG and PDF require the `png`/`pdf` feature flags).
+
+See `examples/data/` for ready-to-use example datasets covering all plot types, and `visus <subcommand> --help` for the full flag reference.
+
+**Build:**
+
+```bash
+cargo build --bin visus                    # SVG only
+cargo build --bin visus --features png     # adds PNG output
+cargo build --bin visus --features pdf     # adds PDF output
+cargo build --bin visus --features full    # all backends
+```
 
 ## License
 
