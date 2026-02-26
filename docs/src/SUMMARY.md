@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](./introduction.md)
+[Gallery](./gallery.md)
 
 # Plot Types
 

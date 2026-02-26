@@ -24,7 +24,7 @@ mod sankey;
 mod phylo;
 mod synteny;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "visus", about = "Scientific plotting from the command line")]
@@ -61,10 +61,20 @@ enum Commands {
     Sankey(sankey::SankeyArgs),
     Phylo(phylo::PhyloArgs),
     Synteny(synteny::SyntenyArgs),
+    #[command(hide = true, about = "Print the man page to stdout")]
+    Man,
 }
 
 fn main() {
-    let result = match Cli::parse().command {
+    let cli = Cli::parse();
+    if let Commands::Man = cli.command {
+        let mut stdout = std::io::stdout();
+        clap_mangen::Man::new(Cli::command())
+            .render(&mut stdout)
+            .expect("man page generation failed");
+        return;
+    }
+    let result = match cli.command {
         Commands::Scatter(args) => scatter::run(args),
         Commands::Line(args) => line::run(args),
         Commands::Bar(args) => bar::run(args),
@@ -87,6 +97,7 @@ fn main() {
         Commands::Sankey(args) => sankey::run(args),
         Commands::Phylo(args) => phylo::run(args),
         Commands::Synteny(args) => synteny::run(args),
+        Commands::Man => unreachable!(),
     };
 
     if let Err(e) = result {

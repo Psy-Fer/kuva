@@ -10,6 +10,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
+/// Waterfall chart from label and delta-value columns.
 #[derive(Args, Debug)]
 pub struct WaterfallArgs {
     /// Label column (0-based index or header name; default: 0).

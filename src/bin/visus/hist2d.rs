@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, LogArgs, apply_base_args, apply_axis_args, apply_log_args};
 use crate::output::write_output;
 
+/// 2-D density histogram from two numeric columns.
 #[derive(Args, Debug)]
 pub struct Hist2dArgs {
     /// X-axis column (0-based index or header name; default: 0).

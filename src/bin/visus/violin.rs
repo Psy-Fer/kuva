@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
+/// Violin plot grouped by a column.
 #[derive(Args, Debug)]
 pub struct ViolinArgs {
     /// Group column (0-based index or header name; default: 0).

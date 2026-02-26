@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// Sankey flow diagram from source, target, and value columns.
 #[derive(Args, Debug)]
 pub struct SankeyArgs {
     /// Source node column (0-based index or header name; default: 0).

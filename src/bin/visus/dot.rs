@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
+/// Dot plot with size and colour encoding.
 #[derive(Args, Debug)]
 pub struct DotArgs {
     /// X-category column (0-based index or header name; default: 0).

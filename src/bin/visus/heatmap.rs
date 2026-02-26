@@ -9,6 +9,7 @@ use crate::data::{DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
+/// Heatmap from a wide matrix (first column as row labels).
 #[derive(Args, Debug)]
 pub struct HeatmapArgs {
     /// Color map: viridis (default), inferno, grayscale.

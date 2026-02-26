@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
+/// Box-and-whisker plot grouped by a column.
 #[derive(Args, Debug)]
 #[command(name = "box")]
 pub struct BoxArgs {

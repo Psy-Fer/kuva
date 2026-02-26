@@ -11,6 +11,7 @@ use crate::data::{DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// Genome synteny ribbons from sequence and block files.
 #[derive(Args, Debug)]
 pub struct SyntenyArgs {
     /// Blocks TSV file: seq1, start1, end1, seq2, start2, end2, strand.

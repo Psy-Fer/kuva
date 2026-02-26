@@ -406,6 +406,32 @@ mdbook serve docs        # live-reload preview at http://localhost:3000
 
 The `visus` binary lets you render plots directly from the shell — no Rust required.
 
+### Build
+
+```bash
+cargo build --bin visus                    # SVG only
+cargo build --bin visus --features png     # adds PNG output
+cargo build --bin visus --features pdf     # adds PDF output
+cargo build --bin visus --features full    # all backends
+```
+
+### Quick start
+
+These examples use the datasets in `examples/data/` and work from the repo root immediately after building:
+
+```bash
+# Scatter plot — SVG to stdout
+visus scatter examples/data/scatter.tsv --x x --y y
+
+# Volcano plot — highlight top 20 genes
+visus volcano examples/data/volcano.tsv \
+    --name-col gene --x-col log2fc --y-col pvalue --top-n 20
+
+# Box plot — pipe from stdin, save to file
+cat examples/data/samples.tsv | visus box \
+    --group-col group --value-col expression -o boxplot.svg
+```
+
 ### Subcommands
 
 | Subcommand | Input format | Use case |
@@ -477,15 +503,6 @@ visus sankey flow.tsv --source-col from --target-col to --value-col reads --grad
 
 # Synteny ribbons
 visus synteny seqs.tsv --blocks-file blocks.tsv --shared-scale
-```
-
-**Build:**
-
-```bash
-cargo build --bin visus                    # SVG only
-cargo build --bin visus --features png     # adds PNG output
-cargo build --bin visus --features pdf     # adds PDF output
-cargo build --bin visus --features full    # all backends
 ```
 
 See [`docs/src/cli/index.md`](docs/src/cli/index.md) for the complete flag reference for every subcommand, and `examples/data/` for ready-to-use example datasets.

@@ -11,6 +11,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// Pie or donut chart from label and value columns.
 #[derive(Args, Debug)]
 pub struct PieArgs {
     /// Label column (0-based index or header name; default: 0).

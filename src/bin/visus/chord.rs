@@ -9,6 +9,7 @@ use crate::data::{DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// Chord diagram from an N×N flow matrix.
 #[derive(Args, Debug)]
 pub struct ChordArgs {
     /// Gap between arcs in degrees (default: 2.0).

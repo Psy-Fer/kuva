@@ -10,6 +10,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args, palette_from_name};
 use crate::output::write_output;
 
+/// Stacked area chart from x, group, and y columns.
 #[derive(Args, Debug)]
 pub struct StackedAreaArgs {
     /// X-axis column (0-based index or header name; default: 0).

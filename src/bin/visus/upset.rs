@@ -10,6 +10,7 @@ use crate::data::{DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// UpSet intersection plot from binary set-membership columns.
 #[derive(Args, Debug)]
 pub struct UpSetArgs {
     /// Sort intersections: frequency (default), degree, natural.

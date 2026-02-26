@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, LogArgs, apply_base_args, apply_axis_args, apply_log_args};
 use crate::output::write_output;
 
+/// Histogram from a numeric column.
 #[derive(Args, Debug)]
 pub struct HistogramArgs {
     /// Value column (0-based index or header name; default: 0).

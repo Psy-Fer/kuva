@@ -9,6 +9,7 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+/// Phylogenetic tree from a Newick string or edge list.
 #[derive(Args, Debug)]
 pub struct PhyloArgs {
     /// Newick string input (overrides file input).

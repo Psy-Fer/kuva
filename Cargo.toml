@@ -22,6 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 resvg   = { version = "0.44", optional = true }
 svg2pdf = { version = "0.13", optional = true }
 clap    = { version = "4", features = ["derive"] }
+clap_mangen = "0.2"
 
 [[bin]]
 name = "visus"
