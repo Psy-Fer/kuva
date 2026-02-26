@@ -20,3 +20,4 @@ target/
 
 /target
 /test_outputs
+/smoke_test_outputs

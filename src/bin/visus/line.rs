@@ -91,7 +91,8 @@ pub fn run(args: LineArgs) -> Result<(), String> {
             .map(|((name, subtable), grp_color)| {
                 let xs = subtable.col_f64(&x_col)?;
                 let ys = subtable.col_f64(&y_col)?;
-                let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+                let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+                data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                 let mut plot = LinePlot::new()
                     .with_data(data)
@@ -108,7 +109,8 @@ pub fn run(args: LineArgs) -> Result<(), String> {
     } else {
         let xs = table.col_f64(&x_col)?;
         let ys = table.col_f64(&y_col)?;
-        let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+        let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut plot = LinePlot::new()
             .with_data(data)

@@ -1,26 +1,21 @@
 process	log2fc
-Glycolysis induction	4.2
-mTOR signaling	3.8
-Cell cycle progression	3.5
-Angiogenesis	3.1
-PI3K/AKT pathway	2.9
-Ribosome biogenesis	2.6
-Protein synthesis	2.3
-Oxidative stress response	2.0
-Chromatin remodeling	1.7
-Lipid biosynthesis	1.4
-mRNA processing	1.1
-Cytoskeleton dynamics	0.8
-Cell adhesion	0.5
-Ion channel activity	-0.4
-Mitochondrial respiration	-0.7
-Fatty acid oxidation	-1.0
-Autophagy	-1.3
-Antigen presentation	-1.6
-Apoptosis signaling	-1.9
-DNA damage response	-2.2
-Interferon signaling	-2.5
-T cell activation	-2.8
-NK cell cytotoxicity	-3.1
-Complement cascade	-3.3
-Antiviral defense	-3.5
+Glycolysis	3.2
+DNA repair	-2.1
+Cell proliferation	2.8
+Apoptosis	-1.8
+mTOR signaling	2.5
+Autophagy	-2.3
+Angiogenesis	1.9
+T cell activity	-2.7
+Ribosome biogenesis	1.6
+Mitochondrial resp.	-1.4
+Protein synthesis	1.4
+Oxidative stress	-2.0
+Cell cycle	2.2
+Ion transport	-1.1
+Chromatin remodel.	1.3
+Interferon signaling	-2.8
+Vesicle transport	1.0
+Complement cascade	-3.1
+Lipid biosynthesis	1.8
+Antiviral defense	-2.4

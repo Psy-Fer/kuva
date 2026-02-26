@@ -14,6 +14,15 @@ mod stacked_area;
 mod volcano;
 mod manhattan;
 mod candlestick;
+mod heatmap;
+mod hist2d;
+mod contour;
+mod dot;
+mod upset;
+mod chord;
+mod sankey;
+mod phylo;
+mod synteny;
 
 use clap::{Parser, Subcommand};
 
@@ -41,6 +50,17 @@ enum Commands {
     Volcano(volcano::VolcanoArgs),
     Manhattan(manhattan::ManhattanArgs),
     Candlestick(candlestick::CandlestickArgs),
+    Heatmap(heatmap::HeatmapArgs),
+    #[command(name = "hist2d")]
+    Hist2d(hist2d::Hist2dArgs),
+    Contour(contour::ContourArgs),
+    Dot(dot::DotArgs),
+    #[command(name = "upset")]
+    UpSet(upset::UpSetArgs),
+    Chord(chord::ChordArgs),
+    Sankey(sankey::SankeyArgs),
+    Phylo(phylo::PhyloArgs),
+    Synteny(synteny::SyntenyArgs),
 }
 
 fn main() {
@@ -58,6 +78,15 @@ fn main() {
         Commands::Volcano(args) => volcano::run(args),
         Commands::Manhattan(args) => manhattan::run(args),
         Commands::Candlestick(args) => candlestick::run(args),
+        Commands::Heatmap(args) => heatmap::run(args),
+        Commands::Hist2d(args) => hist2d::run(args),
+        Commands::Contour(args) => contour::run(args),
+        Commands::Dot(args) => dot::run(args),
+        Commands::UpSet(args) => upset::run(args),
+        Commands::Chord(args) => chord::run(args),
+        Commands::Sankey(args) => sankey::run(args),
+        Commands::Phylo(args) => phylo::run(args),
+        Commands::Synteny(args) => synteny::run(args),
     };
 
     if let Err(e) = result {

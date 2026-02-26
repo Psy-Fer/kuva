@@ -802,6 +802,8 @@ pub struct ComputedLayout {
     pub y2_tick_format: TickFormat,
     /// Pixel width consumed by the y2 axis (ticks + labels). 0.0 when no y2 axis.
     pub y2_axis_width: f64,
+    /// Rotation angle for x-axis tick labels (degrees, typically -45.0). None = no rotation.
+    pub x_tick_rotate: Option<f64>,
 }
 
 impl ComputedLayout {
@@ -817,19 +819,36 @@ impl ComputedLayout {
             10.0
         };
         // Bottom: tick mark (5) + gap (5) + tick label + gap (5) + axis label + padding
-        // When ticks are suppressed, still keep room for custom labels (e.g., chromosome names).
-        let margin_bottom = if layout.suppress_x_ticks {
+        // When ticks are suppressed AND no rotation is requested (e.g. pure numeric axes),
+        // keep only minimal space. When rotation IS set (e.g. Manhattan chromosome labels drawn
+        // by the renderer itself), compute space for the rotated custom labels.
+        let margin_bottom = if layout.suppress_x_ticks && layout.x_tick_rotate.is_none() {
             tick_size + 15.0
-        } else if layout.x_tick_rotate.is_some() {
-            tick_size + label_size + 45.0
+        } else if let Some(angle) = layout.x_tick_rotate {
+            // Rotated labels extend below their anchor point by label_px * sin(|angle|).
+            let char_w = tick_size * 0.6;
+            let max_chars = layout.x_categories.as_ref()
+                .and_then(|cats| cats.iter().map(|s| s.len()).max())
+                .unwrap_or(10) as f64;
+            let label_px = max_chars * char_w;
+            let angle_rad = angle.abs() * std::f64::consts::PI / 180.0;
+            let needed = label_px * angle_rad.sin() + tick_size + 15.0;
+            needed.max(tick_size + label_size + 25.0)
         } else {
             tick_size + label_size + 25.0
         };
-        // Left: axis label + gap + tick label width + gap to axis
+        // Left: axis label + y tick label text width + gap to axis.
+        // For category y-axes (e.g. DotPlot) the tick labels can be long strings;
+        // compute width from the longest category name so they stay on-canvas.
         let margin_left = if layout.suppress_y_ticks {
             10.0
         } else {
-            label_size + tick_size * 3.0 + 15.0
+            let char_w = tick_size * 0.6;
+            let max_y_chars = layout.y_categories.as_ref()
+                .and_then(|cats| cats.iter().map(|s| s.len()).max())
+                .unwrap_or(6) as f64; // 6 chars covers typical numeric labels like "1000.0"
+            let tick_label_px = (max_y_chars * char_w).max(tick_size * 3.0);
+            label_size + tick_label_px + 15.0
         };
         let mut margin_right = label_size;
 
@@ -922,6 +941,7 @@ impl ComputedLayout {
             log_y2: layout.log_y2,
             y2_tick_format: layout.y2_tick_format.clone(),
             y2_axis_width,
+            x_tick_rotate: layout.x_tick_rotate,
         }
     }
 

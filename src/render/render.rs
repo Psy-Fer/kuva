@@ -1826,13 +1826,17 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
         if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
+            let (anchor, rotate) = match computed.x_tick_rotate {
+                Some(angle) => (TextAnchor::End, Some(angle)),
+                None        => (TextAnchor::Middle, None),
+            };
             scene.add(Primitive::Text {
                 x: mid_x,
                 y: label_y,
                 content: span.name.clone(),
                 size: computed.tick_size,
-                anchor: TextAnchor::Middle,
-                rotate: None,
+                anchor,
+                rotate,
                 bold: false,
             });
         }
@@ -3849,7 +3853,11 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 4: Horizontal layout ──
-    let col_w = plot_w / n_cols as f64;
+    // Reserve pixels on the right for last-column node labels so they don't
+    // overflow into the legend/margin area. The reserve is split evenly across
+    // columns so node spacing remains uniform.
+    let last_col_label_reserve = 85.0_f64;
+    let col_w = ((plot_w - last_col_label_reserve) / n_cols as f64).max(10.0);
     let node_x: Vec<f64> = (0..n)
         .map(|i| computed.margin_left + col[i] as f64 * col_w + (col_w - sankey.node_width) / 2.0)
         .collect();
@@ -3991,7 +3999,45 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let mut computed = ComputedLayout::from_layout(&layout);
+
+    // Pie canvas-widening: when a Pie with outside labels is present, ensure the
+    // canvas is wide enough to fit both the leader-line labels AND any legend in the
+    // right margin. Replicates the same logic used in render_pie().
+    for plot in plots.iter() {
+        if let Plot::Pie(pie) = plot {
+            let has_outside = matches!(pie.label_position, PieLabelPosition::Outside | PieLabelPosition::Auto);
+            if !has_outside { break; }
+            let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+            if total <= 0.0 { break; }
+            let char_width = computed.body_size as f64 * 0.6;
+            let max_label_px = pie.slices.iter().map(|slice| {
+                let frac = slice.value / total;
+                let place_inside = match pie.label_position {
+                    PieLabelPosition::None | PieLabelPosition::Inside => true,
+                    PieLabelPosition::Outside => false,
+                    PieLabelPosition::Auto => frac >= pie.min_label_fraction,
+                };
+                if place_inside { return 0.0_f64; }
+                let label_text = if pie.show_percent {
+                    let pct = frac * 100.0;
+                    if slice.label.is_empty() { format!("{:.1}%", pct) }
+                    else { format!("{} ({:.1}%)", slice.label, pct) }
+                } else { slice.label.clone() };
+                label_text.len() as f64 * char_width
+            }).fold(0.0_f64, f64::max);
+            let leader_gap = 30.0;
+            let pad = 5.0;
+            let radius = computed.plot_height() / 2.0 - pad;
+            let needed_half = radius + leader_gap + max_label_px + pad;
+            let needed_plot_width = needed_half * 2.0;
+            if needed_plot_width > computed.plot_width() {
+                computed.width = needed_plot_width + computed.margin_left + computed.margin_right;
+            }
+            break; // only one pie per render_multiple call
+        }
+    }
+
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);

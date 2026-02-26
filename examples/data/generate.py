@@ -23,6 +23,63 @@ def write_tsv(filename, header, rows):
 counts = {}
 
 # ---------------------------------------------------------------------------
+# scatter.tsv — three bivariate clusters for scatter / color-by demos
+# ---------------------------------------------------------------------------
+rows_sc = []
+for group, (cx, cy, sx, sy, rho) in [
+    ("Group_A", (3.0, 5.5, 1.2, 0.9,  0.60)),
+    ("Group_B", (7.5, 7.0, 1.0, 1.1,  0.45)),
+    ("Group_C", (5.0, 2.0, 0.8, 0.75, -0.30)),
+]:
+    cov = np.array([[sx**2, rho*sx*sy], [rho*sx*sy, sy**2]])
+    pts = np.random.multivariate_normal([cx, cy], cov, 80)
+    for x, y in pts:
+        rows_sc.append((round(float(x), 3), round(float(y), 3), group))
+np.random.shuffle(rows_sc)
+counts["scatter.tsv"] = write_tsv("scatter.tsv", ["x", "y", "group"], rows_sc)
+
+# ---------------------------------------------------------------------------
+# volcano.tsv — crafted for a clear V-shape (gene name / log2fc / pvalue)
+# ---------------------------------------------------------------------------
+_vc_names = [f"Gene_{i:03d}" for i in range(1, 201)]
+_vc_fc  = np.zeros(200)
+_vc_pv  = np.zeros(200)
+
+# Null genes — dense grey cluster at center-bottom
+_vc_fc[:70]   = np.random.normal(0, 0.32, 70)
+_vc_pv[:70]   = np.random.uniform(0.15, 0.99, 70)
+
+# Up-regulated — top-right cluster
+_vc_fc[70:110]  = np.abs(np.random.normal(2.8, 0.65, 40))
+_vc_pv[70:110]  = np.random.uniform(1e-9, 0.005, 40)
+
+# Down-regulated — top-left cluster
+_vc_fc[110:150] = -np.abs(np.random.normal(2.8, 0.65, 40))
+_vc_pv[110:150] = np.random.uniform(1e-9, 0.005, 40)
+
+# Borderline up — just crossing both thresholds (lower arms of V)
+_vc_fc[150:162] = np.abs(np.random.normal(1.15, 0.12, 12))
+_vc_pv[150:162] = np.random.uniform(0.008, 0.048, 12)
+
+# Borderline down
+_vc_fc[162:174] = -np.abs(np.random.normal(1.15, 0.12, 12))
+_vc_pv[162:174] = np.random.uniform(0.008, 0.048, 12)
+
+# High FC, not significant — outer arms of V
+_vc_fc[174:187] = np.abs(np.random.normal(1.8, 0.45, 13))
+_vc_pv[174:187] = np.random.uniform(0.07, 0.55, 13)
+
+_vc_fc[187:200] = -np.abs(np.random.normal(1.8, 0.45, 13))
+_vc_pv[187:200] = np.random.uniform(0.07, 0.55, 13)
+
+_vc_idx = np.random.permutation(200)
+_vc_names = [_vc_names[i] for i in _vc_idx]
+_vc_fc    = _vc_fc[_vc_idx]
+_vc_pv    = _vc_pv[_vc_idx]
+rows_vc = [(_vc_names[i], round(float(_vc_fc[i]), 4), f"{_vc_pv[i]:.6e}") for i in range(200)]
+counts["volcano.tsv"] = write_tsv("volcano.tsv", ["gene", "log2fc", "pvalue"], rows_vc)
+
+# ---------------------------------------------------------------------------
 # samples.tsv
 # ---------------------------------------------------------------------------
 rows = []
@@ -44,24 +101,23 @@ for v in np.random.exponential(1.5, 120) + 4.5:
 counts["samples.tsv"] = write_tsv("samples.tsv", ["group", "expression"], rows)
 
 # ---------------------------------------------------------------------------
-# measurements.tsv
+# measurements.tsv — three sigmoid growth curves, clearly separated, no crossings
 # ---------------------------------------------------------------------------
+_t = np.linspace(0, 20, 50)
+_sig = lambda t, k, m: 1.0 / (1.0 + np.exp(-k * (t - m)))
 rows = []
-for group, intercept, slope, quad, noise_sd in [
-    ("Condition_A", 2.0, 0.08, 0.0, 3.0),
-    ("Condition_B", 10.0, -0.05, 0.0, 4.0),
-    ("Condition_C", 5.0, 0.15, -0.001, 3.0),
+for group, base, scale, k, m, noise_sd in [
+    ("Condition_A", 1.5, 2.0, 0.40, 10.0, 0.15),   # low band, rises from ~1.5 to ~3.5
+    ("Condition_B", 4.2, 2.5, 0.30, 10.0, 0.18),   # mid band, rises from ~4.2 to ~6.7
+    ("Condition_C", 7.0, 2.0, 0.35, 10.0, 0.15),   # high band, rises from ~7.0 to ~9.0
 ]:
-    t = np.random.uniform(0, 100, 150)
-    v = intercept + slope * t + quad * t**2 + np.random.normal(0, noise_sd, 150)
-    for ti, vi in zip(t, v):
+    v = base + scale * _sig(_t, k, m) + np.random.normal(0, noise_sd, 50)
+    for ti, vi in zip(_t, v):
         rows.append((group, round(float(ti), 2), round(float(vi), 3)))
-# Reorder columns to time, value, group
-rows_reordered = [(g, t, v) for g, t, v in rows]
 counts["measurements.tsv"] = write_tsv(
     "measurements.tsv",
     ["group", "time", "value"],
-    rows_reordered,
+    rows,
 )
 
 # ---------------------------------------------------------------------------
@@ -92,9 +148,10 @@ basemeans = np.round(np.random.lognormal(mean=5, sigma=2, size=n_genes), 1)
 log2fc = np.zeros(n_genes)
 pvalue = np.zeros(n_genes)
 
-# null genes
+# null genes — uniform p-values bounded away from 0 so none accidentally
+# cross the significance threshold and fill the V-notch
 log2fc[:n_null] = np.random.normal(0, 0.3, n_null)
-pvalue[:n_null] = np.random.beta(0.5, 5, n_null)
+pvalue[:n_null] = np.random.uniform(0.05, 1.0, n_null)
 
 # DE genes
 signs = np.random.choice([-1, 1], size=n_de)
@@ -236,31 +293,26 @@ counts["heatmap.tsv"] = write_tsv(
 # waterfall.tsv
 # ---------------------------------------------------------------------------
 waterfall_data = [
-    ("Glycolysis induction", 4.2),
-    ("mTOR signaling", 3.8),
-    ("Cell cycle progression", 3.5),
-    ("Angiogenesis", 3.1),
-    ("PI3K/AKT pathway", 2.9),
-    ("Ribosome biogenesis", 2.6),
-    ("Protein synthesis", 2.3),
-    ("Oxidative stress response", 2.0),
-    ("Chromatin remodeling", 1.7),
-    ("Lipid biosynthesis", 1.4),
-    ("mRNA processing", 1.1),
-    ("Cytoskeleton dynamics", 0.8),
-    ("Cell adhesion", 0.5),
-    ("Ion channel activity", -0.4),
-    ("Mitochondrial respiration", -0.7),
-    ("Fatty acid oxidation", -1.0),
-    ("Autophagy", -1.3),
-    ("Antigen presentation", -1.6),
-    ("Apoptosis signaling", -1.9),
-    ("DNA damage response", -2.2),
-    ("Interferon signaling", -2.5),
-    ("T cell activation", -2.8),
-    ("NK cell cytotoxicity", -3.1),
-    ("Complement cascade", -3.3),
-    ("Antiviral defense", -3.5),
+    ("Glycolysis",          3.2),
+    ("DNA repair",         -2.1),
+    ("Cell proliferation",  2.8),
+    ("Apoptosis",          -1.8),
+    ("mTOR signaling",      2.5),
+    ("Autophagy",          -2.3),
+    ("Angiogenesis",        1.9),
+    ("T cell activity",    -2.7),
+    ("Ribosome biogenesis", 1.6),
+    ("Mitochondrial resp.", -1.4),
+    ("Protein synthesis",   1.4),
+    ("Oxidative stress",   -2.0),
+    ("Cell cycle",          2.2),
+    ("Ion transport",      -1.1),
+    ("Chromatin remodel.",  1.3),
+    ("Interferon signaling",-2.8),
+    ("Vesicle transport",   1.0),
+    ("Complement cascade", -3.1),
+    ("Lipid biosynthesis",  1.8),
+    ("Antiviral defense",  -2.4),
 ]
 counts["waterfall.tsv"] = write_tsv(
     "waterfall.tsv",
@@ -269,7 +321,8 @@ counts["waterfall.tsv"] = write_tsv(
 )
 
 # ---------------------------------------------------------------------------
-# stacked_area.tsv
+# stacked_area.tsv — raw read counts (not pre-normalized) so basic vs
+# normalized views look meaningfully different
 # ---------------------------------------------------------------------------
 species_list = [
     "Firmicutes", "Bacteroidetes", "Proteobacteria",
@@ -279,19 +332,14 @@ weeks = list(range(1, 53))
 rows = []
 t = np.linspace(0, 2 * np.pi, 52)
 for wi, week in enumerate(weeks):
-    # Firmicutes dominant, inverse to Bacteroidetes
-    firm_base = 35 + 8 * np.sin(t[wi]) + np.random.normal(0, 2)
-    bact_base = 25 - 6 * np.sin(t[wi]) + np.random.normal(0, 2)
-    prot_base = 15 + 3 * np.cos(t[wi] * 2) + np.random.normal(0, 1.5)
-    acti_base = 12 + 2 * np.sin(t[wi] * 1.5) + np.random.normal(0, 1)
-    fuso_base = 8 + np.random.normal(0, 1)
-    verr_base = 5 + np.random.normal(0, 0.8)
-    # Normalize to sum to 100
-    raw = [firm_base, bact_base, prot_base, acti_base, fuso_base, verr_base]
-    raw = [max(0.1, v) for v in raw]
-    total = sum(raw)
-    normalized = [round(v * 100 / total, 1) for v in raw]
-    for sp, ab in zip(species_list, normalized):
+    # Raw read counts per species — totals vary per week (800–1 200)
+    firm = int(max(1, 350 + 80 * np.sin(t[wi])   + np.random.normal(0, 20)))
+    bact = int(max(1, 250 - 60 * np.sin(t[wi])   + np.random.normal(0, 20)))
+    prot = int(max(1, 150 + 30 * np.cos(t[wi]*2) + np.random.normal(0, 15)))
+    acti = int(max(1, 120 + 20 * np.sin(t[wi]*1.5) + np.random.normal(0, 10)))
+    fuso = int(max(1,  80                          + np.random.normal(0, 10)))
+    verr = int(max(1,  50                          + np.random.normal(0,  8)))
+    for sp, ab in zip(species_list, [firm, bact, prot, acti, fuso, verr]):
         rows.append((week, sp, ab))
 counts["stacked_area.tsv"] = write_tsv(
     "stacked_area.tsv",
@@ -349,6 +397,15 @@ rows = [
     for x, y, d in zip(x_c, y_c, density)
 ]
 counts["contour.tsv"] = write_tsv("contour.tsv", ["x", "y", "density"], rows)
+
+# ---------------------------------------------------------------------------
+# hist2d.tsv — two bivariate clusters with clear density structure
+# ---------------------------------------------------------------------------
+pts1 = np.random.multivariate_normal([25, 30], [[40, 30], [30, 40]], 350)
+pts2 = np.random.multivariate_normal([70, 75], [[35, 25], [25, 35]], 250)
+all_pts = np.vstack([pts1, pts2])
+rows = [(round(float(x), 2), round(float(y), 2)) for x, y in all_pts]
+counts["hist2d.tsv"] = write_tsv("hist2d.tsv", ["x", "y"], rows)
 
 # ---------------------------------------------------------------------------
 # dot.tsv
@@ -521,7 +578,7 @@ counts["sankey.tsv"] = write_tsv("sankey.tsv", ["source", "target", "value"], sa
 phylo_edges = [
     # parent, child, length
     ("node_1", "node_2", 0.05),   # root -> placentals
-    ("node_1", "node_17", 0.80),  # root -> outgroups
+    ("node_1", "node_17", 0.12),  # root -> outgroups (reduced for balanced phylogram)
     # Placentals
     ("node_2", "node_3", 0.04),   # placentals -> primates+euarchontoglires
     ("node_2", "node_11", 0.06),  # placentals -> laurasiatheria
@@ -559,13 +616,13 @@ phylo_edges = [
     ("node_15", "Equus_caballus", 0.08),
     ("node_16", "Sus_scrofa", 0.06),
     ("node_16", "Bos_taurus", 0.05),
-    # Outgroups
-    ("node_17", "node_18", 0.30),
-    ("node_17", "node_19", 0.80),
-    ("node_18", "Gallus_gallus", 0.25),
-    ("node_18", "Xenopus_tropicalis", 0.40),
-    ("node_19", "Danio_rerio", 0.55),
-    ("node_19", "Drosophila_melanogaster", 1.20),
+    # Outgroups (scaled so max depth ≈ 2× mammalian max, giving a balanced phylogram)
+    ("node_17", "node_18", 0.06),
+    ("node_17", "node_19", 0.15),
+    ("node_18", "Gallus_gallus", 0.05),
+    ("node_18", "Xenopus_tropicalis", 0.09),
+    ("node_19", "Danio_rerio", 0.12),
+    ("node_19", "Drosophila_melanogaster", 0.22),
 ]
 counts["phylo.tsv"] = write_tsv(
     "phylo.tsv",

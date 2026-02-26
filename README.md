@@ -406,12 +406,47 @@ mdbook serve docs        # live-reload preview at http://localhost:3000
 
 The `visus` binary lets you render plots directly from the shell — no Rust required.
 
+### Subcommands
+
+| Subcommand | Input format | Use case |
+|---|---|---|
+| `scatter` | x, y columns (+ optional group) | Scatter plot with optional trend line |
+| `line` | x, y columns (+ optional group) | Line plot with optional fill |
+| `bar` | label, value columns | Categorical bar chart |
+| `histogram` | value column | Distribution histogram |
+| `box` | group, value columns | Box-and-whisker by group |
+| `violin` | group, value columns | Violin plot by group |
+| `pie` | label, value columns | Pie / donut chart |
+| `strip` | group, value columns | Strip / beeswarm plot by group |
+| `waterfall` | label, value columns | Waterfall / bridge chart |
+| `stacked-area` | x, group, y columns | Stacked area chart |
+| `volcano` | name, log2fc, pvalue columns | Volcano plot for DE analysis |
+| `manhattan` | chr, pos, pvalue columns | GWAS Manhattan plot |
+| `candlestick` | label, open, high, low, close columns | OHLC candlestick chart |
+| `heatmap` | row, col, value columns (long format) | Heatmap with optional clustering |
+| `hist2d` | x, y columns | 2-D histogram / density grid |
+| `contour` | x, y, z columns | Contour / filled-contour plot |
+| `dot` | x, y columns with size/color | Dot plot with size and color encoding |
+| `upset` | set membership TSV | UpSet intersection plot |
+| `chord` | matrix TSV | Chord diagram |
+| `sankey` | source, target, value columns | Sankey flow diagram |
+| `phylo` | Newick string or edge list | Phylogenetic tree |
+| `synteny` | sequence definitions + block file | Genome synteny ribbons |
+
+### Input and output
+
+Input is auto-detected TSV or CSV (by extension, then content sniff). Columns are selectable by 0-based index or header name — pass an integer (`--x-col 2`) or a name (`--x-col log2fc`). Pipe from stdin by omitting the file argument or passing `-`.
+
+Output defaults to SVG on stdout; use `-o file.svg/png/pdf` to write a file. PNG and PDF output require the `png`/`pdf` feature flags at build time.
+
+### Examples
+
 ```bash
 # Scatter plot from a TSV, SVG to stdout
 cat data.tsv | visus scatter | display
 
 # Colour by a group column, write PNG
-visus scatter data.tsv --x time --y expression --color-by condition -o plot.png
+visus scatter data.tsv --x-col time --y-col expression --color-by condition -o plot.png
 
 # Box plot with swarm overlay
 visus box samples.tsv --group-col group --value-col expression --swarm --title "Expression"
@@ -423,12 +458,26 @@ visus histogram values.tsv --bins 40 --theme dark -o hist.svg
 visus pie shares.tsv --label-col feature --value-col percentage --percent --label-position outside
 
 # Volcano plot, label top 20 genes
-visus volcano gene_stats.tsv --x log2fc --y pvalue --label-col gene --top-n 20
+visus volcano gene_stats.tsv --name-col gene --x-col log2fc --y-col pvalue --top-n 20
+
+# Manhattan with hg38 base-pair positions
+visus manhattan gwas.tsv --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38
+
+# Waterfall with connectors and value labels
+visus waterfall budget.tsv --label-col item --value-col amount --connectors --values
+
+# Stacked area, normalized
+visus stacked-area abundance.tsv --x-col week --group-col species --y-col count --normalize
+
+# UpSet intersection plot
+visus upset sets.tsv
+
+# Sankey flow diagram, gradient links
+visus sankey flow.tsv --source-col from --target-col to --value-col reads --gradient
+
+# Synteny ribbons
+visus synteny seqs.tsv --blocks-file blocks.tsv --shared-scale
 ```
-
-Input is auto-detected TSV or CSV (by extension, then content sniff). Columns are selectable by 0-based index or header name. Output defaults to SVG on stdout; use `-o file.svg/png/pdf` to write a file (PNG and PDF require the `png`/`pdf` feature flags).
-
-See `examples/data/` for ready-to-use example datasets covering all plot types, and `visus <subcommand> --help` for the full flag reference.
 
 **Build:**
 
@@ -438,6 +487,8 @@ cargo build --bin visus --features png     # adds PNG output
 cargo build --bin visus --features pdf     # adds PDF output
 cargo build --bin visus --features full    # all backends
 ```
+
+See [`docs/src/cli/index.md`](docs/src/cli/index.md) for the complete flag reference for every subcommand, and `examples/data/` for ready-to-use example datasets.
 
 ## License
 

@@ -98,6 +98,7 @@ pub fn run(args: WaterfallArgs) -> Result<(), String> {
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
+    let layout = layout.with_x_tick_rotate(-45.0);
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
 }

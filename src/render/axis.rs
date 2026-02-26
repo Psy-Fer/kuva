@@ -39,9 +39,6 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         dt.generate_ticks(computed.x_range.0, computed.x_range.1)
     } else if layout.log_x {
         render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
-    } else if let Some(bw) = layout.x_bin_width {
-        render_utils::generate_ticks_bin_aligned(
-            computed.x_range.0, computed.x_range.1, bw, computed.x_ticks)
     } else {
         render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
     };
@@ -125,14 +122,18 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 for (i, label) in x_cats.iter().enumerate() {
                     let x_val = i as f64 + 1.0;
                     let x_pos = computed.map_x(x_val);
+                    let (anchor, rotate) = match layout.x_tick_rotate {
+                        Some(angle) => (TextAnchor::End, Some(angle)),
+                        None        => (TextAnchor::Middle, None),
+                    };
 
                     scene.add(Primitive::Text {
                         x: x_pos,
                         y: computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64,
                         content: label.clone(),
                         size: computed.tick_size,
-                        anchor: TextAnchor::Middle,
-                        rotate: layout.x_tick_rotate,
+                        anchor,
+                        rotate,
                         bold: false,
                     });
 

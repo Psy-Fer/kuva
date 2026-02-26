@@ -30,6 +30,10 @@
 - [Volcano Plot](./plots/volcano.md)
 - [Manhattan Plot](./plots/manhattan.md)
 
+# CLI
+
+- [visus CLI](./cli/index.md)
+
 # Reference
 
 - [Layout & Axes](./reference/layout.md)

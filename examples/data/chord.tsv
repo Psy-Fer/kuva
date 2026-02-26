@@ -1,9 +1,9 @@
 region	Cortex	Hippocampus	Amygdala	Thalamus	Cerebellum	Striatum	Brainstem	Hypothalamus
-Cortex	0	320	13	450	280	120	88	38
-Hippocampus	320	0	210	83	42	16	90	13
-Amygdala	13	210	0	83	74	93	80	145
-Thalamus	450	83	83	0	18	41	190	130
-Cerebellum	280	42	74	18	0	175	37	71
-Striatum	120	16	93	41	175	0	160	11
-Brainstem	88	90	80	190	37	160	0	13
-Hypothalamus	38	13	145	130	71	11	13	0
+Cortex	0	320	63	450	280	120	85	30
+Hippocampus	320	0	210	32	37	90	88	32
+Amygdala	63	210	0	68	62	62	43	145
+Thalamus	450	32	68	0	77	21	190	130
+Cerebellum	280	37	62	77	0	175	11	34
+Striatum	120	90	62	21	175	0	160	97
+Brainstem	85	88	43	190	11	160	0	77
+Hypothalamus	30	32	145	130	34	97	77	0
