@@ -1,5 +1,8 @@
 # visus
 
+[![CI](https://github.com/Psy-Fer/visus/actions/workflows/ci.yml/badge.svg)](https://github.com/Psy-Fer/visus/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A lightweight scientific plotting library in Rust. Zero heavy dependencies — just build your plot, render to SVG, done.
 
 ## Features
