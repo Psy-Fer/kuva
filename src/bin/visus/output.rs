@@ -21,7 +21,7 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
                 "png" => {
                     #[cfg(feature = "png")]
                     {
-                        let bytes = visus::PngBackend.render_scene(&scene)?;
+                        let bytes = visus::PngBackend::new().render_scene(&scene)?;
                         fs::write(path, bytes).map_err(|e| e.to_string())
                     }
                     #[cfg(not(feature = "png"))]
