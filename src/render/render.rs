@@ -433,8 +433,8 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
         // Draw fill area behind the stroke line
         if line.fill {
             let baseline_y = computed.map_y(computed.y_range.0.max(0.0));
-            let first_x = points.first().unwrap().0;
-            let last_x = points.last().unwrap().0;
+            let first_x = points.first().expect("line fill requires at least one point").0;
+            let last_x = points.last().expect("line fill requires at least one point").0;
             let fill_d = format!(
                 "{}L {last_x} {baseline_y} L {first_x} {baseline_y} Z",
                 stroke_d
@@ -708,7 +708,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     }
 
     if hist2d.show_correlation {
-        let corr = pearson_corr(&hist2d.data).unwrap();
+        let corr = pearson_corr(&hist2d.data).expect("hist2d correlation requires at least 2 data points");
         scene.add(Primitive::Text {
             x: computed.width - 120.0,
             y: computed.margin_top + 20.0,
@@ -730,7 +730,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
         if group.values.is_empty() { continue; }
 
         let mut sorted = group.values.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.total_cmp(b));
 
         let q1 = percentile(&sorted, 25.0); // Q1
         let q2 = percentile(&sorted, 50.0); // median
@@ -1032,7 +1032,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             .filter(|(_, l)| l.right_side == side)
             .map(|(i, _)| i)
             .collect();
-        indices.sort_by(|a, b| outside_labels[*a].text_y.partial_cmp(&outside_labels[*b].text_y).unwrap());
+        indices.sort_by(|a, b| outside_labels[*a].text_y.total_cmp(&outside_labels[*b].text_y));
         for j in 1..indices.len() {
             let prev_y = outside_labels[indices[j - 1]].text_y;
             if outside_labels[indices[j]].text_y - prev_y < min_gap {
@@ -1173,7 +1173,10 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             };
             let x_start = if has_variable_width { x_pos } else { j as f64 };
 
-            let color = brickplot.template.as_ref().unwrap().get(&value).unwrap();
+            let color = brickplot.template.as_ref()
+                .expect("BrickPlot rendered with colormap mode but template is None")
+                .get(&value)
+                .expect("BrickPlot value not found in template colormap");
 
             let x0 = computed.map_x(x_start - x_offset);
             let x1 = computed.map_x(x_start + width - x_offset);
@@ -1675,7 +1678,7 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
         })
         .collect();
     // Sort by pvalue ascending = highest -log10(p) = smallest cy
-    sig_points.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
     sig_points.truncate(vp.label_top);
 
     match vp.label_style {
@@ -1699,7 +1702,7 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 .collect();
 
             // Sort by cx (x screen position, left to right)
-            labels.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
 
             // Greedy vertical nudge: push y up when adjacent labels are too close
             let min_gap = computed.body_size as f64 + 2.0;
@@ -1859,7 +1862,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
             (computed.map_x(p.x), computed.map_y(y_val), label)
         })
         .collect();
-    sig_points.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
     sig_points.truncate(mp.label_top);
 
     match mp.label_style {
@@ -1880,7 +1883,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
             let mut labels: Vec<(f64, f64, String)> = sig_points.iter()
                 .map(|(cx, cy, name)| (*cx, cy - mp.point_size - 2.0, name.clone()))
                 .collect();
-            labels.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
             let min_gap = computed.body_size as f64 + 2.0;
             for j in 1..labels.len() {
                 let prev_y = labels[j - 1].1;
@@ -2409,9 +2412,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
         match plot {
             Plot::Bar(barplot) => {
                 if let Some(label) = barplot.legend_label.clone() {
-                    for (i, barval) in barplot.groups.first().unwrap().bars.iter().enumerate() {
+                    for (i, barval) in barplot.groups.first().expect("BarPlot legend requires at least one group").bars.iter().enumerate() {
                         entries.push(LegendEntry {
-                            label: format!("{}", label.get(i).unwrap()),
+                            label: format!("{}", label.get(i).expect("BarPlot legend label count does not match bar count")),
                             color: barval.color.clone(),
                             shape: LegendShape::Rect,
                             dasharray: None,
@@ -2450,7 +2453,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::Brick(brickplot) => {
-                let labels = brickplot.template.as_ref().unwrap();
+                let labels = brickplot.template.as_ref().expect("BrickPlot legend requires a template colormap");
                 let motifs = brickplot.motifs.as_ref();
                 for (letter, color) in labels {
                     let label = if let Some(m) = motifs {
@@ -3011,8 +3014,8 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Connector line between the topmost and bottommost filled dots.
         if filled_rows.len() >= 2 {
-            let top_j = *filled_rows.first().unwrap();
-            let bot_j = *filled_rows.last().unwrap();
+            let top_j = *filled_rows.first().expect("filled_rows.len() >= 2 guarantees first");
+            let bot_j = *filled_rows.last().expect("filled_rows.len() >= 2 guarantees last");
             let top_cy = mat_t + (top_j as f64 + 0.5) * dot_row_h;
             let bot_cy = mat_t + (bot_j as f64 + 0.5) * dot_row_h;
             scene.add(Primitive::Line {
@@ -3804,7 +3807,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             *c = Some(max_assigned + 1);
         }
     }
-    let col: Vec<usize> = col.into_iter().map(|c| c.unwrap()).collect();
+    let col: Vec<usize> = col.into_iter().map(|c| c.expect("all Sankey node columns assigned by BFS")).collect();
     let n_cols = col.iter().copied().max().unwrap_or(0) + 1;
 
     // ── Step 2: Node flow totals ──

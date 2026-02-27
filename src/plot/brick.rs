@@ -22,7 +22,7 @@ fn canonical_rotation(s: &str) -> String {
     (0..n)
         .map(|i| &doubled[i..i + n])
         .min()
-        .unwrap()
+        .expect("range 0..n is non-empty when n > 0")
         .to_string()
 }
 
@@ -253,12 +253,14 @@ impl BrickPlot {
                                 .collect());
 
         // Phase A: Parse each read's motif string into local_letter → kmer map
-        let per_read_maps: Vec<HashMap<char, String>> = self.strigars.as_ref().unwrap().iter()
+        let per_read_maps: Vec<HashMap<char, String>> = self.strigars.as_ref()
+            .expect("process_strigars called without strigars data")
+            .iter()
             .map(|(motif_str, _)| {
                 motif_str.split(',')
                     .map(|pair| {
                         let parts: Vec<&str> = pair.split(':').collect();
-                        (parts[1].chars().next().unwrap(), parts[0].to_string())
+                        (parts[1].chars().next().expect("STRIGAR motif character is non-empty"), parts[0].to_string())
                     })
                     .collect()
             })
@@ -288,8 +290,8 @@ impl BrickPlot {
             canonical_to_global.insert(canon.clone(), global_letter);
 
             // Pick the most-frequent original rotation as display label
-            let rotations = rotation_freq.get(canon).unwrap();
-            let display = rotations.iter().max_by_key(|(_, count)| *count).unwrap().0.clone();
+            let rotations = rotation_freq.get(canon).expect("canon derived from rotation_freq keys");
+            let display = rotations.iter().max_by_key(|(_, count)| *count).expect("rotation_freq entry is non-empty").0.clone();
             global_to_display.insert(global_letter, display.clone());
             global_to_length.insert(global_letter, display.len());
         }
@@ -297,7 +299,7 @@ impl BrickPlot {
         // Phase D: Remap each read's strigar to global letters and expand
         let mut expanded_strigars: Vec<String> = vec![];
 
-        for (i, (_motif_str, strigar_str)) in self.strigars.as_ref().unwrap().iter().enumerate() {
+        for (i, (_motif_str, strigar_str)) in self.strigars.as_ref().expect("process_strigars called without strigars data").iter().enumerate() {
             let read_map = &per_read_maps[i];
 
             // Build local_letter → global_letter mapping for this read
@@ -312,9 +314,9 @@ impl BrickPlot {
             let expanded: String = strigar_str.split(char::is_alphabetic)
                 .zip(strigar_str.matches(char::is_alphabetic))
                 .map(|(num, ch)| {
-                    let local = ch.chars().next().unwrap();
+                    let local = ch.chars().next().expect("STRIGAR letter character is non-empty");
                     let global = local_to_global[&local];
-                    global.to_string().repeat(num.parse::<usize>().unwrap())
+                    global.to_string().repeat(num.parse::<usize>().expect("STRIGAR repeat count is a valid integer"))
                 })
                 .collect();
 

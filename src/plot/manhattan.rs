@@ -284,7 +284,7 @@ impl ManhattanPlot {
         let mut points = Vec::new();
 
         for chrom in &chrom_order {
-            let pvalues = by_chrom.get(chrom).unwrap();
+            let pvalues = by_chrom.get(chrom).expect("chrom_order derived from by_chrom keys");
             let x_start = span_offset;
             for (i, &pvalue) in pvalues.iter().enumerate() {
                 points.push(ManhattanPoint {
@@ -449,7 +449,7 @@ impl ManhattanPlot {
                 seen_chroms.push(chrom.clone());
                 chrom_bounds.insert(chrom.clone(), (*x, *x));
             } else {
-                let e = chrom_bounds.get_mut(chrom).unwrap();
+                let e = chrom_bounds.get_mut(chrom).expect("chrom already inserted in seen_chroms");
                 e.0 = e.0.min(*x);
                 e.1 = e.1.max(*x);
             }

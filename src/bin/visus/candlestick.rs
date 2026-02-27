@@ -95,7 +95,7 @@ pub fn run(args: CandlestickArgs) -> Result<(), String> {
     };
 
     // Try parsing every label as YYYY-MM-DD.
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 is a valid date");
     let timestamps: Vec<Option<f64>> = labels.iter().map(|s| {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().map(|d| {
             d.signed_duration_since(epoch).num_seconds() as f64
@@ -117,7 +117,7 @@ pub fn run(args: CandlestickArgs) -> Result<(), String> {
             .zip(opens.iter().zip(highs.iter().zip(lows.iter().zip(closes.iter()))))
             .zip(volumes.iter())
             .map(|((ts_opt, (o, (h, (l, c)))), vol)| {
-                (ts_opt.unwrap(), *o, *h, *l, *c, *vol)
+                (ts_opt.expect("all_dates check guarantees all timestamps are Some"), *o, *h, *l, *c, *vol)
             })
             .collect();
         rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));

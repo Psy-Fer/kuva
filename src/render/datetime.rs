@@ -176,9 +176,9 @@ fn advance(dt: &NaiveDateTime, unit: &DateUnit, step: usize) -> NaiveDateTime {
 /// Unix timestamp (seconds) from year/month/day UTC.
 pub fn ymd(year: i32, month: u32, day: u32) -> f64 {
     NaiveDate::from_ymd_opt(year, month, day)
-        .unwrap()
+        .expect("invalid date passed to ymd()")
         .and_hms_opt(0, 0, 0)
-        .unwrap()
+        .expect("midnight is always a valid time")
         .and_utc()
         .timestamp() as f64
 }
@@ -186,9 +186,9 @@ pub fn ymd(year: i32, month: u32, day: u32) -> f64 {
 /// Unix timestamp from year/month/day/hour/minute/second UTC.
 pub fn ymd_hms(year: i32, month: u32, day: u32, h: u32, m: u32, s: u32) -> f64 {
     NaiveDate::from_ymd_opt(year, month, day)
-        .unwrap()
+        .expect("invalid date passed to ymd_hms()")
         .and_hms_opt(h, m, s)
-        .unwrap()
+        .expect("invalid time passed to ymd_hms()")
         .and_utc()
         .timestamp() as f64
 }

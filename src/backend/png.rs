@@ -31,7 +31,8 @@ impl PngBackend {
         let tree = resvg::usvg::Tree::from_str(&svg_str, &options)
             .map_err(|e| e.to_string())?;
 
-        let size = tree.size().to_int_size().scale_by(self.scale).unwrap();
+        let size = tree.size().to_int_size().scale_by(self.scale)
+            .expect("canvas too large for the requested scale factor");
         let mut pixmap = resvg::tiny_skia::Pixmap::new(size.width(), size.height())
             .ok_or_else(|| "failed to allocate pixmap".to_string())?;
 

@@ -119,7 +119,7 @@ impl Plot {
         match self {
             
             Plot::Scatter(s) => {
-                let ((mut x_min, mut x_max), (mut y_min, mut y_max)) = bounds_from_2d(&s.data).unwrap();
+                let ((mut x_min, mut x_max), (mut y_min, mut y_max)) = bounds_from_2d(&s.data).expect("ScatterPlot bounds requires non-empty data");
 
                 // Expand with error bars
                 for point in &s.data {
@@ -244,7 +244,7 @@ impl Plot {
                     for g in &bp.groups {
                         if g.values.is_empty() { continue; }
                         let mut vals = g.values.clone();
-                        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        vals.sort_by(|a, b| a.total_cmp(b));
                         let q1 = render_utils::percentile(&vals, 25.0);
                         let q3 = render_utils::percentile(&vals, 75.0);
                         let iqr = q3 - q1;
