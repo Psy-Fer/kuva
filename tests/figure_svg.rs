@@ -295,8 +295,9 @@ fn figure_negative_y_only() {
     assert!(svg.contains("<svg"));
     // x min should be 0 (all positive, clamped)
     assert!(svg.contains(">0<"));
-    // y should go below -7: pad_min(-7.0) = -7 - 1 = -8
-    assert!(svg.contains(">-8<"));
+    // y: ticks=5 → auto_nice_range(-7.11, 4.11, 5) → step=2 → (-8, 6) range.
+    // generate_ticks(-8, 6, 5) → step=2.5 → first tick at -7.5
+    assert!(svg.contains(">-7.5<"));
 }
 
 #[test]
@@ -318,9 +319,9 @@ fn figure_negative_x_only() {
     std::fs::write("test_outputs/figure_negative_x.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
-    // x min = -6; 1%-span padding → -6.14 → auto_nice_range step=1 → nice_min=-7
-    // generate_ticks(-7, 9, step=2) starts at ceil(-7/2)*2 = -6
-    assert!(svg.contains(">-6<"));
+    // x: ticks=5 → auto_nice_range(-6.14, 8.14, 5) → step=2.5 → (-7.5, 10) range.
+    // generate_ticks(-7.5, 10, 5) → step=5 → first tick at -5
+    assert!(svg.contains(">-5<"));
     // y min should be 0 (all positive, clamped)
     assert!(svg.contains(">0<"));
 }
@@ -344,13 +345,14 @@ fn figure_both_axes_negative() {
     std::fs::write("test_outputs/figure_both_negative.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
-    // x: min=-5, 1%-span padding → -5.11 → nice_min=-6; max=6 → nice_max=7
-    assert!(svg.contains(">-6<"));
-    assert!(svg.contains(">7<"));
-    // y: all negative. min=-8, 1%-span → -8.06 → nice_min=-8.5; step=0.5 so -8 is a tick
-    assert!(svg.contains(">-8<"));
-    // -1 appears as an x-axis tick (x data includes -1)
-    assert!(svg.contains(">-1<"));
+    // x: ticks=5 → auto_nice_range(-5.11, 6.11, 5) → step=2 → (-6, 8) range.
+    // generate_ticks(-6, 8, 5) → step=2.5 → ticks: -5, -2.5, 0, 2.5, 5, 7.5
+    // y: ticks=5 → auto_nice_range(-8.06, -1.94, 5) → step=1 → (-9, -1) range.
+    // generate_ticks(-9, -1, 5) → step=2 → ticks: -8, -6, -4, -2
+    assert!(svg.contains(">-6<"));   // y tick: confirms negative y range
+    assert!(svg.contains(">7.5<"));  // max x tick (was ">7<")
+    assert!(svg.contains(">-8<"));   // most-negative y tick
+    assert!(svg.contains(">-5<"));   // first negative x tick (was ">-1<")
 }
 
 #[test]

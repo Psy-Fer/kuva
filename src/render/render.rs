@@ -1235,10 +1235,6 @@ fn add_strip_points(
     scene: &mut Scene,
     computed: &ComputedLayout,
 ) {
-    use rand::SeedableRng;
-    use rand::Rng;
-    use rand::rngs::SmallRng;
-
     match style {
         StripStyle::Center => {
             let cx = computed.map_x(x_center_data);
@@ -1248,9 +1244,16 @@ fn add_strip_points(
             }
         }
         StripStyle::Strip { jitter } => {
-            let mut rng = SmallRng::seed_from_u64(seed);
+            // Inline xorshift64 — no external dependency, same deterministic behaviour
+            // as the seeded SmallRng it replaces. XOR with golden-ratio constant so
+            // seed=0 doesn't produce an all-zero state.
+            let mut rng_state = seed ^ 0x9e3779b97f4a7c15u64;
             for &v in values {
-                let offset: f64 = (rng.random::<f64>() - 0.5) * jitter;
+                rng_state ^= rng_state << 13;
+                rng_state ^= rng_state >> 7;
+                rng_state ^= rng_state << 17;
+                let rand_val = (rng_state >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
+                let offset: f64 = (rand_val - 0.5) * jitter;
                 let cx = computed.map_x(x_center_data + offset);
                 let cy = computed.map_y(v);
                 scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });

@@ -6,24 +6,34 @@ description = "Scientific plotting library in Rust with various backends."
 authors = ["James M. Ferguson <j.ferguson@garvan.org.au>"]
 repository = "https://github.com/Psy-Fer/visus"
 license = "MIT"
-keywords = ["plotting", "bioinformatics"]
+keywords = ["plotting", "bioinformatics", "svg", "visualization", "science"]
+categories = ["science", "visualization", "graphics", "command-line-utilities"]
+documentation = "https://docs.rs/visus"
+readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []
 png  = ["dep:resvg"]
 pdf  = ["dep:svg2pdf"]
+cli  = ["dep:clap", "dep:clap_mangen"]
 full = ["png", "pdf"]
 
 [dependencies]
 colorous = "=1.0.16"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+resvg       = { version = "0.44", optional = true }
+svg2pdf     = { version = "0.13", optional = true }
+clap        = { version = "4", features = ["derive"], optional = true }
+clap_mangen = { version = "0.2", optional = true }
+
+[dev-dependencies]
 rand = "0.9.1"
 rand_distr = "0.5.1"
-chrono = { version = "0.4", default-features = false, features = ["std"] }
-resvg   = { version = "0.44", optional = true }
-svg2pdf = { version = "0.13", optional = true }
-clap    = { version = "4", features = ["derive"] }
-clap_mangen = "0.2"
 
 [[bin]]
 name = "visus"
 path = "src/bin/visus/main.rs"
+required-features = ["cli"]
