@@ -89,6 +89,10 @@ pub struct WaterfallPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for WaterfallPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl WaterfallPlot {
     /// Create a waterfall chart with default settings.
     ///

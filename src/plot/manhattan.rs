@@ -198,7 +198,7 @@ fn strip_chr(name: &str) -> &str {
 }
 
 /// Resolve the size slice from a GenomeBuild, normalising Custom entries with strip_chr.
-fn build_sizes<'a>(build: &'a GenomeBuild) -> Vec<(&'a str, u64)> {
+fn build_sizes(build: &GenomeBuild) -> Vec<(&str, u64)> {
     match build {
         GenomeBuild::Hg19 => HG19_SIZES.iter().map(|&(n, s)| (n, s)).collect(),
         GenomeBuild::Hg38 => HG38_SIZES.iter().map(|&(n, s)| (n, s)).collect(),
@@ -208,6 +208,10 @@ fn build_sizes<'a>(build: &'a GenomeBuild) -> Vec<(&'a str, u64)> {
 }
 
 // ── ManhattanPlot ────────────────────────────────────────────────────────────
+
+impl Default for ManhattanPlot {
+    fn default() -> Self { Self::new() }
+}
 
 impl ManhattanPlot {
     /// Create a Manhattan plot with default settings.

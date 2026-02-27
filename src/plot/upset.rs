@@ -19,9 +19,10 @@ pub struct UpSetIntersection {
 }
 
 /// Controls how intersections are ordered left-to-right in the UpSet plot.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum UpSetSort {
     /// Sort by intersection count descending — the largest bar is leftmost (default).
+    #[default]
     ByFrequency,
     /// Sort by degree (number of sets involved) descending, then by count within each degree.
     /// Puts the most complex multi-set intersections first.
@@ -31,11 +32,6 @@ pub enum UpSetSort {
     Natural,
 }
 
-impl Default for UpSetSort {
-    fn default() -> Self {
-        UpSetSort::ByFrequency
-    }
-}
 
 /// Bioinformatics-style UpSet plot: vertical intersection-size bars, dot matrix,
 /// and optional horizontal set-size bars.

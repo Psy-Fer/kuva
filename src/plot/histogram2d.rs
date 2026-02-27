@@ -149,6 +149,10 @@ pub struct Histogram2D {
     pub show_correlation: bool,
 }
 
+impl Default for Histogram2D {
+    fn default() -> Self { Self::new() }
+}
+
 impl Histogram2D {
     /// Create a 2D histogram with default settings.
     ///

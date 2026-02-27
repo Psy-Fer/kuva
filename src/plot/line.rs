@@ -1,8 +1,9 @@
 /// Stroke style for a line plot.
 ///
 /// The default is [`LineStyle::Solid`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LineStyle {
+    #[default]
     Solid,
     Dashed,
     Dotted,
@@ -11,11 +12,6 @@ pub enum LineStyle {
     Custom(String),
 }
 
-impl Default for LineStyle {
-    fn default() -> Self {
-        LineStyle::Solid
-    }
-}
 
 impl LineStyle {
     pub fn dasharray(&self) -> Option<String> {
@@ -106,6 +102,10 @@ pub struct LinePlot {
     pub step: bool,
     pub fill: bool,
     pub fill_opacity: f64,
+}
+
+impl Default for LinePlot {
+    fn default() -> Self { Self::new() }
 }
 
 impl LinePlot {

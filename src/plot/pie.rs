@@ -77,6 +77,10 @@ pub struct PieSlice {
     pub color: String,
 }
 
+impl Default for PiePlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl PiePlot {
     /// Create a pie chart with default settings.
     ///

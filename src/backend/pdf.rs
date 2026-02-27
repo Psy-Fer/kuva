@@ -3,6 +3,10 @@ use crate::backend::svg::SvgBackend;
 
 pub struct PdfBackend;
 
+impl Default for PdfBackend {
+    fn default() -> Self { Self::new() }
+}
+
 impl PdfBackend {
     pub fn new() -> Self {
         Self

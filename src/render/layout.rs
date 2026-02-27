@@ -283,11 +283,11 @@ impl Layout {
                 }
             }
             if let Plot::Brick(bp) = plot {
-                let labels = bp.names.iter().map(|g| g.clone()).collect::<Vec<_>>();
+                let labels = bp.names.to_vec();
                 y_labels = Some(labels);
                 has_legend = true;
                 if let Some(ref motifs) = bp.motifs {
-                    for (_k, v) in motifs {
+                    for v in motifs.values() {
                         max_label_len = max_label_len.max(v.len());
                     }
                 }

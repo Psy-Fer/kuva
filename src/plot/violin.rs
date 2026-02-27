@@ -55,6 +55,10 @@ pub struct ViolinGroup {
     pub values: Vec<f64>,
 }
 
+impl Default for ViolinPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl ViolinPlot {
     /// Create a violin plot with default settings.
     ///

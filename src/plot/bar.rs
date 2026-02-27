@@ -54,6 +54,10 @@ pub struct BarValue {
     pub color: String,
 }
 
+impl Default for BarPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl BarPlot {
     /// Create a bar plot with default settings.
     ///

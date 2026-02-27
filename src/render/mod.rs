@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 pub mod render;
 pub mod render_utils;
 pub mod layout;

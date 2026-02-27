@@ -75,6 +75,10 @@ pub struct StripPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for StripPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl StripPlot {
     /// Create a strip plot with default settings.
     ///

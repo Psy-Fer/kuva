@@ -94,6 +94,10 @@ pub struct DotPlot {
     pub color_legend_label: Option<String>,
 }
 
+impl Default for DotPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl DotPlot {
     /// Create a dot plot with default settings.
     ///

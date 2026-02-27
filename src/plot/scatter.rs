@@ -1,8 +1,9 @@
 /// Marker shape used to render individual scatter points.
 ///
 /// The default is [`MarkerShape::Circle`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum MarkerShape {
+    #[default]
     Circle,
     Square,
     Triangle,
@@ -11,11 +12,6 @@ pub enum MarkerShape {
     Plus,
 }
 
-impl Default for MarkerShape {
-    fn default() -> Self {
-        MarkerShape::Circle
-    }
-}
 
 /// Trend line variant to overlay on a scatter plot.
 #[derive(Debug, Clone, Copy)]
@@ -93,6 +89,10 @@ pub struct ScatterPlot {
     pub sizes: Option<Vec<f64>>,
 }
 
+
+impl Default for ScatterPlot {
+    fn default() -> Self { Self::new() }
+}
 
 impl ScatterPlot {
     /// Create a scatter plot with default settings.

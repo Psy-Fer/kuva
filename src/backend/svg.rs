@@ -113,7 +113,7 @@ impl SvgBackend {
                     if let Some(t) = transform {
                         svg.push_str(&format!(r#" transform="{t}""#));
                     }
-                    svg.push_str(">");
+                    svg.push('>');
                 }
                 Primitive::GroupEnd => {
                     svg.push_str("</g>");
@@ -134,7 +134,7 @@ impl SvgBackend {
                     }
 
                 
-                    svg.push_str(&format!(r#" />"#));
+                    svg.push_str(" />");
                 }
             }
         }

@@ -40,6 +40,10 @@ pub struct SyntenyPlot {
     pub legend_label:  Option<String>,
 }
 
+impl Default for SyntenyPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl SyntenyPlot {
     pub fn new() -> Self {
         Self {
@@ -93,6 +97,7 @@ impl SyntenyPlot {
     }
 
     /// Add a forward block with an explicit color.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_colored_block<C: Into<String>>(
         mut self, seq1: usize, start1: f64, end1: f64,
         seq2: usize, start2: f64, end2: f64, color: C,
@@ -103,6 +108,7 @@ impl SyntenyPlot {
     }
 
     /// Add an inverted block with an explicit color.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_colored_inv_block<C: Into<String>>(
         mut self, seq1: usize, start1: f64, end1: f64,
         seq2: usize, start2: f64, end2: f64, color: C,

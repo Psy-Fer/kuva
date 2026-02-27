@@ -8,6 +8,10 @@ pub struct PngBackend {
     pub scale: f32,
 }
 
+impl Default for PngBackend {
+    fn default() -> Self { Self::new() }
+}
+
 impl PngBackend {
     pub fn new() -> Self {
         Self { scale: 2.0 }

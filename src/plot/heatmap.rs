@@ -128,6 +128,10 @@ pub struct Heatmap {
 }
 
 
+impl Default for Heatmap {
+    fn default() -> Self { Self::new() }
+}
+
 impl Heatmap {
     /// Create a heatmap with default settings.
     ///

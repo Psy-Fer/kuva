@@ -162,7 +162,7 @@ pub fn format_log_tick(value: f64) -> String {
     // Check if it's an exact power of 10
     if (log_val - log_val.round()).abs() < 1e-8 {
         let exp = log_val.round() as i32;
-        if exp >= 0 && exp <= 6 {
+        if (0..=6).contains(&exp) {
             format!("{}", 10f64.powi(exp) as u64)
         } else {
             format!("1e{}", exp)
@@ -290,7 +290,7 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
             let x_try = if k == 0 {
                 0.0
             } else {
-                let magnitude = ((k + 1) / 2) as f64 * step;
+                let magnitude = k.div_ceil(2) as f64 * step;
                 if k % 2 == 1 { magnitude } else { -magnitude }
             };
             let ok = placed.iter().all(|&(px, py)| {

@@ -74,6 +74,10 @@ pub struct StackedAreaPlot {
     pub legend_position: LegendPosition,
 }
 
+impl Default for StackedAreaPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl StackedAreaPlot {
     /// Create a stacked area plot with default settings.
     ///

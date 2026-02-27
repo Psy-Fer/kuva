@@ -58,6 +58,10 @@ pub struct BrickTemplate {
 }
 
 
+impl Default for BrickTemplate {
+    fn default() -> Self { Self::new() }
+}
+
 impl BrickTemplate {
     /// Create an empty template. Call `.dna()` or `.rna()` to populate it.
     pub fn new() -> Self {
@@ -159,6 +163,10 @@ pub struct BrickPlot {
     pub motif_lengths: Option<HashMap<char, usize>>,
     /// When `true`, draw the character label inside each brick.
     pub show_values: bool,
+}
+
+impl Default for BrickPlot {
+    fn default() -> Self { Self::new() }
 }
 
 impl BrickPlot {
@@ -270,7 +278,7 @@ impl BrickPlot {
         let mut canonical_freq: HashMap<String, usize> = HashMap::new();
         let mut rotation_freq: HashMap<String, HashMap<String, usize>> = HashMap::new();
         for read_map in &per_read_maps {
-            for (_letter, kmer) in read_map {
+            for kmer in read_map.values() {
                 let canon = canonical_rotation(kmer);
                 *canonical_freq.entry(canon.clone()).or_insert(0) += 1;
                 *rotation_freq.entry(canon).or_default().entry(kmer.clone()).or_insert(0) += 1;

@@ -39,6 +39,10 @@ pub struct Histogram {
     pub legend_label: Option<String>,
 }
 
+impl Default for Histogram {
+    fn default() -> Self { Self::new() }
+}
+
 impl Histogram {
     /// Create a histogram with default settings.
     ///

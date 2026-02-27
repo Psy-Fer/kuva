@@ -99,6 +99,10 @@ pub struct ContourPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for ContourPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl ContourPlot {
     /// Create a contour plot with default settings.
     ///
@@ -169,6 +173,7 @@ impl ContourPlot {
     ///     .with_points(pts)
     ///     .with_n_levels(6);
     /// ```
+    #[allow(clippy::needless_range_loop)]
     pub fn with_points<I>(mut self, pts: I) -> Self
     where
         I: IntoIterator<Item = (f64, f64, f64)>,

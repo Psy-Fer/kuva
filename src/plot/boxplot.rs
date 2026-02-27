@@ -47,6 +47,10 @@ pub struct BoxGroup {
     pub values: Vec<f64>,
 }
 
+impl Default for BoxPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl BoxPlot {
     /// Create a box plot with default settings.
     ///

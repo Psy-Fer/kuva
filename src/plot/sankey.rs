@@ -45,6 +45,10 @@ pub struct SankeyPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for SankeyPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl SankeyPlot {
     pub fn new() -> Self {
         Self {

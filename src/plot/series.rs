@@ -74,6 +74,10 @@ pub struct SeriesPlot {
 }
 
 
+impl Default for SeriesPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl SeriesPlot {
     /// Create a series plot with default settings.
     ///

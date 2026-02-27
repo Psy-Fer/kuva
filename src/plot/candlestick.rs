@@ -98,6 +98,10 @@ pub struct CandlestickPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for CandlestickPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl CandlestickPlot {
     /// Create a candlestick plot with default settings.
     ///

@@ -69,6 +69,10 @@ pub struct ChordPlot {
     pub legend_label: Option<String>,
 }
 
+impl Default for ChordPlot {
+    fn default() -> Self { Self::new() }
+}
+
 impl ChordPlot {
     /// Create a chord plot with default settings.
     ///

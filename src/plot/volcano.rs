@@ -1,5 +1,5 @@
 /// Controls how gene labels are positioned on a volcano plot.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum LabelStyle {
     /// Label placed at the exact point position — no nudge, no leader line.
     ///
@@ -11,6 +11,7 @@ pub enum LabelStyle {
     ///
     /// This is the most readable option for dense data. Labels stay close
     /// to their points without crossing each other.
+    #[default]
     Nudge,
     /// Label offset by `(offset_x, offset_y)` pixels with a short gray leader
     /// line drawn from the offset position back to the point.
@@ -25,9 +26,6 @@ pub enum LabelStyle {
     Arrow { offset_x: f64, offset_y: f64 },
 }
 
-impl Default for LabelStyle {
-    fn default() -> Self { LabelStyle::Nudge }
-}
 
 /// A single gene (or feature) displayed in a volcano plot.
 pub struct VolcanoPoint {
@@ -120,6 +118,10 @@ pub struct VolcanoPlot {
     pub pvalue_floor: Option<f64>,
     /// When `Some`, a legend box shows Up / Down / NS entries.
     pub legend_label: Option<String>,
+}
+
+impl Default for VolcanoPlot {
+    fn default() -> Self { Self::new() }
 }
 
 impl VolcanoPlot {

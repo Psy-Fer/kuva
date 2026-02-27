@@ -1228,6 +1228,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_strip_points(
     values: &[f64],
     x_center_data: f64,
@@ -2048,13 +2049,13 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
 // render_histogram
 pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    add_axes_and_grid(&mut scene, &computed, &layout);
-    add_labels_and_title(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_histogram(hist, &mut scene, &computed);
@@ -2068,13 +2069,13 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
 // render_boxplot
 pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    add_axes_and_grid(&mut scene, &computed, &layout);
-    add_labels_and_title(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_boxplot(boxplot, &mut scene, &computed);
@@ -2088,13 +2089,13 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
 // render_violinplot
 pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    add_axes_and_grid(&mut scene, &computed, &layout);
-    add_labels_and_title(&mut scene, &computed, &layout);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_violin(violin, &mut scene, &computed);
@@ -2107,7 +2108,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
 pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
-    let mut computed = ComputedLayout::from_layout(&layout);
+    let mut computed = ComputedLayout::from_layout(layout);
 
     // Widen canvas for outside pie labels before rendering title/labels
     let has_outside = matches!(pie.label_position, PieLabelPosition::Outside | PieLabelPosition::Auto);
@@ -2147,7 +2148,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
     apply_theme(&mut scene, &computed.theme);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
-    add_labels_and_title(&mut scene, &computed, &layout);
+    add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_pie(pie, &mut scene, &computed);
@@ -2161,13 +2162,13 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 // render_brickplot
 pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
-    let computed = ComputedLayout::from_layout(&layout);
+    let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
-    add_labels_and_title(&mut scene, &computed, &layout);
+    add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     add_brickplot(brickplot, &mut scene, &computed);
@@ -2414,7 +2415,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 if let Some(label) = barplot.legend_label.clone() {
                     for (i, barval) in barplot.groups.first().expect("BarPlot legend requires at least one group").bars.iter().enumerate() {
                         entries.push(LegendEntry {
-                            label: format!("{}", label.get(i).expect("BarPlot legend label count does not match bar count")),
+                            label: label.get(i).expect("BarPlot legend label count does not match bar count").to_string(),
                             color: barval.color.clone(),
                             shape: LegendShape::Rect,
                             dasharray: None,
@@ -2824,9 +2825,9 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // Left panel layout (left → right): [bar_area][count_gap][name_area]
     let max_name_len = up.set_names.iter().map(|n| n.len()).max().unwrap_or(0);
-    let name_area = (max_name_len as f64 * tick_size * 0.6 + 10.0).max(40.0).min(120.0);
+    let name_area = (max_name_len as f64 * tick_size * 0.6 + 10.0).clamp(40.0, 120.0);
     let bar_area = if up.show_set_sizes {
-        (pw * 0.18).max(50.0).min(150.0)
+        (pw * 0.18).clamp(50.0, 150.0)
     } else {
         0.0
     };
@@ -2845,7 +2846,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     let dot_col_w = if n_cols > 0 { (mat_r - mat_l) / n_cols as f64 } else { 1.0 };
     let dot_row_h = if n_sets > 0 { (mat_b - mat_t) / n_sets as f64 } else { 1.0 };
-    let dot_r = (dot_col_w.min(dot_row_h) * 0.35).max(3.0).min(12.0);
+    let dot_r = (dot_col_w.min(dot_row_h) * 0.35).clamp(3.0, 12.0);
     let bar_half_w = (dot_col_w * 0.3).max(3.0);
 
     let max_inter = sorted.iter().map(|i| i.count).max().unwrap_or(1) as f64;
@@ -2855,7 +2856,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
     if up.show_set_sizes {
         let bar_x_start = pl;
         let bar_x_end = pl + bar_area;
-        let bar_half_h = (dot_row_h * 0.25).max(3.0).min(12.0);
+        let bar_half_h = (dot_row_h * 0.25).clamp(3.0, 12.0);
 
         // Axis line (right edge of bar area).
         scene.add(Primitive::Line {
@@ -3119,9 +3120,7 @@ fn add_stacked_area(sa: &StackedAreaPlot, scene: &mut Scene, computed: &Computed
         }
 
         // Advance lower to current upper for the next series
-        for i in 0..n {
-            lower[i] = upper[i];
-        }
+        lower[..n].copy_from_slice(&upper[..n]);
     }
 }
 
@@ -3580,9 +3579,9 @@ fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let mut node_start = Vec::with_capacity(n);
     let mut node_span = Vec::with_capacity(n);
     let mut angle = -std::f64::consts::FRAC_PI_2; // start at top
-    for i in 0..n {
+    for &total in &row_total {
         node_start.push(angle);
-        let span = if grand_total > 0.0 { (row_total[i] / grand_total) * usable } else { usable / n as f64 };
+        let span = if grand_total > 0.0 { (total / grand_total) * usable } else { usable / n as f64 };
         node_span.push(span);
         angle += span + gap_rad;
     }
@@ -3792,7 +3791,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             let tgt = link.target;
             if let Some(sc) = col[src] {
                 let new_tgt_col = sc + 1;
-                if col[tgt].map_or(true, |tc| tc < new_tgt_col) {
+                if col[tgt].is_none_or(|tc| tc < new_tgt_col) {
                     col[tgt] = Some(new_tgt_col);
                     changed = true;
                 }
@@ -3834,8 +3833,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
     let mut node_y = vec![0.0_f64; n];
     let mut node_h = vec![0.0_f64; n];
 
-    for c in 0..n_cols {
-        let members = &nodes_in_col[c];
+    for members in &nodes_in_col {
         if members.is_empty() { continue; }
         let m = members.len();
         let total_gap = (m - 1) as f64 * sankey.node_gap;
@@ -4059,46 +4057,46 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         match plot {
             Plot::Scatter(s) => {
-                add_scatter(&s, &mut scene, &computed);
+                add_scatter(s, &mut scene, &computed);
             }
             Plot::Line(l) => {
-                add_line(&l, &mut scene, &computed);
+                add_line(l, &mut scene, &computed);
             }
             Plot::Series(s) => {
-                add_series(&s, &mut scene, &computed);
+                add_series(s, &mut scene, &computed);
             }
             Plot::Bar(b) => {
-                add_bar(&b, &mut scene, &computed);
+                add_bar(b, &mut scene, &computed);
             }
             Plot::Histogram(h) => {
-                add_histogram(&h, &mut scene, &computed);
+                add_histogram(h, &mut scene, &computed);
             }
             Plot::Histogram2d(h) => {
-                add_histogram2d(&h, &mut scene, &computed);
+                add_histogram2d(h, &mut scene, &computed);
             }
             Plot::Box(b) => {
-                add_boxplot(&b, &mut scene, &computed);
+                add_boxplot(b, &mut scene, &computed);
             }
             Plot::Violin(v) => {
-                add_violin(&v, &mut scene, &computed);
+                add_violin(v, &mut scene, &computed);
             }
             Plot::Pie(p) => {
-                add_pie(&p, &mut scene, &computed);
+                add_pie(p, &mut scene, &computed);
             }
             Plot::Heatmap(h) => {
-                add_heatmap(&h, &mut scene, &computed);
+                add_heatmap(h, &mut scene, &computed);
             }
             Plot::Brick(b) => {
-                add_brickplot(&b, &mut scene, &computed);
+                add_brickplot(b, &mut scene, &computed);
             }
             Plot::Band(b) => {
-                add_band(&b, &mut scene, &computed);
+                add_band(b, &mut scene, &computed);
             }
             Plot::Waterfall(w) => {
-                add_waterfall(&w, &mut scene, &computed);
+                add_waterfall(w, &mut scene, &computed);
             }
             Plot::Strip(s) => {
-                add_strip(&s, &mut scene, &computed);
+                add_strip(s, &mut scene, &computed);
             }
             Plot::Volcano(v) => {
                 add_volcano(v, &mut scene, &computed);

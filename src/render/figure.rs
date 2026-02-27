@@ -303,10 +303,10 @@ impl Figure {
             + figure_title_height;
 
         let (total_width, total_height) = match shared_legend.as_ref() {
-            Some(FigureLegendPosition::Right) if legend_entries.as_ref().map_or(false, |e| !e.is_empty()) => {
+            Some(FigureLegendPosition::Right) if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) => {
                 (grid_width + legend_width + legend_spacing, grid_height)
             }
-            Some(FigureLegendPosition::Bottom) if legend_entries.as_ref().map_or(false, |e| !e.is_empty()) => {
+            Some(FigureLegendPosition::Bottom) if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) => {
                 (grid_width, grid_height + legend_height + legend_spacing)
             }
             _ => (grid_width, grid_height),
