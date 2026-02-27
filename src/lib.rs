@@ -45,6 +45,8 @@ pub mod plot;
 pub mod backend;
 pub mod render;
 
+pub use backend::terminal::TerminalBackend;
+
 #[cfg(feature = "png")]
 pub use backend::png::PngBackend;
 

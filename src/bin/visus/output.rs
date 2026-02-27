@@ -10,6 +10,21 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
         scene.background_color = Some(bg.clone());
     }
 
+    if args.terminal {
+        let cols = args
+            .term_width
+            .map(|w| w as usize)
+            .or_else(|| std::env::var("COLUMNS").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(80);
+        let rows = args
+            .term_height
+            .map(|h| h as usize)
+            .or_else(|| std::env::var("LINES").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(24);
+        print!("{}", visus::TerminalBackend::new(cols, rows).render_scene(&scene));
+        return Ok(());
+    }
+
     match &args.output {
         None => {
             print!("{}", SvgBackend.render_scene(&scene));

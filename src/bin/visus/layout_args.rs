@@ -46,6 +46,23 @@ pub struct BaseArgs {
     /// When omitted the theme's background is used.
     #[arg(long)]
     pub background: Option<String>,
+
+    /// Render to the terminal using Unicode braille/block characters.
+    #[arg(long, conflicts_with = "output", help_heading = "Output")]
+    pub terminal: bool,
+
+    /// Terminal background style used to auto-select a readable colour theme:
+    /// dark (default) or light. Ignored when --theme is also provided.
+    #[arg(long, requires = "terminal", help_heading = "Output")]
+    pub term_bg: Option<String>,
+
+    /// Override terminal width in columns (default: $COLUMNS or 80).
+    #[arg(long, requires = "terminal", help_heading = "Output")]
+    pub term_width: Option<u16>,
+
+    /// Override terminal height in rows (default: $LINES or 24).
+    #[arg(long, requires = "terminal", help_heading = "Output")]
+    pub term_height: Option<u16>,
 }
 
 #[derive(Args, Debug)]
@@ -94,9 +111,24 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if let Some(ref t) = args.title {
         layout = layout.with_title(t.clone());
     }
-    // Theme first so subsequent flags can override individual settings.
+    // When rendering to the terminal, auto-select a theme matched to the
+    // terminal background unless the user has already chosen one via --theme.
+    if args.terminal && args.theme.is_none() {
+        let theme = if args.term_bg.as_deref() == Some("light") {
+            Theme::light()
+        } else {
+            Theme::dark() // dark background is the sensible default for terminals
+        };
+        layout = layout.with_theme(theme);
+    }
+    // Explicit --theme overrides the auto-selected terminal theme.
     if let Some(ref name) = args.theme {
         layout = layout.with_theme(theme_from_name(name));
+    }
+    // Suppress grid AFTER theme application (with_theme resets show_grid from
+    // the theme's value, so this must come last).
+    if args.terminal {
+        layout = layout.with_show_grid(false);
     }
     if let Some(ref name) = args.palette {
         if let Some(pal) = palette_from_name(name) {
