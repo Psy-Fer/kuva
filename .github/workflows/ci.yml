@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build library (no features)
+        run: cargo build
+
+      - name: Test (CLI + all backends)
+        run: |
+          mkdir -p test_outputs smoke_test_outputs
+          cargo test --features cli,full
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      # TODO: add -- -D warnings once existing clippy warnings are resolved
+      - name: Clippy (CLI + all backends)
+        run: cargo clippy --features cli,full
