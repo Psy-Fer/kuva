@@ -26,9 +26,10 @@ pub struct SyntenyArgs {
     #[arg(long)]
     pub opacity: Option<f64>,
 
-    /// Use a single shared scale across all sequences.
+    /// Scale bar widths proportionally to sequence length
+    /// (default: each bar fills the full width regardless of length).
     #[arg(long)]
-    pub shared_scale: bool,
+    pub proportional: bool,
 
     /// Show a legend with this label.
     #[arg(long)]
@@ -106,7 +107,7 @@ pub fn run(args: SyntenyArgs) -> Result<(), String> {
     if let Some(op) = args.opacity {
         plot = plot.with_opacity(op);
     }
-    if args.shared_scale {
+    if args.proportional {
         plot = plot.with_shared_scale();
     }
     if let Some(ref label) = args.legend {

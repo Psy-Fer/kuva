@@ -108,18 +108,18 @@ check "histogram normalize" \
 check "box basic" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression
 
-check "box strip" \
-    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --strip
+check "box overlay-points" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-points
 
-check "box swarm" \
-    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --swarm
+check "box overlay-swarm" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm
 
 # ── violin ────────────────────────────────────────────────────────────────────
 check "violin basic" \
     "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression
 
-check "violin swarm" \
-    "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression --swarm
+check "violin overlay-swarm" \
+    "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm
 
 # ── pie ───────────────────────────────────────────────────────────────────────
 check "pie basic" \
@@ -228,9 +228,9 @@ check "chord gap legend" \
 check "sankey basic" \
     "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value
 
-check "sankey gradient" \
+check "sankey link-gradient" \
     "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
-        --gradient --legend "read flow"
+        --link-gradient --legend "read flow"
 
 # ── phylo ─────────────────────────────────────────────────────────────────────
 check "phylo edge-list" \
@@ -252,9 +252,9 @@ check "synteny basic" \
     "$BIN" synteny "$DATA/synteny_seqs.tsv" \
         --blocks-file "$DATA/synteny_blocks.tsv"
 
-check "synteny shared-scale" \
+check "synteny proportional" \
     "$BIN" synteny "$DATA/synteny_seqs.tsv" \
-        --blocks-file "$DATA/synteny_blocks.tsv" --shared-scale --legend "synteny"
+        --blocks-file "$DATA/synteny_blocks.tsv" --proportional --legend "synteny"
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

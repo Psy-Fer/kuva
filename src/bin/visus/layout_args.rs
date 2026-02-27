@@ -37,10 +37,10 @@ pub struct BaseArgs {
     #[arg(long)]
     pub palette: Option<String>,
 
-    /// Colourblind-safe palette by condition: deuteranopia, protanopia, tritanopia.
-    /// Overrides --palette when both are provided.
+    /// Select a colour palette optimised for a colour vision deficiency (CVD):
+    /// deuteranopia, protanopia, tritanopia. Overrides --palette.
     #[arg(long)]
-    pub colourblind: Option<String>,
+    pub cvd_palette: Option<String>,
 
     /// Override the SVG background color (CSS color string).
     /// When omitted the theme's background is used.
@@ -103,8 +103,8 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
             layout = layout.with_palette(pal);
         }
     }
-    // --colourblind overrides --palette when both are provided.
-    if let Some(ref condition) = args.colourblind {
+    // --cvd-palette overrides --palette when both are provided.
+    if let Some(ref condition) = args.cvd_palette {
         if let Some(pal) = colourblind_palette(condition) {
             layout = layout.with_palette(pal);
         }

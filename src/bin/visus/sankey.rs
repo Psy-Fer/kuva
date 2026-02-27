@@ -24,9 +24,9 @@ pub struct SankeyArgs {
     #[arg(long)]
     pub value_col: Option<ColSpec>,
 
-    /// Use gradient fill on each link (source color → target color).
+    /// Fill each link with a gradient from the source node colour to the target node colour.
     #[arg(long)]
-    pub gradient: bool,
+    pub link_gradient: bool,
 
     /// Link opacity 0.0–1.0 (default: 0.5).
     #[arg(long)]
@@ -60,7 +60,7 @@ pub fn run(args: SankeyArgs) -> Result<(), String> {
 
     let mut plot = SankeyPlot::new();
 
-    if args.gradient {
+    if args.link_gradient {
         plot = plot.with_gradient_links();
     }
     if let Some(op) = args.opacity {

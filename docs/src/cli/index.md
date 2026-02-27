@@ -86,7 +86,7 @@ These flags are available on every subcommand.
 | `--height <PX>` | `500` | Canvas height in pixels |
 | `--theme <NAME>` | `light` | Theme: `light`, `dark`, `solarized`, `minimal` |
 | `--palette <NAME>` | `category10` | Color palette for multi-series plots |
-| `--colourblind <NAME>` | — | Colourblind-safe palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
+| `--cvd-palette <NAME>` | — | Colour-vision-deficiency palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
 | `--background <COLOR>` | *(theme default)* | SVG background color (any CSS color string) |
 
 ### Axes *(most subcommands)*
@@ -252,14 +252,14 @@ Box-and-whisker plot. Groups are taken from one column; values from another.
 | `--group-col <COL>` | `0` | Group label column |
 | `--value-col <COL>` | `1` | Numeric value column |
 | `--color <CSS>` | `steelblue` | Box fill color |
-| `--strip` | off | Overlay jittered individual points |
-| `--swarm` | off | Overlay beeswarm of individual points |
+| `--overlay-points` | off | Overlay individual points as a jittered strip |
+| `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 
 ```bash
 visus box samples.tsv --group-col group --value-col expression
 
 visus box samples.tsv --group-col group --value-col expression \
-    --swarm --color "rgba(70,130,180,0.6)"
+    --overlay-swarm --color "rgba(70,130,180,0.6)"
 ```
 
 ---
@@ -276,14 +276,14 @@ Kernel-density violin plot. Same input format as `box`.
 | `--value-col <COL>` | `1` | Numeric value column |
 | `--color <CSS>` | `steelblue` | Violin fill color |
 | `--bandwidth <F>` | *(Silverman)* | KDE bandwidth |
-| `--strip` | off | Overlay jittered points |
-| `--swarm` | off | Overlay beeswarm points |
+| `--overlay-points` | off | Overlay individual points as a jittered strip |
+| `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 
 ```bash
 visus violin samples.tsv --group-col group --value-col expression
 
 visus violin samples.tsv --group-col group --value-col expression \
-    --swarm --bandwidth 0.3
+    --overlay-swarm --bandwidth 0.3
 ```
 
 ---
@@ -662,7 +662,7 @@ Sankey / alluvial flow diagram.
 | `--source-col <COL>` | `0` | Source node column |
 | `--target-col <COL>` | `1` | Target node column |
 | `--value-col <COL>` | `2` | Flow value column |
-| `--gradient` | off | Gradient fill (source color → target color) on each link |
+| `--link-gradient` | off | Fill each link with a gradient from source node colour to target node colour |
 | `--opacity <F>` | `0.5` | Link opacity |
 | `--legend <LABEL>` | — | Show legend |
 
@@ -672,7 +672,7 @@ visus sankey sankey.tsv \
 
 visus sankey sankey.tsv \
     --source-col source --target-col target --value-col value \
-    --gradient --legend "read flow"
+    --link-gradient --legend "read flow"
 ```
 
 ---
@@ -737,14 +737,14 @@ Chr1A  150674  271188  Chr1B  165366  303075  -
 | `--blocks-file <FILE>` | *(required)* | Blocks TSV file |
 | `--bar-height <PX>` | `18.0` | Sequence bar height in pixels |
 | `--opacity <F>` | `0.65` | Block ribbon opacity |
-| `--shared-scale` | off | Scale all bars to a common maximum length |
+| `--proportional` | off | Scale bar widths proportionally to sequence length |
 | `--legend <LABEL>` | — | Show legend |
 
 ```bash
 visus synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
 
 visus synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
-    --shared-scale --legend "synteny blocks"
+    --proportional --legend "synteny blocks"
 ```
 
 ---
@@ -768,8 +768,8 @@ visus manhattan gwas.tsv --chr-col chr --pvalue-col pvalue \
     --theme dark --background "#1a1a2e" -o manhattan_dark.svg
 ```
 
-**Colourblind-safe palette:**
+**Colour-vision-deficiency palette:**
 ```bash
 visus scatter data.tsv --x time --y value --color-by group \
-    --colourblind deuteranopia
+    --cvd-palette deuteranopia
 ```

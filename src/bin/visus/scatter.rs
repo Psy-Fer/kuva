@@ -21,7 +21,8 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub y: Option<ColSpec>,
 
-    /// Group rows by this column and render each group as a separate series.
+    /// Colour-code data by group. Provide a column of categorical labels; each unique value
+    /// becomes a separate colour-coded series using the active palette. Overrides --color.
     #[arg(long)]
     pub color_by: Option<ColSpec>,
 

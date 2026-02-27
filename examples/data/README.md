@@ -19,7 +19,7 @@ samples each. Drug_B is bimodal; Drug_C is wide/noisy; Drug_D is right-skewed.
 visus box   samples.tsv --group-col group --value-col expression --title "Expression by treatment"
 visus violin samples.tsv --group-col group --value-col expression --title "Expression by treatment"
 visus strip  samples.tsv --group-col group --value-col expression
-visus violin samples.tsv --group-col group --value-col expression --swarm
+visus violin samples.tsv --group-col group --value-col expression --overlay-swarm
 ```
 
 ### `measurements.tsv` — 450 rows

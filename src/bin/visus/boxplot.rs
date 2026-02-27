@@ -25,13 +25,13 @@ pub struct BoxArgs {
     #[arg(long)]
     pub color: Option<String>,
 
-    /// Overlay a jittered strip of individual data points.
+    /// Overlay individual data points as a jittered strip.
     #[arg(long)]
-    pub strip: bool,
+    pub overlay_points: bool,
 
-    /// Overlay a beeswarm of individual data points.
+    /// Overlay individual data points as a non-overlapping beeswarm.
     #[arg(long)]
-    pub swarm: bool,
+    pub overlay_swarm: bool,
 
     #[command(flatten)]
     pub input: InputArgs,
@@ -62,9 +62,9 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
         plot = plot.with_group(name, values);
     }
 
-    if args.swarm {
+    if args.overlay_swarm {
         plot = plot.with_swarm_overlay();
-    } else if args.strip {
+    } else if args.overlay_points {
         plot = plot.with_strip(0.3);
     }
 

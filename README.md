@@ -478,7 +478,7 @@ cat data.tsv | visus scatter | display
 visus scatter data.tsv --x-col time --y-col expression --color-by condition -o plot.png
 
 # Box plot with swarm overlay
-visus box samples.tsv --group-col group --value-col expression --swarm --title "Expression"
+visus box samples.tsv --group-col group --value-col expression --overlay-swarm --title "Expression"
 
 # Histogram with 40 bins, dark theme
 visus histogram values.tsv --bins 40 --theme dark -o hist.svg
@@ -502,10 +502,10 @@ visus stacked-area abundance.tsv --x-col week --group-col species --y-col count 
 visus upset sets.tsv
 
 # Sankey flow diagram, gradient links
-visus sankey flow.tsv --source-col from --target-col to --value-col reads --gradient
+visus sankey flow.tsv --source-col from --target-col to --value-col reads --link-gradient
 
 # Synteny ribbons
-visus synteny seqs.tsv --blocks-file blocks.tsv --shared-scale
+visus synteny seqs.tsv --blocks-file blocks.tsv --proportional
 ```
 
 See [`docs/src/cli/index.md`](docs/src/cli/index.md) for the complete flag reference for every subcommand, and `examples/data/` for ready-to-use example datasets.
