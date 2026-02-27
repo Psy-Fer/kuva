@@ -78,6 +78,7 @@ pub struct ChromSpan {
 /// let plots = vec![Plot::Manhattan(mp)];
 /// let layout = Layout::auto_from_plots(&plots)
 ///     .with_title("GWAS — Base-pair Coordinates (GRCh38)")
+///     .with_x_label("Chromosome")
 ///     .with_y_label("−log₁₀(p-value)");
 ///
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));

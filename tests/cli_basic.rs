@@ -59,7 +59,10 @@ fn data(filename: &str) -> String {
 #[test]
 fn test_scatter_stdout() {
     let tsv = "x\ty\n1\t2\n3\t4\n5\t3\n";
-    let (stdout, _stderr, code) = run_with_stdin(&["scatter"], tsv);
+    let (stdout, _stderr, code) = run_with_stdin(
+        &["scatter", "--title", "Scatter Plot", "--x-label", "X", "--y-label", "Y"],
+        tsv,
+    );
     assert_eq!(code, 0, "exit code should be 0");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
 }
@@ -80,6 +83,9 @@ fn test_bar_to_file() {
         input_path.to_str().unwrap(),
         "--label-col", "label",
         "--value-col", "value",
+        "--title", "Fruit Counts",
+        "--x-label", "Fruit",
+        "--y-label", "Count",
         "-o", path_str,
     ]);
 
@@ -96,7 +102,10 @@ fn test_bar_to_file() {
 #[test]
 fn test_histogram_bins() {
     let tsv = "1.5\n2.3\n2.7\n3.2\n3.8\n3.9\n4.0\n1.5\n2.1\n3.5\n";
-    let (stdout, stderr, code) = run_with_stdin(&["histogram", "--bins", "5"], tsv);
+    let (stdout, stderr, code) = run_with_stdin(
+        &["histogram", "--bins", "5", "--title", "Value Distribution", "--x-label", "Value", "--y-label", "Count"],
+        tsv,
+    );
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.contains("<rect"), "histogram SVG should contain <rect elements for bars");
 }
@@ -106,7 +115,8 @@ fn test_histogram_bins() {
 fn test_scatter_color_by() {
     let tsv = "x\ty\tgroup\n1\t2\tA\n2\t3\tA\n3\t1\tB\n4\t4\tB\n";
     let (stdout, stderr, code) = run_with_stdin(
-        &["scatter", "--x", "x", "--y", "y", "--color-by", "group"],
+        &["scatter", "--x", "x", "--y", "y", "--color-by", "group",
+          "--title", "Groups", "--x-label", "X", "--y-label", "Y"],
         tsv,
     );
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
@@ -154,6 +164,7 @@ fn test_line_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "line", &data("measurements.tsv"),
         "--x", "time", "--y", "value", "--color-by", "group",
+        "--title", "Growth Curves", "--x-label", "Time", "--y-label", "Value",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -164,6 +175,7 @@ fn test_box_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "box", &data("samples.tsv"),
         "--group-col", "group", "--value-col", "expression",
+        "--title", "Expression by Group", "--x-label", "Group", "--y-label", "Expression",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -174,6 +186,7 @@ fn test_violin_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "violin", &data("samples.tsv"),
         "--group-col", "group", "--value-col", "expression",
+        "--title", "Expression Distribution", "--x-label", "Group", "--y-label", "Expression",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -184,6 +197,7 @@ fn test_pie_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "pie", &data("pie.tsv"),
         "--label-col", "feature", "--value-col", "percentage",
+        "--title", "Genome Composition",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -194,6 +208,7 @@ fn test_strip_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "strip", &data("samples.tsv"),
         "--group-col", "group", "--value-col", "expression",
+        "--title", "Expression Spread", "--x-label", "Group", "--y-label", "Expression",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -204,6 +219,7 @@ fn test_waterfall_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "waterfall", &data("waterfall.tsv"),
         "--label-col", "process", "--value-col", "log2fc",
+        "--title", "Log2 Fold Change", "--x-label", "Process", "--y-label", "log2FC",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -214,6 +230,7 @@ fn test_stacked_area_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "stacked-area", &data("stacked_area.tsv"),
         "--x-col", "week", "--group-col", "species", "--y-col", "abundance",
+        "--title", "Species Abundance", "--x-label", "Week", "--y-label", "Abundance",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -224,6 +241,7 @@ fn test_volcano_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "volcano", &data("volcano.tsv"),
         "--name-col", "gene", "--x-col", "log2fc", "--y-col", "pvalue",
+        "--title", "Differential Expression", "--x-label", "log2 Fold Change", "--y-label=-log10(p-value)",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -234,6 +252,7 @@ fn test_manhattan_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "manhattan", &data("gene_stats.tsv"),
         "--chr-col", "chr", "--pvalue-col", "pvalue",
+        "--title", "GWAS Results", "--x-label", "Chromosome", "--y-label=-log10(p-value)",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -246,6 +265,7 @@ fn test_candlestick_svg() {
         "--label-col", "date",
         "--open-col", "open", "--high-col", "high",
         "--low-col", "low", "--close-col", "close",
+        "--title", "Stock Price", "--x-label", "Date", "--y-label", "Price (USD)",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -253,7 +273,10 @@ fn test_candlestick_svg() {
 
 #[test]
 fn test_heatmap_svg() {
-    let (stdout, stderr, code) = run_with_file(&["heatmap", &data("heatmap.tsv")]);
+    let (stdout, stderr, code) = run_with_file(&[
+        "heatmap", &data("heatmap.tsv"),
+        "--title", "Gene Expression Heatmap", "--x-label", "Sample", "--y-label", "Gene",
+    ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
 }
@@ -262,6 +285,7 @@ fn test_heatmap_svg() {
 fn test_hist2d_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "hist2d", &data("hist2d.tsv"), "--x", "x", "--y", "y",
+        "--title", "2D Density", "--x-label", "X", "--y-label", "Y",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -271,6 +295,7 @@ fn test_hist2d_svg() {
 fn test_contour_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "contour", &data("contour.tsv"), "--x", "x", "--y", "y", "--z", "density",
+        "--title", "Density Contour", "--x-label", "X", "--y-label", "Y",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -282,6 +307,7 @@ fn test_dot_svg() {
         "dot", &data("dot.tsv"),
         "--x-col", "pathway", "--y-col", "cell_type",
         "--size-col", "pct_expressed", "--color-col", "mean_expr",
+        "--title", "Gene Expression by Cell Type", "--x-label", "Pathway", "--y-label", "Cell Type",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -289,14 +315,18 @@ fn test_dot_svg() {
 
 #[test]
 fn test_upset_svg() {
-    let (stdout, stderr, code) = run_with_file(&["upset", &data("upset.tsv")]);
+    let (stdout, stderr, code) = run_with_file(&[
+        "upset", &data("upset.tsv"), "--title", "Set Intersections",
+    ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
 }
 
 #[test]
 fn test_chord_svg() {
-    let (stdout, stderr, code) = run_with_file(&["chord", &data("chord.tsv")]);
+    let (stdout, stderr, code) = run_with_file(&[
+        "chord", &data("chord.tsv"), "--title", "Cell Type Co-occurrence",
+    ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
 }
@@ -306,6 +336,7 @@ fn test_sankey_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "sankey", &data("sankey.tsv"),
         "--source-col", "source", "--target-col", "target", "--value-col", "value",
+        "--title", "Flow Diagram",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -316,6 +347,7 @@ fn test_phylo_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "phylo", &data("phylo.tsv"),
         "--parent-col", "parent", "--child-col", "child", "--length-col", "length",
+        "--title", "Phylogenetic Tree",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -326,6 +358,7 @@ fn test_synteny_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "synteny", &data("synteny_seqs.tsv"),
         "--blocks-file", &data("synteny_blocks.tsv"),
+        "--title", "Synteny Map",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.starts_with("<svg"), "output should start with <svg");
@@ -336,7 +369,10 @@ fn test_synteny_svg() {
 #[test]
 fn test_scatter_has_circles() {
     let tsv = "x\ty\n1\t2\n3\t4\n5\t3\n";
-    let (stdout, _stderr, code) = run_with_stdin(&["scatter"], tsv);
+    let (stdout, _stderr, code) = run_with_stdin(
+        &["scatter", "--title", "Scatter", "--x-label", "X", "--y-label", "Y"],
+        tsv,
+    );
     assert_eq!(code, 0);
     assert!(stdout.contains("<circle"), "scatter SVG should contain <circle elements");
 }
@@ -346,6 +382,7 @@ fn test_line_has_path() {
     let (stdout, stderr, code) = run_with_file(&[
         "line", &data("measurements.tsv"),
         "--x", "time", "--y", "value", "--color-by", "group",
+        "--title", "Growth Curves", "--x-label", "Time", "--y-label", "Value",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.contains("<path"), "line SVG should contain <path elements");
@@ -356,6 +393,7 @@ fn test_bar_has_rects_and_labels() {
     let (stdout, stderr, code) = run_with_file(&[
         "bar", &data("bar.tsv"),
         "--label-col", "category", "--value-col", "count",
+        "--title", "Category Counts", "--x-label", "Category", "--y-label", "Count",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.contains("<rect"), "bar SVG should contain <rect elements");
@@ -364,7 +402,10 @@ fn test_bar_has_rects_and_labels() {
 
 #[test]
 fn test_heatmap_has_grid_cells() {
-    let (stdout, stderr, code) = run_with_file(&["heatmap", &data("heatmap.tsv")]);
+    let (stdout, stderr, code) = run_with_file(&[
+        "heatmap", &data("heatmap.tsv"),
+        "--title", "Expression Heatmap", "--x-label", "Sample", "--y-label", "Gene",
+    ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     let rect_count = stdout.matches("<rect").count();
     assert!(
@@ -378,6 +419,7 @@ fn test_volcano_threshold_line() {
     let (stdout, stderr, code) = run_with_file(&[
         "volcano", &data("volcano.tsv"),
         "--name-col", "gene", "--x-col", "log2fc", "--y-col", "pvalue",
+        "--title", "Differential Expression", "--x-label", "log2 Fold Change", "--y-label=-log10(p-value)",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(
@@ -391,6 +433,7 @@ fn test_manhattan_chromosome_labels() {
     let (stdout, stderr, code) = run_with_file(&[
         "manhattan", &data("gene_stats.tsv"),
         "--chr-col", "chr", "--pvalue-col", "pvalue",
+        "--title", "GWAS Results", "--x-label", "Chromosome", "--y-label=-log10(p-value)",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(
@@ -404,6 +447,7 @@ fn test_pie_has_paths_and_legend() {
     let (stdout, stderr, code) = run_with_file(&[
         "pie", &data("pie.tsv"),
         "--label-col", "feature", "--value-col", "percentage", "--legend",
+        "--title", "Genome Composition",
     ]);
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.contains("<path"), "pie SVG should contain <path elements");

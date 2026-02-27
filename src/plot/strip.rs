@@ -56,7 +56,8 @@ pub struct StripGroup {
 ///
 /// let plots = vec![Plot::Strip(strip)];
 /// let layout = Layout::auto_from_plots(&plots)
-///     .with_title("Strip Plot")
+///     .with_title("Control vs. Treatment")
+///     .with_x_label("Group")
 ///     .with_y_label("Value");
 ///
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));

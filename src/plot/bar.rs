@@ -25,6 +25,7 @@
 /// let plots = vec![Plot::Bar(plot)];
 /// let layout = Layout::auto_from_plots(&plots)
 ///     .with_title("Fruit Counts")
+///     .with_x_label("Fruit")
 ///     .with_y_label("Count");
 ///
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));

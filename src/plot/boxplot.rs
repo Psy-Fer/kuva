@@ -24,7 +24,8 @@ use crate::plot::strip::StripStyle;
 ///
 /// let plots = vec![Plot::Box(plot)];
 /// let layout = Layout::auto_from_plots(&plots)
-///     .with_title("Box Plot")
+///     .with_title("Control vs. Treated")
+///     .with_x_label("Group")
 ///     .with_y_label("Value");
 ///
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));

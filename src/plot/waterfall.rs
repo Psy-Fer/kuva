@@ -67,6 +67,7 @@ pub struct WaterfallBar {
 /// let plots = vec![Plot::Waterfall(wf)];
 /// let layout = Layout::auto_from_plots(&plots)
 ///     .with_title("Income Statement")
+///     .with_x_label("Stage")
 ///     .with_y_label("USD (thousands)");
 ///
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
