@@ -55,6 +55,32 @@ pub enum Plot {
     Synteny(SyntenyPlot),
 }
 
+impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
+impl From<LinePlot>       for Plot { fn from(p: LinePlot)       -> Self { Plot::Line(p) } }
+impl From<BarPlot>        for Plot { fn from(p: BarPlot)        -> Self { Plot::Bar(p) } }
+impl From<Histogram>      for Plot { fn from(p: Histogram)      -> Self { Plot::Histogram(p) } }
+impl From<Histogram2D>    for Plot { fn from(p: Histogram2D)    -> Self { Plot::Histogram2d(p) } }
+impl From<BoxPlot>        for Plot { fn from(p: BoxPlot)        -> Self { Plot::Box(p) } }
+impl From<ViolinPlot>     for Plot { fn from(p: ViolinPlot)     -> Self { Plot::Violin(p) } }
+impl From<SeriesPlot>     for Plot { fn from(p: SeriesPlot)     -> Self { Plot::Series(p) } }
+impl From<PiePlot>        for Plot { fn from(p: PiePlot)        -> Self { Plot::Pie(p) } }
+impl From<Heatmap>        for Plot { fn from(p: Heatmap)        -> Self { Plot::Heatmap(p) } }
+impl From<BrickPlot>      for Plot { fn from(p: BrickPlot)      -> Self { Plot::Brick(p) } }
+impl From<BandPlot>       for Plot { fn from(p: BandPlot)       -> Self { Plot::Band(p) } }
+impl From<WaterfallPlot>  for Plot { fn from(p: WaterfallPlot)  -> Self { Plot::Waterfall(p) } }
+impl From<StripPlot>      for Plot { fn from(p: StripPlot)      -> Self { Plot::Strip(p) } }
+impl From<VolcanoPlot>    for Plot { fn from(p: VolcanoPlot)    -> Self { Plot::Volcano(p) } }
+impl From<ManhattanPlot>  for Plot { fn from(p: ManhattanPlot)  -> Self { Plot::Manhattan(p) } }
+impl From<DotPlot>        for Plot { fn from(p: DotPlot)        -> Self { Plot::DotPlot(p) } }
+impl From<UpSetPlot>      for Plot { fn from(p: UpSetPlot)      -> Self { Plot::UpSet(p) } }
+impl From<StackedAreaPlot> for Plot { fn from(p: StackedAreaPlot) -> Self { Plot::StackedArea(p) } }
+impl From<CandlestickPlot> for Plot { fn from(p: CandlestickPlot) -> Self { Plot::Candlestick(p) } }
+impl From<ContourPlot>    for Plot { fn from(p: ContourPlot)    -> Self { Plot::Contour(p) } }
+impl From<ChordPlot>      for Plot { fn from(p: ChordPlot)      -> Self { Plot::Chord(p) } }
+impl From<SankeyPlot>     for Plot { fn from(p: SankeyPlot)     -> Self { Plot::Sankey(p) } }
+impl From<PhyloTree>      for Plot { fn from(p: PhyloTree)      -> Self { Plot::PhyloTree(p) } }
+impl From<SyntenyPlot>    for Plot { fn from(p: SyntenyPlot)    -> Self { Plot::Synteny(p) } }
+
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
     where
         I: IntoIterator,
