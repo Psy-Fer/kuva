@@ -107,7 +107,7 @@ Blocks do not need to connect adjacent sequences — a block between sequences 0
 
 ## Custom colors & legend
 
-Set bar colors with `.with_sequence_colors()`. Override the ribbon color of individual blocks with `.with_colored_block()` or `.with_colored_inv_block()`. Call `.with_legend(title)` to add one legend entry per sequence.
+Set bar colors with `.with_sequence_colors()`. Override the ribbon color of individual blocks with `.with_colored_block()` or `.with_colored_inv_block()`. Call `.with_legend("")` to enable the legend; each sequence gets an entry labeled with its name.
 
 ```rust,no_run
 use kuva::plot::synteny::SyntenyPlot;
@@ -193,7 +193,7 @@ let plot = SyntenyPlot::new()
 | `.with_bar_height(px)` | Sequence bar height in pixels (default `18.0`) |
 | `.with_opacity(f)` | Ribbon fill opacity `0.0`–`1.0` (default `0.65`) |
 | `.with_shared_scale()` | Use a common ruler — bar width proportional to sequence length |
-| `.with_legend(title)` | Add one legend entry per sequence |
+| `.with_legend("")` | Enable the legend; one entry per sequence, labeled with the sequence name |
 
 ### `Strand` variants
 

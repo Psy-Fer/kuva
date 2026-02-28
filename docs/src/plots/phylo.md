@@ -101,7 +101,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ## Clade coloring
 
-`.with_clade_color(node_id, color)` colors the entire subtree rooted at `node_id`. Call `.with_legend(title)` to add a legend entry for each colored clade.
+`.with_clade_color(node_id, color)` colors the entire subtree rooted at `node_id`. Call `.with_legend("")` to enable the legend; each colored clade gets an entry labeled with its node's name (or `"Node N"` for unnamed internal nodes).
 
 When building a tree with `from_edges()`, node IDs are assigned in order of first appearance across all `(parent, child, length)` tuples — the first unique label encountered becomes node 0, the second node 1, and so on.
 
@@ -266,7 +266,7 @@ let heatmap = Heatmap::new()
 | `.with_leaf_color(s)` | Text color for leaf labels (default `"black"`) |
 | `.with_support_threshold(t)` | Show support values ≥ `t` at internal nodes |
 | `.with_clade_color(node_id, color)` | Color the entire subtree rooted at `node_id` |
-| `.with_legend(title)` | Add one legend entry per clade color |
+| `.with_legend("")` | Enable the clade legend; one entry per colored clade, labeled with the node name |
 
 ### Helper
 

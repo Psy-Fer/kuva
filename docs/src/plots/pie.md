@@ -121,7 +121,7 @@ let pie = PiePlot::new()
 
 ## Legend
 
-`.with_legend(label)` adds a per-slice legend in the right margin. Each slice gets an entry (colored square + slice label). Use `render_multiple` instead of `render_pie` so the legend is rendered.
+`.with_legend("")` enables a per-slice legend in the right margin. Each slice gets an entry (colored square + slice label); the slice labels come from `.with_slice()`, not from the string passed to `.with_legend()`. Use `render_multiple` instead of `render_pie` so the legend is rendered.
 
 Combine with `PieLabelPosition::None` to use the legend as the sole means of identification.
 
@@ -162,4 +162,4 @@ std::fs::write("pie_legend.svg", svg).unwrap();
 | `.with_percent()` | Append percentage to each slice label |
 | `.with_label_position(pos)` | Label placement: `Auto`, `Inside`, `Outside`, `None` (default `Auto`) |
 | `.with_min_label_fraction(f)` | Minimum slice fraction to receive a label (default `0.05`) |
-| `.with_legend(s)` | Add a per-slice legend; use `render_multiple` to render it |
+| `.with_legend("")` | Enable the per-slice legend; entry labels are the slice names from `.with_slice()`. Use `render_multiple` to render it |

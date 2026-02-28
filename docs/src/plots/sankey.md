@@ -41,7 +41,7 @@ Node heights are proportional to the larger of incoming and outgoing flow at eac
 
 ## Node colors & legend
 
-Set per-node fill colors with `.with_node_color(label, color)`. Call `.with_legend(title)` to add a color-coded legend entry for every node.
+Set per-node fill colors with `.with_node_color(label, color)`. Call `.with_legend("")` to enable the legend; each node's name becomes an entry label automatically.
 
 ```rust,no_run
 use kuva::plot::SankeyPlot;
@@ -227,7 +227,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_gradient_links()` | Ribbons fade from source to target color |
 | `.with_per_link_colors()` | Use per-link color set by `.with_link_colored()` |
 | `.with_link_opacity(f)` | Ribbon fill opacity `0.0`–`1.0` (default `0.5`) |
-| `.with_legend(title)` | Add one legend entry per node |
+| `.with_legend("")` | Enable the legend; one entry per node, labeled with the node name |
 
 ### `SankeyLinkColor` variants
 
