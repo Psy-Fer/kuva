@@ -44,6 +44,7 @@
 pub mod plot;
 pub mod backend;
 pub mod render;
+pub mod prelude;
 
 pub use backend::terminal::TerminalBackend;
 
