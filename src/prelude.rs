@@ -104,6 +104,15 @@ pub use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion
 // ── Date / time axes ─────────────────────────────────────────────────────────
 pub use crate::render::datetime::{DateTimeAxis, DateUnit, ymd, ymd_hms};
 
+// ── One-shot render helpers ───────────────────────────────────────────────────
+pub use crate::render_to_svg;
+
+#[cfg(feature = "png")]
+pub use crate::render_to_png;
+
+#[cfg(feature = "pdf")]
+pub use crate::render_to_pdf;
+
 // ── Backends ─────────────────────────────────────────────────────────────────
 pub use crate::backend::svg::SvgBackend;
 pub use crate::backend::terminal::TerminalBackend;
