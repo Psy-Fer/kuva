@@ -2,6 +2,7 @@
 
 [Introduction](./introduction.md)
 [Gallery](./gallery.md)
+[Origins](./origins.md)
 
 # Plot Types
 
