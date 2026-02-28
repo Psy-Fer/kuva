@@ -1,5 +1,5 @@
 """
-Generate all example TSV data files for the visus plotting library.
+Generate all example TSV data files for the kuva plotting library.
 All files written to the same directory as this script.
 """
 
