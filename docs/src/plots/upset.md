@@ -155,3 +155,9 @@ Non-participating dots are always shown in light gray (`#dddddd`) for contrast.
 | `.without_set_sizes()` | Hide the left set-size bar panel |
 | `.with_bar_color(s)` | Intersection and set-size bar color (default `"#333333"`) |
 | `.with_dot_color(s)` | Filled dot color (default `"#333333"`) |
+
+---
+
+## Terminal output
+
+UpSet plots are not yet supported in terminal mode. Running `visus upset --terminal` prints a message to stderr and exits cleanly; use `-o file.svg` to generate an SVG instead.

@@ -29,6 +29,11 @@ pub struct UpSetArgs {
 }
 
 pub fn run(args: UpSetArgs) -> Result<(), String> {
+    if args.base.terminal {
+        eprintln!("UpSet plots are not yet supported in terminal mode.");
+        return Ok(());
+    }
+
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

@@ -61,9 +61,10 @@ Initial release of visus.
 - `--log-x` / `--log-y` on applicable subcommands
 - PNG and PDF output when built with the corresponding feature flags
 - Hidden `visus man` subcommand generates a `man(1)` page via `clap_mangen`
+- `--terminal` flag renders plots directly in the terminal using Unicode braille (U+2800–U+28FF), full-block (`█`) fills, and ANSI 24-bit colour; ideal for HPC and remote-server workflows with no display; auto-detects terminal dimensions, overrideable with `--term-width` / `--term-height`; supported by all subcommands except `upset`
 
 ### Known limitations
 
 - `visus brick` CLI subcommand is not yet implemented (pending integration with bladerunner)
-- Terminal rendering (`--terminal` flag, braille/block output) is not yet implemented
+- Terminal rendering is not yet supported for `upset` (the command prints a message and exits cleanly; use `-o file.svg` instead)
 - No Python or other language bindings

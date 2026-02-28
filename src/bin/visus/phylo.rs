@@ -40,6 +40,10 @@ pub struct PhyloArgs {
     #[arg(long)]
     pub phylogram: bool,
 
+    /// Branch line color (CSS color string, e.g. "white", "#aaaaaa").
+    #[arg(long)]
+    pub branch_color: Option<String>,
+
     /// Show a legend with this label.
     #[arg(long)]
     pub legend: Option<String>,
@@ -97,6 +101,9 @@ pub fn run(args: PhyloArgs) -> Result<(), String> {
 
     tree = tree.with_orientation(orientation).with_branch_style(branch_style);
 
+    if let Some(ref color) = args.branch_color {
+        tree = tree.with_branch_color(color.clone());
+    }
     if args.phylogram {
         tree = tree.with_phylogram();
     }

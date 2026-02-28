@@ -270,6 +270,57 @@ impl Canvas {
         }
     }
 
+    // ── Scanline polygon fill ────────────────────────────────────────────────
+
+    /// Scanline-fill a closed polygon in the braille dot grid.
+    /// `pts` is a list of scene-space (x, y) coordinates forming the polygon
+    /// boundary.  Uses an even-odd fill rule: for each braille row, compute
+    /// x-intersections with every edge, sort them, and fill between each pair.
+    fn fill_braille_polygon(&mut self, pts: &[(f64, f64)], rgb: (u8, u8, u8)) {
+        if pts.len() < 3 {
+            return;
+        }
+        let bw = (self.cols * 2) as isize;
+        let bh = (self.rows * 4) as isize;
+
+        // Convert to braille coordinates once.
+        let bpts: Vec<(f64, f64)> = pts
+            .iter()
+            .map(|&(sx, sy)| (self.to_bx(sx) as f64, self.to_by(sy) as f64))
+            .collect();
+
+        let by_min = bpts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min)
+            .max(0.0) as isize;
+        let by_max = bpts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max)
+            .min((bh - 1) as f64) as isize;
+
+        let n = bpts.len();
+        for by in by_min..=by_max {
+            // Sample at row midpoint to avoid vertex-touching ambiguity.
+            let sy = by as f64 + 0.5;
+            let mut xs: Vec<f64> = Vec::new();
+            for i in 0..n {
+                let p0 = bpts[i];
+                let p1 = bpts[(i + 1) % n];
+                let (y0, y1) = (p0.1, p1.1);
+                if (y0 < sy && y1 >= sy) || (y1 < sy && y0 >= sy) {
+                    let t = (sy - y0) / (y1 - y0);
+                    xs.push(p0.0 + t * (p1.0 - p0.0));
+                }
+            }
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let mut i = 0;
+            while i + 1 < xs.len() {
+                let x0 = (xs[i] as isize).max(0);
+                let x1 = (xs[i + 1] as isize).min(bw - 1);
+                for bx in x0..=x1 {
+                    self.set_dot(bx, by, rgb);
+                }
+                i += 2;
+            }
+        }
+    }
+
     // ── Cubic Bézier tessellation ────────────────────────────────────────────
 
     fn tessellate_cubic(
@@ -292,6 +343,90 @@ impl Canvas {
                     + 3.0 * mt * t * t * p2.1
                     + t * t * t * p3.1;
                 (x, y)
+            })
+            .collect()
+    }
+
+    /// Tessellate an SVG arc into a polyline using the endpoint-to-center parameterization.
+    /// All coordinates are in scene space (translation already applied by the caller).
+    fn tessellate_arc(
+        (x1, y1): (f64, f64),
+        (rx_in, ry_in): (f64, f64),
+        x_rot_deg: f64,
+        large_arc: bool,
+        sweep: bool,
+        (x2, y2): (f64, f64),
+    ) -> Vec<(f64, f64)> {
+        // Degenerate cases: same point or zero radius → straight line
+        if (x1 - x2).abs() < 1e-10 && (y1 - y2).abs() < 1e-10 {
+            return vec![(x1, y1), (x2, y2)];
+        }
+        if rx_in.abs() < 1e-10 || ry_in.abs() < 1e-10 {
+            return vec![(x1, y1), (x2, y2)];
+        }
+
+        let phi = x_rot_deg.to_radians();
+        let cos_phi = phi.cos();
+        let sin_phi = phi.sin();
+
+        // Step 1: midpoint in rotated frame
+        let dx = (x1 - x2) / 2.0;
+        let dy = (y1 - y2) / 2.0;
+        let x1p =  cos_phi * dx + sin_phi * dy;
+        let y1p = -sin_phi * dx + cos_phi * dy;
+
+        // Step 2: ensure radii are large enough
+        let mut rx = rx_in.abs();
+        let mut ry = ry_in.abs();
+        let lambda = (x1p / rx).powi(2) + (y1p / ry).powi(2);
+        if lambda > 1.0 {
+            let s = lambda.sqrt();
+            rx *= s;
+            ry *= s;
+        }
+
+        // Step 3: center in rotated frame
+        let num = (rx * rx * ry * ry) - (rx * rx * y1p * y1p) - (ry * ry * x1p * x1p);
+        let den = (rx * rx * y1p * y1p) + (ry * ry * x1p * x1p);
+        let sq = if den < 1e-10 { 0.0 } else { (num / den).max(0.0).sqrt() };
+        let sq = if large_arc == sweep { -sq } else { sq };
+        let cxp =  sq * rx * y1p / ry;
+        let cyp = -sq * ry * x1p / rx;
+
+        // Step 4: center in scene space
+        let cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2.0;
+        let cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2.0;
+
+        // Step 5: start angle and angular span
+        fn angle(ux: f64, uy: f64, vx: f64, vy: f64) -> f64 {
+            let n = ((ux * ux + uy * uy) * (vx * vx + vy * vy)).sqrt();
+            let c = ((ux * vx + uy * vy) / n).clamp(-1.0, 1.0);
+            let a = c.acos();
+            if ux * vy - uy * vx < 0.0 { -a } else { a }
+        }
+
+        let ux = (x1p - cxp) / rx;
+        let uy = (y1p - cyp) / ry;
+        let vx = (-x1p - cxp) / rx;
+        let vy = (-y1p - cyp) / ry;
+
+        let theta1 = angle(1.0, 0.0, ux, uy);
+        let mut d_theta = angle(ux, uy, vx, vy);
+        if !sweep && d_theta > 0.0 {
+            d_theta -= std::f64::consts::TAU;
+        } else if sweep && d_theta < 0.0 {
+            d_theta += std::f64::consts::TAU;
+        }
+
+        // Tessellate: ~1 segment per 5° is more than enough for braille resolution
+        let n_segs = ((d_theta.abs() / (5.0_f64.to_radians())).ceil() as usize).max(2);
+        (0..=n_segs)
+            .map(|i| {
+                let t = i as f64 / n_segs as f64;
+                let theta = theta1 + t * d_theta;
+                let xr = cos_phi * rx * theta.cos() - sin_phi * ry * theta.sin() + cx;
+                let yr = sin_phi * rx * theta.cos() + cos_phi * ry * theta.sin() + cy;
+                (xr, yr)
             })
             .collect()
     }
@@ -350,20 +485,81 @@ impl Canvas {
             }
 
             Primitive::Path { d, stroke, fill, .. } => {
-                let rgb = if stroke != "none" {
-                    css_to_rgb(stroke)
-                } else if let Some(f) = fill {
-                    if f == "none" {
-                        return;
-                    }
-                    css_to_rgb(f)
+                let has_stroke = stroke != "none";
+                let fill_str = fill.as_deref().unwrap_or("none");
+                // SVG gradient references (url(#...)) can't be resolved in the
+                // terminal; treat them as a neutral grey.
+                let fill_rgb = if fill_str == "none" || fill_str.is_empty() {
+                    None
+                } else if fill_str.starts_with("url(") {
+                    Some((110u8, 110u8, 110u8))
                 } else {
-                    return;
+                    Some(css_to_rgb(fill_str))
                 };
-                let cmds = parse_path(d);
+                let has_fill = fill_rgb.is_some();
+
+                if !has_stroke && !has_fill {
+                    return;
+                }
+
+                // Fill-only paths (Sankey bands, chord ribbons, pie slices, etc.)
+                // are scanline-filled in the braille dot grid, giving them a solid
+                // shaded interior rather than just their outline edges.
+                if has_fill && !has_stroke {
+                    let rgb = fill_rgb.unwrap();
+                    let mut poly: Vec<(f64, f64)> = Vec::new();
+                    let mut cur = (tx, ty);
+                    let mut start = cur;
+                    for cmd in parse_path(d) {
+                        match cmd {
+                            PathCmd::MoveTo(x, y) => {
+                                if poly.len() >= 3 {
+                                    self.fill_braille_polygon(&poly, rgb);
+                                    poly.clear();
+                                }
+                                cur = (x + tx, y + ty);
+                                start = cur;
+                                poly.push(cur);
+                            }
+                            PathCmd::LineTo(x, y) => {
+                                cur = (x + tx, y + ty);
+                                poly.push(cur);
+                            }
+                            PathCmd::CubicTo(x1, y1, x2, y2, x, y) => {
+                                let p1 = (x1 + tx, y1 + ty);
+                                let p2 = (x2 + tx, y2 + ty);
+                                let p3 = (x + tx, y + ty);
+                                let pts = Self::tessellate_cubic(cur, p1, p2, p3);
+                                poly.extend_from_slice(&pts[1..]);
+                                cur = p3;
+                            }
+                            PathCmd::Arc { rx, ry, x_rot, large_arc, sweep, x, y } => {
+                                let end = (x + tx, y + ty);
+                                let pts = Self::tessellate_arc(cur, (rx, ry), x_rot, large_arc, sweep, end);
+                                poly.extend_from_slice(&pts[1..]);
+                                cur = end;
+                            }
+                            PathCmd::ClosePath => {
+                                poly.push(start);
+                                cur = start;
+                            }
+                        }
+                    }
+                    if poly.len() >= 3 {
+                        self.fill_braille_polygon(&poly, rgb);
+                    }
+                    return;
+                }
+
+                // Stroked paths — draw outline with Bresenham as before.
+                let rgb = if has_stroke {
+                    css_to_rgb(stroke)
+                } else {
+                    fill_rgb.unwrap()
+                };
                 let mut cur = (tx, ty);
                 let mut start = cur;
-                for cmd in cmds {
+                for cmd in parse_path(d) {
                     match cmd {
                         PathCmd::MoveTo(x, y) => {
                             cur = (x + tx, y + ty);
@@ -396,6 +592,20 @@ impl Canvas {
                             }
                             cur = (x + tx, y + ty);
                         }
+                        PathCmd::Arc { rx, ry, x_rot, large_arc, sweep, x, y } => {
+                            let end = (x + tx, y + ty);
+                            let pts = Self::tessellate_arc(cur, (rx, ry), x_rot, large_arc, sweep, end);
+                            for w in pts.windows(2) {
+                                self.bresenham(
+                                    self.to_bx(w[0].0),
+                                    self.to_by(w[0].1),
+                                    self.to_bx(w[1].0),
+                                    self.to_by(w[1].1),
+                                    rgb,
+                                );
+                            }
+                            cur = end;
+                        }
                         PathCmd::ClosePath => {
                             self.bresenham(
                                 self.to_bx(cur.0),
@@ -417,10 +627,39 @@ impl Canvas {
                 let rgb = css_to_rgb(fill);
                 let x_s = x + tx;
                 let y_s = y + ty;
-                let cx0 = self.to_cx(x_s).max(0);
-                let cy0 = self.to_cy(y_s).max(0);
-                let cx1 = self.to_cx(x_s + width).min(self.cols as isize - 1);
-                let cy1 = self.to_cy(y_s + height).min(self.rows as isize - 1);
+                let width = *width;
+                let height = *height;
+                // When a rect fits within one cell in a dimension, snap to the
+                // centre so that small swatches (e.g. legend colour boxes) always
+                // occupy exactly 1 cell and align with their text label, rather
+                // than straddling a boundary and appearing 1 or 2 cells tall/wide
+                // non-deterministically.
+                let cell_w = self.scene_width / self.cols as f64;
+                let cell_h = self.scene_height / self.rows as f64;
+                let (cx0, cx1) = if width < cell_w {
+                    let c = self.to_cx(x_s + width * 0.5)
+                        .max(0)
+                        .min(self.cols as isize - 1);
+                    (c, c)
+                } else {
+                    (
+                        self.to_cx(x_s).max(0),
+                        self.to_cx(x_s + width).min(self.cols as isize - 1),
+                    )
+                };
+                // Also snap when height is small in absolute SVG pixels (≤16 px
+                // covers legend swatches at 12 px regardless of terminal size).
+                let (cy0, cy1) = if height < cell_h.max(16.0) {
+                    let r = self.to_cy(y_s + height * 0.5)
+                        .max(0)
+                        .min(self.rows as isize - 1);
+                    (r, r)
+                } else {
+                    (
+                        self.to_cy(y_s).max(0),
+                        self.to_cy(y_s + height).min(self.rows as isize - 1),
+                    )
+                };
                 for col in cx0..=cx1 {
                     for row in cy0..=cy1 {
                         self.set_char(col, row, '█', rgb);
@@ -428,21 +667,62 @@ impl Canvas {
                 }
             }
 
-            Primitive::Text { x, y, content, anchor, .. } => {
+            Primitive::Text { x, y, content, anchor, rotate, .. } => {
                 let rgb = self.text_color;
                 let x_s = x + tx;
                 let y_s = y + ty;
-                let col = self.to_cx(x_s);
                 let row = self.to_cy(y_s);
                 let chars: Vec<char> = content.chars().collect();
                 let len = chars.len() as isize;
-                let start_col = match anchor {
-                    TextAnchor::Start  => col,
-                    TextAnchor::Middle => col - len / 2,
-                    TextAnchor::End    => col - len,
-                };
-                for (i, ch) in chars.iter().enumerate() {
-                    self.set_char(start_col + i as isize, row, *ch, rgb);
+
+                let angle = rotate.unwrap_or(0.0);
+                let abs_angle = angle.abs() % 180.0;
+
+                if abs_angle > 45.0 && abs_angle < 135.0 {
+                    // ~90°: sideways (y-axis label). Cannot rotate in terminal —
+                    // pin to the left edge so the full string is visible.
+                    for (i, ch) in chars.iter().enumerate() {
+                        self.set_char(i as isize, row, *ch, rgb);
+                    }
+                } else {
+                    let col = self.to_cx(x_s);
+                    if abs_angle >= 15.0 {
+                        // Rotated tick labels (e.g. -45° category / chromosome names).
+                        // Left-justified: first character at the tick column so it's
+                        // clear which bar/column the label belongs to.  Step down one
+                        // row at a time when the target row is occupied, guaranteeing
+                        // labels stack cleanly with ≥1 space gap between neighbours.
+                        let start_col = col;
+                        let mut draw_row = row;
+                        while (draw_row as usize) < self.rows {
+                            // Check [start_col-1 .. start_col+len]: the cell before
+                            // and after are included so adjacent labels always have
+                            // at least one blank column between them.
+                            let collides = (0..len + 2).any(|i| {
+                                let c = start_col - 1 + i;
+                                c >= 0 && (c as usize) < self.cols
+                                    && self.char_grid[draw_row as usize][c as usize].is_some()
+                            });
+                            if !collides { break; }
+                            draw_row += 1;
+                        }
+                        for (i, ch) in chars.iter().enumerate() {
+                            self.set_char(start_col + i as isize, draw_row, *ch, rgb);
+                        }
+                    } else {
+                        // Unrotated text (legend labels, tick values, titles, axis
+                        // labels).  Place directly at the computed position — no
+                        // collision stacking.  The swatch █ immediately to the left
+                        // of a legend label must not be treated as a collision.
+                        let start_col = match anchor {
+                            TextAnchor::Start  => col,
+                            TextAnchor::Middle => col - len / 2,
+                            TextAnchor::End    => col - len,
+                        };
+                        for (i, ch) in chars.iter().enumerate() {
+                            self.set_char(start_col + i as isize, row, *ch, rgb);
+                        }
+                    }
                 }
             }
 
@@ -518,6 +798,8 @@ enum PathCmd {
     MoveTo(f64, f64),
     LineTo(f64, f64),
     CubicTo(f64, f64, f64, f64, f64, f64),
+    /// SVG arc: radii (rx,ry), x-axis rotation (deg), large-arc flag, sweep flag, endpoint (x,y).
+    Arc { rx: f64, ry: f64, x_rot: f64, large_arc: bool, sweep: bool, x: f64, y: f64 },
     ClosePath,
 }
 
@@ -708,12 +990,28 @@ fn parse_path(d: &str) -> Vec<PathCmd> {
                 cur_x = start_x; cur_y = start_y;
                 true
             }
-            'A' | 'a' => {
-                // Arc: skip 7 parameters per segment.
-                let mut n = 0;
-                while ts.is_at_num() && n < 7 { ts.next_num(); n += 1; }
-                n > 0
-            }
+            'A' => match (
+                ts.next_num(), ts.next_num(), ts.next_num(),
+                ts.next_num(), ts.next_num(), ts.next_num(), ts.next_num(),
+            ) {
+                (Some(rx), Some(ry), Some(x_rot), Some(la), Some(sw), Some(x), Some(y)) => {
+                    cmds.push(PathCmd::Arc { rx, ry, x_rot, large_arc: la != 0.0, sweep: sw != 0.0, x, y });
+                    cur_x = x; cur_y = y;
+                    true
+                }
+                _ => false,
+            },
+            'a' => match (
+                ts.next_num(), ts.next_num(), ts.next_num(),
+                ts.next_num(), ts.next_num(), ts.next_num(), ts.next_num(),
+            ) {
+                (Some(rx), Some(ry), Some(x_rot), Some(la), Some(sw), Some(dx), Some(dy)) => {
+                    cur_x += dx; cur_y += dy;
+                    cmds.push(PathCmd::Arc { rx, ry, x_rot, large_arc: la != 0.0, sweep: sw != 0.0, x: cur_x, y: cur_y });
+                    true
+                }
+                _ => false,
+            },
             'S' | 's' | 'Q' | 'q' => {
                 let mut n = 0;
                 while ts.is_at_num() && n < 4 { ts.next_num(); n += 1; }

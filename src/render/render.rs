@@ -1424,7 +1424,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
 
     let legend_width = computed.legend_width;
     let legend_padding = 10.0;
-    let line_height = 18.0;
+    let line_height = computed.legend_line_height;
     let legend_height = legend.entries.len() as f64 * line_height + legend_padding * 2.0;
 
     let (legend_x, mut legend_y) = match computed.legend_position {
@@ -1481,7 +1481,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         match entry.shape {
             LegendShape::Rect => scene.add(Primitive::Rect {
                 x: legend_x + 5.0,
-                y: legend_y - 5.0,
+                y: legend_y - 1.0,
                 width: 12.0,
                 height: 12.0,
                 fill: entry.color.clone(),
@@ -2259,7 +2259,7 @@ fn add_dot_stacked_legends(
     let theme = &computed.theme;
     let legend_x = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
     let legend_width = computed.legend_width;
-    let line_height = 18.0;
+    let line_height = computed.legend_line_height;
     let legend_padding = 10.0;
 
     // --- Size legend (top) ---
@@ -2759,7 +2759,7 @@ pub fn render_legend_at(entries: &[LegendEntry], scene: &mut Scene, x: f64, y: f
         match entry.shape {
             LegendShape::Rect => scene.add(Primitive::Rect {
                 x: x + 5.0,
-                y: legend_y - 5.0,
+                y: legend_y - 1.0,
                 width: 12.0,
                 height: 12.0,
                 fill: entry.color.clone(),
@@ -4568,9 +4568,9 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
                 }
                 _ => match tree.orientation {
                     TreeOrientation::Left =>
-                        (px[leaf] + 6.0, py[leaf] + 4.0, TextAnchor::Start, None),
+                        (px[leaf] + 6.0, py[leaf], TextAnchor::Start, None),
                     TreeOrientation::Right =>
-                        (px[leaf] - 6.0, py[leaf] + 4.0, TextAnchor::End, None),
+                        (px[leaf] - 6.0, py[leaf], TextAnchor::End, None),
                     TreeOrientation::Top =>
                         (px[leaf] + 4.0, py[leaf] + 14.0, TextAnchor::Start, Some(90.0)),
                     TreeOrientation::Bottom =>

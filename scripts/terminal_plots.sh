@@ -2,8 +2,13 @@
 # Render all CLI plot types to the terminal for visual inspection.
 #
 # Usage:
-#   bash scripts/terminal_plots.sh                      # uses debug build via cargo run
-#   bash scripts/terminal_plots.sh ./target/release/visus  # uses a pre-built binary
+#   bash scripts/terminal_plots.sh                              # debug build, auto-detect size
+#   bash scripts/terminal_plots.sh ./target/release/visus       # release build, auto-detect size
+#   bash scripts/terminal_plots.sh - 120 40                     # debug build, fixed 120×40
+#   bash scripts/terminal_plots.sh ./target/release/visus 80 24 # release build, fixed 80×24
+#
+# Pass '-' as the binary to use cargo run.
+# Width and height default to the current terminal size when omitted.
 
 set -euo pipefail
 
@@ -12,18 +17,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA="$REPO_ROOT/examples/data"
 
 # ── Binary selection ──────────────────────────────────────────────────────────
-if [[ $# -ge 1 ]]; then
-    VISUS="$1"
-    run() { "$VISUS" "$@"; }
-else
-    # cargo run must be invoked from repo root
+BIN="${1:--}"
+if [[ "$BIN" == "-" ]]; then
     cd "$REPO_ROOT"
     run() { cargo run --quiet --bin visus --features cli -- "$@"; }
+else
+    run() { "$BIN" "$@"; }
 fi
 
 # ── Terminal dimensions ───────────────────────────────────────────────────────
-COLS=$(tput cols  2>/dev/null || echo 100)
-ROWS=$(tput lines 2>/dev/null || echo 30)
+COLS="${2:-$(tput cols  2>/dev/null || echo 100)}"
+ROWS="${3:-$(tput lines 2>/dev/null || echo 30)}"
 PLOT_ROWS=$(( ROWS > 8 ? ROWS - 5 : 10 ))
 
 W="--term-width $COLS"
@@ -156,7 +160,7 @@ run sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-co
 # ── phylo ────────────────────────────────────────────────────────────────────
 header "phylo"
 run phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col length \
-    --title "Phylogenetic Tree" \
+    --title "Phylogenetic Tree" --branch-color white \
     --terminal $W $H
 
 # ── synteny ───────────────────────────────────────────────────────────────────

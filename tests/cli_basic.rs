@@ -454,7 +454,141 @@ fn test_pie_has_paths_and_legend() {
     assert!(stdout.contains("Intron"), "pie SVG should contain legend entry 'Intron'");
 }
 
-// ─── Tier 3: Error-path tests ─────────────────────────────────────────────────
+// ─── Tier 3: Terminal output tests ───────────────────────────────────────────
+//
+// All tests pass --term-width and --term-height explicitly so the running
+// terminal's dimensions never influence the output.
+
+fn is_terminal_output(s: &str) -> bool {
+    // Terminal output contains ANSI escape sequences; it must NOT look like SVG.
+    !s.trim_start().starts_with("<svg")
+        && !s.is_empty()
+}
+
+#[test]
+fn test_scatter_terminal() {
+    let tsv = "x\ty\n1\t2\n3\t4\n5\t3\n2\t5\n4\t1\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &["scatter", "--terminal", "--term-width", "80", "--term-height", "24",
+          "--x-label", "X", "--y-label", "Y"],
+        tsv,
+    );
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+    assert!(
+        stdout.chars().any(|c| ('\u{2800}'..='\u{28FF}').contains(&c)),
+        "scatter terminal output should contain braille dots"
+    );
+}
+
+#[test]
+fn test_bar_terminal() {
+    let tsv = "label\tvalue\nA\t10\nB\t20\nC\t15\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &["bar", "--label-col", "label", "--value-col", "value",
+          "--terminal", "--term-width", "80", "--term-height", "24"],
+        tsv,
+    );
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+    assert!(stdout.contains('█'), "bar terminal output should contain block characters");
+}
+
+#[test]
+fn test_histogram_terminal() {
+    let tsv = "1.5\n2.3\n2.7\n3.2\n3.8\n3.9\n4.0\n1.5\n2.1\n3.5\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &["histogram", "--bins", "5",
+          "--terminal", "--term-width", "80", "--term-height", "24"],
+        tsv,
+    );
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+    assert!(stdout.contains('█'), "histogram terminal output should contain block characters");
+}
+
+#[test]
+fn test_line_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "line", &data("measurements.tsv"),
+        "--x", "time", "--y", "value", "--color-by", "group",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+}
+
+#[test]
+fn test_pie_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "pie", &data("pie.tsv"),
+        "--label-col", "feature", "--value-col", "percentage",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+    assert!(
+        stdout.chars().any(|c| ('\u{2800}'..='\u{28FF}').contains(&c)),
+        "pie terminal output should contain braille arcs"
+    );
+}
+
+#[test]
+fn test_box_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "box", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+}
+
+#[test]
+fn test_violin_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "violin", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+}
+
+#[test]
+fn test_volcano_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "volcano", &data("volcano.tsv"),
+        "--name-col", "gene", "--x-col", "log2fc", "--y-col", "pvalue",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+}
+
+#[test]
+fn test_heatmap_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "heatmap", &data("heatmap.tsv"),
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+    assert!(stdout.contains('█'), "heatmap terminal output should contain block characters");
+}
+
+#[test]
+fn test_strip_terminal() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "strip", &data("samples.tsv"),
+        "--group-col", "group", "--value-col", "expression",
+        "--terminal", "--term-width", "80", "--term-height", "24",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(is_terminal_output(&stdout), "expected terminal output, not SVG");
+}
+
+// ─── Tier 4: Error-path tests ─────────────────────────────────────────────────
 
 #[test]
 fn test_bad_column_name() {

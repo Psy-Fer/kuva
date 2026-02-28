@@ -20,6 +20,7 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 - **Color palettes** — named colorblind-safe palettes (Wong, Tol, IBM) and general-purpose palettes (Category10, Pastel, Bold), with auto-cycling via `Layout::with_palette()`
 - **Themes** — light (default), dark, minimal, and solarized themes
 - **Tick formatting** — `TickFormat` enum for per-axis label control: smart auto, fixed decimals, integer, scientific notation, percentages, or fully custom
+- **Terminal output** — `--terminal` renders any plot directly in the terminal using Unicode braille, block characters, and ANSI colour; ideal for HPC and remote-server workflows with no display
 
 ## Plot Types
 
@@ -473,6 +474,12 @@ Output defaults to SVG on stdout; use `-o file.svg/png/pdf` to write a file. PNG
 ```bash
 # Scatter plot from a TSV, SVG to stdout
 cat data.tsv | visus scatter | display
+
+# Render directly in the terminal — no file, no display
+visus scatter data.tsv --x x --y y --terminal
+
+# With explicit terminal dimensions
+visus manhattan gwas.tsv --chr-col chr --pvalue-col pvalue --terminal --term-width 120 --term-height 40
 
 # Colour by a group column, write PNG
 visus scatter data.tsv --x-col time --y-col expression --color-by condition -o plot.png

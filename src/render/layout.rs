@@ -145,6 +145,10 @@ pub struct Layout {
     /// exactly on bar edges.  `None` when no histograms are present or when
     /// multiple overlapping histograms have differing bin widths.
     pub x_bin_width: Option<f64>,
+    /// Number of character rows in the terminal target.  When set, legend
+    /// `line_height` is quantised to an integer multiple of the cell height so
+    /// that every legend entry lands on its own terminal row with no gaps.
+    pub term_rows: Option<u32>,
 }
 
 impl Layout {
@@ -195,6 +199,7 @@ impl Layout {
             clamp_axis: false,
             clamp_y_axis: false,
             x_bin_width: None,
+            term_rows: None,
         }
     }
 
@@ -765,6 +770,11 @@ impl Layout {
         self
     }
 
+    pub fn with_term_rows(mut self, rows: u32) -> Self {
+        self.term_rows = Some(rows);
+        self
+    }
+
     /// Convenience: auto-range both axes from separate plot lists.
     pub fn auto_from_twin_y_plots(primary: &[Plot], secondary: &[Plot]) -> Self {
         Layout::auto_from_plots(primary).with_y2_auto(secondary)
@@ -804,6 +814,9 @@ pub struct ComputedLayout {
     pub y2_axis_width: f64,
     /// Rotation angle for x-axis tick labels (degrees, typically -45.0). None = no rotation.
     pub x_tick_rotate: Option<f64>,
+    /// Pixel spacing between legend entries, quantised to a whole terminal-row
+    /// multiple when `term_rows` is set.  Always >= 18.0 (the SVG default).
+    pub legend_line_height: f64,
 }
 
 impl ComputedLayout {
@@ -914,6 +927,16 @@ impl ComputedLayout {
             None
         };
 
+        // Quantise legend line-height to a whole number of terminal rows so that
+        // every legend entry maps to a distinct row without gaps.
+        let legend_line_height = if let Some(tr) = layout.term_rows {
+            let cell_h = height / tr as f64;
+            let rows_per_entry = (18.0_f64 / cell_h).round().max(1.0);
+            rows_per_entry * cell_h
+        } else {
+            18.0
+        };
+
         Self {
             width,
             height,
@@ -942,6 +965,7 @@ impl ComputedLayout {
             y2_tick_format: layout.y2_tick_format.clone(),
             y2_axis_width,
             x_tick_rotate: layout.x_tick_rotate,
+            legend_line_height,
         }
     }
 

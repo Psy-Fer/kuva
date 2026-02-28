@@ -129,6 +129,11 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     // the theme's value, so this must come last).
     if args.terminal {
         layout = layout.with_show_grid(false);
+        let rows = args.term_height
+            .map(|h| h as u32)
+            .or_else(|| std::env::var("LINES").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(24u32);
+        layout = layout.with_term_rows(rows);
     }
     if let Some(ref name) = args.palette {
         if let Some(pal) = palette_from_name(name) {

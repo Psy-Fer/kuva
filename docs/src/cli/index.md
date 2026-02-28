@@ -80,7 +80,7 @@ These flags are available on every subcommand.
 
 | Flag | Default | Description |
 |---|---|---|
-| `-o`, `--output <FILE>` | stdout (SVG) | Output file path |
+| `-o`, `--output <FILE>` | stdout (SVG) | Output file path (mutually exclusive with `--terminal`) |
 | `--title <TEXT>` | — | Title displayed above the chart |
 | `--width <PX>` | `800` | Canvas width in pixels |
 | `--height <PX>` | `500` | Canvas height in pixels |
@@ -88,6 +88,29 @@ These flags are available on every subcommand.
 | `--palette <NAME>` | `category10` | Color palette for multi-series plots |
 | `--cvd-palette <NAME>` | — | Colour-vision-deficiency palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
 | `--background <COLOR>` | *(theme default)* | SVG background color (any CSS color string) |
+
+### Terminal output
+
+| Flag | Default | Description |
+|---|---|---|
+| `--terminal` | off | Render directly in the terminal using Unicode braille and block characters; mutually exclusive with `-o` |
+| `--term-width <N>` | *(auto)* | Terminal width in columns (overrides auto-detect) |
+| `--term-height <N>` | *(auto)* | Terminal height in rows (overrides auto-detect) |
+
+Terminal output uses Unicode braille dots (U+2800–U+28FF) for scatter points and continuous curves, full-block characters (`█`) for bar and histogram fills, and ANSI 24-bit colour. Terminal dimensions are auto-detected from the current tty; pass `--term-width` and `--term-height` to override (useful in scripts or when piping).
+
+```bash
+# Scatter plot directly in terminal
+visus scatter data.tsv --x x --y y --terminal
+
+# Explicit dimensions
+visus bar counts.tsv --label-col gene --value-col count --terminal --term-width 120 --term-height 40
+
+# Manhattan plot on a remote server
+cat gwas.tsv | visus manhattan --chr-col chr --pvalue-col pvalue --terminal
+```
+
+> **Note:** Terminal output is not yet supported for `upset`. Running `visus upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
 
 ### Axes *(most subcommands)*
 
@@ -622,6 +645,8 @@ visus upset upset.tsv
 
 visus upset upset.tsv --sort degree --max-visible 15
 ```
+
+> **Terminal output:** not yet supported. `visus upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
 
 ---
 
