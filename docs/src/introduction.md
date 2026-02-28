@@ -7,17 +7,13 @@
 The API follows a builder pattern. Every plot type is constructed with `::new()`, configured with method chaining, and rendered through a single pipeline:
 
 ```
-plot struct  →  Plot enum  →  Layout  →  Scene  →  SVG string
+plot struct  →  Plot enum  →  Layout  →  SVG / PNG / PDF
 ```
 
 ## Quick start
 
 ```rust,no_run
-use kuva::plot::scatter::ScatterPlot;
-use kuva::backend::svg::SvgBackend;
-use kuva::render::render::render_multiple;
-use kuva::render::layout::Layout;
-use kuva::render::plots::Plot;
+use kuva::prelude::*;
 
 let data = vec![(1.0_f64, 2.0_f64), (3.0, 5.0), (5.0, 4.0)];
 
@@ -26,15 +22,38 @@ let plot = ScatterPlot::new()
     .with_color("steelblue")
     .with_size(5.0);
 
-let plots = vec![Plot::Scatter(plot)];
+let plots: Vec<Plot> = vec![plot.into()];
 let layout = Layout::auto_from_plots(&plots)
     .with_title("My Plot")
     .with_x_label("X")
     .with_y_label("Y");
 
-let scene = render_multiple(plots, layout);
-let svg = SvgBackend.render_scene(&scene);
+let svg = render_to_svg(plots, layout);
 std::fs::write("my_plot.svg", svg).unwrap();
+```
+
+## Prelude
+
+`use kuva::prelude::*` brings all 25 plot structs, `Plot`, `Layout`, `Figure`, `Theme`, `Palette`, `render_to_svg`, and everything else you typically need into scope in one line.
+
+Every plot struct implements `Into<Plot>`, so you can write `plot.into()` instead of `Plot::Scatter(plot)`.
+
+For PNG or PDF output, use `render_to_png` and `render_to_pdf` (require feature flags `png` and `pdf` respectively):
+
+```rust,no_run
+use kuva::prelude::*;
+
+let plots: Vec<Plot> = vec![/* ... */];
+let layout = Layout::auto_from_plots(&plots);
+
+// SVG — always available
+let svg: String = render_to_svg(plots, layout);
+
+// PNG — feature = "png"
+let png: Vec<u8> = render_to_png(plots, layout, 2.0).unwrap();
+
+// PDF — feature = "pdf"
+let pdf: Vec<u8> = render_to_pdf(plots, layout).unwrap();
 ```
 
 ## Regenerating documentation assets
