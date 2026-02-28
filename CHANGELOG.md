@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-03-01
+
+### Added
+
+- `kuva::prelude::*` — single-import module re-exporting all plot structs, `Plot`, `Layout`, `Figure`, `Theme`, `Palette`, render helpers, backends, annotations, and datetime utilities
+- `Into<Plot>` for all 25 plot structs — write `plot.into()` instead of `Plot::Scatter(plot)`
+- `render_to_svg(plots, layout) -> String` — full pipeline in one call
+- `render_to_png(plots, layout, scale) -> Result<Vec<u8>, String>` — one-call PNG output (feature `png`)
+- `render_to_pdf(plots, layout) -> Result<Vec<u8>, String>` — one-call PDF output (feature `pdf`)
+- GitHub Actions workflow to deploy the mdBook documentation to GitHub Pages on every push to `main`
+
+### Fixed
+
+- Unresolved intra-doc links (`Rect`, `Text`, `Line`) in `backend::terminal` module doc
+
+---
+
 ## [0.1.0] — 2026-02-28
 
 Initial release of kuva.
