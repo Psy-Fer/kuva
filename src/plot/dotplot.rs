@@ -45,11 +45,11 @@ pub struct DotPoint {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::DotPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::DotPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data = vec![
 ///     ("CD4 T", "CD3E", 88.0_f64, 3.8_f64),
@@ -125,7 +125,7 @@ impl DotPlot {
     /// This mode is natural for data that already comes as a list of records.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::DotPlot;
+    /// # use kuva::plot::DotPlot;
     /// let dot = DotPlot::new().with_data(vec![
     ///     ("CD4 T", "CD3E", 88.0_f64, 3.8_f64),
     ///     ("CD8 T", "CD3E", 91.0,     4.0    ),
@@ -165,7 +165,7 @@ impl DotPlot {
     /// 2-D array (e.g. output of a differential expression tool).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::DotPlot;
+    /// # use kuva::plot::DotPlot;
     /// let dot = DotPlot::new().with_matrix(
     ///     vec!["TypeA", "TypeB"],          // x categories
     ///     vec!["Gene1", "Gene2"],          // y categories
@@ -246,7 +246,7 @@ impl DotPlot {
     /// use a consistent scale (e.g. always map `0–100` % to the radius range).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::DotPlot;
+    /// # use kuva::plot::DotPlot;
     /// let dot = DotPlot::new()
     ///     .with_data(vec![("A", "G", 120.0_f64, 1.0_f64)])  // 120 will be clamped
     ///     .with_size_range(0.0, 100.0);
@@ -272,7 +272,7 @@ impl DotPlot {
     /// the two are stacked in a single right-margin column.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::DotPlot;
+    /// # use kuva::plot::DotPlot;
     /// let dot = DotPlot::new()
     ///     .with_data(vec![("A", "G", 75.0_f64, 2.5_f64)])
     ///     .with_size_legend("% Expressing");
@@ -290,7 +290,7 @@ impl DotPlot {
     /// single right-margin column.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::DotPlot;
+    /// # use kuva::plot::DotPlot;
     /// let dot = DotPlot::new()
     ///     .with_data(vec![("A", "G", 75.0_f64, 2.5_f64)])
     ///     .with_colorbar("Mean expression");

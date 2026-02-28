@@ -34,11 +34,11 @@ pub enum SeriesStyle {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::SeriesPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::SeriesPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data: Vec<f64> = (0..80)
 ///     .map(|i| (i as f64 * std::f64::consts::TAU / 80.0).sin())
@@ -99,7 +99,7 @@ impl SeriesPlot {
     /// The x position of each value is its index in the sequence (0, 1, 2, …).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::SeriesPlot;
+    /// # use kuva::plot::SeriesPlot;
     /// let data: Vec<f64> = (0..100)
     ///     .map(|i| (i as f64 / 10.0).sin())
     ///     .collect();
@@ -143,7 +143,7 @@ impl SeriesPlot {
     /// Enable a legend entry with the given label.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::SeriesPlot;
+    /// # use kuva::plot::SeriesPlot;
     /// let series = SeriesPlot::new()
     ///     .with_data(vec![1.0_f64, 2.0, 1.5])
     ///     .with_legend("sensor A");

@@ -52,11 +52,11 @@ use crate::plot::band::BandPlot;
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::scatter::ScatterPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::scatter::ScatterPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data = vec![(1.0_f64, 2.0_f64), (3.0, 5.0), (5.0, 4.0)];
 ///
@@ -122,7 +122,7 @@ impl ScatterPlot {
     /// `Into<f64>`, so integer and float types all work without casting.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::scatter::ScatterPlot;
+    /// # use kuva::plot::scatter::ScatterPlot;
     /// // integer input
     /// let plot = ScatterPlot::new()
     ///     .with_data(vec![(1_i32, 5_i32), (2, 8), (3, 6)]);
@@ -284,7 +284,7 @@ impl ScatterPlot {
     /// The band color matches the scatter series color.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::scatter::ScatterPlot;
+    /// # use kuva::plot::scatter::ScatterPlot;
     /// let data = vec![(1.0_f64, 2.0_f64), (2.0, 4.0), (3.0, 6.0)];
     /// let lower = vec![1.5_f64, 3.5, 5.5];
     /// let upper = vec![2.5_f64, 4.5, 6.5];
@@ -320,7 +320,7 @@ impl ScatterPlot {
     /// from [`with_size`](Self::with_size) is ignored.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::scatter::ScatterPlot;
+    /// # use kuva::plot::scatter::ScatterPlot;
     /// let data = vec![(1.0_f64, 2.0_f64), (3.0, 4.0), (5.0, 3.0)];
     /// let sizes = vec![5.0_f64, 12.0, 8.0];
     ///

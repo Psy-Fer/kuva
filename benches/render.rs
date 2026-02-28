@@ -1,14 +1,14 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, BatchSize, Criterion};
 
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::line::LinePlot;
-use visus::plot::violin::ViolinPlot;
-use visus::plot::manhattan::ManhattanPlot;
-use visus::plot::Heatmap;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::{render_scatter, render_line, render_violin, render_manhattan, render_multiple};
-use visus::backend::svg::SvgBackend;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::line::LinePlot;
+use kuva::plot::violin::ViolinPlot;
+use kuva::plot::manhattan::ManhattanPlot;
+use kuva::plot::Heatmap;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::{render_scatter, render_line, render_violin, render_manhattan, render_multiple};
+use kuva::backend::svg::SvgBackend;
 
 // ── scatter ──────────────────────────────────────────────────────────────────
 

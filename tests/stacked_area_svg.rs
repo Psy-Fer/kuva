@@ -1,9 +1,9 @@
-use visus::plot::StackedAreaPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::palette::Palette;
+use kuva::plot::StackedAreaPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::palette::Palette;
 
 #[test]
 fn stacked_area_basic() {

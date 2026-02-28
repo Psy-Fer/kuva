@@ -1,9 +1,9 @@
 use rand::Rng;
-use visus::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::{render_scatter, render_multiple};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::{render_scatter, render_multiple};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 #[test]
 fn test_scatter_svg_output_builder() {

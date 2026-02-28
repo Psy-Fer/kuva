@@ -1,8 +1,8 @@
-use visus::plot::{ScatterPlot, LinePlot, LegendEntry, LegendShape};
-use visus::backend::svg::SvgBackend;
-use visus::render::figure::Figure;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{ScatterPlot, LinePlot, LegendEntry, LegendShape};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::figure::Figure;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 fn scatter_plot(color: &str) -> Vec<Plot> {
     vec![Plot::Scatter(

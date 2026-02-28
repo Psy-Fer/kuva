@@ -33,11 +33,11 @@ pub enum PieLabelPosition {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::{PiePlot, PieLabelPosition};
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_pie;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::{PiePlot, PieLabelPosition};
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_pie;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let pie = PiePlot::new()
 ///     .with_slice("Rust",   40.0, "steelblue")
@@ -104,7 +104,7 @@ impl PiePlot {
     /// values matters, not their absolute magnitude.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::PiePlot;
+    /// # use kuva::plot::PiePlot;
     /// let pie = PiePlot::new()
     ///     .with_slice("A", 60.0, "steelblue")
     ///     .with_slice("B", 40.0, "tomato");
@@ -130,7 +130,7 @@ impl PiePlot {
     /// depending on the canvas size.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::PiePlot;
+    /// # use kuva::plot::PiePlot;
     /// let donut = PiePlot::new()
     ///     .with_slice("A", 60.0, "steelblue")
     ///     .with_slice("B", 40.0, "tomato")
@@ -150,8 +150,8 @@ impl PiePlot {
     /// to use the legend as the sole means of identification.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::{PiePlot, PieLabelPosition};
-    /// # use visus::render::plots::Plot;
+    /// # use kuva::plot::{PiePlot, PieLabelPosition};
+    /// # use kuva::render::plots::Plot;
     /// let pie = PiePlot::new()
     ///     .with_slice("A", 60.0, "steelblue")
     ///     .with_slice("B", 40.0, "tomato")
@@ -188,7 +188,7 @@ impl PiePlot {
     /// slice regardless of size.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::PiePlot;
+    /// # use kuva::plot::PiePlot;
     /// // Label all slices, even tiny ones
     /// let pie = PiePlot::new()
     ///     .with_slice("Big",  90.0, "steelblue")

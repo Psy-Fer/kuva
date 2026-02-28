@@ -24,11 +24,11 @@ const DEFAULT_COLORS: &[&str] = &[
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::StackedAreaPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::StackedAreaPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let months: Vec<f64> = (1..=12).map(|m| m as f64).collect();
 ///
@@ -102,7 +102,7 @@ impl StackedAreaPlot {
     /// Call this before adding any series. Accepts any numeric type via `Into<f64>`.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::StackedAreaPlot;
+    /// # use kuva::plot::StackedAreaPlot;
     /// let months: Vec<f64> = (1..=12).map(|m| m as f64).collect();
     /// let sa = StackedAreaPlot::new().with_x(months);
     /// ```
@@ -122,7 +122,7 @@ impl StackedAreaPlot {
     /// always operate on the **most recently added** series.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::StackedAreaPlot;
+    /// # use kuva::plot::StackedAreaPlot;
     /// let sa = StackedAreaPlot::new()
     ///     .with_x([1.0, 2.0, 3.0])
     ///     .with_series([10.0, 20.0, 15.0])
@@ -199,7 +199,7 @@ impl StackedAreaPlot {
     /// emphasise proportional composition rather than absolute magnitude.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::StackedAreaPlot;
+    /// # use kuva::plot::StackedAreaPlot;
     /// let sa = StackedAreaPlot::new()
     ///     .with_x([1.0, 2.0, 3.0])
     ///     .with_series([30.0, 40.0, 35.0]).with_legend("A")
@@ -217,7 +217,7 @@ impl StackedAreaPlot {
     /// and `BottomLeft` from [`LegendPosition`].
     ///
     /// ```rust,no_run
-    /// use visus::plot::{StackedAreaPlot, LegendPosition};
+    /// use kuva::plot::{StackedAreaPlot, LegendPosition};
     /// let sa = StackedAreaPlot::new()
     ///     .with_x([1.0, 2.0, 3.0])
     ///     .with_series([10.0, 20.0, 15.0]).with_legend("A")

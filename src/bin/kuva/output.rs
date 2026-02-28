@@ -1,6 +1,6 @@
 use std::fs;
-use visus::render::render::Scene;
-use visus::backend::svg::SvgBackend;
+use kuva::render::render::Scene;
+use kuva::backend::svg::SvgBackend;
 use crate::layout_args::BaseArgs;
 
 /// Write the scene to a file (format inferred from extension) or SVG to stdout.
@@ -21,7 +21,7 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
             .map(|h| h as usize)
             .or_else(|| std::env::var("LINES").ok().and_then(|s| s.parse().ok()))
             .unwrap_or(24);
-        print!("{}", visus::TerminalBackend::new(cols, rows).render_scene(&scene));
+        print!("{}", kuva::TerminalBackend::new(cols, rows).render_scene(&scene));
         return Ok(());
     }
 
@@ -36,23 +36,23 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
                 "png" => {
                     #[cfg(feature = "png")]
                     {
-                        let bytes = visus::PngBackend::new().render_scene(&scene)?;
+                        let bytes = kuva::PngBackend::new().render_scene(&scene)?;
                         fs::write(path, bytes).map_err(|e| e.to_string())
                     }
                     #[cfg(not(feature = "png"))]
                     Err("PNG output requires the 'png' feature. \
-                         Rebuild with: cargo build --bin visus --features png"
+                         Rebuild with: cargo build --bin kuva --features png"
                         .to_string())
                 }
                 "pdf" => {
                     #[cfg(feature = "pdf")]
                     {
-                        let bytes = visus::PdfBackend.render_scene(&scene)?;
+                        let bytes = kuva::PdfBackend.render_scene(&scene)?;
                         fs::write(path, bytes).map_err(|e| e.to_string())
                     }
                     #[cfg(not(feature = "pdf"))]
                     Err("PDF output requires the 'pdf' feature. \
-                         Rebuild with: cargo build --bin visus --features pdf"
+                         Rebuild with: cargo build --bin kuva --features pdf"
                         .to_string())
                 }
                 _ => {

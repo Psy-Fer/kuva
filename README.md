@@ -1,6 +1,6 @@
-# visus
+# kuva
 
-[![CI](https://github.com/Psy-Fer/visus/actions/workflows/ci.yml/badge.svg)](https://github.com/Psy-Fer/visus/actions/workflows/ci.yml)
+[![CI](https://github.com/Psy-Fer/kuva/actions/workflows/ci.yml/badge.svg)](https://github.com/Psy-Fer/kuva/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A lightweight scientific plotting library in Rust. Zero heavy dependencies — just build your plot, render to SVG, done.
@@ -61,10 +61,10 @@ All 25 plot types in a single figure. See the [full gallery](docs/src/gallery.md
 ## Quick Start
 
 ```rust
-use visus::plot::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_scatter;
-use visus::render::layout::Layout;
+use kuva::plot::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_scatter;
+use kuva::render::layout::Layout;
 
 let plot = ScatterPlot::new()
     .with_data(vec![(1.0, 5.0), (4.5, 3.5), (5.0, 8.7)])
@@ -86,11 +86,11 @@ std::fs::write("plot.svg", svg).unwrap();
 Overlay multiple plot types on the same axes with automatic legends:
 
 ```rust
-use visus::plot::{ScatterPlot, LinePlot};
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::{ScatterPlot, LinePlot};
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
 
 let line = LinePlot::new()
     .with_data((0..100).map(|x| (x as f64 / 10.0, (x as f64 / 10.0).sin())).collect::<Vec<_>>())
@@ -116,10 +116,10 @@ let svg = SvgBackend.render_scene(&scene);
 ## Grouped Bar Chart Example
 
 ```rust
-use visus::plot::BarPlot;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BarPlot;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let bar = BarPlot::new()
     .with_group("Laptop", vec![(3.2, "tomato"), (7.8, "skyblue")])
@@ -137,11 +137,11 @@ let scene = render_multiple(plots, layout);
 ## Log-Scale Example
 
 ```rust
-use visus::plot::ScatterPlot;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::ScatterPlot;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
 
 let scatter = ScatterPlot::new()
     .with_data(vec![
@@ -167,11 +167,11 @@ let svg = SvgBackend.render_scene(&scene);
 Arrange multiple independent subplots in a grid with shared axes, merged cells, and panel labels:
 
 ```rust
-use visus::plot::{ScatterPlot, LinePlot};
-use visus::render::figure::Figure;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::{ScatterPlot, LinePlot};
+use kuva::render::figure::Figure;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
 
 let scatter = ScatterPlot::new()
     .with_data(vec![(1.0, 2.0), (3.0, 5.0), (5.0, 3.0)])
@@ -216,11 +216,11 @@ Features:
 Use named palettes for colorblind-safe or publication-ready color schemes. Colors auto-cycle across plots:
 
 ```rust
-use visus::Palette;
-use visus::plot::{ScatterPlot, LinePlot};
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::Palette;
+use kuva::plot::{ScatterPlot, LinePlot};
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 // Auto-cycle: palette colors assigned to each plot automatically
 let s1 = ScatterPlot::new().with_data(vec![(1.0, 2.0), (2.0, 3.0)]).with_legend("A");
@@ -239,7 +239,7 @@ let scene = render_multiple(plots, layout);
 Or index into a palette manually:
 
 ```rust
-use visus::Palette;
+use kuva::Palette;
 
 let pal = Palette::wong();
 let color_a = &pal[0]; // "#E69F00"
@@ -270,8 +270,8 @@ Custom palettes: `Palette::custom("mine", vec!["red".into(), "green".into(), "bl
 Control how tick labels are rendered on each axis with `TickFormat`:
 
 ```rust
-use visus::TickFormat;
-use visus::render::layout::Layout;
+use kuva::TickFormat;
+use kuva::render::layout::Layout;
 use std::sync::Arc;
 
 // Both axes: smart auto (integers as "5", not "5.0"; sci notation for extremes)
@@ -307,11 +307,11 @@ Log-scale axes retain their `1 / 10 / 100` style labels by default; specifying a
 Visualise how an initial value evolves through a sequence of positive and negative increments:
 
 ```rust
-use visus::plot::WaterfallPlot;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::WaterfallPlot;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
 
 let wf = WaterfallPlot::new()
     .with_delta("Revenue", 500.0)
@@ -339,11 +339,11 @@ Delta bars float from the running cumulative total; positive bars use `color_pos
 Visualise set intersections with the standard UpSet layout — intersection-size bars on top, dot matrix in the centre, and optional set-size bars on the left:
 
 ```rust
-use visus::plot::UpSetPlot;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::UpSetPlot;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
 
 // Build directly from raw element sets — intersections are computed automatically.
 let up = UpSetPlot::new().with_sets(vec![
@@ -377,13 +377,13 @@ let up = UpSetPlot::new()
             (0b111,     17), // all three
         ],
     )
-    .with_sort(visus::plot::UpSetSort::ByFrequency)
+    .with_sort(kuva::plot::UpSetSort::ByFrequency)
     .with_max_visible(10);
 ```
 
 ## Performance
 
-visus renders SVG directly without intermediate data structures or heavy runtimes. All benchmarks below use `cargo bench --features full` (release build, Criterion, AMD64 Linux).
+kuva renders SVG directly without intermediate data structures or heavy runtimes. All benchmarks below use `cargo bench --features full` (release build, Criterion, AMD64 Linux).
 
 | plot type | 10k points | 100k points | 1M points |
 |-----------|-----------|------------|----------|
@@ -427,17 +427,17 @@ mdbook serve docs        # live-reload preview at http://localhost:3000
 
 ---
 
-## CLI (`visus`)
+## CLI (`kuva`)
 
-The `visus` binary lets you render plots directly from the shell — no Rust required.
+The `kuva` binary lets you render plots directly from the shell — no Rust required.
 
 ### Build
 
 ```bash
-cargo build --bin visus                    # SVG only
-cargo build --bin visus --features png     # adds PNG output
-cargo build --bin visus --features pdf     # adds PDF output
-cargo build --bin visus --features full    # all backends
+cargo build --bin kuva                    # SVG only
+cargo build --bin kuva --features png     # adds PNG output
+cargo build --bin kuva --features pdf     # adds PDF output
+cargo build --bin kuva --features full    # all backends
 ```
 
 ### Quick start
@@ -446,14 +446,14 @@ These examples use the datasets in `examples/data/` and work from the repo root 
 
 ```bash
 # Scatter plot — SVG to stdout
-visus scatter examples/data/scatter.tsv --x x --y y
+kuva scatter examples/data/scatter.tsv --x x --y y
 
 # Volcano plot — highlight top 20 genes
-visus volcano examples/data/volcano.tsv \
+kuva volcano examples/data/volcano.tsv \
     --name-col gene --x-col log2fc --y-col pvalue --top-n 20
 
 # Box plot — pipe from stdin, save to file
-cat examples/data/samples.tsv | visus box \
+cat examples/data/samples.tsv | kuva box \
     --group-col group --value-col expression -o boxplot.svg
 ```
 
@@ -494,53 +494,53 @@ Output defaults to SVG on stdout; use `-o file.svg/png/pdf` to write a file. PNG
 
 ```bash
 # Scatter plot from a TSV, SVG to stdout
-cat data.tsv | visus scatter | display
+cat data.tsv | kuva scatter | display
 
 # Render directly in the terminal — no file, no display
-visus scatter data.tsv --x x --y y --terminal
+kuva scatter data.tsv --x x --y y --terminal
 
 # With explicit terminal dimensions
-visus manhattan gwas.tsv --chr-col chr --pvalue-col pvalue --terminal --term-width 120 --term-height 40
+kuva manhattan gwas.tsv --chr-col chr --pvalue-col pvalue --terminal --term-width 120 --term-height 40
 
 # Colour by a group column, write PNG
-visus scatter data.tsv --x-col time --y-col expression --color-by condition -o plot.png
+kuva scatter data.tsv --x-col time --y-col expression --color-by condition -o plot.png
 
 # Box plot with swarm overlay
-visus box samples.tsv --group-col group --value-col expression --overlay-swarm --title "Expression"
+kuva box samples.tsv --group-col group --value-col expression --overlay-swarm --title "Expression"
 
 # Histogram with 40 bins, dark theme
-visus histogram values.tsv --bins 40 --theme dark -o hist.svg
+kuva histogram values.tsv --bins 40 --theme dark -o hist.svg
 
 # Pie chart with percentages and outside labels
-visus pie shares.tsv --label-col feature --value-col percentage --percent --label-position outside
+kuva pie shares.tsv --label-col feature --value-col percentage --percent --label-position outside
 
 # Volcano plot, label top 20 genes
-visus volcano gene_stats.tsv --name-col gene --x-col log2fc --y-col pvalue --top-n 20
+kuva volcano gene_stats.tsv --name-col gene --x-col log2fc --y-col pvalue --top-n 20
 
 # Manhattan with hg38 base-pair positions
-visus manhattan gwas.tsv --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38
+kuva manhattan gwas.tsv --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38
 
 # Waterfall with connectors and value labels
-visus waterfall budget.tsv --label-col item --value-col amount --connectors --values
+kuva waterfall budget.tsv --label-col item --value-col amount --connectors --values
 
 # Stacked area, normalized
-visus stacked-area abundance.tsv --x-col week --group-col species --y-col count --normalize
+kuva stacked-area abundance.tsv --x-col week --group-col species --y-col count --normalize
 
 # UpSet intersection plot
-visus upset sets.tsv
+kuva upset sets.tsv
 
 # Sankey flow diagram, gradient links
-visus sankey flow.tsv --source-col from --target-col to --value-col reads --link-gradient
+kuva sankey flow.tsv --source-col from --target-col to --value-col reads --link-gradient
 
 # Synteny ribbons
-visus synteny seqs.tsv --blocks-file blocks.tsv --proportional
+kuva synteny seqs.tsv --blocks-file blocks.tsv --proportional
 ```
 
 See [`docs/src/cli/index.md`](docs/src/cli/index.md) for the complete flag reference for every subcommand, and `examples/data/` for ready-to-use example datasets.
 
 ## Development note
 
-visus was initially built by hand, with a working library and several plot types
+kuva was initially built by hand, with a working library and several plot types
 already in place before AI tooling was introduced. From that point, development was
 heavily assisted by Claude (Anthropic) — accelerating the addition of new plot types,
 the CLI binary, tests, and documentation. The architecture, domain knowledge, and

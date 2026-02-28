@@ -33,7 +33,7 @@
 
 # CLI
 
-- [visus CLI](./cli/index.md)
+- [kuva CLI](./cli/index.md)
 
 # Reference
 

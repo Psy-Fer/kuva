@@ -1,4 +1,4 @@
-//! Full-featured showcase of all 25 visus plot types.
+//! Full-featured showcase of all 25 kuva plot types.
 //! Each cell uses a larger dataset and includes a title, axis labels,
 //! and a legend where applicable.
 //!
@@ -7,18 +7,18 @@
 //!
 //! Output: examples/all_plots_complex.svg
 
-use visus::plot::{
+use kuva::plot::{
     ScatterPlot, LinePlot, BarPlot, Histogram, Histogram2D,
     BoxPlot, ViolinPlot, StripPlot, WaterfallPlot, StackedAreaPlot,
     PiePlot, PieLabelPosition, SeriesPlot, Heatmap,
     DotPlot, VolcanoPlot, ManhattanPlot, CandlestickPlot, ContourPlot,
     UpSetPlot, ChordPlot, SankeyPlot, PhyloTree, SyntenyPlot, BrickPlot,
 };
-use visus::plot::brick::BrickTemplate;
-use visus::render::plots::Plot;
-use visus::render::layout::Layout;
-use visus::render::figure::Figure;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::brick::BrickTemplate;
+use kuva::render::plots::Plot;
+use kuva::render::layout::Layout;
+use kuva::render::figure::Figure;
+use kuva::backend::svg::SvgBackend;
 
 // ── Deterministic pseudo-random (LCG) ─────────────────────────────────────
 fn lcg(seed: &mut u64) -> f64 {

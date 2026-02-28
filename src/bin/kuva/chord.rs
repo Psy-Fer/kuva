@@ -1,9 +1,9 @@
 use clap::Args;
 
-use visus::plot::ChordPlot;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
+use kuva::plot::ChordPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
 
 use crate::data::{DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};

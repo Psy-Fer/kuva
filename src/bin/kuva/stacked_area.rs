@@ -1,10 +1,10 @@
 use clap::Args;
 
-use visus::plot::StackedAreaPlot;
-use visus::render::layout::Layout;
-use visus::render::palette::Palette;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
+use kuva::plot::StackedAreaPlot;
+use kuva::render::layout::Layout;
+use kuva::render::palette::Palette;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args, palette_from_name};

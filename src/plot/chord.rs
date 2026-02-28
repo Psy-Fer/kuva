@@ -25,11 +25,11 @@
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::ChordPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::ChordPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let matrix = vec![
 ///     vec![ 0.0, 120.0,  70.0],
@@ -102,7 +102,7 @@ impl ChordPlot {
     /// ribbons that are thicker at the stronger source.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// let chord = ChordPlot::new()
     ///     .with_matrix(vec![
     ///         vec![ 0.0, 50.0, 30.0],
@@ -121,7 +121,7 @@ impl ChordPlot {
     /// rendered as text outside the outer ring.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// let chord = ChordPlot::new()
     ///     .with_matrix(vec![vec![0.0,1.0],vec![1.0,0.0]])
     ///     .with_labels(["Group A", "Group B"]);
@@ -138,7 +138,7 @@ impl ChordPlot {
     /// automatically, cycling if there are more than ten nodes.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// let chord = ChordPlot::new()
     ///     .with_matrix(vec![vec![0.0,1.0],vec![1.0,0.0]])
     ///     .with_labels(["Alpha", "Beta"])
@@ -156,7 +156,7 @@ impl ChordPlot {
     /// large values compress the arc lengths.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// # let chord = ChordPlot::new();
     /// let chord = chord.with_gap(5.0);  // wider separation between arcs
     /// ```
@@ -172,7 +172,7 @@ impl ChordPlot {
     /// to read by letting the arcs and other ribbons show through.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// # let chord = ChordPlot::new();
     /// let chord = chord.with_opacity(0.5);
     /// ```
@@ -187,7 +187,7 @@ impl ChordPlot {
     /// node using the node labels and colors.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ChordPlot;
+    /// # use kuva::plot::ChordPlot;
     /// let chord = ChordPlot::new()
     ///     .with_matrix(vec![vec![0.0,1.0],vec![1.0,0.0]])
     ///     .with_labels(["A", "B"])

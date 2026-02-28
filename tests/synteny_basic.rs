@@ -1,7 +1,7 @@
-use visus::plot::synteny::SyntenyPlot;
-use visus::render::{plots::Plot, layout::Layout};
-use visus::backend::svg::SvgBackend;
-use visus::render_synteny;
+use kuva::plot::synteny::SyntenyPlot;
+use kuva::render::{plots::Plot, layout::Layout};
+use kuva::backend::svg::SvgBackend;
+use kuva::render_synteny;
 use std::fs;
 
 fn save(name: &str, svg: &str) {

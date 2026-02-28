@@ -41,11 +41,11 @@ pub struct StripGroup {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::StripPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::StripPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let strip = StripPlot::new()
 ///     .with_group("Control",   vec![4.1, 5.0, 5.3, 5.8, 6.2, 4.7, 5.5])
@@ -100,7 +100,7 @@ impl StripPlot {
     /// Groups are rendered left-to-right in the order they are added.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::StripPlot;
+    /// # use kuva::plot::StripPlot;
     /// let strip = StripPlot::new()
     ///     .with_group("Control",   vec![4.1, 5.0, 5.3, 5.8])
     ///     .with_group("Treatment", vec![6.1, 6.4, 7.2, 7.8]);
@@ -143,7 +143,7 @@ impl StripPlot {
     /// The position is randomised using [`with_seed`](Self::with_seed).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::StripPlot;
+    /// # use kuva::plot::StripPlot;
     /// let strip = StripPlot::new()
     ///     .with_group("A", vec![1.0, 2.0, 3.0])
     ///     .with_jitter(0.4);   // wider spread

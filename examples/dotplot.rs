@@ -1,6 +1,6 @@
 //! Dot plot documentation examples.
 //!
-//! Generates canonical SVG outputs used in the visus documentation.
+//! Generates canonical SVG outputs used in the kuva documentation.
 //! Run with:
 //!
 //! ```bash
@@ -9,11 +9,11 @@
 //!
 //! SVGs are written to `docs/src/assets/dotplot/`.
 
-use visus::plot::DotPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::DotPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 const OUT: &str = "docs/src/assets/dotplot";
 

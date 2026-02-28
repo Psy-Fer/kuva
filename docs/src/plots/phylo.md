@@ -1,8 +1,8 @@
 # Phylogenetic Tree
 
-A phylogenetic tree (dendrogram) visualises evolutionary or hierarchical relationships between taxa. visus supports three branch styles (rectangular, slanted, circular), four orientations, phylogram mode for branch-length-accurate layouts, clade coloring, and support value display. Trees can be constructed from Newick strings, edge lists, pairwise distance matrices, or scipy/R linkage output.
+A phylogenetic tree (dendrogram) visualises evolutionary or hierarchical relationships between taxa. kuva supports three branch styles (rectangular, slanted, circular), four orientations, phylogram mode for branch-length-accurate layouts, clade coloring, and support value display. Trees can be constructed from Newick strings, edge lists, pairwise distance matrices, or scipy/R linkage output.
 
-**Import path:** `visus::plot::PhyloTree`
+**Import path:** `kuva::plot::PhyloTree`
 
 ---
 
@@ -11,11 +11,11 @@ A phylogenetic tree (dendrogram) visualises evolutionary or hierarchical relatio
 Parse a [Newick](https://en.wikipedia.org/wiki/Newick_format) string with `PhyloTree::from_newick()`. Branch lengths are optional; support values on internal nodes are read automatically. Call `.with_support_threshold(t)` to display any support value ≥ `t` on the plot.
 
 ```rust,no_run
-use visus::plot::PhyloTree;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::PhyloTree;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let tree = PhyloTree::from_newick(
     "((TaxonA:1.0,TaxonB:2.0)95:1.0,(TaxonC:0.5,TaxonD:0.5)88:1.5,TaxonE:3.0);"
@@ -41,11 +41,11 @@ The default layout is rectangular branches, root on the left, leaves on the righ
 In cladogram mode (the default) all leaves are aligned regardless of branch length. Enable **phylogram mode** with `.with_phylogram()` to position each node according to the accumulated branch lengths from the root, so edge lengths directly represent evolutionary distance.
 
 ```rust,no_run
-use visus::plot::{PhyloTree, TreeOrientation};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{PhyloTree, TreeOrientation};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let tree = PhyloTree::from_newick(
     "((A:1.0,B:3.0)90:1.0,(C:2.0,(D:0.5,E:1.5)85:1.0):2.0);"
@@ -70,11 +70,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_branch_style(TreeBranchStyle::Circular)` projects the tree radially — the root is at the centre and leaves fan outward. This style is especially useful for large trees where a linear layout becomes tall.
 
 ```rust,no_run
-use visus::plot::{PhyloTree, TreeBranchStyle};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{PhyloTree, TreeBranchStyle};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let newick = concat!(
     "(((((Sp_A:0.05,Sp_B:0.08):0.12,(Sp_C:0.07,Sp_D:0.06):0.10):0.15,",
@@ -106,11 +106,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 When building a tree with `from_edges()`, node IDs are assigned in order of first appearance across all `(parent, child, length)` tuples — the first unique label encountered becomes node 0, the second node 1, and so on.
 
 ```rust,no_run
-use visus::plot::PhyloTree;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::PhyloTree;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let edges: Vec<(&str, &str, f64)> = vec![
     ("root",     "Bacteria",    1.5),  // root=0, Bacteria=1
@@ -142,11 +142,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `PhyloTree::from_distance_matrix(labels, dist)` clusters taxa by [UPGMA](https://en.wikipedia.org/wiki/UPGMA) and returns a rooted ultrametric tree. The distance matrix must be square and symmetric; diagonal values are ignored.
 
 ```rust,no_run
-use visus::plot::PhyloTree;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::PhyloTree;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let labels = ["Wolf", "Cat", "Whale", "Human"];
 let dist = vec![
@@ -178,7 +178,7 @@ Wolf and Cat cluster first (distance 0.5), reflecting their close relationship; 
 `PhyloTree::from_linkage(labels, linkage)` accepts the output format of `scipy.cluster.hierarchy.linkage` or R's `hclust`. Each row is `[left_idx, right_idx, distance, n_leaves]`. Leaf indices `0..n-1` correspond to `labels`; merge nodes use indices `n..`.
 
 ```rust,no_run
-# use visus::plot::PhyloTree;
+# use kuva::plot::PhyloTree;
 let labels = ["A", "B", "C", "D"];
 // linkage matrix produced by scipy or R
 let linkage: &[[f64; 4]] = &[
@@ -204,7 +204,7 @@ Four root positions are available via `TreeOrientation`:
 | `Bottom` | Bottom edge — leaves grow upward |
 
 ```rust,no_run
-# use visus::plot::{PhyloTree, TreeOrientation};
+# use kuva::plot::{PhyloTree, TreeOrientation};
 let tree = PhyloTree::from_newick("((A:1,B:2):1,C:3);")
     .with_orientation(TreeOrientation::Top);
 ```
@@ -220,7 +220,7 @@ let tree = PhyloTree::from_newick("((A:1,B:2):1,C:3);")
 | `Circular` | Polar / radial projection |
 
 ```rust,no_run
-# use visus::plot::{PhyloTree, TreeBranchStyle};
+# use kuva::plot::{PhyloTree, TreeBranchStyle};
 let slanted = PhyloTree::from_newick("((A:1,B:2):1,C:3);")
     .with_branch_style(TreeBranchStyle::Slanted);
 ```
@@ -232,7 +232,7 @@ let slanted = PhyloTree::from_newick("((A:1,B:2):1,C:3);")
 `leaf_labels_top_to_bottom()` returns leaf labels in the exact top-to-bottom render order. Pass the result to `Heatmap::with_y_categories()` to align heatmap rows with tree leaves when composing both plots side by side.
 
 ```rust,no_run
-use visus::plot::{PhyloTree, Heatmap};
+use kuva::plot::{PhyloTree, Heatmap};
 
 let tree = PhyloTree::from_newick("((A:1,B:2):1,C:3);");
 let leaf_order = tree.leaf_labels_top_to_bottom();  // ["A", "B", "C"]

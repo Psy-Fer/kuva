@@ -1,4 +1,4 @@
-# Contributing to visus
+# Contributing to kuva
 
 Thank you for considering a contribution. This document describes how the codebase is laid out and what needs to be updated for each type of change.
 
@@ -22,7 +22,7 @@ src/
     svg.rs                — SvgBackend: Scene → SVG string
     png.rs                — PngBackend (feature: png)
     pdf.rs                — PdfBackend (feature: pdf)
-  bin/visus/              — CLI binary (clap subcommands)
+  bin/kuva/              — CLI binary (clap subcommands)
 
 tests/                    — Integration tests; SVG output to test_outputs/
 examples/                 — One Rust example per plot type (used by gen_docs.sh)
@@ -56,15 +56,15 @@ Work through every item below before opening a PR. Each area is listed in the or
 - [ ] **`tests/<name>_basic.rs`** (or `tests/<name>_svg.rs`) — integration tests that write SVGs to `test_outputs/`; at minimum: one basic render test, one test verifying a key SVG element is present, one test verifying the legend if applicable.
 - [ ] Run `cargo test` — all 196+ existing tests must still pass.
 
-### CLI (if a `visus <name>` subcommand is warranted)
+### CLI (if a `kuva <name>` subcommand is warranted)
 
-- [ ] **`src/bin/visus/<name>.rs`** — clap Args struct (with `/// doc comment` for the man page) + `run()` function.
-- [ ] **`src/bin/visus/main.rs`** — add `mod <name>;` at the top, add variant to `Commands` enum, add arm to the `match` in `main()`.
+- [ ] **`src/bin/kuva/<name>.rs`** — clap Args struct (with `/// doc comment` for the man page) + `run()` function.
+- [ ] **`src/bin/kuva/main.rs`** — add `mod <name>;` at the top, add variant to `Commands` enum, add arm to the `match` in `main()`.
 - [ ] **`scripts/smoke_tests.sh`** — add at least one invocation using `examples/data/`.
 - [ ] **`tests/cli_basic.rs`** — add at minimum a test that runs the subcommand and checks for SVG output, plus a content-verification test.
 - [ ] **`examples/data/`** — add a TSV file if the existing 22 files don't cover the new plot; regenerate via `examples/data/generate.py` if needed.
 - [ ] **`docs/src/cli/index.md`** — add the subcommand to the flag-reference table and example invocations section.
-- [ ] **`man/visus.1`** — regenerate: `cargo build --bin visus && ./target/debug/visus man > man/visus.1`.
+- [ ] **`man/kuva.1`** — regenerate: `cargo build --bin kuva && ./target/debug/kuva man > man/kuva.1`.
 
 ### Documentation
 
@@ -125,17 +125,17 @@ When any rendering change is made, open `test_outputs/` and verify:
 
 ```bash
 cargo build                              # library
-cargo build --bin visus                  # CLI binary SVG output
-cargo build --bin visus --features png   # CLI + SVG + PNG output
-cargo build --bin visus --features pdf   # CLI + SVG + PDF output
-cargo build --bin visus --features all   # CLI + SVG + PNG + PDF output
+cargo build --bin kuva                  # CLI binary SVG output
+cargo build --bin kuva --features png   # CLI + SVG + PNG output
+cargo build --bin kuva --features pdf   # CLI + SVG + PDF output
+cargo build --bin kuva --features all   # CLI + SVG + PNG + PDF output
 cargo test                               # all tests
 cargo test <test_name>                   # single test
 cargo test --test cli_basic              # CLI integration tests
 bash scripts/smoke_tests.sh              # CLI smoke tests (all 22+ subcommands)
 bash scripts/gen_docs.sh                 # regenerate docs SVG assets
 bash scripts/gen_terminal_docs.sh        # regenerate terminal output GIFs for docs
-cargo build --bin visus && ./target/debug/visus man > man/visus.1  # regenerate man page
+cargo build --bin kuva && ./target/debug/kuva man > man/kuva.1  # regenerate man page
 ```
 
 ---
@@ -191,7 +191,7 @@ Verify both are on `$PATH`: `which ttyd && which ffmpeg`
 VHS tapes invoke the release build for consistent timing:
 
 ```bash
-cargo build --release --bin visus --features cli
+cargo build --release --bin kuva --features cli
 ```
 
 ### 4. Regenerate terminal docs
@@ -214,7 +214,7 @@ Set FontSize 14
 Set Theme "Dracula"
 Set PlaybackSpeed 0.5
 
-Type "visus scatter examples/data/scatter.tsv --x x --y y --color-by group --terminal"
+Type "kuva scatter examples/data/scatter.tsv --x x --y y --color-by group --terminal"
 Enter
 Sleep 3s
 ```

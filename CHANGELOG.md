@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] — Unreleased
 
-Initial release of visus.
+Initial release of kuva.
 
 ### Added
 
@@ -53,18 +53,18 @@ Initial release of visus.
 - Theme support: Default, Dark, Publication, and custom themes
 - Named colour palettes with modulo-wrapping index access: `category10`, `wong`, `okabe_ito`, `tol_bright`, `tol_muted`, `tol_light`, `ibm`, `pastel`, `bold`, and `Palette::custom()`
 
-**CLI binary (`visus`)**
+**CLI binary (`kuva`)**
 - 22 subcommands covering all plot types: `scatter`, `line`, `bar`, `histogram`, `box`, `violin`, `pie`, `strip`, `waterfall`, `stacked-area`, `volcano`, `manhattan`, `candlestick`, `heatmap`, `hist2d`, `contour`, `dot`, `upset`, `chord`, `sankey`, `phylo`, `synteny`
 - Auto-detects TSV/CSV delimiter; optional `--no-header` and `-d/--delimiter`
 - `--color-by` for palette-assigned group series on scatter, line, strip
 - `--theme`, `--palette`, `--colourblind` for appearance control
 - `--log-x` / `--log-y` on applicable subcommands
 - PNG and PDF output when built with the corresponding feature flags
-- Hidden `visus man` subcommand generates a `man(1)` page via `clap_mangen`
+- Hidden `kuva man` subcommand generates a `man(1)` page via `clap_mangen`
 - `--terminal` flag renders plots directly in the terminal using Unicode braille (U+2800–U+28FF), full-block (`█`) fills, and ANSI 24-bit colour; ideal for HPC and remote-server workflows with no display; auto-detects terminal dimensions, overrideable with `--term-width` / `--term-height`; supported by all subcommands except `upset`
 
 ### Known limitations
 
-- `visus brick` CLI subcommand is not yet implemented (pending integration with bladerunner)
+- `kuva brick` CLI subcommand is not yet implemented (pending integration with bladerunner)
 - Terminal rendering is not yet supported for `upset` (the command prints a message and exits cleanly; use `-o file.svg` instead)
 - No Python or other language bindings

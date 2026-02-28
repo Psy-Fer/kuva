@@ -1,9 +1,9 @@
-use visus::backend::terminal::TerminalBackend;
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::BarPlot;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::{render_multiple, Scene};
+use kuva::backend::terminal::TerminalBackend;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::BarPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::{render_multiple, Scene};
 
 #[test]
 fn scatter_renders_non_empty() {

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Smoke tests for the visus CLI binary.
+# Smoke tests for the kuva CLI binary.
 # Runs every subcommand against example data and checks that SVG output is produced.
 #
 # Usage:
-#   ./scripts/smoke_tests.sh [path/to/visus] [--save [dir]]
+#   ./scripts/smoke_tests.sh [path/to/kuva] [--save [dir]]
 #
 # Options:
-#   First non-flag arg   Path to visus binary (default: ./target/debug/visus)
+#   First non-flag arg   Path to kuva binary (default: ./target/debug/kuva)
 #   --save [dir]         Write each SVG to a file in dir (default: smoke_test_outputs/)
 #                        so you can visually inspect results in a browser.
 
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-BIN="${BIN:-./target/debug/visus}"
+BIN="${BIN:-./target/debug/kuva}"
 DATA="./examples/data"
 
 if [[ $SAVE -eq 1 ]]; then

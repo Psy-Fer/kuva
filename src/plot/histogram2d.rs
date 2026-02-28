@@ -35,8 +35,8 @@ fn greyscale(value: f64) -> String {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::Histogram2D;
-/// use visus::plot::histogram2d::ColorMap;
+/// use kuva::plot::Histogram2D;
+/// use kuva::plot::histogram2d::ColorMap;
 ///
 /// let hist = Histogram2D::new()
 ///     .with_data(vec![(5.0_f64, 5.0_f64)], (0.0, 10.0), (0.0, 10.0), 10, 10)
@@ -56,7 +56,7 @@ pub enum ColorMap {
     ///
     /// ```rust,no_run
     /// use std::sync::Arc;
-    /// use visus::plot::histogram2d::ColorMap;
+    /// use kuva::plot::histogram2d::ColorMap;
     ///
     /// let cmap = ColorMap::Custom(Arc::new(|t: f64| {
     ///     let g = (t * 255.0) as u8;
@@ -105,12 +105,12 @@ impl ColorMap {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::Histogram2D;
-/// use visus::plot::histogram2d::ColorMap;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::Histogram2D;
+/// use kuva::plot::histogram2d::ColorMap;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// // (x, y) scatter points
 /// let data: Vec<(f64, f64)> = vec![(5.0, 6.0), (14.0, 15.0), (15.0, 14.0)];
@@ -180,7 +180,7 @@ impl Histogram2D {
     /// - `bins_x` / `bins_y` — number of columns / rows in the grid.
     ///
     /// ```rust,no_run
-    /// use visus::plot::Histogram2D;
+    /// use kuva::plot::Histogram2D;
     ///
     /// let data: Vec<(f64, f64)> = vec![(5.0, 8.0), (12.0, 3.0), (7.0, 15.0)];
     /// let hist = Histogram2D::new()
@@ -232,8 +232,8 @@ impl Histogram2D {
     /// Set the colormap for bin counts. Default: [`ColorMap::Viridis`].
     ///
     /// ```rust,no_run
-    /// use visus::plot::Histogram2D;
-    /// use visus::plot::histogram2d::ColorMap;
+    /// use kuva::plot::Histogram2D;
+    /// use kuva::plot::histogram2d::ColorMap;
     ///
     /// let hist = Histogram2D::new()
     ///     .with_data(vec![(5.0_f64, 5.0_f64)], (0.0, 10.0), (0.0, 10.0), 10, 10)
@@ -251,7 +251,7 @@ impl Histogram2D {
     /// plot range. Displayed as `r = 0.85`.
     ///
     /// ```rust,no_run
-    /// use visus::plot::Histogram2D;
+    /// use kuva::plot::Histogram2D;
     ///
     /// let hist = Histogram2D::new()
     ///     .with_data(vec![(5.0_f64, 6.0_f64)], (0.0, 10.0), (0.0, 10.0), 10, 10)

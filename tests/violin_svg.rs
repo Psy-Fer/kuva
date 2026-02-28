@@ -1,9 +1,9 @@
-// use visus::prelude::*;
-use visus::plot::ViolinPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+// use kuva::prelude::*;
+use kuva::plot::ViolinPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 use rand_distr::{Normal, Distribution};
 use rand::prelude::*;

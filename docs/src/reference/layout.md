@@ -2,7 +2,7 @@
 
 `Layout` is the single configuration struct passed to every render function. It controls axis ranges, labels, tick marks, log scale, canvas size, annotations, and typography. Every plot type goes through a `Layout` before becoming an SVG.
 
-**Import path:** `visus::render::layout::Layout`
+**Import path:** `kuva::render::layout::Layout`
 
 ---
 
@@ -13,8 +13,8 @@
 The recommended starting point. Inspects the data in a `Vec<Plot>` and automatically computes axis ranges, padding, legend visibility, and colorbar presence.
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_title("My Plot")
@@ -27,7 +27,7 @@ let layout = Layout::auto_from_plots(&plots)
 Sets explicit axis ranges. Use this when you need precise control — for example, when comparing multiple plots that must share the same scale, or when the auto-range would include unwanted padding.
 
 ```rust,no_run
-# use visus::render::layout::Layout;
+# use kuva::render::layout::Layout;
 // x from 0 to 100, y from -1 to 1
 let layout = Layout::new((0.0, 100.0), (-1.0, 1.0))
     .with_title("Fixed Range")
@@ -40,8 +40,8 @@ let layout = Layout::new((0.0, 100.0), (-1.0, 1.0))
 ## Labels and title
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_title("My Plot")          // text above the plot area
@@ -56,8 +56,8 @@ let layout = Layout::auto_from_plots(&plots)
 The default canvas is `600 × 450` pixels for the plot area, with margins computed automatically from the title, tick labels, and legend. Override either dimension:
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_width(800.0)   // total SVG width in pixels
@@ -71,8 +71,8 @@ let layout = Layout::auto_from_plots(&plots)
 The number of tick marks is chosen automatically based on the canvas size. Override it with `.with_ticks()`:
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_ticks(8);  // request approximately 8 tick intervals
@@ -80,7 +80,7 @@ let layout = Layout::auto_from_plots(&plots)
 
 ### Tick formats
 
-`TickFormat` controls how numeric tick labels are rendered. Import it from `visus::TickFormat`.
+`TickFormat` controls how numeric tick labels are rendered. Import it from `kuva::TickFormat`.
 
 | Variant | Example output | Use case |
 |---------|----------------|----------|
@@ -94,9 +94,9 @@ let layout = Layout::auto_from_plots(&plots)
 Apply the same format to both axes, or set them independently:
 
 ```rust,no_run
-use visus::TickFormat;
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+use kuva::TickFormat;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 
 // Same format on both axes
@@ -139,8 +139,8 @@ let layout = Layout::auto_from_plots(&plots)
 Rotate x-axis tick labels when category names are long:
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_x_tick_rotate(45.0);  // degrees; 45 or 90 are common
@@ -153,8 +153,8 @@ let layout = Layout::auto_from_plots(&plots)
 Enable logarithmic axes for data spanning multiple orders of magnitude. Ticks are placed at powers of 10; narrow ranges add 2× and 5× sub-ticks automatically.
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 // Both axes log
 let layout = Layout::auto_from_plots(&plots).with_log_scale();
@@ -177,8 +177,8 @@ All data values must be positive when using a log axis. `auto_from_plots` uses t
 The grid is shown by default. Disable it with:
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_show_grid(false);
@@ -197,9 +197,9 @@ Three types of annotation are available, all added via the `Layout` builder. Any
 Places a text label at a data coordinate. Optionally draws an arrow pointing to a different coordinate.
 
 ```rust,no_run
-use visus::render::annotations::TextAnnotation;
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+use kuva::render::annotations::TextAnnotation;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 
 let layout = Layout::auto_from_plots(&plots)
@@ -216,9 +216,9 @@ let layout = Layout::auto_from_plots(&plots)
 Draws a dashed line across the full plot area at a fixed x or y value.
 
 ```rust,no_run
-use visus::render::annotations::ReferenceLine;
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+use kuva::render::annotations::ReferenceLine;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 
 let layout = Layout::auto_from_plots(&plots)
@@ -241,9 +241,9 @@ let layout = Layout::auto_from_plots(&plots)
 Fills a horizontal or vertical band across the plot area.
 
 ```rust,no_run
-use visus::render::annotations::ShadedRegion;
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+use kuva::render::annotations::ShadedRegion;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 
 let layout = Layout::auto_from_plots(&plots)
@@ -268,8 +268,8 @@ let layout = Layout::auto_from_plots(&plots)
 Font family and sizes for all text elements. Sizes are in pixels.
 
 ```rust,no_run
-# use visus::render::layout::Layout;
-# use visus::render::plots::Plot;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
     .with_font_family("Arial, sans-serif")  // default: system sans-serif

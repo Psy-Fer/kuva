@@ -20,7 +20,7 @@ pub enum LabelStyle {
     /// avoid crowding in the high-significance region.
     ///
     /// ```rust,no_run
-    /// use visus::plot::LabelStyle;
+    /// use kuva::plot::LabelStyle;
     /// let style = LabelStyle::Arrow { offset_x: 14.0, offset_y: 16.0 };
     /// ```
     Arrow { offset_x: f64, offset_y: f64 },
@@ -65,11 +65,11 @@ pub struct VolcanoPoint {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::VolcanoPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::VolcanoPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let vp = VolcanoPlot::new()
 ///     .with_points(vec![
@@ -162,7 +162,7 @@ impl VolcanoPlot {
     /// [`with_points`](Self::with_points).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::VolcanoPlot;
+    /// # use kuva::plot::VolcanoPlot;
     /// let vp = VolcanoPlot::new()
     ///     .with_point("EGFR", 3.2_f64, 1e-4_f64)
     ///     .with_point("GAPDH", 0.3, 0.5);
@@ -188,7 +188,7 @@ impl VolcanoPlot {
     /// of tuples all work.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::VolcanoPlot;
+    /// # use kuva::plot::VolcanoPlot;
     /// let results = vec![
     ///     ("EGFR",  3.2_f64, 1e-4_f64),
     ///     ("AKT1",  3.5,     5e-5    ),
@@ -274,7 +274,7 @@ impl VolcanoPlot {
     /// [`with_label_style`](Self::with_label_style) to control placement.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::VolcanoPlot;
+    /// # use kuva::plot::VolcanoPlot;
     /// let vp = VolcanoPlot::new()
     ///     .with_points(vec![("EGFR", 3.2_f64, 1e-4_f64)])
     ///     .with_label_top(10);  // label the 10 most significant genes
@@ -294,7 +294,7 @@ impl VolcanoPlot {
     ///   with a gray leader line back to the point.
     ///
     /// ```rust,no_run
-    /// use visus::plot::{VolcanoPlot, LabelStyle};
+    /// use kuva::plot::{VolcanoPlot, LabelStyle};
     /// let vp = VolcanoPlot::new()
     ///     .with_points(vec![("EGFR", 3.2_f64, 1e-4_f64)])
     ///     .with_label_top(10)
@@ -316,7 +316,7 @@ impl VolcanoPlot {
     /// should share the same y-axis scale.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::VolcanoPlot;
+    /// # use kuva::plot::VolcanoPlot;
     /// let vp = VolcanoPlot::new()
     ///     .with_points(vec![("EGFR", 3.2_f64, 0.0_f64)])  // p = 0 is valid input
     ///     .with_pvalue_floor(1e-10);  // y-axis ceiling = 10
@@ -332,7 +332,7 @@ impl VolcanoPlot {
     /// not currently used as a title but must be set to enable the legend.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::VolcanoPlot;
+    /// # use kuva::plot::VolcanoPlot;
     /// let vp = VolcanoPlot::new()
     ///     .with_points(vec![("EGFR", 3.2_f64, 1e-4_f64)])
     ///     .with_legend("DEG status");

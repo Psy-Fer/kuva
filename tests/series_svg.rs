@@ -1,10 +1,10 @@
 use std::vec;
 
-use visus::plot::SeriesPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SeriesPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 #[test]
 fn test_line_svg_output_builder() {

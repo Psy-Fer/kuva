@@ -1,9 +1,9 @@
-use visus::plot::{ManhattanPlot, GenomeBuild, LabelStyle};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::{render_multiple, render_manhattan};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::Palette;
+use kuva::plot::{ManhattanPlot, GenomeBuild, LabelStyle};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::{render_multiple, render_manhattan};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::Palette;
 
 // ── Deterministic pseudo-random helpers ──────────────────────────────────────
 

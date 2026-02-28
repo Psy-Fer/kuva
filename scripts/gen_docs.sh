@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate all SVG assets used in the visus documentation.
+# Regenerate all SVG assets used in the kuva documentation.
 # Run from the repository root:
 #   bash scripts/gen_docs.sh
 

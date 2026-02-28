@@ -1,25 +1,25 @@
-/// Integration tests for the `visus` CLI binary.
+/// Integration tests for the `kuva` CLI binary.
 ///
 /// Each test spawns the binary as a child process and checks stdout/stderr/exit code.
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-fn visus_bin() -> Command {
-    // Use the debug build produced by `cargo build --bin visus`.
-    let bin = env!("CARGO_BIN_EXE_visus");
+fn kuva_bin() -> Command {
+    // Use the debug build produced by `cargo build --bin kuva`.
+    let bin = env!("CARGO_BIN_EXE_kuva");
     Command::new(bin)
 }
 
 /// Feed `input` to the binary's stdin and return (stdout, stderr, exit_code).
 fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
-    let mut cmd = visus_bin();
+    let mut cmd = kuva_bin();
     cmd.args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().expect("failed to spawn visus");
+    let mut child = cmd.spawn().expect("failed to spawn kuva");
     child
         .stdin
         .take()
@@ -37,10 +37,10 @@ fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
 
 /// Run the binary with a file argument.
 fn run_with_file(args: &[&str]) -> (String, String, i32) {
-    let out = visus_bin()
+    let out = kuva_bin()
         .args(args)
         .output()
-        .expect("failed to run visus");
+        .expect("failed to run kuva");
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -71,11 +71,11 @@ fn test_scatter_stdout() {
 #[test]
 fn test_bar_to_file() {
     let tsv = "label\tvalue\nApples\t3\nBananas\t5\nCherries\t2\n";
-    let tmp = std::env::temp_dir().join("visus_test_bar.svg");
+    let tmp = std::env::temp_dir().join("kuva_test_bar.svg");
     let path_str = tmp.to_str().unwrap();
 
     // Write input to a temp TSV so we can pass it as a positional arg.
-    let input_path = std::env::temp_dir().join("visus_test_bar_input.tsv");
+    let input_path = std::env::temp_dir().join("kuva_test_bar_input.tsv");
     fs::write(&input_path, tsv).unwrap();
 
     let (_, stderr, code) = run_with_file(&[
@@ -142,7 +142,7 @@ fn test_scatter_color_by() {
 #[cfg(not(feature = "png"))]
 fn test_missing_feature_error() {
     let tsv = "x\ty\n1\t2\n3\t4\n";
-    let tmp_png = std::env::temp_dir().join("visus_test_missing.png");
+    let tmp_png = std::env::temp_dir().join("kuva_test_missing.png");
 
     let (_, stderr, code) = run_with_stdin(
         &["scatter", "-o", tmp_png.to_str().unwrap()],
@@ -612,7 +612,7 @@ fn test_empty_stdin() {
 #[cfg(not(feature = "pdf"))]
 fn test_missing_feature_pdf() {
     let tsv = "x\ty\n1\t2\n3\t4\n";
-    let tmp_pdf = std::env::temp_dir().join("visus_test_missing.pdf");
+    let tmp_pdf = std::env::temp_dir().join("kuva_test_missing.pdf");
 
     let (_, stderr, code) = run_with_stdin(
         &["scatter", "-o", tmp_pdf.to_str().unwrap()],

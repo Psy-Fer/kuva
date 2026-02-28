@@ -1,8 +1,8 @@
-use visus::plot::{PiePlot, PieLabelPosition};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::{render_pie, render_multiple};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{PiePlot, PieLabelPosition};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::{render_pie, render_multiple};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 
 #[test]

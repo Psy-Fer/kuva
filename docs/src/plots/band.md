@@ -2,7 +2,7 @@
 
 A band plot fills the region between two y-curves over a shared x-axis. It is used to display **confidence intervals**, prediction bands, IQR envelopes, or any shaded range around a central estimate.
 
-**Import path:** `visus::plot::BandPlot`
+**Import path:** `kuva::plot::BandPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A band plot fills the region between two y-curves over a shared x-axis. It is us
 `BandPlot::new(x, y_lower, y_upper)` creates a filled area independently. Pair it with a `LinePlot` or `ScatterPlot` by placing both in the same `plots` vector — the band is drawn behind the line.
 
 ```rust,no_run
-use visus::plot::{BandPlot, LinePlot};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{BandPlot, LinePlot};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let x: Vec<f64> = (0..60).map(|i| i as f64 * 0.2).collect();
 let y: Vec<f64> = x.iter().map(|&v| v.sin()).collect();
@@ -52,8 +52,8 @@ The band fills between `y_lower` and `y_upper`. Placing `Plot::Band` before `Plo
 `LinePlot::with_band(y_lower, y_upper)` is a one-call shorthand. It creates the `BandPlot` internally, using the line's x positions and inheriting its color automatically.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-# use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+# use kuva::render::plots::Plot;
 
 let line = LinePlot::new()
     .with_data(x.iter().copied().zip(y.iter().copied()))
@@ -74,8 +74,8 @@ The band is always rendered behind the line. No ordering in the `plots` vector i
 `ScatterPlot::with_band(y_lower, y_upper)` works identically: the band inherits the scatter color and renders behind the points.
 
 ```rust,no_run
-use visus::plot::ScatterPlot;
-# use visus::render::plots::Plot;
+use kuva::plot::ScatterPlot;
+# use kuva::render::plots::Plot;
 
 let scatter = ScatterPlot::new()
     .with_data(x.iter().copied().zip(y.iter().copied()))
@@ -94,8 +94,8 @@ let plots = vec![Plot::Scatter(scatter)];
 Each `LinePlot` carries its own independent band. Combine all series in one `plots` vector — they share the same axes automatically.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-# use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+# use kuva::render::plots::Plot;
 
 let line1 = LinePlot::new()
     .with_data(x.iter().copied().zip(y1.iter().copied()))

@@ -1,10 +1,10 @@
 use std::sync::Arc;
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::{render_scatter, render_multiple};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::TickFormat;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::{render_scatter, render_multiple};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::TickFormat;
 
 fn make_scatter(data: Vec<(f64, f64)>, layout: Layout) -> String {
     let plot = ScatterPlot::new().with_data(data);

@@ -2,18 +2,18 @@
 
 A scatter plot renders individual (x, y) data points as markers. It supports trend lines, error bars, variable point sizes, and six marker shapes.
 
-**Import path:** `visus::plot::scatter::ScatterPlot`
+**Import path:** `kuva::plot::scatter::ScatterPlot`
 
 ---
 
 ## Basic usage
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     (0.5_f64, 1.2_f64),
@@ -52,11 +52,11 @@ std::fs::write("scatter.svg", svg).unwrap();
 Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the Pearson R² value.
 
 ```rust,no_run
-use visus::plot::scatter::{ScatterPlot, TrendLine};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::{ScatterPlot, TrendLine};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     (1.0_f64, 2.1_f64), (2.0, 3.9), (3.0, 6.2),
@@ -91,11 +91,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Attach a shaded uncertainty region with `.with_band(y_lower, y_upper)`. Both slices must align with the x positions of the scatter data. The band color matches the point color.
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let xs: Vec<f64> = (1..=10).map(|i| i as f64).collect();
 let ys: Vec<f64> = xs.iter().map(|&x| x * 1.8 + 0.5).collect();
@@ -128,11 +128,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Use `.with_x_err()` and `.with_y_err()` for symmetric error bars. Asymmetric variants accept `(negative, positive)` tuples.
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     (1.0_f64, 2.0_f64), (2.0, 4.5), (3.0, 5.8),
@@ -164,7 +164,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Pass `(neg, pos)` tuples instead of scalar values:
 
 ```rust,no_run
-# use visus::plot::scatter::ScatterPlot;
+# use kuva::plot::scatter::ScatterPlot;
 let data = vec![(1.0_f64, 5.0_f64), (2.0, 6.0)];
 let y_err = vec![(0.3_f64, 0.8_f64), (0.5, 1.2)];  // (neg, pos)
 
@@ -180,11 +180,11 @@ let plot = ScatterPlot::new()
 Six marker shapes are available via `MarkerShape`. They are particularly useful when overlaying multiple series on the same axes.
 
 ```rust,no_run
-use visus::plot::scatter::{ScatterPlot, MarkerShape};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::{ScatterPlot, MarkerShape};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plots = vec![
     Plot::Scatter(ScatterPlot::new()
@@ -222,11 +222,11 @@ Available variants: `Circle` (default), `Square`, `Triangle`, `Diamond`, `Cross`
 Encode a third dimension through point area using `.with_sizes()`. Values are point radii in pixels.
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     (1.0_f64, 3.0_f64), (2.5, 6.5), (4.0, 4.0),
@@ -257,11 +257,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Wrap multiple `ScatterPlot` structs in a `Vec<Plot>` and pass them to `render_multiple()`. Legends are shown when any series has a label attached via `.with_legend()`.
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let series_a = ScatterPlot::new()
     .with_data(vec![(1.0_f64, 2.0_f64), (3.0, 4.0), (5.0, 3.5)])

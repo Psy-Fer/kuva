@@ -11,11 +11,11 @@ use crate::plot::strip::StripStyle;
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::BoxPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::BoxPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let plot = BoxPlot::new()
 ///     .with_group("Control",   vec![4.1, 5.0, 5.3, 5.8, 6.2, 7.0])
@@ -77,7 +77,7 @@ impl BoxPlot {
     /// from the supplied values.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BoxPlot;
+    /// # use kuva::plot::BoxPlot;
     /// let plot = BoxPlot::new()
     ///     .with_group("A", vec![1.0, 2.5, 3.0, 3.5, 4.0, 5.0])
     ///     .with_group("B", vec![2.0, 3.0, 3.8, 4.2, 4.8, 6.0]);

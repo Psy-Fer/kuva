@@ -1,9 +1,9 @@
-use visus::plot::line::LinePlot;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::render_twin_y;
-use visus::backend::svg::SvgBackend;
-use visus::Palette;
+use kuva::plot::line::LinePlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_twin_y;
+use kuva::backend::svg::SvgBackend;
+use kuva::Palette;
 use std::fs;
 
 fn save_svg(name: &str, svg: &str) {

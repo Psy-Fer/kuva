@@ -1,17 +1,17 @@
 use clap::Args;
 
-use visus::plot::ViolinPlot;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
+use kuva::plot::StripPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
-/// Violin plot grouped by a column.
+/// Strip / beeswarm plot grouped by a column.
 #[derive(Args, Debug)]
-pub struct ViolinArgs {
+pub struct StripArgs {
     /// Group column (0-based index or header name; default: 0).
     #[arg(long)]
     pub group_col: Option<ColSpec>,
@@ -20,21 +20,21 @@ pub struct ViolinArgs {
     #[arg(long)]
     pub value_col: Option<ColSpec>,
 
-    /// Violin fill color (CSS string; default: "steelblue").
+    /// Point fill color (CSS string; default: "steelblue").
     #[arg(long)]
     pub color: Option<String>,
 
-    /// KDE bandwidth (Silverman's rule-of-thumb if omitted).
+    /// Point radius in pixels (default: 4.0).
     #[arg(long)]
-    pub bandwidth: Option<f64>,
+    pub point_size: Option<f64>,
 
-    /// Overlay individual data points as a jittered strip.
+    /// Use beeswarm (non-overlapping) layout instead of jitter.
     #[arg(long)]
-    pub overlay_points: bool,
+    pub swarm: bool,
 
-    /// Overlay individual data points as a non-overlapping beeswarm.
+    /// Place all points at the group center (no horizontal spread).
     #[arg(long)]
-    pub overlay_swarm: bool,
+    pub center: bool,
 
     #[command(flatten)]
     pub input: InputArgs,
@@ -45,7 +45,7 @@ pub struct ViolinArgs {
     pub axis: AxisArgs,
 }
 
-pub fn run(args: ViolinArgs) -> Result<(), String> {
+pub fn run(args: StripArgs) -> Result<(), String> {
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
@@ -58,24 +58,25 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
 
     let groups = table.group_by(&group_col)?;
 
-    let mut plot = ViolinPlot::new().with_color(&color);
+    let mut plot = StripPlot::new().with_color(&color);
 
-    if let Some(bw) = args.bandwidth {
-        plot = plot.with_bandwidth(bw);
+    if let Some(size) = args.point_size {
+        plot = plot.with_point_size(size);
     }
+
+    if args.swarm {
+        plot = plot.with_swarm();
+    } else if args.center {
+        plot = plot.with_center();
+    }
+    // default: jitter 0.3 (already the StripPlot default)
 
     for (name, subtable) in groups {
         let values = subtable.col_f64(&value_col)?;
         plot = plot.with_group(name, values);
     }
 
-    if args.overlay_swarm {
-        plot = plot.with_swarm_overlay();
-    } else if args.overlay_points {
-        plot = plot.with_strip(0.3);
-    }
-
-    let plots = vec![Plot::Violin(plot)];
+    let plots = vec![Plot::Strip(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);

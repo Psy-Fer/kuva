@@ -2,7 +2,7 @@
 
 A pie chart divides a circle into slices proportional to each category's value. Each slice has its own explicit color. Slice labels can be placed automatically (inside large slices, outside small ones), forced to one side, or replaced with a legend.
 
-**Import path:** `visus::plot::PiePlot`
+**Import path:** `kuva::plot::PiePlot`
 
 ---
 
@@ -11,11 +11,11 @@ A pie chart divides a circle into slices proportional to each category's value. 
 Add slices with `.with_slice(label, value, color)`. Slices are drawn clockwise from 12 o'clock in the order they are added.
 
 ```rust,no_run
-use visus::plot::PiePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_pie;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::PiePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_pie;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let pie = PiePlot::new()
     .with_slice("Rust",   40.0, "steelblue")
@@ -42,7 +42,7 @@ std::fs::write("pie.svg", svg).unwrap();
 `.with_inner_radius(r)` cuts a hollow centre, converting the pie into a donut. `r` is the inner radius in pixels; the outer radius is computed from the canvas size. Values in the range `40.0`–`80.0` work well at the default canvas size.
 
 ```rust,no_run
-# use visus::plot::PiePlot;
+# use kuva::plot::PiePlot;
 let pie = PiePlot::new()
     .with_slice("Rust",   40.0, "steelblue")
     .with_slice("Python", 30.0, "tomato")
@@ -60,7 +60,7 @@ let pie = PiePlot::new()
 `.with_percent()` appends each slice's percentage of the total to its label, formatted to one decimal place (e.g. `"Rust 40.0%"`).
 
 ```rust,no_run
-# use visus::plot::PiePlot;
+# use kuva::plot::PiePlot;
 let pie = PiePlot::new()
     .with_slice("Rust",   40.0, "steelblue")
     .with_slice("Python", 30.0, "tomato")
@@ -89,8 +89,8 @@ let pie = PiePlot::new()
 `Outside` is recommended when slices vary widely in size or when many slices are present, since leader lines prevent labels from overlapping.
 
 ```rust,no_run
-use visus::plot::{PiePlot, PieLabelPosition};
-# use visus::render::plots::Plot;
+use kuva::plot::{PiePlot, PieLabelPosition};
+# use kuva::render::plots::Plot;
 
 let pie = PiePlot::new()
     .with_slice("Apples",  30.0, "seagreen")
@@ -109,7 +109,7 @@ let pie = PiePlot::new()
 By default, slices smaller than 5 % of the total are not labelled (to avoid cramped text). Adjust this with `.with_min_label_fraction(f)`.
 
 ```rust,no_run
-# use visus::plot::PiePlot;
+# use kuva::plot::PiePlot;
 // Label every slice, even slices below 5 %
 let pie = PiePlot::new()
     .with_slice("Big",  90.0, "steelblue")
@@ -126,11 +126,11 @@ let pie = PiePlot::new()
 Combine with `PieLabelPosition::None` to use the legend as the sole means of identification.
 
 ```rust,no_run
-use visus::plot::{PiePlot, PieLabelPosition};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{PiePlot, PieLabelPosition};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let pie = PiePlot::new()
     .with_slice("Apples",  40.0, "seagreen")

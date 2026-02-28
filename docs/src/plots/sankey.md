@@ -2,7 +2,7 @@
 
 A Sankey diagram arranges nodes in columns and connects them with tapered ribbons whose widths are proportional to flow magnitude. It is well suited for showing multi-stage flows — energy transfer, budget allocation, data processing pipelines, or any directed network where quantities must be conserved through each stage.
 
-**Import path:** `visus::plot::SankeyPlot`
+**Import path:** `kuva::plot::SankeyPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A Sankey diagram arranges nodes in columns and connects them with tapered ribbon
 Add directed links with `.with_link(source, target, value)`. Nodes are created automatically from the label strings; column positions are inferred by tracing the flow graph from left to right.
 
 ```rust,no_run
-use visus::plot::SankeyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SankeyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let sankey = SankeyPlot::new()
     .with_link("Input", "Process A", 50.0)
@@ -44,11 +44,11 @@ Node heights are proportional to the larger of incoming and outgoing flow at eac
 Set per-node fill colors with `.with_node_color(label, color)`. Call `.with_legend(title)` to add a color-coded legend entry for every node.
 
 ```rust,no_run
-use visus::plot::SankeyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SankeyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let sankey = SankeyPlot::new()
     .with_node_color("Input",     "#888888")
@@ -82,11 +82,11 @@ Ribbons inherit the source node color by default. To color nodes without linking
 `.with_gradient_links()` renders each ribbon as a linear gradient from the source node color to the target node color.
 
 ```rust,no_run
-use visus::plot::SankeyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SankeyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let sankey = SankeyPlot::new()
     .with_node_color("Budget",    "#e41a1c")
@@ -121,7 +121,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 For full control, supply a color on each link individually with `.with_link_colored()`, then call `.with_per_link_colors()` to activate that mode:
 
 ```rust,no_run
-# use visus::plot::SankeyPlot;
+# use kuva::plot::SankeyPlot;
 let sankey = SankeyPlot::new()
     .with_link_colored("Budget", "R&D",       40.0, "#377eb8")
     .with_link_colored("Budget", "Marketing", 25.0, "#e41a1c")
@@ -138,7 +138,7 @@ let sankey = SankeyPlot::new()
 `.with_links()` accepts any iterator of `(source, target, value)` triples, which is convenient when links come from a data file or computed table:
 
 ```rust,no_run
-# use visus::plot::SankeyPlot;
+# use kuva::plot::SankeyPlot;
 let edges: Vec<(&str, &str, f64)> = vec![
     ("A", "B", 10.0),
     ("A", "C", 20.0),
@@ -156,7 +156,7 @@ let sankey = SankeyPlot::new().with_links(edges);
 By default, columns are assigned by propagating each node one step further right than its leftmost source (BFS order). Use `.with_node_column(label, col)` to pin specific nodes to explicit columns when the automatic layout is incorrect — for example, when a node should appear in a later column despite having an early source:
 
 ```rust,no_run
-# use visus::plot::SankeyPlot;
+# use kuva::plot::SankeyPlot;
 let sankey = SankeyPlot::new()
     .with_node_column("Input",  0)
     .with_node_column("Middle", 1)
@@ -173,11 +173,11 @@ let sankey = SankeyPlot::new()
 A 4-stage variant filtering pipeline: raw variants pass QC, get classified by confidence level, and are split into variant types or discarded.
 
 ```rust,no_run
-use visus::plot::SankeyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SankeyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let sankey = SankeyPlot::new()
     .with_node_color("Raw Variants", "#888888")

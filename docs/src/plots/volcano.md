@@ -2,7 +2,7 @@
 
 A volcano plot visualises differential expression results by plotting **log₂ fold change** (x-axis) against **−log₁₀(p-value)** (y-axis). Points that pass both the fold-change and p-value thresholds are colored as up-regulated (right) or down-regulated (left); all others are shown as not-significant (gray). Dashed threshold lines are drawn automatically.
 
-**Import path:** `visus::plot::VolcanoPlot`
+**Import path:** `kuva::plot::VolcanoPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A volcano plot visualises differential expression results by plotting **log₂ f
 Pass `(gene_name, log2fc, pvalue)` tuples to `.with_points()`. Default thresholds are `|log2FC| > 1.0` and `p < 0.05`.
 
 ```rust,no_run
-use visus::plot::VolcanoPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::VolcanoPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let results: Vec<(&str, f64, f64)> = vec![
     ("AKT1",   3.5, 5e-5),
@@ -55,8 +55,8 @@ Up-regulated genes (red, right) include AKT1, EGFR, and FGFR1 at the top right. 
 Labels are sorted by x position and nudged vertically to reduce stacking — the best default for most datasets.
 
 ```rust,no_run
-# use visus::plot::VolcanoPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::VolcanoPlot;
+# use kuva::render::plots::Plot;
 let vp = VolcanoPlot::new()
     .with_points(results)
     .with_label_top(12);  // LabelStyle::Nudge is the default
@@ -71,8 +71,8 @@ The twelve most significant genes are labeled. Labels are spread vertically to a
 `LabelStyle::Arrow { offset_x, offset_y }` moves labels by the given pixel offset and draws a short gray leader line back to the point. Useful when labels would crowd the high-significance region.
 
 ```rust,no_run
-use visus::plot::{VolcanoPlot, LabelStyle};
-# use visus::render::plots::Plot;
+use kuva::plot::{VolcanoPlot, LabelStyle};
+# use kuva::render::plots::Plot;
 let vp = VolcanoPlot::new()
     .with_points(results)
     .with_label_top(10)
@@ -94,8 +94,8 @@ Each label is offset from its point by 14 px horizontally and 16 px vertically w
 `.with_fc_cutoff(f)` and `.with_p_cutoff(f)` set the classification thresholds. Dashed vertical lines appear at `±fc_cutoff`; a dashed horizontal line appears at `−log10(p_cutoff)`.
 
 ```rust,no_run
-# use visus::plot::VolcanoPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::VolcanoPlot;
+# use kuva::render::plots::Plot;
 let vp = VolcanoPlot::new()
     .with_points(results)
     .with_fc_cutoff(2.0)   // default 1.0 — require ≥ 4× fold change
@@ -126,7 +126,7 @@ All color methods accept any CSS color string.
 p-values of exactly `0.0` cannot be log-transformed. They are automatically clamped to the smallest non-zero p-value in the data. To set an explicit ceiling (useful when comparing multiple plots on the same y-axis scale):
 
 ```rust,no_run
-# use visus::plot::VolcanoPlot;
+# use kuva::plot::VolcanoPlot;
 let vp = VolcanoPlot::new()
     .with_points(results)
     .with_pvalue_floor(1e-10);  // y-axis ceiling fixed at 10

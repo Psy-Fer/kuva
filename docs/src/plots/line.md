@@ -2,18 +2,18 @@
 
 A line plot connects (x, y) data points with a continuous path. It supports four built-in stroke styles, area fills, step interpolation, confidence bands, and error bars.
 
-**Import path:** `visus::plot::LinePlot`
+**Import path:** `kuva::plot::LinePlot`
 
 ---
 
 ## Basic usage
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<(f64, f64)> = (0..=100)
     .map(|i| { let x = i as f64 * 0.1; (x, x.sin()) })
@@ -44,11 +44,11 @@ std::fs::write("line.svg", svg).unwrap();
 Four built-in stroke styles are available. Use the shorthand methods or pass a `LineStyle` variant directly.
 
 ```rust,no_run
-use visus::plot::{LinePlot, LineStyle};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{LinePlot, LineStyle};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let xs: Vec<f64> = (0..=80).map(|i| i as f64 * 0.125).collect();
 
@@ -89,7 +89,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 For patterns not covered by the built-in variants, use `LineStyle::Custom` with an SVG `stroke-dasharray` string:
 
 ```rust,no_run
-# use visus::plot::{LinePlot, LineStyle};
+# use kuva::plot::{LinePlot, LineStyle};
 let plot = LinePlot::new()
     .with_data(vec![(0.0_f64, 0.0_f64), (1.0, 1.0), (2.0, 0.5)])
     .with_line_style(LineStyle::Custom("12 3 3 3".into()));
@@ -102,11 +102,11 @@ let plot = LinePlot::new()
 Call `.with_fill()` to shade the region between the line and the x-axis. The fill uses the line color at `0.3` opacity by default.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<(f64, f64)> = (0..=100)
     .map(|i| { let x = i as f64 * 0.1; (x, x.sin()) })
@@ -137,11 +137,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_step()` draws horizontal-then-vertical transitions between consecutive points rather than diagonal segments. This is the standard rendering for histograms and discrete time-series data.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     (0.0_f64, 2.0_f64), (1.0, 5.0), (2.0, 3.0), (3.0, 7.0),
@@ -174,11 +174,11 @@ Step and fill can be combined: `.with_step().with_fill()` produces a filled step
 `.with_band(y_lower, y_upper)` draws a shaded region between two boundary series aligned to the line's x positions. The band color inherits from the line color.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let xs: Vec<f64> = (0..=80).map(|i| i as f64 * 0.125).collect();
 let ys: Vec<f64> = xs.iter().map(|&x| x.sin()).collect();
@@ -211,11 +211,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_y_err()` and `.with_x_err()` attach symmetric error bars. Asymmetric variants take `(negative, positive)` tuples.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<(f64, f64)> = (0..=8)
     .map(|i| (i as f64, (i as f64 * 0.8).sin()))
@@ -244,7 +244,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Pass `(neg, pos)` tuples instead of scalar values:
 
 ```rust,no_run
-# use visus::plot::LinePlot;
+# use kuva::plot::LinePlot;
 let data: Vec<(f64, f64)> = (0..=4).map(|i| (i as f64, i as f64)).collect();
 let y_err = vec![(0.1_f64, 0.3_f64), (0.2, 0.5), (0.1, 0.4), (0.3, 0.2), (0.2, 0.6)];
 
@@ -260,11 +260,11 @@ let plot = LinePlot::new()
 Pass multiple `LinePlot` structs in a `Vec<Plot>`. Legends appear automatically when any series has a label.
 
 ```rust,no_run
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let xs: Vec<f64> = (0..=60).map(|i| i as f64 * 0.1).collect();
 

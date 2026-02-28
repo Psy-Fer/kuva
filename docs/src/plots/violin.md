@@ -2,7 +2,7 @@
 
 A violin plot estimates the probability density of each group using kernel density estimation (KDE) and renders it as a symmetric shape — widest where data is most dense. Unlike box plots, violins reveal multi-modal and skewed distributions that a five-number summary would obscure.
 
-**Import path:** `visus::plot::ViolinPlot`
+**Import path:** `kuva::plot::ViolinPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A violin plot estimates the probability density of each group using kernel densi
 Add one group per category with `.with_group(label, values)`. Groups are rendered left-to-right in the order they are added.
 
 ```rust,no_run
-use visus::plot::ViolinPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ViolinPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = ViolinPlot::new()
     .with_group("Normal",  normal_data)   // unimodal
@@ -45,7 +45,7 @@ The bimodal group shows two distinct bulges — structure that a box plot would 
 `.with_width(px)` sets the maximum half-width of each violin in pixels. The default is `30.0`. Unlike bar width, this is an absolute pixel value, not a fraction of the category slot.
 
 ```rust,no_run
-# use visus::plot::ViolinPlot;
+# use kuva::plot::ViolinPlot;
 let plot = ViolinPlot::new()
     .with_group("A", data)
     .with_width(20.0);   // narrower violins
@@ -58,8 +58,8 @@ let plot = ViolinPlot::new()
 Bandwidth controls how smooth the density estimate is. The default uses Silverman's rule-of-thumb, which works well for unimodal, roughly normal data. Set it manually with `.with_bandwidth(h)` when the automatic choice is too smooth (hides modes) or too rough (noisy).
 
 ```rust,no_run
-use visus::plot::ViolinPlot;
-# use visus::render::plots::Plot;
+use kuva::plot::ViolinPlot;
+# use kuva::render::plots::Plot;
 
 // Too narrow — jagged, noisy
 let plot = ViolinPlot::new().with_group("", data.clone()).with_bandwidth(0.15);
@@ -97,11 +97,11 @@ Adding individual points on top of the violin makes the sample size visible and 
 `.with_swarm_overlay()` spreads points horizontally to avoid overlap. Recommended for smaller datasets (roughly N < 200 per group).
 
 ```rust,no_run
-use visus::plot::ViolinPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ViolinPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = ViolinPlot::new()
     .with_group("Normal",  normal_data)
@@ -128,7 +128,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_strip(jitter)` places points with random horizontal offsets. More appropriate for large datasets where beeswarm layout becomes slow.
 
 ```rust,no_run
-# use visus::plot::ViolinPlot;
+# use kuva::plot::ViolinPlot;
 let plot = ViolinPlot::new()
     .with_group("A", data)
     .with_color("steelblue")

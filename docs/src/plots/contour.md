@@ -2,7 +2,7 @@
 
 A contour plot draws iso-lines (or filled iso-bands) on a 2D scalar field, connecting all points that share the same z value. It is well suited for visualising any continuous surface: density functions, spatial expression gradients, topographic elevation, or any field that varies over an x–y plane.
 
-**Import path:** `visus::plot::ContourPlot`
+**Import path:** `kuva::plot::ContourPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A contour plot draws iso-lines (or filled iso-bands) on a 2D scalar field, conne
 Supply a pre-computed grid with `.with_grid(z, x_coords, y_coords)`. `z[row][col]` is the scalar value at position (`x_coords[col]`, `y_coords[row]`). By default, `n_levels` evenly spaced iso-lines are drawn (default 8).
 
 ```rust,no_run
-use visus::plot::ContourPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ContourPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 // Build a 60×60 Gaussian grid over [-3, 3]²
 let n = 60_usize;
@@ -55,8 +55,8 @@ Ten evenly spaced iso-lines trace the nested ellipses of the Gaussian peak. A fi
 `.with_filled()` fills each band between adjacent iso-levels using the colormap. `.with_legend(label)` enables a colorbar in the right margin.
 
 ```rust,no_run
-# use visus::plot::ContourPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::ContourPlot;
+# use kuva::render::plots::Plot;
 let cp = ContourPlot::new()
     .with_grid(z, xs, ys)
     .with_n_levels(9)
@@ -75,8 +75,8 @@ A bimodal surface with two overlapping peaks. The Viridis colormap maps low z va
 `.with_points(iter)` accepts an iterator of `(x, y, z)` triples at **arbitrary positions** — no regular grid required. The values are interpolated onto an internal 50×50 grid using inverse-distance weighting (IDW) before iso-lines are computed. This is the natural input mode for spatial data such as tissue sample coordinates or irregular sensor readings.
 
 ```rust,no_run
-# use visus::plot::{ContourPlot, ColorMap};
-# use visus::render::plots::Plot;
+# use kuva::plot::{ContourPlot, ColorMap};
+# use kuva::render::plots::Plot;
 // 121 sample points from a bimodal function
 let pts: Vec<(f64, f64, f64)> = (-5..=5)
     .flat_map(|i| (-5..=5).map(move |j| {
@@ -106,8 +106,8 @@ The Inferno colormap with filled bands on IDW-interpolated data. Denser point cl
 `.with_levels(&[…])` pins the iso-lines to specific z values. This overrides `n_levels`. Use it when lines should correspond to meaningful thresholds — specific expression cutoffs, probability contours, or fixed elevation intervals.
 
 ```rust,no_run
-# use visus::plot::ContourPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::ContourPlot;
+# use kuva::render::plots::Plot;
 # let (z, xs, ys) = (vec![vec![0.0f64]], vec![0.0f64], vec![0.0f64]);
 let cp = ContourPlot::new()
     .with_grid(z, xs, ys)
@@ -127,7 +127,7 @@ Five explicit iso-lines at z = 0.1, 0.25, 0.5, 0.75, 0.9 on the same Gaussian. T
 By default each iso-line is colored using the active colormap. `.with_line_color(s)` overrides this with a single fixed color for all lines — useful for clean black-and-white figures or when the colormap is reserved for a filled background.
 
 ```rust,no_run
-# use visus::plot::ContourPlot;
+# use kuva::plot::ContourPlot;
 # let (z, xs, ys) = (vec![vec![0.0f64]], vec![0.0f64], vec![0.0f64]);
 let cp = ContourPlot::new()
     .with_grid(z, xs, ys)
@@ -142,7 +142,7 @@ let cp = ContourPlot::new()
 `.with_colormap(map)` selects the colormap (default `Viridis`). The same [`ColorMap`](../reference/palettes.md) variants available for heatmaps apply: `Viridis`, `Inferno`, `Grayscale`, and `Custom`.
 
 ```rust,no_run
-use visus::plot::{ContourPlot, ColorMap};
+use kuva::plot::{ContourPlot, ColorMap};
 # let (z, xs, ys) = (vec![vec![0.0f64]], vec![0.0f64], vec![0.0f64]);
 let cp = ContourPlot::new()
     .with_grid(z, xs, ys)

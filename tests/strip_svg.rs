@@ -1,10 +1,10 @@
-use visus::plot::{BoxPlot, ViolinPlot};
-use visus::plot::StripPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::Palette;
+use kuva::plot::{BoxPlot, ViolinPlot};
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::Palette;
 
 #[test]
 fn test_strip_basic() {

@@ -1,8 +1,8 @@
-use visus::plot::{DotPlot, ColorMap};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{DotPlot, ColorMap};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 #[test]
 fn test_dot_basic() {

@@ -1,10 +1,10 @@
-use visus::{Palette, Theme};
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::line::LinePlot;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::backend::svg::SvgBackend;
+use kuva::{Palette, Theme};
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::line::LinePlot;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::backend::svg::SvgBackend;
 
 #[test]
 fn test_palette_dark_theme_with_colorblind() {

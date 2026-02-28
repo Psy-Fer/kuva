@@ -1,9 +1,9 @@
-use visus::plot::brick::BrickTemplate;
-use visus::plot::BrickPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::brick::BrickTemplate;
+use kuva::plot::BrickPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 
 #[test]

@@ -1,6 +1,6 @@
-use visus::plot::ChordPlot;
-use visus::render::{plots::Plot, layout::Layout, render::render_multiple};
-use visus::backend::svg::SvgBackend;
+use kuva::plot::ChordPlot;
+use kuva::render::{plots::Plot, layout::Layout, render::render_multiple};
+use kuva::backend::svg::SvgBackend;
 
 #[test]
 fn chord_basic() {

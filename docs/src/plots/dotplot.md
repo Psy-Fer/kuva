@@ -2,7 +2,7 @@
 
 A dot plot (bubble matrix) places circles at the intersections of two categorical axes. Each circle encodes two independent continuous variables: **size** (radius) and **color**. This makes it well suited for compact display of multi-variable summaries across a grid — the canonical use case in bioinformatics is a gene expression dot plot where size shows the fraction of cells expressing a gene and color shows the mean expression level.
 
-**Import path:** `visus::plot::DotPlot`
+**Import path:** `kuva::plot::DotPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A dot plot (bubble matrix) places circles at the intersections of two categorica
 Pass an iterator of `(x_cat, y_cat, size, color)` tuples to `.with_data()`. Category order on each axis follows first-seen insertion order. Enable legends independently with `.with_size_legend()` and `.with_colorbar()`.
 
 ```rust,no_run
-use visus::plot::DotPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::DotPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     // (x_cat,   y_cat,   size,  color)
@@ -54,8 +54,8 @@ Eight immune marker genes across six cell types. Large circles show genes expres
 `.with_matrix(x_cats, y_cats, sizes, colors)` accepts dense 2-D data where every grid cell is filled. `sizes[row_i][col_j]` maps to `y_cats[row_i]` and `x_cats[col_j]`. Use this when your data comes from a matrix or 2-D array.
 
 ```rust,no_run
-use visus::plot::DotPlot;
-# use visus::render::plots::Plot;
+use kuva::plot::DotPlot;
+# use kuva::render::plots::Plot;
 
 let x_cats = vec!["TypeA", "TypeB", "TypeC", "TypeD", "TypeE"];
 let y_cats = vec!["Gene1", "Gene2", "Gene3", "Gene4", "Gene5", "Gene6"];
@@ -87,7 +87,7 @@ let dot = DotPlot::new()
 With `.with_data()`, grid positions with no corresponding tuple are simply left empty — no circle is drawn at that cell. There is no need to fill missing values with zero or NaN.
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new().with_data(vec![
     ("TypeA", "GeneX", 80.0_f64, 2.5_f64),
     // ("TypeA", "GeneY") absent — no circle drawn
@@ -107,7 +107,7 @@ The size legend and colorbar are independent. Enable either, both, or neither.
 `.with_size_legend(label)` adds a key in the right margin showing representative radii with their corresponding values. Use this when color carries no additional information (or when all dots share the same constant color value).
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new()
     .with_data(data)
     .with_size_legend("% Expressing");   // only size legend; no colorbar
@@ -120,7 +120,7 @@ let dot = DotPlot::new()
 `.with_colorbar(label)` adds a colorbar for the color encoding. Useful when all dots should be the same size (pass a constant for the `size` field) so the color variable is the sole focus.
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new()
     .with_data(data)
     .with_colorbar("Mean expression");   // only colorbar; no size legend
@@ -133,7 +133,7 @@ let dot = DotPlot::new()
 When both are set, the size legend and colorbar are stacked in a single right-margin column automatically.
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new()
     .with_data(data)
     .with_size_legend("% Expressing")
@@ -147,7 +147,7 @@ let dot = DotPlot::new()
 By default the size and color encodings are normalised to the data extent automatically. Use `.with_size_range()` and `.with_color_range()` to fix an explicit `[min, max]` — useful for excluding outliers or keeping a consistent scale across multiple plots.
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new()
     .with_data(data)
     // Clamp size to 0–100 % regardless of data range;
@@ -164,7 +164,7 @@ let dot = DotPlot::new()
 `.with_max_radius(px)` and `.with_min_radius(px)` set the pixel size limits (defaults: `12.0` and `1.0`). Increase `max_radius` for a larger grid or reduce it for dense plots with many categories.
 
 ```rust,no_run
-# use visus::plot::DotPlot;
+# use kuva::plot::DotPlot;
 let dot = DotPlot::new()
     .with_data(data)
     .with_max_radius(18.0)   // default 12.0
@@ -178,8 +178,8 @@ let dot = DotPlot::new()
 `.with_color_map(ColorMap)` selects the color encoding (default `Viridis`). The same [`ColorMap`](../reference/palettes.md) variants available for heatmaps apply here: `Viridis`, `Inferno`, `Grayscale`, and `Custom`.
 
 ```rust,no_run
-use visus::plot::{DotPlot, ColorMap};
-# use visus::render::plots::Plot;
+use kuva::plot::{DotPlot, ColorMap};
+# use kuva::render::plots::Plot;
 
 let dot = DotPlot::new()
     .with_data(data)

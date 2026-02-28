@@ -1,14 +1,14 @@
 [package]
-name = "visus"
+name = "kuva"
 version = "0.1.0"
 edition = "2021"
 description = "Scientific plotting library in Rust with various backends."
 authors = ["James M. Ferguson <j.ferguson@garvan.org.au>"]
-repository = "https://github.com/Psy-Fer/visus"
+repository = "https://github.com/Psy-Fer/kuva"
 license = "MIT"
 keywords = ["plotting", "bioinformatics", "svg", "visualization", "science"]
 categories = ["science", "visualization", "graphics", "command-line-utilities"]
-documentation = "https://docs.rs/visus"
+documentation = "https://docs.rs/kuva"
 readme = "README.md"
 
 [package.metadata.docs.rs]
@@ -47,8 +47,8 @@ name = "svg"
 harness = false
 
 [[bin]]
-name = "visus"
-path = "src/bin/visus/main.rs"
+name = "kuva"
+path = "src/bin/kuva/main.rs"
 required-features = ["cli"]
 
 [[example]]

@@ -42,8 +42,8 @@ fn canonical_rotation(s: &str) -> String {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::brick::BrickTemplate;
-/// use visus::plot::BrickPlot;
+/// use kuva::plot::brick::BrickTemplate;
+/// use kuva::plot::BrickPlot;
 ///
 /// let tmpl = BrickTemplate::new().dna();
 /// let plot = BrickPlot::new()
@@ -116,12 +116,12 @@ impl BrickTemplate {
 ///
 /// ```rust,no_run
 /// use std::collections::HashMap;
-/// use visus::plot::BrickPlot;
-/// use visus::plot::brick::BrickTemplate;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::BrickPlot;
+/// use kuva::plot::brick::BrickTemplate;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let tmpl = BrickTemplate::new().dna();
 ///
@@ -193,7 +193,7 @@ impl BrickPlot {
     /// entry in the template; unknown characters will cause a panic.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BrickPlot;
+    /// # use kuva::plot::BrickPlot;
     /// let plot = BrickPlot::new()
     ///     .with_sequences(vec!["ACGTACGT", "ACGTACGT"]);
     /// ```
@@ -210,7 +210,7 @@ impl BrickPlot {
     /// Load row labels — one name per sequence, rendered on the y-axis.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BrickPlot;
+    /// # use kuva::plot::BrickPlot;
     /// let plot = BrickPlot::new()
     ///     .with_sequences(vec!["ACGT"])
     ///     .with_names(vec!["read_1"]);
@@ -241,7 +241,7 @@ impl BrickPlot {
     /// brick widths proportional to each motif's nucleotide length.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BrickPlot;
+    /// # use kuva::plot::BrickPlot;
     /// let strigars = vec![
     ///     ("CAT:A,T:B".to_string(), "14A1B1A".to_string()),
     ///     ("CAT:A,C:B".to_string(), "12A1B3A".to_string()),
@@ -367,7 +367,7 @@ impl BrickPlot {
     ///
     /// ```rust,no_run
     /// use std::collections::HashMap;
-    /// use visus::plot::BrickPlot;
+    /// use kuva::plot::BrickPlot;
     ///
     /// let mut tmpl = HashMap::new();
     /// tmpl.insert('H', "steelblue".to_string());   // helix
@@ -391,7 +391,7 @@ impl BrickPlot {
     /// flanking prefix.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BrickPlot;
+    /// # use kuva::plot::BrickPlot;
     /// // Skip an 18-character common prefix so the repeat starts at x = 0
     /// let plot = BrickPlot::new()
     ///     .with_x_offset(18.0);
@@ -410,7 +410,7 @@ impl BrickPlot {
     /// also fall back.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BrickPlot;
+    /// # use kuva::plot::BrickPlot;
     /// // Three reads with different prefix lengths; fourth falls back to global offset 12.
     /// let plot = BrickPlot::new()
     ///     .with_x_offset(12.0)

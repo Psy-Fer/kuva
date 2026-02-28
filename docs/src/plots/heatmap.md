@@ -2,7 +2,7 @@
 
 A heatmap renders a two-dimensional grid where each cell's color encodes a numeric value. Values are normalized to the data range and passed through a color map. A colorbar is always shown in the right margin.
 
-**Import path:** `visus::plot::Heatmap`
+**Import path:** `kuva::plot::Heatmap`
 
 ---
 
@@ -11,11 +11,11 @@ A heatmap renders a two-dimensional grid where each cell's color encodes a numer
 Pass a 2-D array to `.with_data()`. The outer dimension is rows (top to bottom) and the inner dimension is columns (left to right).
 
 ```rust,no_run
-use visus::plot::Heatmap;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Heatmap;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     vec![0.8, 0.3, 0.9, 0.2, 0.6],
@@ -45,11 +45,11 @@ std::fs::write("heatmap.svg", svg).unwrap();
 Axis labels are set on the `Layout`, not on the `Heatmap` struct. Pass column labels to `.with_x_categories()` and row labels to `.with_y_categories()`.
 
 ```rust,no_run
-use visus::plot::Heatmap;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Heatmap;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![
     vec![2.1, 0.4, 3.2, 1.1, 2.8],
@@ -82,7 +82,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_values()` prints each cell's raw numeric value (formatted to two decimal places) centered inside the cell. Most useful for small grids where the text remains legible.
 
 ```rust,no_run
-# use visus::plot::Heatmap;
+# use kuva::plot::Heatmap;
 let heatmap = Heatmap::new()
     .with_data(vec![
         vec![10.0, 20.0, 30.0, 15.0],
@@ -109,8 +109,8 @@ let heatmap = Heatmap::new()
 | `Custom(Arc<Fn>)` | User-defined | Full control |
 
 ```rust,no_run
-use visus::plot::{Heatmap, ColorMap};
-# use visus::render::plots::Plot;
+use kuva::plot::{Heatmap, ColorMap};
+# use kuva::render::plots::Plot;
 
 let heatmap = Heatmap::new()
     .with_data(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
@@ -136,7 +136,7 @@ For diverging scales or other custom encodings, use `ColorMap::Custom` with a cl
 
 ```rust,no_run
 use std::sync::Arc;
-use visus::plot::{Heatmap, ColorMap};
+use kuva::plot::{Heatmap, ColorMap};
 
 // Blue-to-red diverging scale
 let cmap = ColorMap::Custom(Arc::new(|t: f64| {

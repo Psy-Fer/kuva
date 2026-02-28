@@ -1,4 +1,4 @@
-//! Compact showcase of all 25 visus plot types in a single 5×5 Figure grid.
+//! Compact showcase of all 25 kuva plot types in a single 5×5 Figure grid.
 //! Each cell uses minimal inline data — click through to all_plots_complex
 //! for larger datasets with axes, legends, and titles.
 //!
@@ -7,18 +7,18 @@
 //!
 //! Output: examples/all_plots_simple.svg
 
-use visus::plot::{
+use kuva::plot::{
     ScatterPlot, LinePlot, BarPlot, Histogram, Histogram2D,
     BoxPlot, ViolinPlot, StripPlot, WaterfallPlot, StackedAreaPlot,
     PiePlot, PieLabelPosition, SeriesPlot, Heatmap,
     DotPlot, VolcanoPlot, ManhattanPlot, CandlestickPlot, ContourPlot,
     UpSetPlot, ChordPlot, SankeyPlot, PhyloTree, SyntenyPlot, BrickPlot,
 };
-use visus::plot::brick::BrickTemplate;
-use visus::render::plots::Plot;
-use visus::render::layout::Layout;
-use visus::render::figure::Figure;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::brick::BrickTemplate;
+use kuva::render::plots::Plot;
+use kuva::render::layout::Layout;
+use kuva::render::figure::Figure;
+use kuva::backend::svg::SvgBackend;
 
 fn main() {
     // ── Row 0: Scatter, Line, Bar, Histogram, Histogram2D ─────────────────

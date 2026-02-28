@@ -2,7 +2,7 @@
 
 A series plot displays an ordered sequence of y-values against their sequential index on the x-axis. It is the simplest way to visualise a **time series**, signal trace, or any 1D ordered measurement. Three rendering styles are available: line, point, or both.
 
-**Import path:** `visus::plot::SeriesPlot`
+**Import path:** `kuva::plot::SeriesPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A series plot displays an ordered sequence of y-values against their sequential 
 Pass an iterable of numeric values to `.with_data()`. The x-axis is assigned automatically as `0, 1, 2, …`.
 
 ```rust,no_run
-use visus::plot::SeriesPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::SeriesPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<f64> = (0..80)
     .map(|i| (i as f64 * std::f64::consts::TAU / 80.0).sin())
@@ -62,8 +62,8 @@ Three styles control how values are rendered. Call the corresponding method inst
 Place multiple `SeriesPlot` instances in the same `plots` vector to overlay them on one canvas. All series share the same axes; they align automatically when they have the same number of values.
 
 ```rust,no_run
-# use visus::plot::SeriesPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::SeriesPlot;
+# use kuva::render::plots::Plot;
 let s1 = SeriesPlot::new()
     .with_data(sin_data)
     .with_color("steelblue")
@@ -97,8 +97,8 @@ Each series has its own color and legend entry. The legend is drawn automaticall
 `.with_stroke_width(f)` sets the line thickness; `.with_point_radius(f)` sets the circle size. These only affect the relevant style — `stroke_width` applies to `Line` and `Both`; `point_radius` applies to `Point` and `Both`.
 
 ```rust,no_run
-# use visus::plot::SeriesPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::SeriesPlot;
+# use kuva::render::plots::Plot;
 let series = SeriesPlot::new()
     .with_data(data)
     .with_color("darkorchid")

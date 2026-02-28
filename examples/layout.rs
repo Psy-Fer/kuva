@@ -1,6 +1,6 @@
 //! Layout & Axes documentation examples.
 //!
-//! Generates canonical SVG outputs used in the visus documentation.
+//! Generates canonical SVG outputs used in the kuva documentation.
 //! Run with:
 //!
 //! ```bash
@@ -9,14 +9,14 @@
 //!
 //! SVGs are written to `docs/src/assets/layout/`.
 
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
-use visus::TickFormat;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
+use kuva::TickFormat;
 
 const OUT: &str = "docs/src/assets/layout";
 

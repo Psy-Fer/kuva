@@ -2,7 +2,7 @@
 
 A histogram bins a 1-D dataset into equal-width intervals and renders each bin as a vertical bar. It supports explicit ranges, normalization, and overlapping distributions.
 
-**Import path:** `visus::plot::Histogram`
+**Import path:** `kuva::plot::Histogram`
 
 ---
 
@@ -11,11 +11,11 @@ A histogram bins a 1-D dataset into equal-width intervals and renders each bin a
 `.with_range((min, max))` is **required** — without it `Layout::auto_from_plots` cannot determine the axis extent and will produce an empty chart. Compute the range from your data before building the histogram:
 
 ```rust,no_run
-use visus::plot::Histogram;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<f64> = vec![/* your samples */];
 
@@ -49,7 +49,7 @@ std::fs::write("histogram.svg", svg).unwrap();
 `.with_bins(n)` sets the number of equal-width bins (default `10`). Fewer bins smooth out noise; more bins reveal finer structure at the cost of per-bin counts. The same range is used in both cases so the x-axis stays comparable.
 
 ```rust,no_run
-# use visus::plot::Histogram;
+# use kuva::plot::Histogram;
 // Coarse — few bins, clear shape
 let hist = Histogram::new().with_data(data.clone()).with_bins(5).with_range(range);
 
@@ -71,7 +71,7 @@ let hist = Histogram::new().with_data(data).with_bins(40).with_range(range);
 Pass an explicit `(min, max)` to `.with_range()` to fix the bin edges regardless of the data. Values outside the range are silently ignored. This is useful when you want to focus on a sub-range, exclude outliers, or ensure two independent histograms cover the same x-axis scale.
 
 ```rust,no_run
-# use visus::plot::Histogram;
+# use kuva::plot::Histogram;
 let hist = Histogram::new()
     .with_data(data)
     .with_bins(20)
@@ -86,11 +86,11 @@ let hist = Histogram::new()
 `.with_normalize()` rescales bar heights so the tallest bar equals `1.0`. This is peak-normalization — useful for comparing the shape of distributions with different sample sizes. The y-axis shows relative frequency, not counts or probability density.
 
 ```rust,no_run
-use visus::plot::Histogram;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
 let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -120,11 +120,11 @@ Place multiple `Histogram` structs in the same `Vec<Plot>`. Since bars have no b
 When overlapping, compute a **shared range** from the combined data so both histograms use the same bin edges and x-axis scale:
 
 ```rust,no_run
-use visus::plot::Histogram;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 // Shared range across both groups so x-axes align.
 let combined_min = group_a.iter().chain(group_b.iter())

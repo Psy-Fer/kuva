@@ -2,7 +2,7 @@
 
 A strip plot (dot plot / univariate scatter) shows every individual data point along a categorical axis. Unlike a box or violin, nothing is summarised — the raw values are shown directly, making sample size and exact distribution shape immediately visible.
 
-**Import path:** `visus::plot::StripPlot`
+**Import path:** `kuva::plot::StripPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A strip plot (dot plot / univariate scatter) shows every individual data point a
 Add one group per category with `.with_group(label, values)`. Groups are rendered left-to-right in the order they are added.
 
 ```rust,no_run
-use visus::plot::StripPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let strip = StripPlot::new()
     .with_group("Control",   control_data)
@@ -53,7 +53,7 @@ Three modes control how points are spread horizontally within each group slot.
 Use a smaller `j` to tighten the column or a larger `j` to spread it out. The jitter positions are randomised with a fixed seed (changeable via `.with_seed()`), so output is reproducible.
 
 ```rust,no_run
-# use visus::plot::StripPlot;
+# use kuva::plot::StripPlot;
 let strip = StripPlot::new()
     .with_group("A", data)
     .with_jitter(0.35)      // ±35 % of slot width
@@ -67,11 +67,11 @@ let strip = StripPlot::new()
 Swarm works best for **N < ~200 per group**. With very large N, points are pushed far from center and the spread becomes impractical.
 
 ```rust,no_run
-use visus::plot::StripPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let strip = StripPlot::new()
     .with_group("Control",      normal_data)
@@ -98,7 +98,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_center()` places all points at x = group center with no horizontal spread, creating a vertical column. The density of the distribution is readable directly from where points are most tightly packed.
 
 ```rust,no_run
-# use visus::plot::StripPlot;
+# use kuva::plot::StripPlot;
 let strip = StripPlot::new()
     .with_group("Normal",  normal_data)
     .with_group("Bimodal", bimodal_data)
@@ -119,11 +119,11 @@ let strip = StripPlot::new()
 A `StripPlot` can be layered on top of a `BoxPlot` by passing both to `render_multiple`. Use a semi-transparent `rgba` color for the strip so the box summary remains legible underneath.
 
 ```rust,no_run
-use visus::plot::{StripPlot, BoxPlot};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{StripPlot, BoxPlot};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let boxplot = BoxPlot::new()
     .with_group("Control",     control_data.clone())
@@ -158,12 +158,12 @@ The box summarises Q1/median/Q3; the individual points reveal that the bimodal g
 Passing multiple `StripPlot`s to `render_multiple` with a `Layout::with_palette()` auto-assigns distinct colors. Attach `.with_legend()` to each plot to identify them.
 
 ```rust,no_run
-use visus::plot::StripPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::Palette;
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::Palette;
 
 let line_a = StripPlot::new()
     .with_group("WT",  wt_a).with_group("HET", het_a).with_group("KO", ko_a)

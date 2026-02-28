@@ -7,7 +7,7 @@ A candlestick chart visualises OHLC (open, high, low, close) data. Each candle e
 
 An optional **volume panel** shows trading volume as bars below the price chart.
 
-**Import path:** `visus::plot::CandlestickPlot`
+**Import path:** `kuva::plot::CandlestickPlot`
 
 ---
 
@@ -16,11 +16,11 @@ An optional **volume panel** shows trading volume as bars below the price chart.
 Add candles one at a time with `.with_candle(label, open, high, low, close)`. Labels are placed on the x-axis as category ticks and candles are spaced evenly.
 
 ```rust,no_run
-use visus::plot::CandlestickPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::CandlestickPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = CandlestickPlot::new()
     .with_candle("Nov 01", 142.50, 146.20, 141.80, 145.30)  // bullish
@@ -50,7 +50,7 @@ Twenty trading days showing the full mix of bullish, bearish, and doji candles. 
 Attach volume data with `.with_volume(iter)` then call `.with_volume_panel()` to render a bar sub-panel below the price chart. Volume bars are colored to match their candle (green for up days, red for down days).
 
 ```rust,no_run
-# use visus::plot::CandlestickPlot;
+# use kuva::plot::CandlestickPlot;
 let plot = CandlestickPlot::new()
     .with_candle("Nov 01", 142.50, 146.20, 141.80, 145.30)
     .with_candle("Nov 02", 145.40, 147.80, 143.50, 144.10)
@@ -70,7 +70,7 @@ The volume panel occupies the bottom 22 % of the chart area by default. Adjust w
 Replace the default green/red/gray with any CSS color string using `.with_color_up()`, `.with_color_down()`, and `.with_color_doji()`.
 
 ```rust,no_run
-# use visus::plot::CandlestickPlot;
+# use kuva::plot::CandlestickPlot;
 let plot = CandlestickPlot::new()
     .with_color_up("#00c896")     // teal green
     .with_color_down("#ff4560")   // bright red
@@ -92,7 +92,7 @@ let plot = CandlestickPlot::new()
 When using this mode, set `.with_candle_width(w)` to a value in data units smaller than the spacing between candles (e.g. `0.15` for quarterly data spaced `0.25` apart).
 
 ```rust,no_run
-# use visus::plot::CandlestickPlot;
+# use kuva::plot::CandlestickPlot;
 let plot = CandlestickPlot::new()
     // x = fractional year; candles spaced 0.25 apart
     .with_candle_at(2023.00, "Q1'23", 110.5, 118.0, 110.0, 116.8)
@@ -113,7 +113,7 @@ Twelve quarters (2022 Q1 – 2024 Q4) on a continuous fractional-year axis. The 
 `.with_legend(label)` adds a legend box inside the plot area identifying the series.
 
 ```rust,no_run
-# use visus::plot::CandlestickPlot;
+# use kuva::plot::CandlestickPlot;
 let plot = CandlestickPlot::new()
     .with_candle("Jan", 100.0, 108.0, 98.0, 106.0)
     .with_candle("Feb", 106.0, 112.0, 104.0, 110.5)

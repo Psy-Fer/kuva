@@ -15,11 +15,11 @@
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::{BandPlot, LinePlot};
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::{BandPlot, LinePlot};
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let x: Vec<f64> = (0..50).map(|i| i as f64 * 0.2).collect();
 /// let y: Vec<f64> = x.iter().map(|&v| v.sin()).collect();
@@ -66,7 +66,7 @@ impl BandPlot {
     /// implementing `Into<f64>`. Default fill: `"steelblue"` at opacity `0.2`.
     ///
     /// ```rust,no_run
-    /// use visus::plot::BandPlot;
+    /// use kuva::plot::BandPlot;
     ///
     /// let x = vec![0.0_f64, 1.0, 2.0, 3.0];
     /// let lower = vec![-0.3_f64, 0.7, 1.7, 2.7];

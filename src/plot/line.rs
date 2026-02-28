@@ -67,11 +67,11 @@ use crate::plot::band::BandPlot;
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::LinePlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::LinePlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data: Vec<(f64, f64)> = (0..=100)
 ///     .map(|i| { let x = i as f64 * 0.1; (x, x.sin()) })
@@ -133,7 +133,7 @@ impl LinePlot {
     /// `Into<f64>`, so integer and float types all work without casting.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::LinePlot;
+    /// # use kuva::plot::LinePlot;
     /// // integer input
     /// let plot = LinePlot::new()
     ///     .with_data(vec![(0_i32, 0_i32), (1, 2), (2, 1)]);
@@ -258,7 +258,7 @@ impl LinePlot {
     /// The band color matches the line color at 30% opacity.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::LinePlot;
+    /// # use kuva::plot::LinePlot;
     /// let data: Vec<(f64, f64)> = (0..=5).map(|i| (i as f64, (i as f64).sin())).collect();
     /// let lower: Vec<f64> = data.iter().map(|&(_, y)| y - 0.2).collect();
     /// let upper: Vec<f64> = data.iter().map(|&(_, y)| y + 0.2).collect();

@@ -7,11 +7,11 @@
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::Histogram;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::Histogram;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data = vec![1.1, 2.3, 2.7, 3.2, 3.8, 3.9, 4.0, 1.5, 2.1, 3.5];
 ///
@@ -68,7 +68,7 @@ impl Histogram {
     /// > cannot determine the axis extent and the chart will be empty.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::Histogram;
+    /// # use kuva::plot::Histogram;
     /// let data = vec![1.1, 2.3, 2.7, 3.2, 3.8];
     /// let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
     /// let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -106,7 +106,7 @@ impl Histogram {
     /// Values outside the range are silently ignored during binning.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::Histogram;
+    /// # use kuva::plot::Histogram;
     /// let data = vec![0.1, 0.5, 1.2, 2.8, 3.0];
     /// let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
     /// let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -125,7 +125,7 @@ impl Histogram {
     /// channel (`#RRGGBBAA`) so bars from different series show through:
     ///
     /// ```rust,no_run
-    /// # use visus::plot::Histogram;
+    /// # use kuva::plot::Histogram;
     /// let hist = Histogram::new()
     ///     .with_data(vec![1.0, 2.0, 3.0])
     ///     .with_color("#4682b480");  // steelblue at 50% opacity

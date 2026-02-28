@@ -1,6 +1,6 @@
 # Benchmarks
 
-visus uses [Criterion](https://bheisler.github.io/criterion.rs/book/) for statistical micro-benchmarks. All numbers on this page were collected on a release build (`opt-level = 3`) on AMD64 Linux. Timing is median wall-clock; HTML reports with per-sample distributions live in `target/criterion/` after running.
+kuva uses [Criterion](https://bheisler.github.io/criterion.rs/book/) for statistical micro-benchmarks. All numbers on this page were collected on a release build (`opt-level = 3`) on AMD64 Linux. Timing is median wall-clock; HTML reports with per-sample distributions live in `target/criterion/` after running.
 
 ## Running the benchmarks
 

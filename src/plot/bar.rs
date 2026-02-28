@@ -12,11 +12,11 @@
 /// # Simple example
 ///
 /// ```rust,no_run
-/// use visus::plot::BarPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::BarPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let plot = BarPlot::new()
 ///     .with_bars(vec![("Apples", 42.0), ("Bananas", 58.0), ("Cherries", 31.0)])
@@ -79,7 +79,7 @@ impl BarPlot {
     /// [`.with_legend()`](Self::with_legend) to label the series.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BarPlot;
+    /// # use kuva::plot::BarPlot;
     /// let plot = BarPlot::new()
     ///     .with_group("Jan", vec![(10.0, "steelblue"), (7.0, "crimson")])
     ///     .with_group("Feb", vec![(13.0, "steelblue"), (9.0, "crimson")])
@@ -126,7 +126,7 @@ impl BarPlot {
     /// [`.with_color()`](Self::with_color) afterwards to change all bars at once.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BarPlot;
+    /// # use kuva::plot::BarPlot;
     /// let plot = BarPlot::new()
     ///     .with_bar("A", 3.2)
     ///     .with_bar("B", 4.7)
@@ -150,7 +150,7 @@ impl BarPlot {
     /// Chain [`.with_color()`](Self::with_color) to set a uniform color.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::BarPlot;
+    /// # use kuva::plot::BarPlot;
     /// let plot = BarPlot::new()
     ///     .with_bars(vec![("A", 3.2), ("B", 4.7), ("C", 2.8)])
     ///     .with_color("steelblue");

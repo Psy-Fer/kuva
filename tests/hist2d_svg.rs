@@ -1,10 +1,10 @@
-use visus::plot::Histogram2D;
-use visus::plot::histogram2d::ColorMap;
-use visus::backend::svg::SvgBackend;
-// use visus::render::render::render_histogram;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram2D;
+use kuva::plot::histogram2d::ColorMap;
+use kuva::backend::svg::SvgBackend;
+// use kuva::render::render::render_histogram;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 use rand_distr::{Normal, Distribution};
 // use rand::prelude::*;

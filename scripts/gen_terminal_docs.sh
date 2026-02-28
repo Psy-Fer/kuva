@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate terminal output GIFs for the visus documentation.
+# Regenerate terminal output GIFs for the kuva documentation.
 #
 # Requires: vhs, ttyd, ffmpeg — see CONTRIBUTING.md for installation instructions.
 #
@@ -27,8 +27,8 @@ done
 # ── Build release binary ───────────────────────────────────────────────────────
 echo "Building release binary..."
 cd "$REPO_ROOT"
-cargo build --release --bin visus --features cli --quiet
-echo "  -> target/release/visus"
+cargo build --release --bin kuva --features cli --quiet
+echo "  -> target/release/kuva"
 
 # ── Output directory ───────────────────────────────────────────────────────────
 mkdir -p "$OUT_DIR"

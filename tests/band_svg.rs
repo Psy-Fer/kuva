@@ -1,8 +1,8 @@
-use visus::plot::{LinePlot, ScatterPlot, BandPlot};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{LinePlot, ScatterPlot, BandPlot};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 #[test]
 fn test_standalone_band() {

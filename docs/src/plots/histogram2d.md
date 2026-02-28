@@ -2,7 +2,7 @@
 
 A 2D histogram (density map) bins scatter points `(x, y)` into a rectangular grid and colors each cell by its count. The colorbar labeled **"Count"** is added to the right margin automatically. Use it to visualize the joint distribution of two continuous variables.
 
-**Import path:** `visus::plot::Histogram2D`, `visus::plot::histogram2d::ColorMap`
+**Import path:** `kuva::plot::Histogram2D`, `kuva::plot::histogram2d::ColorMap`
 
 ---
 
@@ -11,11 +11,11 @@ A 2D histogram (density map) bins scatter points `(x, y)` into a rectangular gri
 Pass `(x, y)` scatter points along with explicit axis ranges and bin counts to `.with_data()`. Points outside the specified ranges are silently discarded.
 
 ```rust,no_run
-use visus::plot::Histogram2D;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram2D;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 // (x, y) scatter points — e.g. from a 2D measurement
 let data: Vec<(f64, f64)> = vec![];  // ...your data here
@@ -44,8 +44,8 @@ A single bivariate Gaussian cluster binned into a 30×30 grid. The Viridis color
 `.with_correlation()` computes the Pearson r coefficient from the raw scatter points and prints it in the top-right corner.
 
 ```rust,no_run
-# use visus::plot::Histogram2D;
-# use visus::render::plots::Plot;
+# use kuva::plot::Histogram2D;
+# use kuva::render::plots::Plot;
 let hist = Histogram2D::new()
     .with_data(data, (0.0, 20.0), (0.0, 20.0), 25, 25)
     .with_correlation();
@@ -62,9 +62,9 @@ The diagonal density ridge reflects a strong positive correlation (r ≈ 0.85). 
 `ColorMap::Inferno` maps low counts to near-black and high counts to bright yellow. It is effective for high-contrast visualization of structured or multi-modal data.
 
 ```rust,no_run
-use visus::plot::Histogram2D;
-use visus::plot::histogram2d::ColorMap;
-# use visus::render::plots::Plot;
+use kuva::plot::Histogram2D;
+use kuva::plot::histogram2d::ColorMap;
+# use kuva::render::plots::Plot;
 
 let hist = Histogram2D::new()
     .with_data(data, (0.0, 30.0), (0.0, 30.0), 30, 30)

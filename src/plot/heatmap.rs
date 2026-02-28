@@ -44,7 +44,7 @@ pub enum ColorMap {
     ///
     /// ```rust,no_run
     /// use std::sync::Arc;
-    /// use visus::plot::ColorMap;
+    /// use kuva::plot::ColorMap;
     ///
     /// // Custom blue-to-red diverging scale
     /// let cmap = ColorMap::Custom(Arc::new(|t: f64| {
@@ -84,11 +84,11 @@ impl ColorMap {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::{Heatmap, ColorMap};
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::{Heatmap, ColorMap};
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let data = vec![
 ///     vec![0.8, 0.3, 0.9],
@@ -154,7 +154,7 @@ impl Heatmap {
     /// (left to right). All rows must have the same number of columns.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::Heatmap;
+    /// # use kuva::plot::Heatmap;
     /// let heatmap = Heatmap::new().with_data(vec![
     ///     vec![1.0, 2.0, 3.0],
     ///     vec![4.0, 5.0, 6.0],
@@ -195,7 +195,7 @@ impl Heatmap {
     /// Set the color map used to encode cell values (default [`ColorMap::Viridis`]).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::{Heatmap, ColorMap};
+    /// # use kuva::plot::{Heatmap, ColorMap};
     /// let heatmap = Heatmap::new()
     ///     .with_data(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
     ///     .with_color_map(ColorMap::Inferno);

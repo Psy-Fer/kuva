@@ -2,7 +2,7 @@
 
 A stacked area chart places multiple series on top of each other so the reader can see both the individual contribution of each series and the combined total at any x position. It is well suited for showing how a whole is composed of parts over a continuous axis — typically time.
 
-**Import path:** `visus::plot::StackedAreaPlot`
+**Import path:** `kuva::plot::StackedAreaPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A stacked area chart places multiple series on top of each other so the reader c
 Set the x values with `.with_x()`, then add series one at a time with `.with_series()`. Call `.with_color()` and `.with_legend()` immediately after each series to configure it — these methods always operate on the **most recently added** series.
 
 ```rust,no_run
-use visus::plot::StackedAreaPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::StackedAreaPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let months: Vec<f64> = (1..=12).map(|m| m as f64).collect();
 
@@ -55,7 +55,7 @@ Four variant types are stacked so the total height of each column shows the aggr
 `.with_normalized()` rescales each column so all series sum to 100 %, shifting the y-axis to span 0–100 %. Use this when you want to emphasise proportional composition rather than absolute magnitude.
 
 ```rust,no_run
-# use visus::plot::StackedAreaPlot;
+# use kuva::plot::StackedAreaPlot;
 let sa = StackedAreaPlot::new()
     .with_x(months)
     // ... add series ...
@@ -73,7 +73,7 @@ The relative dominance of SNVs (~77 %) is immediately clear and the slight month
 By default a stroke is drawn along the top edge of each band. `.with_strokes(false)` removes all outlines for a softer, flat appearance — useful when the colors provide enough contrast.
 
 ```rust,no_run
-# use visus::plot::StackedAreaPlot;
+# use kuva::plot::StackedAreaPlot;
 let sa = StackedAreaPlot::new()
     .with_x(months)
     // ... add series ...
@@ -96,7 +96,7 @@ let sa = StackedAreaPlot::new()
 | `BottomLeft` | Lower-left corner |
 
 ```rust,no_run
-use visus::plot::{StackedAreaPlot, LegendPosition};
+use kuva::plot::{StackedAreaPlot, LegendPosition};
 
 let sa = StackedAreaPlot::new()
     .with_x(months)
@@ -119,7 +119,7 @@ let sa = StackedAreaPlot::new()
 `.with_stroke_width(px)` sets the thickness of the top-edge strokes (default `1.5`). Has no effect when `.with_strokes(false)` is set.
 
 ```rust,no_run
-# use visus::plot::StackedAreaPlot;
+# use kuva::plot::StackedAreaPlot;
 let sa = StackedAreaPlot::new()
     .with_x(months)
     // ... add series ...
@@ -138,7 +138,7 @@ If no color is set for a series the built-in fallback palette is used (cycling w
 Set an explicit color by calling `.with_color()` immediately after `.with_series()`:
 
 ```rust,no_run
-# use visus::plot::StackedAreaPlot;
+# use kuva::plot::StackedAreaPlot;
 let sa = StackedAreaPlot::new()
     .with_x([1.0, 2.0, 3.0])
     .with_series([10.0, 20.0, 15.0]).with_color("#2c7bb6").with_legend("Group A")

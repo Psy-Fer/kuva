@@ -1,9 +1,9 @@
-# visus CLI
+# kuva CLI
 
-`visus` is the command-line front-end for the visus plotting library. It reads tabular data from a TSV or CSV file (or stdin) and writes an SVG — or PNG/PDF with the right feature flag — to a file or stdout.
+`kuva` is the command-line front-end for the kuva plotting library. It reads tabular data from a TSV or CSV file (or stdin) and writes an SVG — or PNG/PDF with the right feature flag — to a file or stdout.
 
 ```
-visus <SUBCOMMAND> [FILE] [OPTIONS]
+kuva <SUBCOMMAND> [FILE] [OPTIONS]
 ```
 
 ---
@@ -11,13 +11,13 @@ visus <SUBCOMMAND> [FILE] [OPTIONS]
 ## Building
 
 ```bash
-cargo build --bin visus                  # SVG output only
-cargo build --bin visus --features png   # adds PNG output via resvg
-cargo build --bin visus --features pdf   # adds PDF output via svg2pdf
-cargo build --bin visus --features full  # both PNG and PDF
+cargo build --bin kuva                  # SVG output only
+cargo build --bin kuva --features png   # adds PNG output via resvg
+cargo build --bin kuva --features pdf   # adds PDF output via svg2pdf
+cargo build --bin kuva --features full  # both PNG and PDF
 ```
 
-After building, the binary is at `target/debug/visus` (or `target/release/visus` with `--release`).
+After building, the binary is at `target/debug/kuva` (or `target/release/kuva` with `--release`).
 
 ---
 
@@ -27,13 +27,13 @@ Every subcommand takes an optional positional `FILE` argument. If omitted or `-`
 
 ```bash
 # from file
-visus scatter data.tsv
+kuva scatter data.tsv
 
 # from stdin
-cat data.tsv | visus scatter
+cat data.tsv | kuva scatter
 
 # explicit stdin
-visus scatter - < data.tsv
+kuva scatter - < data.tsv
 ```
 
 ### Delimiter detection
@@ -53,8 +53,8 @@ If the first field of the first row fails to parse as a number, the row is treat
 Columns are selected by **0-based integer index** or **header name**:
 
 ```bash
-visus scatter data.tsv --x 0 --y 1          # by index
-visus scatter data.tsv --x time --y value   # by name (requires header)
+kuva scatter data.tsv --x 0 --y 1          # by index
+kuva scatter data.tsv --x time --y value   # by name (requires header)
 ```
 
 ---
@@ -101,16 +101,16 @@ Terminal output uses Unicode braille dots (U+2800–U+28FF) for scatter points a
 
 ```bash
 # Scatter plot directly in terminal
-visus scatter data.tsv --x x --y y --terminal
+kuva scatter data.tsv --x x --y y --terminal
 
 # Explicit dimensions
-visus bar counts.tsv --label-col gene --value-col count --terminal --term-width 120 --term-height 40
+kuva bar counts.tsv --label-col gene --value-col count --terminal --term-width 120 --term-height 40
 
 # Manhattan plot on a remote server
-cat gwas.tsv | visus manhattan --chr-col chr --pvalue-col pvalue --terminal
+cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 ```
 
-> **Note:** Terminal output is not yet supported for `upset`. Running `visus upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
+> **Note:** Terminal output is not yet supported for `upset`. Running `kuva upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
 
 ### Axes *(most subcommands)*
 
@@ -183,12 +183,12 @@ Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines,
 | `--legend` | off | Show legend |
 
 ```bash
-visus scatter measurements.tsv --x time --y value --color steelblue
+kuva scatter measurements.tsv --x time --y value --color steelblue
 
-visus scatter measurements.tsv --x time --y value \
+kuva scatter measurements.tsv --x time --y value \
     --color-by group --legend --title "Expression over time"
 
-visus scatter measurements.tsv --x time --y value \
+kuva scatter measurements.tsv --x time --y value \
     --trend --equation --correlation --log-y
 ```
 
@@ -213,9 +213,9 @@ Line plot. Identical column flags to scatter; adds line-style options.
 | `--legend` | off | Show legend |
 
 ```bash
-visus line measurements.tsv --x time --y value --color-by group --legend
+kuva line measurements.tsv --x time --y value --color-by group --legend
 
-visus line measurements.tsv --x time --y value --fill --color "rgba(70,130,180,0.4)"
+kuva line measurements.tsv --x time --y value --fill --color "rgba(70,130,180,0.4)"
 ```
 
 ---
@@ -234,9 +234,9 @@ Bar chart from label/value pairs.
 | `--bar-width <F>` | `0.8` | Bar width as a fraction of the slot |
 
 ```bash
-visus bar bar.tsv --label-col category --value-col count --color "#4682b4"
+kuva bar bar.tsv --label-col category --value-col count --color "#4682b4"
 
-visus bar bar.tsv --x-label "Pathway" --y-label "Gene count" \
+kuva bar bar.tsv --x-label "Pathway" --y-label "Gene count" \
     -o pathways.svg
 ```
 
@@ -256,9 +256,9 @@ Frequency histogram from a single numeric column.
 | `--normalize` | off | Normalize to probability density (area = 1) |
 
 ```bash
-visus histogram histogram.tsv --value-col value --bins 30
+kuva histogram histogram.tsv --value-col value --bins 30
 
-visus histogram histogram.tsv --bins 20 --normalize \
+kuva histogram histogram.tsv --bins 20 --normalize \
     --title "Expression distribution" --y-label "Density"
 ```
 
@@ -279,9 +279,9 @@ Box-and-whisker plot. Groups are taken from one column; values from another.
 | `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 
 ```bash
-visus box samples.tsv --group-col group --value-col expression
+kuva box samples.tsv --group-col group --value-col expression
 
-visus box samples.tsv --group-col group --value-col expression \
+kuva box samples.tsv --group-col group --value-col expression \
     --overlay-swarm --color "rgba(70,130,180,0.6)"
 ```
 
@@ -303,9 +303,9 @@ Kernel-density violin plot. Same input format as `box`.
 | `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 
 ```bash
-visus violin samples.tsv --group-col group --value-col expression
+kuva violin samples.tsv --group-col group --value-col expression
 
-visus violin samples.tsv --group-col group --value-col expression \
+kuva violin samples.tsv --group-col group --value-col expression \
     --overlay-swarm --bandwidth 0.3
 ```
 
@@ -329,9 +329,9 @@ Pie or donut chart.
 | `--legend` | off | Show legend |
 
 ```bash
-visus pie pie.tsv --label-col feature --value-col percentage --percent
+kuva pie pie.tsv --label-col feature --value-col percentage --percent
 
-visus pie pie.tsv --label-col feature --value-col percentage \
+kuva pie pie.tsv --label-col feature --value-col percentage \
     --donut --legend --label-position outside
 ```
 
@@ -355,9 +355,9 @@ Strip / jitter plot — individual points along a categorical axis.
 Default layout when neither `--swarm` nor `--center` is given: random jitter (±30 % of slot width).
 
 ```bash
-visus strip samples.tsv --group-col group --value-col expression
+kuva strip samples.tsv --group-col group --value-col expression
 
-visus strip samples.tsv --group-col group --value-col expression --swarm
+kuva strip samples.tsv --group-col group --value-col expression --swarm
 ```
 
 ---
@@ -380,11 +380,11 @@ Waterfall / bridge chart showing a running total built from incremental bars.
 | `--color-total <CSS>` | `steelblue` | Total/subtotal bar color |
 
 ```bash
-visus waterfall waterfall.tsv --label-col process --value-col log2fc \
+kuva waterfall waterfall.tsv --label-col process --value-col log2fc \
     --connectors --values
 
 # mark two rows as summary bars
-visus waterfall income.tsv \
+kuva waterfall income.tsv \
     --total "Gross profit" --total "Net income" \
     --connectors --values
 ```
@@ -406,10 +406,10 @@ Stacked area chart in long format.
 | `--fill-opacity <F>` | `0.7` | Fill opacity for each band |
 
 ```bash
-visus stacked-area stacked_area.tsv \
+kuva stacked-area stacked_area.tsv \
     --x-col week --group-col species --y-col abundance
 
-visus stacked-area stacked_area.tsv \
+kuva stacked-area stacked_area.tsv \
     --x-col week --group-col species --y-col abundance \
     --normalize --y-label "Relative abundance (%)"
 ```
@@ -437,11 +437,11 @@ Volcano plot for differential expression results.
 | `--legend` | off | Show Up / Down / NS legend |
 
 ```bash
-visus volcano gene_stats.tsv \
+kuva volcano gene_stats.tsv \
     --name-col gene --x-col log2fc --y-col pvalue \
     --top-n 20 --legend
 
-visus volcano gene_stats.tsv \
+kuva volcano gene_stats.tsv \
     --name-col gene --x-col log2fc --y-col pvalue \
     --fc-cutoff 2.0 --p-cutoff 0.01 --top-n 10
 ```
@@ -474,10 +474,10 @@ Two layout modes:
 
 ```bash
 # sequential mode (no position column needed)
-visus manhattan gene_stats.tsv --chr-col chr --pvalue-col pvalue --top-n 5
+kuva manhattan gene_stats.tsv --chr-col chr --pvalue-col pvalue --top-n 5
 
 # base-pair mode
-visus manhattan gwas.tsv \
+kuva manhattan gwas.tsv \
     --chr-col chr --pos-col pos --pvalue-col pvalue \
     --genome-build hg38 --top-n 10 --legend
 ```
@@ -505,11 +505,11 @@ OHLC candlestick chart.
 | `--color-doji <CSS>` | `#888888` | Doji candle color |
 
 ```bash
-visus candlestick candlestick.tsv \
+kuva candlestick candlestick.tsv \
     --label-col date --open-col open --high-col high \
     --low-col low --close-col close
 
-visus candlestick candlestick.tsv \
+kuva candlestick candlestick.tsv \
     --label-col date --open-col open --high-col high \
     --low-col low --close-col close \
     --volume-col volume --volume-panel
@@ -536,9 +536,9 @@ BRCA1   0.23        0.48       1.06     …
 | `--legend <LABEL>` | — | Show color bar with this label |
 
 ```bash
-visus heatmap heatmap.tsv
+kuva heatmap heatmap.tsv
 
-visus heatmap heatmap.tsv --colormap inferno --values --legend "z-score"
+kuva heatmap heatmap.tsv --colormap inferno --values --legend "z-score"
 ```
 
 ---
@@ -559,9 +559,9 @@ Two-dimensional histogram (density grid) from two numeric columns.
 | `--correlation` | off | Overlay Pearson correlation coefficient |
 
 ```bash
-visus hist2d measurements.tsv --x time --y value
+kuva hist2d measurements.tsv --x time --y value
 
-visus hist2d measurements.tsv --x time --y value \
+kuva hist2d measurements.tsv --x time --y value \
     --bins-x 20 --bins-y 20 --correlation
 ```
 
@@ -585,9 +585,9 @@ Contour plot from scattered (x, y, z) triplets.
 | `--legend <LABEL>` | — | Show legend entry |
 
 ```bash
-visus contour contour.tsv --x x --y y --z density
+kuva contour contour.tsv --x x --y y --z density
 
-visus contour contour.tsv --x x --y y --z density \
+kuva contour contour.tsv --x x --y y --z density \
     --filled --levels 12 --colormap inferno
 ```
 
@@ -611,11 +611,11 @@ Dot plot encoding two variables (size and color) at categorical (x, y) positions
 | `--colorbar <LABEL>` | — | Show color bar with this label |
 
 ```bash
-visus dot dot.tsv \
+kuva dot dot.tsv \
     --x-col pathway --y-col cell_type \
     --size-col pct_expressed --color-col mean_expr
 
-visus dot dot.tsv \
+kuva dot dot.tsv \
     --x-col pathway --y-col cell_type \
     --size-col pct_expressed --color-col mean_expr \
     --size-legend "% expressed" --colorbar "mean expr"
@@ -641,12 +641,12 @@ GWAS_hit  eQTL  Splicing_QTL  Methylation_QTL  Conservation  ClinVar
 | `--max-visible <N>` | — | Show only the top N intersections |
 
 ```bash
-visus upset upset.tsv
+kuva upset upset.tsv
 
-visus upset upset.tsv --sort degree --max-visible 15
+kuva upset upset.tsv --sort degree --max-visible 15
 ```
 
-> **Terminal output:** not yet supported. `visus upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
+> **Terminal output:** not yet supported. `kuva upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
 
 ---
 
@@ -669,9 +669,9 @@ Hippocampus   320     0            210      …
 | `--legend <LABEL>` | — | Show legend |
 
 ```bash
-visus chord chord.tsv
+kuva chord chord.tsv
 
-visus chord chord.tsv --gap 3.0 --opacity 0.5 --legend "connectivity"
+kuva chord chord.tsv --gap 3.0 --opacity 0.5 --legend "connectivity"
 ```
 
 ---
@@ -692,10 +692,10 @@ Sankey / alluvial flow diagram.
 | `--legend <LABEL>` | — | Show legend |
 
 ```bash
-visus sankey sankey.tsv \
+kuva sankey sankey.tsv \
     --source-col source --target-col target --value-col value
 
-visus sankey sankey.tsv \
+kuva sankey sankey.tsv \
     --source-col source --target-col target --value-col value \
     --link-gradient --legend "read flow"
 ```
@@ -723,14 +723,14 @@ Phylogenetic tree from a Newick string or edge-list TSV.
 
 ```bash
 # from edge-list TSV
-visus phylo phylo.tsv \
+kuva phylo phylo.tsv \
     --parent-col parent --child-col child --length-col length
 
 # from Newick string
-visus phylo --newick "((A:0.1,B:0.2):0.3,C:0.4);" --branch-style circular
+kuva phylo --newick "((A:0.1,B:0.2):0.3,C:0.4);" --branch-style circular
 
 # phylogram, top orientation
-visus phylo phylo.tsv \
+kuva phylo phylo.tsv \
     --parent-col parent --child-col child --length-col length \
     --phylogram --orientation top
 ```
@@ -766,9 +766,9 @@ Chr1A  150674  271188  Chr1B  165366  303075  -
 | `--legend <LABEL>` | — | Show legend |
 
 ```bash
-visus synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
+kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
 
-visus synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
+kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
     --proportional --legend "synteny blocks"
 ```
 
@@ -778,23 +778,23 @@ visus synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
 
 **Pipe to a viewer:**
 ```bash
-visus scatter data.tsv | display            # ImageMagick
-visus scatter data.tsv | inkscape --pipe    # Inkscape
+kuva scatter data.tsv | display            # ImageMagick
+kuva scatter data.tsv | inkscape --pipe    # Inkscape
 ```
 
 **Quick PNG without a file:**
 ```bash
-visus scatter data.tsv -o /tmp/out.png      # requires --features png
+kuva scatter data.tsv -o /tmp/out.png      # requires --features png
 ```
 
 **Themed dark output:**
 ```bash
-visus manhattan gwas.tsv --chr-col chr --pvalue-col pvalue \
+kuva manhattan gwas.tsv --chr-col chr --pvalue-col pvalue \
     --theme dark --background "#1a1a2e" -o manhattan_dark.svg
 ```
 
 **Colour-vision-deficiency palette:**
 ```bash
-visus scatter data.tsv --x time --y value --color-by group \
+kuva scatter data.tsv --x time --y value --color-by group \
     --cvd-palette deuteranopia
 ```

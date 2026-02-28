@@ -15,11 +15,11 @@
 //! # Example
 //!
 //! ```rust
-//! use visus::plot::scatter::ScatterPlot;
-//! use visus::render::plots::Plot;
-//! use visus::render::layout::Layout;
-//! use visus::render::render::render_multiple;
-//! use visus::backend::svg::SvgBackend;
+//! use kuva::plot::scatter::ScatterPlot;
+//! use kuva::render::plots::Plot;
+//! use kuva::render::layout::Layout;
+//! use kuva::render::render::render_multiple;
+//! use kuva::backend::svg::SvgBackend;
 //!
 //! let scatter = ScatterPlot::new()
 //!     .with_data(vec![(1.0_f64, 2.0), (3.0, 4.0)])
@@ -38,7 +38,7 @@
 //! |---------|-------------|
 //! | `png`   | Enables [`PngBackend`] for rasterising SVG scenes via `resvg`. |
 //! | `pdf`   | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
-//! | `cli`   | Enables the `visus` CLI binary (pulls in `clap`). |
+//! | `cli`   | Enables the `kuva` CLI binary (pulls in `clap`). |
 //! | `full`  | Enables `png` + `pdf`. |
 
 pub mod plot;

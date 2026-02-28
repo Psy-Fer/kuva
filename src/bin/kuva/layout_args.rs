@@ -1,7 +1,7 @@
 use clap::Args;
-use visus::render::layout::Layout;
-use visus::render::palette::Palette;
-use visus::render::theme::Theme;
+use kuva::render::layout::Layout;
+use kuva::render::palette::Palette;
+use kuva::render::theme::Theme;
 
 // ── Composable arg structs ────────────────────────────────────────────────────
 // Flatten only the relevant combination into each subcommand:

@@ -1,10 +1,10 @@
-use visus::Theme;
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::line::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_scatter;
-use visus::render::render::render_line;
-use visus::render::layout::Layout;
+use kuva::Theme;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::line::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_scatter;
+use kuva::render::render::render_line;
+use kuva::render::layout::Layout;
 
 #[test]
 fn test_theme_dark() {

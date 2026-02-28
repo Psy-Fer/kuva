@@ -51,11 +51,11 @@ pub struct CandleDataPoint {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::CandlestickPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::CandlestickPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let plot = CandlestickPlot::new()
 ///     .with_candle("Mon", 100.0, 106.5,  99.2, 105.8)
@@ -128,7 +128,7 @@ impl CandlestickPlot {
     /// weekly data).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::CandlestickPlot;
+    /// # use kuva::plot::CandlestickPlot;
     /// let plot = CandlestickPlot::new()
     ///     .with_candle("Mon", 100.0, 106.5,  99.2, 105.8)  // open, high, low, close
     ///     .with_candle("Tue", 105.8, 108.0, 104.1, 104.5);
@@ -165,7 +165,7 @@ impl CandlestickPlot {
     /// quarterly data spaced `0.25` units apart).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::CandlestickPlot;
+    /// # use kuva::plot::CandlestickPlot;
     /// let plot = CandlestickPlot::new()
     ///     // x = fractional year; candles spaced 0.25 apart
     ///     .with_candle_at(2023.00, "Q1", 110.0, 118.0, 108.0, 116.0)
@@ -202,7 +202,7 @@ impl CandlestickPlot {
     /// is also called.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::CandlestickPlot;
+    /// # use kuva::plot::CandlestickPlot;
     /// let plot = CandlestickPlot::new()
     ///     .with_candle("Mon", 100.0, 106.0, 99.0, 105.0)
     ///     .with_candle("Tue", 105.0, 108.0, 104.0, 104.5)
@@ -289,7 +289,7 @@ impl CandlestickPlot {
     /// Add a legend label, causing a legend box to appear inside the plot area.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::CandlestickPlot;
+    /// # use kuva::plot::CandlestickPlot;
     /// let plot = CandlestickPlot::new()
     ///     .with_candle("Jan", 100.0, 108.0, 98.0, 106.0)
     ///     .with_legend("ACME Corp");

@@ -26,12 +26,12 @@
 - [ ] `cargo test` — all existing tests still pass
 
 ### CLI (if applicable)
-- [ ] `src/bin/visus/<name>.rs` — Args struct (with `/// doc comment`) + `run()`
-- [ ] `src/bin/visus/main.rs` — module, Commands variant, match arm
+- [ ] `src/bin/kuva/<name>.rs` — Args struct (with `/// doc comment`) + `run()`
+- [ ] `src/bin/kuva/main.rs` — module, Commands variant, match arm
 - [ ] `scripts/smoke_tests.sh` — at least one invocation
 - [ ] `tests/cli_basic.rs` — SVG output test + content verification test
 - [ ] `docs/src/cli/index.md` — subcommand entry
-- [ ] `man/visus.1` — regenerated (`./target/debug/visus man > man/visus.1`)
+- [ ] `man/kuva.1` — regenerated (`./target/debug/kuva man > man/kuva.1`)
 
 ### Documentation
 - [ ] `examples/<name>.rs` — Rust example for doc asset generation

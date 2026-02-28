@@ -2,7 +2,7 @@
 
 A Manhattan plot displays **GWAS p-values** across the genome. Each point represents a SNP; the x-axis spans chromosomes and the y-axis shows **−log₁₀(p-value)**. Chromosomes are colored with an alternating scheme. Dashed threshold lines are drawn automatically at the genome-wide (p = 5×10⁻⁸) and suggestive (p = 1×10⁻⁵) significance levels.
 
-**Import path:** `visus::plot::ManhattanPlot`
+**Import path:** `kuva::plot::ManhattanPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A Manhattan plot displays **GWAS p-values** across the genome. Each point repres
 When base-pair positions are unavailable, pass `(chrom, pvalue)` pairs to `.with_data()`. Chromosomes are sorted in standard genomic order (1–22, X, Y, MT); points within each chromosome receive consecutive integer x positions.
 
 ```rust,no_run
-use visus::plot::ManhattanPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ManhattanPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data: Vec<(String, f64)> = vec![
     ("1".into(), 0.42), ("1".into(), 3e-8),
@@ -47,8 +47,8 @@ All 23 chromosomes appear. Points in the significant and suggestive regions are 
 `.with_data_bp(data, GenomeBuild::Hg38)` maps each `(chrom, bp, pvalue)` triplet onto a true genomic x-axis. All chromosomes in the build appear as labeled bands even if they contain no data points.
 
 ```rust,no_run
-use visus::plot::{ManhattanPlot, GenomeBuild};
-# use visus::render::plots::Plot;
+use kuva::plot::{ManhattanPlot, GenomeBuild};
+# use kuva::render::plots::Plot;
 
 // (chrom, base-pair position, pvalue) from PLINK/GCTA output
 let data: Vec<(String, f64, f64)> = vec![];  // ...
@@ -79,8 +79,8 @@ Available builds:
 `.with_point_labels(iter)` attaches specific gene or SNP names to individual points by `(chrom, x, label)` triplets. Combine this with `.with_data_x()` (pre-computed x positions) for exact matching.
 
 ```rust,no_run
-use visus::plot::{ManhattanPlot, LabelStyle};
-# use visus::render::plots::Plot;
+use kuva::plot::{ManhattanPlot, LabelStyle};
+# use kuva::render::plots::Plot;
 
 let data: Vec<(&str, f64, f64)> = vec![
     // chr1 — BRCA2 locus
@@ -115,9 +115,9 @@ The `x` value passed to `with_point_labels` must match the x coordinate assigned
 `GenomeBuild::Custom` accepts a `Vec<(chrom_name, size_in_bp)>` list in the order you want chromosomes displayed. Use this for non-human organisms or subsets of the human genome.
 
 ```rust,no_run
-use visus::plot::{ManhattanPlot, GenomeBuild};
-use visus::Palette;
-# use visus::render::plots::Plot;
+use kuva::plot::{ManhattanPlot, GenomeBuild};
+use kuva::Palette;
+# use kuva::render::plots::Plot;
 
 let build = GenomeBuild::Custom(vec![
     ("chr1".to_string(), 120_000_000),

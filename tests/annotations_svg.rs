@@ -1,9 +1,9 @@
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 
 #[test]
 fn test_text_annotation_with_arrow() {

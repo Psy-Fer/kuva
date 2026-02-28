@@ -1,9 +1,9 @@
 use std::fs;
-use visus::plot::CandlestickPlot;
-use visus::render::plots::Plot;
-use visus::render::layout::Layout;
-use visus::render::render::render_multiple;
-use visus::backend::svg::SvgBackend;
+use kuva::plot::CandlestickPlot;
+use kuva::render::plots::Plot;
+use kuva::render::layout::Layout;
+use kuva::render::render::render_multiple;
+use kuva::backend::svg::SvgBackend;
 
 fn write_svg(name: &str, svg: &str) {
     fs::create_dir_all("test_outputs").unwrap();

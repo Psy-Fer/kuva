@@ -2,7 +2,7 @@
 
 A chord diagram arranges N nodes around a circle and connects them with ribbons whose widths are proportional to flow magnitudes from an N×N matrix. Each node occupies an arc on the outer ring; arc length is proportional to the node's total flow. It is well suited for showing pairwise relationships in network data — co-occurrence, migration, regulatory influence, or any square flow matrix.
 
-**Import path:** `visus::plot::ChordPlot`
+**Import path:** `kuva::plot::ChordPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A chord diagram arranges N nodes around a circle and connects them with ribbons 
 Supply an N×N matrix with `.with_matrix()` and node labels with `.with_labels()`. The diagram renders in pixel space — no x/y axis system is used. A title set on the `Layout` is still shown.
 
 ```rust,no_run
-use visus::plot::ChordPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ChordPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 // Co-clustering proximity scores between PBMC cell types
 let matrix = vec![
@@ -52,8 +52,8 @@ When `matrix[i][j] ≠ matrix[j][i]`, flows are directed — for example regulat
 Use `.with_colors()` to assign explicit per-node colors, and `.with_legend()` to show a color-coded node legend.
 
 ```rust,no_run
-# use visus::plot::ChordPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::ChordPlot;
+# use kuva::render::plots::Plot;
 // Directed regulatory influence between five transcription factors
 let matrix = vec![
     vec![ 0.0, 85.0, 20.0, 45.0, 10.0],  // TF1 → others
@@ -84,7 +84,7 @@ TF4→TF5 (90) and TF1→TF2 (85) are the strongest regulatory edges. Asymmetry 
 `.with_opacity(f)` sets ribbon transparency (default `0.7`). Reducing opacity helps readability when many ribbons overlap in the centre.
 
 ```rust,no_run
-# use visus::plot::ChordPlot;
+# use kuva::plot::ChordPlot;
 # let matrix = vec![vec![0.0_f64; 5]; 5];
 let chord = ChordPlot::new()
     .with_matrix(matrix)
@@ -119,7 +119,7 @@ Arc length for node i is proportional to the **row sum** of `matrix[i]`. In a sy
 Without `.with_colors()`, node colors are assigned automatically from the `category10` palette (cycling for more than ten nodes). Supply explicit per-node colors to match publication figures or color-blind-safe palettes:
 
 ```rust,no_run
-# use visus::plot::ChordPlot;
+# use kuva::plot::ChordPlot;
 let chord = ChordPlot::new()
     .with_matrix(vec![vec![0.0, 1.0], vec![1.0, 0.0]])
     .with_labels(["Group A", "Group B"])

@@ -1,6 +1,6 @@
 //! Violin plot documentation examples.
 //!
-//! Generates canonical SVG outputs used in the visus documentation.
+//! Generates canonical SVG outputs used in the kuva documentation.
 //! Run with:
 //!
 //! ```bash
@@ -11,11 +11,11 @@
 
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Exp};
-use visus::plot::ViolinPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::ViolinPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 const OUT: &str = "docs/src/assets/violin";
 

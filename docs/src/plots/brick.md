@@ -2,7 +2,7 @@
 
 A brick plot displays sequences as rows of colored rectangles — one brick per character. It is designed for bioinformatics workflows involving **DNA/RNA sequence visualization** and **tandem-repeat structure analysis**. Each character maps to a color defined by a template; rows are labeled on the y-axis.
 
-**Import paths:** `visus::plot::BrickPlot`, `visus::plot::brick::BrickTemplate`
+**Import paths:** `kuva::plot::BrickPlot`, `kuva::plot::brick::BrickTemplate`
 
 ---
 
@@ -12,12 +12,12 @@ A brick plot displays sequences as rows of colored rectangles — one brick per 
 
 ```rust,no_run
 use std::collections::HashMap;
-use visus::plot::BrickPlot;
-use visus::plot::brick::BrickTemplate;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BrickPlot;
+use kuva::plot::brick::BrickTemplate;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let tmpl = BrickTemplate::new().dna();
 
@@ -49,9 +49,9 @@ The 18-character flanking prefix is hidden by `with_x_offset(18.0)`. All rows st
 When reads begin at different positions, `with_x_offsets` accepts one offset per row. Pass `None` for any row that should fall back to the global `x_offset`.
 
 ```rust,no_run
-# use visus::plot::BrickPlot;
-# use visus::plot::brick::BrickTemplate;
-# use visus::render::plots::Plot;
+# use kuva::plot::BrickPlot;
+# use kuva::plot::brick::BrickTemplate;
+# use kuva::render::plots::Plot;
 let plot = BrickPlot::new()
     .with_sequences(sequences)
     .with_names(names)
@@ -78,8 +78,8 @@ Each row is shifted independently, aligning the repeat boundary across reads wit
 
 ```rust,no_run
 use std::collections::HashMap;
-# use visus::plot::BrickPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::BrickPlot;
+# use kuva::render::plots::Plot;
 
 let mut tmpl: HashMap<char, String> = HashMap::new();
 tmpl.insert('H', "steelblue".into());   // α-helix
@@ -110,8 +110,8 @@ Any single-character alphabet can be used — amino acids, repeat unit categorie
 `with_strigars` normalises k-mers across all reads by canonical rotation, assigns global letters (A, B, C, …) by frequency, auto-generates colors, and renders **variable-width** bricks proportional to each motif's nucleotide length.
 
 ```rust,no_run
-# use visus::plot::BrickPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::BrickPlot;
+# use kuva::render::plots::Plot;
 let strigars: Vec<(String, String)> = vec![
     ("CAT:A,C:B,T:C".to_string(),   "10A1B4A1C1A".to_string()),
     ("CAT:A,T:B".to_string(),        "14A1B1A".to_string()),

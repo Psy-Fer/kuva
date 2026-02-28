@@ -1,18 +1,18 @@
 use clap::Args;
 
-use visus::plot::scatter::{ScatterPlot, TrendLine};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
-use visus::render::palette::Palette;
+use kuva::plot::line::{LinePlot, LineStyle};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
+use kuva::render::palette::Palette;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, LogArgs, apply_base_args, apply_axis_args, apply_log_args};
 use crate::output::write_output;
 
-/// Scatter plot from two numeric columns.
+/// Line plot from two numeric columns.
 #[derive(Args, Debug)]
-pub struct ScatterArgs {
+pub struct LineArgs {
     /// X-axis column (0-based index or header name; default: 0).
     #[arg(long)]
     pub x: Option<ColSpec>,
@@ -26,25 +26,25 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub color_by: Option<ColSpec>,
 
-    /// Point color (CSS string). Ignored when --color-by is used.
+    /// Line color (CSS string). Ignored when --color-by is used.
     #[arg(long)]
     pub color: Option<String>,
 
-    /// Point radius in pixels (default: 3.0).
+    /// Stroke width in pixels (default: 2.0).
     #[arg(long)]
-    pub size: Option<f64>,
+    pub stroke_width: Option<f64>,
 
-    /// Overlay a linear trend line.
+    /// Use a dashed line style.
     #[arg(long)]
-    pub trend: bool,
+    pub dashed: bool,
 
-    /// Annotate with the regression equation (requires --trend).
+    /// Use a dotted line style.
     #[arg(long)]
-    pub equation: bool,
+    pub dotted: bool,
 
-    /// Annotate with the Pearson R² value (requires --trend).
+    /// Fill the area under the line.
     #[arg(long)]
-    pub correlation: bool,
+    pub fill: bool,
 
     /// Show a legend for each series.
     #[arg(long)]
@@ -61,7 +61,7 @@ pub struct ScatterArgs {
     pub log: LogArgs,
 }
 
-pub fn run(args: ScatterArgs) -> Result<(), String> {
+pub fn run(args: LineArgs) -> Result<(), String> {
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
@@ -71,10 +71,15 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     let x_col = args.x.unwrap_or(ColSpec::Index(0));
     let y_col = args.y.unwrap_or(ColSpec::Index(1));
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
-    let size = args.size.unwrap_or(3.0);
-    let trend = args.trend;
-    let equation = args.equation;
-    let correlation = args.correlation;
+    let stroke_width = args.stroke_width.unwrap_or(2.0);
+    let line_style = if args.dashed {
+        LineStyle::Dashed
+    } else if args.dotted {
+        LineStyle::Dotted
+    } else {
+        LineStyle::Solid
+    };
+    let fill = args.fill;
     let legend = args.legend;
 
     let plots: Vec<Plot> = if let Some(color_by) = args.color_by {
@@ -88,41 +93,36 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .map(|((name, subtable), grp_color)| {
                 let xs = subtable.col_f64(&x_col)?;
                 let ys = subtable.col_f64(&y_col)?;
-                let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+                let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+                data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-                let mut plot = ScatterPlot::new()
+                let mut plot = LinePlot::new()
                     .with_data(data)
                     .with_color(&grp_color)
-                    .with_size(size);
+                    .with_stroke_width(stroke_width)
+                    .with_line_style(line_style.clone());
 
-                if trend {
-                    plot = plot.with_trend(TrendLine::Linear);
-                    if equation { plot = plot.with_equation(); }
-                    if correlation { plot = plot.with_correlation(); }
-                }
-                if legend {
-                    plot = plot.with_legend(name);
-                }
-                Ok(Plot::Scatter(plot))
+                if fill { plot = plot.with_fill(); }
+                if legend { plot = plot.with_legend(name); }
+
+                Ok(Plot::Line(plot))
             })
             .collect::<Result<Vec<_>, String>>()?
     } else {
         let xs = table.col_f64(&x_col)?;
         let ys = table.col_f64(&y_col)?;
-        let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+        let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut plot = ScatterPlot::new()
+        let mut plot = LinePlot::new()
             .with_data(data)
             .with_color(&color)
-            .with_size(size);
+            .with_stroke_width(stroke_width)
+            .with_line_style(line_style);
 
-        if trend {
-            plot = plot.with_trend(TrendLine::Linear);
-            if equation { plot = plot.with_equation(); }
-            if correlation { plot = plot.with_correlation(); }
-        }
+        if fill { plot = plot.with_fill(); }
 
-        vec![Plot::Scatter(plot)]
+        vec![Plot::Line(plot)]
     };
 
     let layout = Layout::auto_from_plots(&plots);

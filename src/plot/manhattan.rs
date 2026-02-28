@@ -61,11 +61,11 @@ pub struct ChromSpan {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::{ManhattanPlot, GenomeBuild};
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::{ManhattanPlot, GenomeBuild};
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// // (chrom, bp_position, pvalue) triplets from PLINK/GCTA output
 /// let data: Vec<(String, f64, f64)> = vec![];  // ...your data here
@@ -135,7 +135,7 @@ pub enum GenomeBuild {
     /// to appear on the x-axis. Names may include or omit the `"chr"` prefix.
     ///
     /// ```rust,no_run
-    /// use visus::plot::GenomeBuild;
+    /// use kuva::plot::GenomeBuild;
     /// let build = GenomeBuild::Custom(vec![
     ///     ("chr1".to_string(), 120_000_000),
     ///     ("chr2".to_string(),  95_000_000),
@@ -255,7 +255,7 @@ impl ManhattanPlot {
     /// end. Use this mode when base-pair positions are unavailable or unimportant.
     ///
     /// ```rust,no_run
-    /// use visus::plot::ManhattanPlot;
+    /// use kuva::plot::ManhattanPlot;
     ///
     /// let data: Vec<(String, f64)> = vec![
     ///     ("1".into(), 0.42), ("1".into(), 3e-8),
@@ -320,7 +320,7 @@ impl ManhattanPlot {
     /// in the build are appended after the last known chromosome.
     ///
     /// ```rust,no_run
-    /// use visus::plot::{ManhattanPlot, GenomeBuild};
+    /// use kuva::plot::{ManhattanPlot, GenomeBuild};
     ///
     /// let data = vec![("1", 100_000_000_f64, 3e-10_f64), ("6", 50_000_000_f64, 8e-9)];
     /// let mp = ManhattanPlot::new().with_data_bp(data, GenomeBuild::Hg38);
@@ -418,7 +418,7 @@ impl ManhattanPlot {
     /// genomes or when you want full control over x positioning.
     ///
     /// ```rust,no_run
-    /// use visus::plot::ManhattanPlot;
+    /// use kuva::plot::ManhattanPlot;
     ///
     /// // x positions are cumulative across three custom chromosomes
     /// let data = vec![
@@ -522,8 +522,8 @@ impl ManhattanPlot {
     /// named constructor from [`Palette`] or [`Palette::custom`].
     ///
     /// ```rust,no_run
-    /// use visus::plot::{ManhattanPlot, GenomeBuild};
-    /// use visus::Palette;
+    /// use kuva::plot::{ManhattanPlot, GenomeBuild};
+    /// use kuva::Palette;
     ///
     /// let mp = ManhattanPlot::new()
     ///     .with_data_bp(vec![("1", 1_f64, 0.01_f64)], GenomeBuild::Hg38)
@@ -547,7 +547,7 @@ impl ManhattanPlot {
     /// control placement. Default: `0` (no labels).
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ManhattanPlot;
+    /// # use kuva::plot::ManhattanPlot;
     /// let mp = ManhattanPlot::new()
     ///     // ...load data...
     ///     .with_label_top(10);  // label the 10 most significant hits
@@ -566,7 +566,7 @@ impl ManhattanPlot {
     ///   a gray leader line back to the point.
     ///
     /// ```rust,no_run
-    /// use visus::plot::{ManhattanPlot, LabelStyle};
+    /// use kuva::plot::{ManhattanPlot, LabelStyle};
     /// let mp = ManhattanPlot::new()
     ///     .with_label_top(10)
     ///     .with_label_style(LabelStyle::Arrow { offset_x: 10.0, offset_y: 14.0 });
@@ -592,7 +592,7 @@ impl ManhattanPlot {
     /// The string argument is not used as a title but must be set to enable the legend.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ManhattanPlot;
+    /// # use kuva::plot::ManhattanPlot;
     /// let mp = ManhattanPlot::new()
     ///     .with_legend("GWAS thresholds");
     /// ```
@@ -613,7 +613,7 @@ impl ManhattanPlot {
     /// match are silently skipped.
     ///
     /// ```rust,no_run
-    /// use visus::plot::ManhattanPlot;
+    /// use kuva::plot::ManhattanPlot;
     ///
     /// // Three-chromosome dataset with pre-computed x positions
     /// let data = vec![

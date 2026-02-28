@@ -1,18 +1,17 @@
 use clap::Args;
 
-use visus::plot::BoxPlot;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::render::render_multiple;
+use kuva::plot::ViolinPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, AxisArgs, apply_base_args, apply_axis_args};
 use crate::output::write_output;
 
-/// Box-and-whisker plot grouped by a column.
+/// Violin plot grouped by a column.
 #[derive(Args, Debug)]
-#[command(name = "box")]
-pub struct BoxArgs {
+pub struct ViolinArgs {
     /// Group column (0-based index or header name; default: 0).
     #[arg(long)]
     pub group_col: Option<ColSpec>,
@@ -21,9 +20,13 @@ pub struct BoxArgs {
     #[arg(long)]
     pub value_col: Option<ColSpec>,
 
-    /// Box fill color (CSS string; default: "steelblue").
+    /// Violin fill color (CSS string; default: "steelblue").
     #[arg(long)]
     pub color: Option<String>,
+
+    /// KDE bandwidth (Silverman's rule-of-thumb if omitted).
+    #[arg(long)]
+    pub bandwidth: Option<f64>,
 
     /// Overlay individual data points as a jittered strip.
     #[arg(long)]
@@ -42,7 +45,7 @@ pub struct BoxArgs {
     pub axis: AxisArgs,
 }
 
-pub fn run(args: BoxArgs) -> Result<(), String> {
+pub fn run(args: ViolinArgs) -> Result<(), String> {
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
@@ -55,7 +58,11 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
 
     let groups = table.group_by(&group_col)?;
 
-    let mut plot = BoxPlot::new().with_color(&color);
+    let mut plot = ViolinPlot::new().with_color(&color);
+
+    if let Some(bw) = args.bandwidth {
+        plot = plot.with_bandwidth(bw);
+    }
 
     for (name, subtable) in groups {
         let values = subtable.col_f64(&value_col)?;
@@ -68,7 +75,7 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
         plot = plot.with_strip(0.3);
     }
 
-    let plots = vec![Plot::Box(plot)];
+    let plots = vec![Plot::Violin(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);

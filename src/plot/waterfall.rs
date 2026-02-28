@@ -48,11 +48,11 @@ pub struct WaterfallBar {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::WaterfallPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::WaterfallPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let wf = WaterfallPlot::new()
 ///     .with_delta("Revenue",       850.0)
@@ -118,7 +118,7 @@ impl WaterfallPlot {
     /// Positive values are colored green; negative values red.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::WaterfallPlot;
+    /// # use kuva::plot::WaterfallPlot;
     /// let wf = WaterfallPlot::new()
     ///     .with_delta("Revenue",  850.0)
     ///     .with_delta("COGS",    -340.0)
@@ -141,7 +141,7 @@ impl WaterfallPlot {
     /// the main flow.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::WaterfallPlot;
+    /// # use kuva::plot::WaterfallPlot;
     /// let wf = WaterfallPlot::new()
     ///     .with_delta("Start", 1000.0)
     ///     .with_delta("Change",  150.0)
@@ -165,7 +165,7 @@ impl WaterfallPlot {
     /// or at the end to show the final result.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::WaterfallPlot;
+    /// # use kuva::plot::WaterfallPlot;
     /// let wf = WaterfallPlot::new()
     ///     .with_delta("Revenue",  850.0)
     ///     .with_delta("COGS",    -340.0)

@@ -68,11 +68,11 @@ pub enum UpSetSort {
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::UpSetPlot;
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::UpSetPlot;
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// let up = UpSetPlot::new()
 ///     .with_sets(vec![
@@ -148,7 +148,7 @@ impl UpSetPlot {
     /// gene IDs, or any other discrete identifier all work.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::UpSetPlot;
+    /// # use kuva::plot::UpSetPlot;
     /// let up = UpSetPlot::new().with_sets(vec![
     ///     ("DESeq2",   vec!["BRCA1", "TP53", "EGFR", "MYC",  "CDK4"]),
     ///     ("edgeR",    vec!["TP53",  "EGFR", "RB1",  "PTEN", "CDK4"]),
@@ -218,7 +218,7 @@ impl UpSetPlot {
     /// optional set-size bars on the left panel.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::UpSetPlot;
+    /// # use kuva::plot::UpSetPlot;
     /// // Three variant callers — bit 0 = GATK, bit 1 = FreeBayes, bit 2 = Strelka
     /// let up = UpSetPlot::new().with_data(
     ///     ["GATK", "FreeBayes", "Strelka"],
@@ -269,7 +269,7 @@ impl UpSetPlot {
     /// means the first `max` in the chosen sort order.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::UpSetPlot;
+    /// # use kuva::plot::UpSetPlot;
     /// let up = UpSetPlot::new()
     ///     .with_sets(vec![("A", vec![1,2,3]), ("B", vec![2,3,4]), ("C", vec![3,4,5])])
     ///     .with_max_visible(3);  // show only the 3 largest intersections

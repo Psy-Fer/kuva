@@ -1,6 +1,6 @@
-# visus
+# kuva
 
-**visus** is a scientific plotting library for Rust that renders plots to SVG. It targets bioinformatics use cases and ships with 25 specialised plot types — from standard scatter and bar charts to Manhattan plots, UpSet plots, phylogenetic trees, and synteny diagrams. A `visus` CLI binary lets you render plots directly from the shell without writing any Rust.
+**kuva** is a scientific plotting library for Rust that renders plots to SVG. It targets bioinformatics use cases and ships with 25 specialised plot types — from standard scatter and bar charts to Manhattan plots, UpSet plots, phylogenetic trees, and synteny diagrams. A `kuva` CLI binary lets you render plots directly from the shell without writing any Rust.
 
 ## Design
 
@@ -13,11 +13,11 @@ plot struct  →  Plot enum  →  Layout  →  Scene  →  SVG string
 ## Quick start
 
 ```rust,no_run
-use visus::plot::scatter::ScatterPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let data = vec![(1.0_f64, 2.0_f64), (3.0, 5.0), (5.0, 4.0)];
 

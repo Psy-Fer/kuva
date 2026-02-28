@@ -27,7 +27,7 @@ mod synteny;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "visus", about = "Scientific plotting from the command line")]
+#[command(name = "kuva", about = "Scientific plotting from the command line")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

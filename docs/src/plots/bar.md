@@ -2,7 +2,7 @@
 
 A bar chart renders categorical data as vertical bars. It has three modes — simple, grouped, and stacked — all built from the same `BarPlot` struct.
 
-**Import path:** `visus::plot::BarPlot`
+**Import path:** `kuva::plot::BarPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A bar chart renders categorical data as vertical bars. It has three modes — si
 Use `.with_bar()` or `.with_bars()` to add one bar per category, then `.with_color()` to set a uniform fill.
 
 ```rust,no_run
-use visus::plot::BarPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BarPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = BarPlot::new()
     .with_bars(vec![
@@ -44,7 +44,7 @@ std::fs::write("bar.svg", svg).unwrap();
 `.with_bar(label, value)` adds one bar at a time, which is useful when constructing data programmatically:
 
 ```rust,no_run
-# use visus::plot::BarPlot;
+# use kuva::plot::BarPlot;
 let plot = BarPlot::new()
     .with_bar("A", 3.2)
     .with_bar("B", 4.7)
@@ -59,11 +59,11 @@ let plot = BarPlot::new()
 Use `.with_group(label, values)` to add a category with multiple side-by-side bars. Each item in `values` is a `(value, color)` pair — one per series. Call `.with_legend()` to label each series.
 
 ```rust,no_run
-use visus::plot::BarPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BarPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = BarPlot::new()
     .with_group("Q1", vec![(18.0, "steelblue"), (12.0, "crimson"), (9.0,  "seagreen")])
@@ -89,11 +89,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Add `.with_stacked()` to the same grouped structure to stack segments vertically instead of placing them side-by-side.
 
 ```rust,no_run
-use visus::plot::BarPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BarPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = BarPlot::new()
     .with_group("Q1", vec![(18.0, "steelblue"), (12.0, "crimson"), (9.0,  "seagreen")])
@@ -120,7 +120,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 `.with_width()` controls how much of each category slot the bar fills. The default is `0.8`; `1.0` means bars touch.
 
 ```rust,no_run
-# use visus::plot::BarPlot;
+# use kuva::plot::BarPlot;
 let plot = BarPlot::new()
     .with_bars(vec![("A", 3.0), ("B", 5.0), ("C", 4.0)])
     .with_color("steelblue")

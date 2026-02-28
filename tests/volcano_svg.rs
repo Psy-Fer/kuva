@@ -1,8 +1,8 @@
-use visus::plot::{VolcanoPlot, LabelStyle};
-use visus::backend::svg::SvgBackend;
-use visus::render::render::{render_multiple, render_volcano};
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::{VolcanoPlot, LabelStyle};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::{render_multiple, render_volcano};
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 fn make_test_data() -> Vec<(&'static str, f64, f64)> {
     vec![

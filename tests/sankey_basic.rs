@@ -1,6 +1,6 @@
-use visus::plot::SankeyPlot;
-use visus::render::{plots::Plot, layout::Layout, render::render_multiple};
-use visus::backend::svg::SvgBackend;
+use kuva::plot::SankeyPlot;
+use kuva::render::{plots::Plot, layout::Layout, render::render_multiple};
+use kuva::backend::svg::SvgBackend;
 
 /// Clean 3-stage pipeline: no skip links, all outputs go to the immediately
 /// next column only.

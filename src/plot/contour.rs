@@ -39,11 +39,11 @@ use crate::plot::heatmap::ColorMap;
 /// # Example
 ///
 /// ```rust,no_run
-/// use visus::plot::{ContourPlot, ColorMap};
-/// use visus::backend::svg::SvgBackend;
-/// use visus::render::render::render_multiple;
-/// use visus::render::layout::Layout;
-/// use visus::render::plots::Plot;
+/// use kuva::plot::{ContourPlot, ColorMap};
+/// use kuva::backend::svg::SvgBackend;
+/// use kuva::render::render::render_multiple;
+/// use kuva::render::layout::Layout;
+/// use kuva::render::plots::Plot;
 ///
 /// // Build a 40×40 Gaussian grid
 /// let n = 40_usize;
@@ -130,7 +130,7 @@ impl ContourPlot {
     /// of the grid and set the x/y axis ranges.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ContourPlot;
+    /// # use kuva::plot::ContourPlot;
     /// // 5×5 Gaussian grid
     /// let coords: Vec<f64> = (-2..=2).map(|i| i as f64).collect();
     /// let z: Vec<Vec<f64>> = coords.iter()
@@ -159,7 +159,7 @@ impl ContourPlot {
     /// Denser point clouds produce more accurate interpolations.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ContourPlot;
+    /// # use kuva::plot::ContourPlot;
     /// // 11×11 grid of sample points from a cone function
     /// let pts: Vec<(f64, f64, f64)> = (-5..=5)
     ///     .flat_map(|i| (-5..=5).map(move |j| {
@@ -235,7 +235,7 @@ impl ContourPlot {
     /// or specific probability levels.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ContourPlot;
+    /// # use kuva::plot::ContourPlot;
     /// # let (z, xs, ys) = (vec![vec![0.0_f64]], vec![0.0_f64], vec![0.0_f64]);
     /// // Gaussian peaks at z ∈ [0,1]; draw iso-lines at specific fractions
     /// let cp = ContourPlot::new()
@@ -264,7 +264,7 @@ impl ContourPlot {
     /// also renders a colorbar in the right margin.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ContourPlot;
+    /// # use kuva::plot::ContourPlot;
     /// # let (z, xs, ys) = (vec![vec![0.0_f64]], vec![0.0_f64], vec![0.0_f64]);
     /// let cp = ContourPlot::new()
     ///     .with_grid(z, xs, ys)
@@ -293,7 +293,7 @@ impl ContourPlot {
     /// on filled bands — band colors always derive from the colormap.
     ///
     /// ```rust,no_run
-    /// # use visus::plot::ContourPlot;
+    /// # use kuva::plot::ContourPlot;
     /// # let (z, xs, ys) = (vec![vec![0.0_f64]], vec![0.0_f64], vec![0.0_f64]);
     /// let cp = ContourPlot::new()
     ///     .with_grid(z, xs, ys)

@@ -1,17 +1,17 @@
 #![cfg(feature = "pdf")]
 
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::LinePlot;
-use visus::plot::BarPlot;
-use visus::plot::Histogram;
-use visus::PdfBackend;
-use visus::render::render::render_scatter;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::render::figure::Figure;
-use visus::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::LinePlot;
+use kuva::plot::BarPlot;
+use kuva::plot::Histogram;
+use kuva::PdfBackend;
+use kuva::render::render::render_scatter;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::figure::Figure;
+use kuva::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 
-fn make_scatter_scene() -> visus::render::render::Scene {
+fn make_scatter_scene() -> kuva::render::render::Scene {
     let data = vec![(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)];
     let plot = ScatterPlot::new()
         .with_data(data)

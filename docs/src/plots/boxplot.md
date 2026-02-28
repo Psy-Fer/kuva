@@ -2,7 +2,7 @@
 
 A box plot (box-and-whisker plot) displays the five-number summary of one or more groups of values. Boxes show the interquartile range (Q1–Q3) with a median line; whiskers extend to the most extreme values within 1.5×IQR of the box edges (Tukey style). Individual data points can optionally be overlaid as a jittered strip or beeswarm.
 
-**Import path:** `visus::plot::BoxPlot`
+**Import path:** `kuva::plot::BoxPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A box plot (box-and-whisker plot) displays the five-number summary of one or mor
 Add one group per category with `.with_group(label, values)`. Groups are rendered left-to-right in the order they are added.
 
 ```rust,no_run
-use visus::plot::BoxPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::BoxPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = BoxPlot::new()
     .with_group("Control",     vec![4.1, 5.0, 5.3, 5.8, 6.2, 7.0, 5.5, 4.8])
@@ -59,8 +59,8 @@ Overlaying the raw data on top of each box makes the sample size and distributio
 `.with_strip(jitter)` scatters points randomly within a horizontal band. The `jitter` argument controls the spread width (in data-axis units; `0.2` is a reasonable starting value).
 
 ```rust,no_run
-use visus::plot::BoxPlot;
-# use visus::render::plots::Plot;
+use kuva::plot::BoxPlot;
+# use kuva::render::plots::Plot;
 
 let plot = BoxPlot::new()
     .with_group("Control",     vec![/* values */])
@@ -78,8 +78,8 @@ let plot = BoxPlot::new()
 `.with_swarm_overlay()` uses a beeswarm algorithm to spread points horizontally to avoid overlap. This gives a clearer picture of data density and is particularly useful for smaller datasets (roughly N < 200 per group).
 
 ```rust,no_run
-use visus::plot::BoxPlot;
-# use visus::render::plots::Plot;
+use kuva::plot::BoxPlot;
+# use kuva::render::plots::Plot;
 
 let plot = BoxPlot::new()
     .with_group("Control",     vec![/* values */])

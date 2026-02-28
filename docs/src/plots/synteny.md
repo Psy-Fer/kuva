@@ -2,7 +2,7 @@
 
 A synteny plot visualises conserved genomic regions between two or more sequences. Each sequence is drawn as a horizontal bar; collinear blocks are drawn as ribbons connecting the matching regions. Forward blocks use parallel-sided ribbons; inverted (reverse-complement) blocks draw crossed (bowtie) ribbons. The plot is well suited for comparing chromosomes, assembled genomes, or any ordered sequence data.
 
-**Import path:** `visus::plot::synteny::SyntenyPlot`
+**Import path:** `kuva::plot::synteny::SyntenyPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A synteny plot visualises conserved genomic regions between two or more sequence
 Add sequences with `.with_sequences()` as `(label, length)` pairs, then connect collinear regions with `.with_block(seq1, start1, end1, seq2, start2, end2)`. Sequences are referred to by their 0-based index in the order they were added.
 
 ```rust,no_run
-use visus::plot::synteny::SyntenyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::synteny::SyntenyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = SyntenyPlot::new()
     .with_sequences([
@@ -45,11 +45,11 @@ By default each bar fills the full plot width regardless of sequence length (per
 `.with_inv_block()` marks a region as reverse-complement: the ribbon connects the right edge of the source interval to the left edge of the target (and vice versa), producing a characteristic crossed or bowtie shape.
 
 ```rust,no_run
-use visus::plot::synteny::SyntenyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::synteny::SyntenyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = SyntenyPlot::new()
     .with_sequences([("Seq A", 1_000_000.0), ("Seq B", 1_000_000.0)])
@@ -73,11 +73,11 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 Add more than two sequences to show a stack of pairwise comparisons. A block can connect any two sequence indices — typically adjacent pairs for a multi-genome alignment view.
 
 ```rust,no_run
-use visus::plot::synteny::SyntenyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::synteny::SyntenyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = SyntenyPlot::new()
     .with_sequences([
@@ -110,11 +110,11 @@ Blocks do not need to connect adjacent sequences — a block between sequences 0
 Set bar colors with `.with_sequence_colors()`. Override the ribbon color of individual blocks with `.with_colored_block()` or `.with_colored_inv_block()`. Call `.with_legend(title)` to add one legend entry per sequence.
 
 ```rust,no_run
-use visus::plot::synteny::SyntenyPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::synteny::SyntenyPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let plot = SyntenyPlot::new()
     .with_sequences([("Seq 1", 500_000.0), ("Seq 2", 500_000.0)])
@@ -145,7 +145,7 @@ Without explicit block colors, ribbons inherit the source sequence bar color.
 By default each bar fills the full plot width independently (per-sequence scale), which maximises detail for each sequence but hides length differences between them. Call `.with_shared_scale()` to use a common ruler: each bar's width is proportional to `sequence_length / max_length`, so relative sizes are accurately represented.
 
 ```rust,no_run
-# use visus::plot::synteny::SyntenyPlot;
+# use kuva::plot::synteny::SyntenyPlot;
 let plot = SyntenyPlot::new()
     .with_sequences([("Long", 1_000_000.0), ("Short", 400_000.0)])
     .with_shared_scale()                                   // shorter bar is 40% width
@@ -160,7 +160,7 @@ let plot = SyntenyPlot::new()
 `.with_blocks()` accepts an iterator of pre-built `SyntenyBlock` structs, which is convenient when blocks come from a parsed alignment file:
 
 ```rust,no_run
-use visus::plot::synteny::{SyntenyPlot, SyntenyBlock, Strand};
+use kuva::plot::synteny::{SyntenyPlot, SyntenyBlock, Strand};
 
 let blocks: Vec<SyntenyBlock> = vec![
     SyntenyBlock { seq1: 0, start1:       0.0, end1: 100_000.0,

@@ -1,10 +1,10 @@
-use visus::plot::scatter::ScatterPlot;
-use visus::plot::line::LinePlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
-use visus::{DateTimeAxis, ymd, ymd_hms};
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::line::LinePlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::{DateTimeAxis, ymd, ymd_hms};
 
 fn ensure_output_dir() {
     std::fs::create_dir_all("test_outputs").unwrap();

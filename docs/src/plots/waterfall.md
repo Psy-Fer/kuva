@@ -2,7 +2,7 @@
 
 A waterfall chart shows a running total as a sequence of floating bars. Each bar starts where the previous one ended — rising for positive increments (green) and falling for negative ones (red). Summary bars can be placed at any point to show accumulated subtotals.
 
-**Import path:** `visus::plot::WaterfallPlot`
+**Import path:** `kuva::plot::WaterfallPlot`
 
 ---
 
@@ -11,11 +11,11 @@ A waterfall chart shows a running total as a sequence of floating bars. Each bar
 Add bars with `.with_delta(label, value)`. The chart tracks a running total from left to right — each bar floats between the previous total and the new one.
 
 ```rust,no_run
-use visus::plot::WaterfallPlot;
-use visus::backend::svg::SvgBackend;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::WaterfallPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 let wf = WaterfallPlot::new()
     .with_delta("Revenue",        850.0)
@@ -47,8 +47,8 @@ Green bars add to the running total; red bars subtract from it.
 `.with_total(label)` places a bar that spans from zero to the current running total, rendered in a distinct color (default `"steelblue"`). The value field is irrelevant — the bar height is the accumulated total at that position. Place totals after sections of delta bars to show intermediate subtotals.
 
 ```rust,no_run
-# use visus::plot::WaterfallPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::WaterfallPlot;
+# use kuva::render::plots::Plot;
 let wf = WaterfallPlot::new()
     .with_delta("Revenue",        850.0)
     .with_delta("Cost of goods", -340.0)
@@ -74,8 +74,8 @@ The three blue bars show gross profit, EBITDA, and net income alongside the indi
 `.with_connectors()` draws a dashed horizontal line from the top (or bottom) of each bar to the start of the next, making the running total easier to trace across wide charts. `.with_values()` prints the numeric value of each bar.
 
 ```rust,no_run
-# use visus::plot::WaterfallPlot;
-# use visus::render::plots::Plot;
+# use kuva::plot::WaterfallPlot;
+# use kuva::render::plots::Plot;
 let wf = WaterfallPlot::new()
     .with_delta("Q1 sales",    420.0)
     .with_delta("Q2 sales",    380.0)
@@ -102,8 +102,8 @@ let wf = WaterfallPlot::new()
 The clearest use is when `from` and `to` match the heights of existing `Total` bars, so the reader can trace the connection directly. In the example below both period totals are in the chart; the difference bar sits between those two reference levels and shows the gain between them.
 
 ```rust,no_run
-use visus::plot::WaterfallPlot;
-use visus::render::plots::Plot;
+use kuva::plot::WaterfallPlot;
+use kuva::render::plots::Plot;
 
 let wf = WaterfallPlot::new()
     .with_delta("Revenue",   500.0)   // running total → 500
@@ -128,7 +128,7 @@ The `"Period A→B"` bar is anchored at 320–730 regardless of where the runnin
 Override any of the three bar colors with CSS color strings.
 
 ```rust,no_run
-# use visus::plot::WaterfallPlot;
+# use kuva::plot::WaterfallPlot;
 let wf = WaterfallPlot::new()
     .with_delta("Gain",  100.0)
     .with_delta("Loss",  -40.0)

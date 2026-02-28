@@ -1,7 +1,7 @@
-use visus::plot::{PhyloTree, TreeBranchStyle, TreeOrientation};
-use visus::render::{plots::Plot, layout::Layout, render::render_multiple};
-use visus::backend::svg::SvgBackend;
-use visus::render_phylo_tree;
+use kuva::plot::{PhyloTree, TreeBranchStyle, TreeOrientation};
+use kuva::render::{plots::Plot, layout::Layout, render::render_multiple};
+use kuva::backend::svg::SvgBackend;
+use kuva::render_phylo_tree;
 
 fn svg_with_title(tree: PhyloTree, title: Option<&str>) -> String {
     let plots = vec![Plot::PhyloTree(tree.clone())];

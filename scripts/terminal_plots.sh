@@ -3,9 +3,9 @@
 #
 # Usage:
 #   bash scripts/terminal_plots.sh                              # debug build, auto-detect size
-#   bash scripts/terminal_plots.sh ./target/release/visus       # release build, auto-detect size
+#   bash scripts/terminal_plots.sh ./target/release/kuva       # release build, auto-detect size
 #   bash scripts/terminal_plots.sh - 120 40                     # debug build, fixed 120×40
-#   bash scripts/terminal_plots.sh ./target/release/visus 80 24 # release build, fixed 80×24
+#   bash scripts/terminal_plots.sh ./target/release/kuva 80 24 # release build, fixed 80×24
 #
 # Pass '-' as the binary to use cargo run.
 # Width and height default to the current terminal size when omitted.
@@ -20,7 +20,7 @@ DATA="$REPO_ROOT/examples/data"
 BIN="${1:--}"
 if [[ "$BIN" == "-" ]]; then
     cd "$REPO_ROOT"
-    run() { cargo run --quiet --bin visus --features cli -- "$@"; }
+    run() { cargo run --quiet --bin kuva --features cli -- "$@"; }
 else
     run() { "$BIN" "$@"; }
 fi

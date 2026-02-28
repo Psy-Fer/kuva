@@ -1,9 +1,9 @@
-use visus::plot::Histogram;
-use visus::backend::svg::SvgBackend;
-// use visus::render::render::render_histogram;
-use visus::render::render::render_multiple;
-use visus::render::layout::Layout;
-use visus::render::plots::Plot;
+use kuva::plot::Histogram;
+use kuva::backend::svg::SvgBackend;
+// use kuva::render::render::render_histogram;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
 
 
 
