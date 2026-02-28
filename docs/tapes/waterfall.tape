@@ -7,7 +7,7 @@ Set TypingSpeed 50ms
 Set PlaybackSpeed 1.5
 
 Sleep 500ms
-Type "./target/release/visus waterfall examples/data/waterfall.tsv --label-col process --value-col log2fc --title Waterfall --x-label Process --y-label log2FC --terminal --term-width 108 --term-height 32"
+Type "./target/release/kuva waterfall examples/data/waterfall.tsv --label-col process --value-col log2fc --title Waterfall --x-label Process --y-label log2FC --terminal --term-width 108 --term-height 32"
 Sleep 3s
 Enter
 Sleep 10s

@@ -7,7 +7,7 @@ Set TypingSpeed 50ms
 Set PlaybackSpeed 1.5
 
 Sleep 500ms
-Type "./target/release/visus phylo examples/data/phylo.tsv --parent-col parent --child-col child --length-col length --title PhyloTree --branch-color white --terminal --term-width 108 --term-height 32"
+Type "./target/release/kuva phylo examples/data/phylo.tsv --parent-col parent --child-col child --length-col length --title PhyloTree --branch-color white --terminal --term-width 108 --term-height 32"
 Sleep 3s
 Enter
 Sleep 10s

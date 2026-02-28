@@ -7,7 +7,7 @@ Set TypingSpeed 50ms
 Set PlaybackSpeed 1.5
 
 Sleep 500ms
-Type "./target/release/visus hist2d examples/data/hist2d.tsv --x x --y y --title Hist2D --x-label X --y-label Y --terminal --term-width 108 --term-height 32"
+Type "./target/release/kuva hist2d examples/data/hist2d.tsv --x x --y y --title Hist2D --x-label X --y-label Y --terminal --term-width 108 --term-height 32"
 Sleep 3s
 Enter
 Sleep 10s
