@@ -1,4 +1,5 @@
 use crate::render::render_utils::{self, percentile, linear_regression, pearson_corr};
+use std::collections::HashMap;
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
@@ -1084,16 +1085,17 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         return;
     }
 
-    let flat: Vec<f64> = heatmap.data.iter().flatten().cloned().collect();
-    let min = flat.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = flat.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    for &v in heatmap.data.iter().flatten() {
+        if v < min { min = v; }
+        if v > max { max = v; }
+    }
     let norm = |v: f64| (v - min) / (max - min + f64::EPSILON);
 
     let cmap = heatmap.color_map.clone();
     for (i, row) in heatmap.data.iter().enumerate() {
         for (j, &value) in row.iter().enumerate() {
-            let color = cmap.map(norm(value));
-
             // Bounds are (0.5, cols+0.5) / (0.5, rows+0.5) so cell j spans
             // [j+0.5, j+1.5] in x and cell i spans [i+0.5, i+1.5] in y.
             let x0 = computed.map_x(j as f64 + 0.5);
@@ -1105,21 +1107,12 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                 y: y0,
                 width: (x1-x0).abs()*0.99,
                 height: (y1-y0).abs()*0.99,
-                fill: color,
+                fill: cmap.map(norm(value)),
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
             });
-
-        }
-    }
-    for (i, row) in heatmap.data.iter().enumerate() {
-        for (j, &value) in row.iter().enumerate() {
             if heatmap.show_values {
-                let x0 = computed.map_x(j as f64 + 0.5);
-                let x1 = computed.map_x(j as f64 + 1.5);
-                let y0 = computed.map_y(i as f64 + 1.5);
-                let y1 = computed.map_y(i as f64 + 0.5);
                 scene.add(Primitive::Text {
                     x: x0 + ((x1-x0).abs() / 2.0),
                     y: y0 + ((y1-y0).abs() / 2.0),
@@ -1807,6 +1800,11 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
 
     // 3. Draw points, one chromosome at a time for correct coloring.
     // Points are clamped to their chromosome's pixel band so they don't bleed over dividers.
+    // Pre-bucket points by chromosome so each span lookup is O(1) instead of O(n).
+    let mut by_chr: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (idx, p) in mp.points.iter().enumerate() {
+        by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+    }
     for (span_idx, span) in mp.spans.iter().enumerate() {
         let color = if let Some(ref pal) = mp.palette {
             pal[span_idx].to_string()
@@ -1817,7 +1815,8 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
         };
         let band_left  = computed.map_x(span.x_start).max(plot_left);
         let band_right = computed.map_x(span.x_end).min(plot_right);
-        for p in mp.points.iter().filter(|p| p.chromosome == span.name) {
+        for &idx in by_chr.get(span.name.as_str()).map(|v| v.as_slice()).unwrap_or(&[]) {
+            let p = &mp.points[idx];
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.x).clamp(band_left, band_right);
             let cy = computed.map_y(y_val);

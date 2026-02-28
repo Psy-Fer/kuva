@@ -25,11 +25,14 @@ impl SvgBackend {
         } else {
             String::new()
         };
-        let mut svg = format!(
+        // Pre-allocate: ~80 bytes per primitive avoids repeated reallocs at scale.
+        let estimated_capacity = 200 + scene.elements.len() * 80;
+        let mut svg = String::with_capacity(estimated_capacity);
+        svg.push_str(&format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"{font_attr}{fill_attr}>"#,
             w = scene.width,
             h = scene.height
-        );
+        ));
 
         // Add a background rect if specified: .with_background(Some("white"))
         // "none" for transparent

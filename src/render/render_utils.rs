@@ -209,19 +209,27 @@ pub fn silverman_bandwidth(values: &[f64]) -> f64 {
 /// Gaussian kernel density estimate.
 /// Extends the evaluation range by 3*bandwidth on each side so Gaussian tails
 /// taper smoothly rather than terminating sharply at the data extremes.
+///
+/// Uses a truncated kernel: for each evaluation point only the sorted values
+/// within 4*bandwidth contribute (Gaussian contribution beyond that is < 0.003%).
+/// This gives O(window × samples) instead of O(n × samples).
 pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
+    use std::cmp::Ordering;
     if values.is_empty() || samples == 0 { return Vec::new(); }
 
-    let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
-    let lo = min - 3.0 * bandwidth;
-    let hi = max + 3.0 * bandwidth;
+    let lo = sorted[0] - 3.0 * bandwidth;
+    let hi = sorted[sorted.len() - 1] + 3.0 * bandwidth;
     let step = (hi - lo) / (samples - 1).max(1) as f64;
+    let cutoff = 4.0 * bandwidth;
 
     (0..samples).map(|i| {
         let x = lo + i as f64 * step;
-        let y: f64 = values.iter().map(|v| {
+        let lo_idx = sorted.partition_point(|v| *v < x - cutoff);
+        let hi_idx = sorted.partition_point(|v| *v <= x + cutoff);
+        let y: f64 = sorted[lo_idx..hi_idx].iter().map(|v| {
             let u = (x - v) / bandwidth;
             (-0.5 * u * u).exp()
         }).sum();

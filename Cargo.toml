@@ -32,6 +32,19 @@ clap_mangen = { version = "0.2", optional = true }
 [dev-dependencies]
 rand = "0.9.1"
 rand_distr = "0.5.1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "render"
+harness = false
+
+[[bench]]
+name = "kde"
+harness = false
+
+[[bench]]
+name = "svg"
+harness = false
 
 [[bin]]
 name = "visus"
