@@ -134,5 +134,95 @@ cargo test <test_name>                   # single test
 cargo test --test cli_basic              # CLI integration tests
 bash scripts/smoke_tests.sh              # CLI smoke tests (all 22+ subcommands)
 bash scripts/gen_docs.sh                 # regenerate docs SVG assets
+bash scripts/gen_terminal_docs.sh        # regenerate terminal output GIFs for docs
 cargo build --bin visus && ./target/debug/visus man > man/visus.1  # regenerate man page
 ```
+
+---
+
+## Setting up VHS (terminal recording)
+
+Terminal output GIFs in the docs (`docs/src/assets/terminal/`) are generated with [VHS](https://github.com/charmbracelet/vhs) by Charm. You only need this if you are working on the terminal backend or adding new terminal doc examples.
+
+### 1. Install VHS
+
+Download the latest release binary for your platform from:
+
+**https://github.com/charmbracelet/vhs/releases**
+
+On Linux (x86_64):
+
+```bash
+# Download and extract
+curl -L https://github.com/charmbracelet/vhs/releases/latest/download/vhs_Linux_x86_64.tar.gz \
+    | tar -xz vhs
+mv vhs ~/.local/bin/
+chmod +x ~/.local/bin/vhs
+```
+
+Verify: `vhs --version`
+
+### 2. Install VHS runtime dependencies
+
+VHS requires `ttyd` and `ffmpeg` to be on `$PATH`.
+
+**ffmpeg** — available in most package managers:
+```bash
+sudo apt install ffmpeg        # Debian/Ubuntu
+sudo dnf install ffmpeg        # Fedora
+brew install ffmpeg            # macOS
+```
+
+**ttyd** — grab the static binary from:
+
+**https://github.com/tsl0922/ttyd/releases**
+
+```bash
+# Linux x86_64 example
+curl -L https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 \
+    -o ~/.local/bin/ttyd
+chmod +x ~/.local/bin/ttyd
+```
+
+Verify both are on `$PATH`: `which ttyd && which ffmpeg`
+
+### 3. Build the release binary
+
+VHS tapes invoke the release build for consistent timing:
+
+```bash
+cargo build --release --bin visus --features cli
+```
+
+### 4. Regenerate terminal docs
+
+```bash
+bash scripts/gen_terminal_docs.sh
+```
+
+This runs all tapes in `docs/tapes/` and writes GIFs to `docs/src/assets/terminal/`. Commit the updated GIFs alongside any tape or terminal backend changes.
+
+### 5. Writing a new tape
+
+Tapes live in `docs/tapes/<subcommand>.tape`. A minimal example:
+
+```
+Output docs/src/assets/terminal/scatter.gif
+Set Width 110
+Set Height 35
+Set FontSize 14
+Set Theme "Dracula"
+Set PlaybackSpeed 0.5
+
+Type "visus scatter examples/data/scatter.tsv --x x --y y --color-by group --terminal"
+Enter
+Sleep 3s
+```
+
+Key settings:
+- `Output` — path to the generated GIF (relative to repo root)
+- `Width` / `Height` — terminal dimensions in columns/rows; should match what the tape's command uses (no explicit `--term-width`/`--term-height` needed — VHS sets the tty size)
+- `PlaybackSpeed` — values below 1.0 slow the playback, making output easier to read
+- `Sleep` after `Enter` — give the command time to finish before the recording ends
+
+See the [VHS documentation](https://github.com/charmbracelet/vhs#vhs-command-reference) for the full tape syntax.
