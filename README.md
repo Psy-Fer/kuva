@@ -498,6 +498,11 @@ cat data.tsv | kuva scatter | display
 
 # Render directly in the terminal — no file, no display
 kuva scatter data.tsv --x x --y y --terminal
+```
+
+![kuva terminal — Sankey diagram](docs/src/assets/terminal/sankey.gif)
+
+```bash
 
 # With explicit terminal dimensions
 kuva manhattan gwas.tsv --chr-col chr --pvalue-col pvalue --terminal --term-width 120 --term-height 40
