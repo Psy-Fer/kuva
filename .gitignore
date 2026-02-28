@@ -22,3 +22,8 @@ target/
 /test_outputs
 /smoke_test_outputs
 /docs/book
+
+# Internal / maintainer-only files
+CLAUDE.md
+TODO.md
+terminal.md
