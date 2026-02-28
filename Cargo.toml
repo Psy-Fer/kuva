@@ -50,3 +50,9 @@ harness = false
 name = "visus"
 path = "src/bin/visus/main.rs"
 required-features = ["cli"]
+
+[[example]]
+name = "all_plots_simple"
+
+[[example]]
+name = "all_plots_complex"

@@ -367,6 +367,9 @@ impl Figure {
 
                 let cell_scene = render_multiple(slot_plots, layout);
 
+                for def in cell_scene.defs {
+                    master.defs.push(def);
+                }
                 master.add(Primitive::GroupStart {
                     transform: Some(format!("translate({cell_x},{cell_y})")),
                 });

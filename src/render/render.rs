@@ -4034,7 +4034,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             let radius = computed.plot_height() / 2.0 - pad;
             let needed_half = radius + leader_gap + max_label_px + pad;
             let needed_plot_width = needed_half * 2.0;
-            if needed_plot_width > computed.plot_width() {
+            if layout.width.is_none() && needed_plot_width > computed.plot_width() {
                 computed.width = needed_plot_width + computed.margin_left + computed.margin_right;
             }
             break; // only one pie per render_multiple call

@@ -52,6 +52,12 @@ A lightweight scientific plotting library in Rust. Zero heavy dependencies — j
 | Phylogenetic Tree | Rectangular, slanted, or circular dendrogram; Newick, edge-list, UPGMA, or linkage input; clade coloring |
 | Synteny | Sequence bars connected by collinear-block ribbons; forward and inverted (bowtie) blocks |
 
+## Gallery
+
+All 25 plot types in a single figure. See the [full gallery](docs/src/gallery.md) for the detailed version with titles, axis labels, and legends.
+
+![All 25 plot types](docs/src/assets/overview/all_plots_simple.svg)
+
 ## Quick Start
 
 ```rust

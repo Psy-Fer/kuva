@@ -32,6 +32,8 @@ EXAMPLES=(
     violin
     volcano
     waterfall
+    all_plots_simple
+    all_plots_complex
 )
 
 echo "Building examples..."
