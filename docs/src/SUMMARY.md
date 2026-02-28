@@ -40,3 +40,7 @@
 - [Layout & Axes](./reference/layout.md)
 - [Themes](./reference/themes.md)
 - [Color Palettes](./reference/palettes.md)
+
+# Performance
+
+- [Benchmarks](./benchmarks.md)

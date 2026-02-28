@@ -375,6 +375,21 @@ let up = UpSetPlot::new()
     .with_max_visible(10);
 ```
 
+## Performance
+
+visus renders SVG directly without intermediate data structures or heavy runtimes. All benchmarks below use `cargo bench --features full` (release build, Criterion, AMD64 Linux).
+
+| plot type | 10k points | 100k points | 1M points |
+|-----------|-----------|------------|----------|
+| Scatter | 3.1 ms | 34.5 ms | 414 ms |
+| Line | 2.5 ms | 28.6 ms | 308 ms |
+| Violin (3 groups) | 12.7 ms | 89 ms | — |
+| Manhattan (22 chr) | 3.9 ms | 42 ms | 501 ms |
+| Heatmap n×n | 4.9 ms (100²) | 24.6 ms (200²) | 154 ms (500²) |
+| SVG emit only | 2.0 ms | 19.9 ms | 213 ms |
+
+All plot types scale O(n). SVG string generation costs ~200 ns/element; violin time is dominated by KDE (~28 ms for 100k samples, ~8 ns/exp). Error bars add 4–6× cost over plain scatter. See [`docs/src/benchmarks.md`](docs/src/benchmarks.md) for full tables, methodology, and how to reproduce the results.
+
 ## Documentation
 
 The docs are built with [mdBook](https://rust-lang.github.io/mdBook/). Install it once with:
