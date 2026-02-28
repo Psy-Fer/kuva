@@ -1,8 +1,8 @@
 //! Terminal backend — renders a [`Scene`] to ANSI/Unicode braille/box-drawing text.
 //!
 //! **Layers** (drawn front-to-back):
-//! 1. `char_grid`      — filled [`Rect`]s (`█`) and [`Text`] characters
-//! 2. `line_char_grid` — box-drawing characters for axis/tick [`Line`]s
+//! 1. `char_grid`      — filled `Rect`s (`█`) and `Text` characters
+//! 2. `line_char_grid` — box-drawing characters for axis/tick `Line`s
 //! 3. `braille`        — dot-matrix characters for circles and diagonal lines/paths
 //!
 //! **Box-drawing bitmask** (per character cell):
