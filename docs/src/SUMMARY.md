@@ -35,6 +35,7 @@
 # CLI
 
 - [kuva CLI](./cli/index.md)
+- [Terminal Output](./cli/terminal.md)
 
 # Reference
 
