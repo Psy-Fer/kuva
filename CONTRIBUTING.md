@@ -136,7 +136,10 @@ bash scripts/smoke_tests.sh              # CLI smoke tests (all 22+ subcommands)
 bash scripts/gen_docs.sh                 # regenerate docs SVG assets
 bash scripts/gen_terminal_docs.sh        # regenerate terminal output GIFs for docs
 cargo build --bin kuva && ./target/debug/kuva man > man/kuva.1  # regenerate man page
+cargo bench --features full              # run all benchmarks (release build)
 ```
+
+> **Note:** re-run benchmarks whenever you change `src/render/render.rs` or `src/render/render_utils.rs` to catch performance regressions before they are merged.
 
 ---
 
