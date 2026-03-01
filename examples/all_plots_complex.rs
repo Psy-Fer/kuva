@@ -498,4 +498,8 @@ fn main() {
     std::fs::create_dir_all(out).expect("could not create docs/src/assets/overview");
     std::fs::write(format!("{out}/all_plots_complex.svg"), &svg).unwrap();
     println!("Written to {out}/all_plots_complex.svg");
+
+    let png = kuva::backend::png::PngBackend::new().with_scale(3.0).render_scene(&scene).unwrap();
+    std::fs::write(format!("{out}/all_plots_complex.png"), png).unwrap();
+    println!("Written to {out}/all_plots_complex.png");
 }
