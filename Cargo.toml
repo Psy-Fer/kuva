@@ -56,3 +56,4 @@ name = "all_plots_simple"
 
 [[example]]
 name = "all_plots_complex"
+required-features = ["png"]
