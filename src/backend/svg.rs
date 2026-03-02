@@ -33,14 +33,15 @@ impl SvgBackend {
             w = scene.width,
             h = scene.height
         ));
+        svg.push('\n');
 
         // Add a background rect if specified: .with_background(Some("white"))
         // "none" for transparent
         if let Some(color) = &scene.background_color {
             svg.push_str(&format!(
-                r#"<rect width="100%" height="100%" fill="{}" />"#,
-                color
+                r#"<rect width="100%" height="100%" fill="{color}" />"#
             ));
+            svg.push('\n');
         }
 
         // Emit any SVG defs (e.g. linearGradients for Sankey ribbons)
@@ -49,7 +50,7 @@ impl SvgBackend {
             for d in &scene.defs {
                 svg.push_str(d);
             }
-            svg.push_str("</defs>");
+            svg.push_str("</defs>\n");
         }
 
         // go through each element, and add it to the SVG
@@ -136,14 +137,16 @@ impl SvgBackend {
                         svg.push_str(&format!(r#" fill-opacity="{opacity}""#));
                     }
 
-                
+
                     svg.push_str(" />");
                 }
             }
+
+            svg.push('\n');
         }
 
         // push the end string
-        svg.push_str("</svg>");
+        svg.push_str("</svg>\n");
         svg
     }
 }
