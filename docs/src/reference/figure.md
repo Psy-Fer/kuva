@@ -10,30 +10,33 @@
 use kuva::prelude::*;
 
 let scatter = ScatterPlot::new()
-    .with_data(vec![(1.0_f64, 2.0), (3.0, 5.0), (5.0, 3.0)])
+    .with_data(vec![(1.0_f64, 2.3), (2.1, 4.1), (3.4, 3.2), (4.2, 5.8)])
     .with_color("steelblue");
 
 let line = LinePlot::new()
-    .with_data(vec![(0.0_f64, 0.0), (2.0, 4.0), (4.0, 3.0)])
+    .with_data(vec![(0.0_f64, 0.4), (2.0, 2.0), (4.0, 3.7), (6.0, 4.9), (8.0, 6.3)])
     .with_color("crimson");
 
-let figure = Figure::new(1, 2)                          // 1 row, 2 columns
-    .with_plots(vec![
-        vec![scatter.into()],
-        vec![line.into()],
-    ])
-    .with_layouts(vec![
-        Layout::auto_from_plots(&[]).with_title("Scatter"),
-        Layout::auto_from_plots(&[]).with_title("Line"),
-    ])
-    .with_labels();                                      // bold A, B panel labels
+// Build plot vecs first so layouts can auto-range from the data
+let plots_a: Vec<Plot> = vec![scatter.into()];
+let plots_b: Vec<Plot> = vec![line.into()];
 
-let scene = figure.render();
+let layout_a = Layout::auto_from_plots(&plots_a).with_title("Scatter").with_x_label("X").with_y_label("Y");
+let layout_b = Layout::auto_from_plots(&plots_b).with_title("Line").with_x_label("Time").with_y_label("Value");
+
+let scene = Figure::new(1, 2)                          // 1 row, 2 columns
+    .with_plots(vec![plots_a, plots_b])
+    .with_layouts(vec![layout_a, layout_b])
+    .with_labels()                                     // bold A, B panel labels
+    .render();
+
 let svg = SvgBackend.render_scene(&scene);
 std::fs::write("figure.svg", svg).unwrap();
 ```
 
-`with_plots` takes a `Vec<Vec<Plot>>` — one inner `Vec` per panel, in row-major order (left to right, top to bottom). `with_layouts` takes a `Vec<Layout>` in the same order. Layouts are optional; omit `with_layouts` and each panel auto-computes its own range from its data.
+`with_plots` takes a `Vec<Vec<Plot>>` — one inner `Vec` per panel, in row-major order (left to right, top to bottom). `with_layouts` takes a `Vec<Layout>` in the same order.
+
+Build each layout from its plot vec **before** passing both to the figure — `Layout::auto_from_plots` needs to see the data to compute axis ranges. `with_layouts` is optional; omit it and each panel auto-computes its own range.
 
 <img src="../assets/figure/basic.svg" alt="Basic 1×2 figure with panel labels" width="760">
 
@@ -118,12 +121,14 @@ Fine-grained control:
 ## Panel labels
 
 ```rust,no_run
-figure.with_labels()            // A, B, C, ... (bold, default)
+figure.with_labels()            // A, B, C, ... (bold, size 16 — default)
 figure.with_labels_lowercase()  // a, b, c, ...
 figure.with_labels_numeric()    // 1, 2, 3, ...
+
+// Custom strings — size and bold are the only meaningful config fields here
 figure.with_labels_custom(
     vec!["i", "ii", "iii"],
-    LabelConfig { style: PanelLabelStyle::Custom(vec![]), size: 14, bold: false },
+    LabelConfig { style: PanelLabelStyle::Uppercase, size: 14, bold: false },
 )
 ```
 
