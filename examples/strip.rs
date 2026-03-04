@@ -28,6 +28,7 @@ fn main() {
     center();
     composed();
     palette();
+    group_colors();
 
     println!("Strip SVGs written to {OUT}/");
 }
@@ -156,6 +157,25 @@ fn composed() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/composed.svg"), svg).unwrap();
+}
+
+/// Per-group colors — each group gets its own color via `.with_group_colors()`.
+fn group_colors() {
+    let strip = StripPlot::new()
+        .with_group("Control",   vec![4.1, 5.0, 5.3, 5.8, 6.2, 4.7])
+        .with_group("Treatment", vec![5.5, 6.1, 6.4, 7.2, 7.8, 6.9])
+        .with_group("Placebo",   vec![3.9, 4.5, 4.8, 5.1, 5.6, 4.3])
+        .with_group_colors(vec!["steelblue", "crimson", "seagreen"])
+        .with_point_size(4.0)
+        .with_jitter(0.3);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Per-Group Colors")
+        .with_y_label("Measurement");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
 }
 
 /// Multiple StripPlots with a palette — each plot gets a distinct color.

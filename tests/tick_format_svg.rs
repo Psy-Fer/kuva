@@ -65,7 +65,7 @@ fn test_integer() {
     // We verify by checking that non-percentage, non-scientific content has no dots
     // Simple approach: count occurrences of "." in tick label text nodes
     // All tick labels from Integer format should be whole numbers without "."
-    let tick_labels_have_dot = svg.split("font-size=\"10\"")
+    let tick_labels_have_dot = svg.split("font-size=\"12\"")
         .skip(1) // skip first split (before any tick)
         .any(|chunk| {
             if let Some(close) = chunk.find("</text>") {
@@ -103,7 +103,7 @@ fn test_sci() {
     std::fs::write("test_outputs/tick_format_sci.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Scientific notation tick labels should contain 'e'
-    let has_sci = svg.split("font-size=\"10\"")
+    let has_sci = svg.split("font-size=\"12\"")
         .skip(1)
         .any(|chunk| {
             if let Some(close) = chunk.find("</text>") {

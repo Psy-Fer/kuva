@@ -150,6 +150,30 @@ fn test_violin_with_strip_overlay() {
 }
 
 #[test]
+fn test_strip_group_colors() {
+    let strip = StripPlot::new()
+        .with_group("A", vec![1.0, 2.0, 2.5, 3.1])
+        .with_group("B", vec![2.0, 2.1, 3.5, 3.8])
+        .with_group("C", vec![0.5, 1.5, 1.8, 2.2])
+        .with_color("black")
+        .with_group_colors(vec!["red", "green", "blue"]);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Strip Plot Group Colors")
+        .with_y_label("Values");
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/strip_group_colors.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains(r#"fill="red""#));
+    assert!(svg.contains(r#"fill="green""#));
+    assert!(svg.contains(r#"fill="blue""#));
+}
+
+#[test]
 fn test_strip_and_box_composed() {
     // Box and Strip sharing the same categorical x-axis
     let boxplot = BoxPlot::new()

@@ -20,13 +20,13 @@ pub struct BaseArgs {
     #[arg(long)]
     pub title: Option<String>,
 
-    /// Canvas width in pixels (default: 800).
-    #[arg(long, default_value_t = 800.0)]
-    pub width: f64,
+    /// Canvas width in pixels. Default is auto-computed from plot content.
+    #[arg(long)]
+    pub width: Option<f64>,
 
-    /// Canvas height in pixels (default: 500).
-    #[arg(long, default_value_t = 500.0)]
-    pub height: f64,
+    /// Canvas height in pixels. Default is auto-computed from plot content.
+    #[arg(long)]
+    pub height: Option<f64>,
 
     /// Visual theme: light (default), dark, solarized, minimal
     #[arg(long)]
@@ -48,20 +48,20 @@ pub struct BaseArgs {
     pub background: Option<String>,
 
     /// Render to the terminal using Unicode braille/block characters.
-    #[arg(long, conflicts_with = "output", help_heading = "Output")]
+    #[arg(long, conflicts_with = "output", help_heading = "Terminal")]
     pub terminal: bool,
 
     /// Terminal background style used to auto-select a readable colour theme:
     /// dark (default) or light. Ignored when --theme is also provided.
-    #[arg(long, requires = "terminal", help_heading = "Output")]
+    #[arg(long, requires = "terminal", help_heading = "Terminal")]
     pub term_bg: Option<String>,
 
     /// Override terminal width in columns (default: $COLUMNS or 80).
-    #[arg(long, requires = "terminal", help_heading = "Output")]
+    #[arg(long, requires = "terminal", help_heading = "Terminal")]
     pub term_width: Option<u16>,
 
     /// Override terminal height in rows (default: $LINES or 24).
-    #[arg(long, requires = "terminal", help_heading = "Output")]
+    #[arg(long, requires = "terminal", help_heading = "Terminal")]
     pub term_height: Option<u16>,
 }
 
@@ -89,6 +89,38 @@ pub struct AxisArgs {
     /// Disable the background grid.
     #[arg(long)]
     pub no_grid: bool,
+
+    /// Fix the X axis lower bound; overrides auto-range.
+    #[arg(long)]
+    pub x_min: Option<f64>,
+
+    /// Fix the X axis upper bound; overrides auto-range.
+    #[arg(long)]
+    pub x_max: Option<f64>,
+
+    /// Fix the Y axis lower bound; overrides auto-range.
+    #[arg(long)]
+    pub y_min: Option<f64>,
+
+    /// Fix the Y axis upper bound; overrides auto-range.
+    #[arg(long)]
+    pub y_max: Option<f64>,
+
+    /// Exact major tick step for the X axis. Overrides auto-calculation.
+    #[arg(long)]
+    pub x_tick_step: Option<f64>,
+
+    /// Exact major tick step for the Y axis. Overrides auto-calculation.
+    #[arg(long)]
+    pub y_tick_step: Option<f64>,
+
+    /// Subdivisions between major ticks, e.g. 5 draws 4 minor marks per interval.
+    #[arg(long)]
+    pub minor_ticks: Option<u32>,
+
+    /// Draw faint gridlines at minor tick positions (requires --minor-ticks).
+    #[arg(long)]
+    pub minor_grid: bool,
 }
 
 #[derive(Args, Debug)]
@@ -107,7 +139,8 @@ pub struct LogArgs {
 
 /// Apply base output/appearance args to a layout.
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
-    layout = layout.with_width(args.width).with_height(args.height);
+    if let Some(w) = args.width { layout = layout.with_width(w); }
+    if let Some(h) = args.height { layout = layout.with_height(h); }
     if let Some(ref t) = args.title {
         layout = layout.with_title(t.clone());
     }
@@ -163,6 +196,14 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
     if args.no_grid {
         layout = layout.with_show_grid(false);
     }
+    if let Some(v) = args.x_min { layout = layout.with_x_axis_min(v); }
+    if let Some(v) = args.x_max { layout = layout.with_x_axis_max(v); }
+    if let Some(v) = args.y_min { layout = layout.with_y_axis_min(v); }
+    if let Some(v) = args.y_max { layout = layout.with_y_axis_max(v); }
+    if let Some(s) = args.x_tick_step { layout = layout.with_x_tick_step(s); }
+    if let Some(s) = args.y_tick_step { layout = layout.with_y_tick_step(s); }
+    if let Some(n) = args.minor_ticks { layout = layout.with_minor_ticks(n); }
+    if args.minor_grid { layout = layout.with_show_minor_grid(true); }
     layout
 }
 

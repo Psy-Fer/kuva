@@ -275,13 +275,16 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
         let size = scatter.sizes.as_ref()
             .and_then(|s| s.get(i).copied())
             .unwrap_or(scatter.size);
+        let color = scatter.colors.as_ref()
+            .and_then(|c| c.get(i).map(|s| s.as_str()))
+            .unwrap_or(&scatter.color);
         draw_marker(
             scene,
             scatter.marker,
             computed.map_x(point.x),
             computed.map_y(point.y),
             size,
-            &scatter.color,
+            color,
         );
 
         // x error
@@ -1271,11 +1274,14 @@ fn add_strip_points(
 
 fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
     for (i, group) in strip.groups.iter().enumerate() {
+        let color = strip.group_colors.as_ref()
+            .and_then(|c| c.get(i).map(|s| s.as_str()))
+            .unwrap_or(&strip.color);
         add_strip_points(
             &group.values,
             (i + 1) as f64,
             &strip.style,
-            &strip.color,
+            color,
             strip.point_size,
             strip.seed.wrapping_add(i as u64),
             scene,
@@ -1853,9 +1859,9 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
         return;
     }
 
-    // Collect points above genome-wide threshold, sort by screen y ascending (most significant first)
+    // Collect all points, sort by screen y ascending (most significant = smallest y = top)
+    // No genome-wide threshold filter: label the top-N most significant regardless.
     let mut sig_points: Vec<(f64, f64, String)> = mp.points.iter()
-        .filter(|p| -(p.pvalue.max(floor)).log10() >= mp.genome_wide)
         .map(|p| {
             let y_val = -(p.pvalue.max(floor)).log10();
             let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
@@ -2134,8 +2140,10 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
         let leader_gap = 30.0;
         let pad = 5.0;
+        // Extra gap so outside labels don't crowd the legend or the pie edge.
+        let safety = 20.0;
         let radius = computed.plot_height() / 2.0 - pad;
-        let needed_half = radius + leader_gap + max_label_px + pad;
+        let needed_half = radius + leader_gap + max_label_px + pad + safety;
         let needed_plot_width = needed_half * 2.0;
         if needed_plot_width > computed.plot_width() {
             computed.width = needed_plot_width + computed.margin_left + computed.margin_right;
@@ -2455,7 +2463,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
             Plot::Brick(brickplot) => {
                 let labels = brickplot.template.as_ref().expect("BrickPlot legend requires a template colormap");
                 let motifs = brickplot.motifs.as_ref();
-                for (letter, color) in labels {
+                let mut sorted_labels: Vec<(&char, &String)> = labels.iter().collect();
+                sorted_labels.sort_by_key(|(letter, _)| *letter);
+                for (letter, color) in sorted_labels {
                     let label = if let Some(m) = motifs {
                         m.get(letter).cloned().unwrap_or(letter.to_string())
                     } else {
@@ -2983,7 +2993,10 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke: None, stroke_width: None, opacity: None,
         });
 
-        if up.show_counts && bar_h > 0.0 {
+        // Suppress count label when the column is too narrow to show it without overlap.
+        // Each digit needs ~tick_size * 0.6 px; two-digit numbers need ~1.2 * tick_size.
+        let min_col_for_label = computed.tick_size as f64 * 1.5;
+        if up.show_counts && bar_h > 0.0 && dot_col_w >= min_col_for_label {
             scene.add(Primitive::Text {
                 x: cx,
                 y: bar_y - 2.0,
@@ -3867,10 +3880,9 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
         .map(|i| computed.margin_left + col[i] as f64 * col_w + (col_w - sankey.node_width) / 2.0)
         .collect();
 
-    // ── Step 5: Draw node rectangles and labels ──
+    // ── Step 5: Draw node rectangles (labels deferred to Step 7, after ribbons) ──
     let max_col = col.iter().copied().max().unwrap_or(0);
     for i in 0..n {
-        // Rectangle
         scene.add(Primitive::Rect {
             x: node_x[i],
             y: node_y[i],
@@ -3880,23 +3892,6 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             stroke: None,
             stroke_width: None,
             opacity: None,
-        });
-
-        // Label: left of leftmost col → End anchor; right of rightmost → Start; inner → Start
-        let (lx, anchor) = if col[i] == 0 {
-            (node_x[i] - 6.0, TextAnchor::End)
-        } else {
-            (node_x[i] + sankey.node_width + 6.0, TextAnchor::Start)
-        };
-        let _ = max_col; // both sides get Start except col 0
-        scene.add(Primitive::Text {
-            x: lx,
-            y: node_y[i] + node_h[i] / 2.0 + computed.body_size as f64 * 0.35,
-            content: sankey.nodes[i].label.clone(),
-            size: computed.body_size,
-            anchor,
-            rotate: None,
-            bold: false,
         });
     }
 
@@ -3962,6 +3957,25 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             stroke_width: 0.0,
             opacity: Some(sankey.link_opacity),
             stroke_dasharray: None,
+        });
+    }
+
+    // ── Step 7: Draw node labels (above ribbons so text is never obscured) ──
+    for i in 0..n {
+        let (lx, anchor) = if col[i] == 0 {
+            (node_x[i] - 6.0, TextAnchor::End)
+        } else {
+            (node_x[i] + sankey.node_width + 6.0, TextAnchor::Start)
+        };
+        let _ = max_col;
+        scene.add(Primitive::Text {
+            x: lx,
+            y: node_y[i] + node_h[i] / 2.0 + computed.body_size as f64 * 0.35,
+            content: sankey.nodes[i].label.clone(),
+            size: computed.body_size,
+            anchor,
+            rotate: None,
+            bold: false,
         });
     }
 }
@@ -4033,8 +4047,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }).fold(0.0_f64, f64::max);
             let leader_gap = 30.0;
             let pad = 5.0;
+            let safety = 20.0;
             let radius = computed.plot_height() / 2.0 - pad;
-            let needed_half = radius + leader_gap + max_label_px + pad;
+            let needed_half = radius + leader_gap + max_label_px + pad + safety;
             let needed_plot_width = needed_half * 2.0;
             if layout.width.is_none() && needed_plot_width > computed.plot_width() {
                 computed.width = needed_plot_width + computed.margin_left + computed.margin_right;
@@ -4332,8 +4347,18 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
     // Effective rendering area — leaves land inside this box; labels overflow into the reserved strip.
     let (eff_ml, eff_mt, eff_pw, eff_ph) = match tree.branch_style {
         TreeBranchStyle::Circular => {
-            let pad = edge_pad + label_pad * 0.55;
-            (ml + pad, mt + pad, (pw - 2.0 * pad).max(50.0), (ph - 2.0 * pad).max(50.0))
+            // Compute the largest radius that keeps all labels on-canvas.
+            // Horizontal: leaf at angle 0 or π needs (max_r + label_gap + label_text_width + edge_pad) ≤ pw/2
+            // Vertical:   leaf at angle ±π/2 needs (max_r + half_line + edge_pad) ≤ ph/2
+            let label_gap  = 8.0_f64;
+            let half_line  = 7.0_f64; // half a 14px text line — labels don't extend much beyond center
+            let char_w     = 7.0_f64;
+            let h_clear = edge_pad + label_gap + max_label_chars as f64 * char_w;
+            let v_clear = edge_pad + half_line;
+            let max_r = (pw / 2.0 - h_clear).min(ph / 2.0 - v_clear).max(10.0);
+            let cx = ml + pw / 2.0;
+            let cy = mt + ph / 2.0;
+            (cx - max_r, cy - max_r, 2.0 * max_r, 2.0 * max_r)
         }
         _ => match tree.orientation {
             TreeOrientation::Left => (
@@ -4573,9 +4598,9 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
                     TreeOrientation::Right =>
                         (px[leaf] - 6.0, py[leaf], TextAnchor::End, None),
                     TreeOrientation::Top =>
-                        (px[leaf] + 4.0, py[leaf] + 14.0, TextAnchor::Start, Some(90.0)),
+                        (px[leaf], py[leaf] + 6.0, TextAnchor::Start, Some(90.0)),
                     TreeOrientation::Bottom =>
-                        (px[leaf] + 4.0, py[leaf] - 5.0, TextAnchor::Start, Some(90.0)),
+                        (px[leaf], py[leaf] - 6.0, TextAnchor::End, Some(90.0)),
                 },
             };
             scene.elements.push(Primitive::Text {

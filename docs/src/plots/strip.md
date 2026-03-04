@@ -188,13 +188,47 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Per-group colors
+
+Color each group independently within a single `StripPlot` using `.with_group_colors()`. Colors are matched to groups by position — the first color applies to the first group added, and so on. The uniform `.with_color()` value is used as a fallback for any group without an entry.
+
+This is an alternative to creating one `StripPlot` per group when the data is already grouped. The legend is **not** updated automatically; use separate `StripPlot` instances with `.with_legend()` when you need labeled legend entries.
+
+```rust,no_run
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let strip = StripPlot::new()
+    .with_group("Control",   vec![4.1, 5.0, 5.3, 5.8, 6.2, 4.7])
+    .with_group("Treatment", vec![5.5, 6.1, 6.4, 7.2, 7.8, 6.9])
+    .with_group("Placebo",   vec![3.9, 4.5, 4.8, 5.1, 5.6, 4.3])
+    .with_group_colors(vec!["steelblue", "crimson", "seagreen"])
+    .with_point_size(4.0)
+    .with_jitter(0.3);
+
+let plots = vec![Plot::Strip(strip)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Per-Group Colors")
+    .with_y_label("Measurement");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/strip/group_colors.svg" alt="Strip plot with per-group colors" width="560">
+
+---
+
 ## API reference
 
 | Method | Description |
 |--------|-------------|
 | `StripPlot::new()` | Create a strip plot with defaults |
 | `.with_group(label, values)` | Add a group; accepts any `Into<f64>` iterable |
-| `.with_color(s)` | Point fill color (CSS color string, default `"steelblue"`) |
+| `.with_color(s)` | Uniform point fill color (CSS color string, default `"steelblue"`) |
+| `.with_group_colors(iter)` | Per-group colors; falls back to `.with_color` for out-of-range indices |
 | `.with_point_size(r)` | Point radius in pixels (default `4.0`) |
 | `.with_jitter(j)` | Jittered strip layout; `j` is half-width as fraction of slot (default `0.3`) |
 | `.with_swarm()` | Beeswarm layout — non-overlapping, best for N < 200 |

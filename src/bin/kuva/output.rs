@@ -41,7 +41,7 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
                     }
                     #[cfg(not(feature = "png"))]
                     Err("PNG output requires the 'png' feature. \
-                         Rebuild with: cargo build --bin kuva --features png"
+                         Rebuild with: cargo build --bin kuva --features cli,png"
                         .to_string())
                 }
                 "pdf" => {
@@ -52,7 +52,7 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
                     }
                     #[cfg(not(feature = "pdf"))]
                     Err("PDF output requires the 'pdf' feature. \
-                         Rebuild with: cargo build --bin kuva --features pdf"
+                         Rebuild with: cargo build --bin kuva --features cli,pdf"
                         .to_string())
                 }
                 _ => {

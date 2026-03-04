@@ -26,6 +26,8 @@ fn main() {
     error_bars();
     markers();
     bubble();
+    per_point_colors();
+    multiple_series();
 
     println!("Scatter SVGs written to {OUT}/");
 }
@@ -183,6 +185,58 @@ fn markers() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/markers.svg"), svg).unwrap();
+}
+
+/// Per-point colors — three clusters colored independently via `.with_colors()`.
+fn per_point_colors() {
+    let data = vec![
+        (1.0_f64, 1.5_f64), (1.5, 2.0), (2.0, 1.8),
+        (4.0, 4.5),         (4.5, 5.0), (5.0, 4.8),
+        (7.0, 2.0),         (7.5, 2.5), (8.0, 2.2),
+    ];
+    let colors = vec![
+        "steelblue", "steelblue", "steelblue",
+        "crimson",   "crimson",   "crimson",
+        "seagreen",  "seagreen",  "seagreen",
+    ];
+
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_colors(colors)
+        .with_size(6.0);
+
+    let plots = vec![Plot::Scatter(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Per-Point Colors")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/per_point_colors.svg"), svg).unwrap();
+}
+
+/// Multiple series — two labeled scatter plots on the same axes.
+fn multiple_series() {
+    let series_a = ScatterPlot::new()
+        .with_data(vec![(1.0_f64, 2.0_f64), (3.0, 4.0), (5.0, 3.5)])
+        .with_color("steelblue")
+        .with_size(5.0)
+        .with_legend("Series A");
+
+    let series_b = ScatterPlot::new()
+        .with_data(vec![(1.0_f64, 5.0_f64), (3.0, 6.5), (5.0, 7.0)])
+        .with_color("crimson")
+        .with_size(5.0)
+        .with_legend("Series B");
+
+    let plots = vec![Plot::Scatter(series_a), Plot::Scatter(series_b)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Two Series")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/multiple_series.svg"), svg).unwrap();
 }
 
 /// Bubble plot — per-point sizes via `.with_sizes()`.

@@ -198,3 +198,47 @@ fn test_brickplot_strigar_svg_output_builder() {
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
 }
+
+
+#[test]
+fn test_brick_legend_order() {
+    // CAT is the most frequent motif (32 occurrences) → assigned global letter A.
+    // T is the second most frequent (2 occurrences) → assigned global letter B.
+    // After sorting by letter, the legend must list "CAT" before "T".
+    let sequences: Vec<String> = vec![
+        "CATCATCATCATCATCATCATCATCATCATT".to_string(),
+        "CATCATCATCATCATCATCATCATCATCATCATCAT".to_string(),
+        "CATCATCATCATCATCATCATCATT".to_string(),
+    ];
+    let names: Vec<String> = vec!["r1".to_string(), "r2".to_string(), "r3".to_string()];
+    // motif_str local letters: CAT→A, T→B
+    // strigar counts: read1: 10 CAT + 1 T + 1 CAT = 11 CAT, 1 T
+    //                 read2: 12 CAT
+    //                 read3: 8 CAT + 1 T + 1 CAT = 9 CAT, 1 T
+    // global totals: CAT=32, T=2 → CAT gets global A, T gets global B
+    let strigars: Vec<(String, String)> = vec![
+        ("CAT:A,T:B".to_string(), "10A1B1A".to_string()),
+        ("CAT:A".to_string(),     "12A".to_string()),
+        ("CAT:A,T:B".to_string(), "8A1B1A".to_string()),
+    ];
+
+    let brickplot = BrickPlot::new()
+        .with_sequences(sequences)
+        .with_names(names)
+        .with_strigars(strigars);
+
+    let plots = vec![Plot::Brick(brickplot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/brickplot_legend_order.svg", svg.clone()).unwrap();
+
+    // 'A' is most frequent (CAT); 'B' is next (T).
+    // The legend must list them in that order: CAT before T in the SVG.
+    let pos_cat = svg.find(">CAT<").expect("legend should contain 'CAT' label");
+    let pos_t   = svg.find(">T<").expect("legend should contain 'T' label");
+    assert!(
+        pos_cat < pos_t,
+        "legend entry 'CAT' (global letter A, most frequent) must appear before 'T' (global letter B)"
+    );
+}

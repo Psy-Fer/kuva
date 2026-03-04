@@ -145,7 +145,7 @@ impl Plot {
         match self {
             
             Plot::Scatter(s) => {
-                let ((mut x_min, mut x_max), (mut y_min, mut y_max)) = bounds_from_2d(&s.data).expect("ScatterPlot bounds requires non-empty data");
+                let ((mut x_min, mut x_max), (mut y_min, mut y_max)) = bounds_from_2d(&s.data)?;
 
                 // Expand with error bars
                 for point in &s.data {

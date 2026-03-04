@@ -47,7 +47,23 @@ use crate::plot::band::BandPlot;
 ///
 /// Constructs a scatter plot from (x, y) data. Supports error bars,
 /// trend lines, confidence bands, variable point sizes (bubble plots),
-/// and six marker shapes.
+/// per-point colors, and six marker shapes.
+///
+/// # Coloring points
+///
+/// Two coloring modes are available and can be combined:
+///
+/// | Method | Effect |
+/// |--------|--------|
+/// | `.with_color(c)` | Uniform color for all points (default `"black"`) |
+/// | `.with_colors(iter)` | Per-point colors; falls back to `.with_color` for out-of-range indices |
+///
+/// `with_colors` is useful when your data already carries a group label encoded
+/// as an index or category string, and you want to avoid splitting into multiple
+/// `ScatterPlot` instances. Note that the legend is not automatically updated —
+/// if you need a legend, use one `ScatterPlot` per color group with
+/// `.with_legend()` on each, or supply custom entries via
+/// `Layout::with_legend_entries` (planned).
 ///
 /// # Example
 ///
@@ -87,6 +103,7 @@ pub struct ScatterPlot {
     pub band: Option<BandPlot>,
     pub marker: MarkerShape,
     pub sizes: Option<Vec<f64>>,
+    pub colors: Option<Vec<String>>,
 }
 
 
@@ -113,6 +130,7 @@ impl ScatterPlot {
             band: None,
             marker: MarkerShape::default(),
             sizes: None,
+            colors: None,
         }
     }
 
@@ -335,6 +353,34 @@ impl ScatterPlot {
         T: Into<f64>,
     {
         self.sizes = Some(sizes.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Set per-point colors.
+    ///
+    /// Colors are matched to points by index. If the list is shorter than the
+    /// data, the uniform color from [`with_color`](Self::with_color) is used as
+    /// a fallback for the remaining points.
+    ///
+    /// This is the single-series equivalent of splitting data into multiple
+    /// `ScatterPlot` instances — useful when color encodes a pre-computed
+    /// group label rather than a separate series.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::scatter::ScatterPlot;
+    /// let data = vec![(1.0_f64, 1.0), (2.0, 2.0), (3.0, 3.0), (4.0, 4.0)];
+    /// let colors = vec!["red", "red", "blue", "blue"];
+    ///
+    /// let plot = ScatterPlot::new()
+    ///     .with_data(data)
+    ///     .with_colors(colors);
+    /// ```
+    pub fn with_colors<S, I>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.colors = Some(colors.into_iter().map(|s| s.into()).collect());
         self
     }
 }

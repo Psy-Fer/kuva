@@ -35,20 +35,55 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     });
 
     // Always compute tick positions for grid lines
-    let x_ticks: Vec<f64> = if let Some(ref dt) = layout.x_datetime {
+    let x_ticks: Vec<f64> = if let Some(step) = computed.x_tick_step {
+        render_utils::generate_ticks_with_step(computed.x_range.0, computed.x_range.1, step)
+    } else if let Some(ref dt) = layout.x_datetime {
         dt.generate_ticks(computed.x_range.0, computed.x_range.1)
     } else if layout.log_x {
         render_utils::generate_ticks_log(computed.x_range.0, computed.x_range.1)
     } else {
         render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
     };
-    let y_ticks: Vec<f64> = if let Some(ref dt) = layout.y_datetime {
+    let y_ticks: Vec<f64> = if let Some(step) = computed.y_tick_step {
+        render_utils::generate_ticks_with_step(computed.y_range.0, computed.y_range.1, step)
+    } else if let Some(ref dt) = layout.y_datetime {
         dt.generate_ticks(computed.y_range.0, computed.y_range.1)
     } else if layout.log_y {
         render_utils::generate_ticks_log(computed.y_range.0, computed.y_range.1)
     } else {
         render_utils::generate_ticks(computed.y_range.0, computed.y_range.1, computed.y_ticks)
     };
+
+    let x_minor = computed.minor_ticks.map(|n| render_utils::generate_minor_ticks(&x_ticks, n));
+    let y_minor = computed.minor_ticks.map(|n| render_utils::generate_minor_ticks(&y_ticks, n));
+
+    // Draw minor gridlines (before major so major renders on top)
+    if computed.show_minor_grid && layout.x_categories.is_none() {
+        if let Some(ref mx) = x_minor {
+            for tx in mx {
+                let x = map_x(*tx);
+                scene.add(Primitive::Line {
+                    x1: x, y1: computed.margin_top,
+                    x2: x, y2: computed.height - computed.margin_bottom,
+                    stroke: theme.grid_color.clone(),
+                    stroke_width: 0.5,
+                    stroke_dasharray: None,
+                });
+            }
+        }
+        if let Some(ref my) = y_minor {
+            for ty in my {
+                let y = map_y(*ty);
+                scene.add(Primitive::Line {
+                    x1: computed.margin_left, y1: y,
+                    x2: computed.width - computed.margin_right, y2: y,
+                    stroke: theme.grid_color.clone(),
+                    stroke_width: 0.5,
+                    stroke_dasharray: None,
+                });
+            }
+        }
+    }
 
     // Draw grid lines (always, regardless of suppress flags)
     if layout.show_grid {
@@ -317,6 +352,40 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     rotate: None,
                     bold: false,
                 });
+            }
+        }
+
+        // Minor tick marks (3px, no label)
+        if !layout.suppress_x_ticks {
+            if let Some(ref mx) = x_minor {
+                for tx in mx {
+                    let x = map_x(*tx);
+                    scene.add(Primitive::Line {
+                        x1: x,
+                        y1: computed.height - computed.margin_bottom,
+                        x2: x,
+                        y2: computed.height - computed.margin_bottom + 3.0,
+                        stroke: theme.tick_color.clone(),
+                        stroke_width: 1.0,
+                        stroke_dasharray: None,
+                    });
+                }
+            }
+        }
+        if !layout.suppress_y_ticks {
+            if let Some(ref my) = y_minor {
+                for ty in my {
+                    let y = map_y(*ty);
+                    scene.add(Primitive::Line {
+                        x1: computed.margin_left - 3.0,
+                        y1: y,
+                        x2: computed.margin_left,
+                        y2: y,
+                        stroke: theme.tick_color.clone(),
+                        stroke_width: 1.0,
+                        stroke_dasharray: None,
+                    });
+                }
             }
         }
     }

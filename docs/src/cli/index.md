@@ -11,10 +11,10 @@ kuva <SUBCOMMAND> [FILE] [OPTIONS]
 ## Building
 
 ```bash
-cargo build --bin kuva                  # SVG output only
-cargo build --bin kuva --features png   # adds PNG output via resvg
-cargo build --bin kuva --features pdf   # adds PDF output via svg2pdf
-cargo build --bin kuva --features full  # both PNG and PDF
+cargo build --bin kuva --features cli              # SVG output only
+cargo build --bin kuva --features cli,png          # adds PNG output via resvg
+cargo build --bin kuva --features cli,pdf          # adds PDF output via svg2pdf
+cargo build --bin kuva --features cli,full         # both PNG and PDF
 ```
 
 After building, the binary is at `target/debug/kuva` (or `target/release/kuva` with `--release`).

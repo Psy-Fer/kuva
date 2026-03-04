@@ -124,18 +124,18 @@ When any rendering change is made, open `test_outputs/` and verify:
 ## Build commands reference
 
 ```bash
-cargo build                              # library
-cargo build --bin kuva                  # CLI binary SVG output
-cargo build --bin kuva --features png   # CLI + SVG + PNG output
-cargo build --bin kuva --features pdf   # CLI + SVG + PDF output
-cargo build --bin kuva --features all   # CLI + SVG + PNG + PDF output
-cargo test --features cli,full           # all tests
-cargo test --features cli,full <test_name>  # single test
-cargo test --test cli_basic --features cli,full  # CLI integration tests
-bash scripts/smoke_tests.sh              # CLI smoke tests (all 22+ subcommands)
-bash scripts/gen_docs.sh                 # regenerate docs SVG assets
-bash scripts/gen_terminal_docs.sh        # regenerate terminal output GIFs for docs
-cargo build --bin kuva && ./target/debug/kuva man > man/kuva.1  # regenerate man page
+cargo build                                        # library
+cargo build --bin kuva --features cli              # CLI binary SVG output
+cargo build --bin kuva --features cli,png          # CLI + SVG + PNG output
+cargo build --bin kuva --features cli,pdf          # CLI + SVG + PDF output
+cargo build --bin kuva --features cli,full         # CLI + SVG + PNG + PDF output
+cargo test --features cli,full                     # all tests
+cargo test --features cli,full <test_name>         # single test
+cargo test --test cli_basic --features cli,full    # CLI integration tests
+bash scripts/smoke_tests.sh                        # CLI smoke tests (all 22+ subcommands)
+bash scripts/gen_docs.sh                           # regenerate docs SVG assets
+bash scripts/gen_terminal_docs.sh                  # regenerate terminal output GIFs for docs
+cargo build --bin kuva --features cli && ./target/debug/kuva man > man/kuva.1  # regenerate man page
 cargo bench --features full              # run all benchmarks (release build)
 ```
 

@@ -211,6 +211,8 @@ let layout = Layout::auto_from_plots(&plots)
     );
 ```
 
+<img src="../assets/layout/text_annotation.svg" alt="Text annotation with arrow" width="560">
+
 ### Reference line
 
 Draws a dashed line across the full plot area at a fixed x or y value.
@@ -236,6 +238,8 @@ let layout = Layout::auto_from_plots(&plots)
     );
 ```
 
+<img src="../assets/layout/reference_line.svg" alt="Reference lines" width="560">
+
 ### Shaded region
 
 Fills a horizontal or vertical band across the plot area.
@@ -259,7 +263,7 @@ let layout = Layout::auto_from_plots(&plots)
     );
 ```
 
-<img src="../assets/layout/annotations.svg" alt="Text annotation, reference lines, and shaded region" width="560">
+<img src="../assets/layout/shaded_region.svg" alt="Shaded regions" width="560">
 
 ---
 
@@ -272,10 +276,10 @@ Font family and sizes for all text elements. Sizes are in pixels.
 # use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
-    .with_font_family("Arial, sans-serif")  // default: system sans-serif
-    .with_title_size(20)                    // default: 16
+    .with_font_family("Arial, sans-serif")  // default: "DejaVu Sans, Liberation Sans, Arial, sans-serif"
+    .with_title_size(20)                    // default: 18
     .with_label_size(14)                    // default: 14  (axis labels)
-    .with_tick_size(11)                     // default: 10  (tick labels)
+    .with_tick_size(11)                     // default: 12  (tick labels)
     .with_body_size(12);                    // default: 12  (legend, annotations)
 ```
 
@@ -328,10 +332,10 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 
 | Method | Default | Description |
 |--------|---------|-------------|
-| `.with_font_family(s)` | system sans | CSS font-family string |
-| `.with_title_size(n)` | `16` | Title font size (px) |
+| `.with_font_family(s)` | `"DejaVu Sans, Liberation Sans, Arial, sans-serif"` | CSS font-family string |
+| `.with_title_size(n)` | `18` | Title font size (px) |
 | `.with_label_size(n)` | `14` | Axis label font size (px) |
-| `.with_tick_size(n)` | `10` | Tick label font size (px) |
+| `.with_tick_size(n)` | `12` | Tick label font size (px) |
 | `.with_body_size(n)` | `12` | Body text font size (px) |
 
 ### `TickFormat` variants

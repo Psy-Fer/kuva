@@ -63,6 +63,10 @@ fn test_phylo_top_phylogram() {
     let svg = svg_with_title(tree, Some("Phylogram — Top orientation"));
     std::fs::write("test_outputs/phylo_top_phylogram.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "top orientation should render");
+    assert!(svg.contains("A"), "leaf A label should appear");
+    assert!(svg.contains("B"), "leaf B label should appear");
+    assert!(svg.contains("C"), "leaf C label should appear");
+    assert!(svg.contains("D"), "leaf D label should appear");
 }
 
 /// 5. Bottom orientation
@@ -74,6 +78,10 @@ fn test_phylo_bottom() {
     let svg = svg_with_title(tree, Some("Bottom orientation"));
     std::fs::write("test_outputs/phylo_bottom.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
+    assert!(svg.contains("A"), "leaf A label should appear");
+    assert!(svg.contains("B"), "leaf B label should appear");
+    assert!(svg.contains("C"), "leaf C label should appear");
+    assert!(svg.contains("D"), "leaf D label should appear");
 }
 
 /// 6. from_distance_matrix — UPGMA clustering of 4 taxa

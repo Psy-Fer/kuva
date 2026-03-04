@@ -1,6 +1,6 @@
 # Scatter Plot
 
-A scatter plot renders individual (x, y) data points as markers. It supports trend lines, error bars, variable point sizes, and six marker shapes.
+A scatter plot renders individual (x, y) data points as markers. It supports trend lines, error bars, variable point sizes, per-point colors, and six marker shapes.
 
 **Import path:** `kuva::plot::scatter::ScatterPlot`
 
@@ -17,10 +17,15 @@ use kuva::render::plots::Plot;
 
 let data = vec![
     (0.5_f64, 1.2_f64),
+    (1.4, 3.1),
     (2.1, 2.4),
+    (3.3, 5.0),
     (4.0, 4.3),
+    (5.2, 6.8),
     (6.1, 6.0),
+    (7.0, 8.5),
     (8.4, 7.9),
+    (9.1, 9.8),
 ];
 
 let plot = ScatterPlot::new()
@@ -252,6 +257,49 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Per-point colors
+
+Encode a categorical grouping through color using `.with_colors()`. Colors are matched to points by index and fall back to the uniform `.with_color()` value for any point without an entry.
+
+This is useful when your data already carries a group label and you want to avoid splitting into multiple `ScatterPlot` instances. The legend is **not** updated automatically — add `.with_legend()` on separate `ScatterPlot` instances when you need a labeled legend.
+
+```rust,no_run
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+// Three clusters, colors assigned per point
+let data = vec![
+    (1.0_f64, 1.5_f64), (1.5, 2.0), (2.0, 1.8),  // cluster A
+    (4.0, 4.5),         (4.5, 5.0), (5.0, 4.8),  // cluster B
+    (7.0, 2.0),         (7.5, 2.5), (8.0, 2.2),  // cluster C
+];
+let colors = vec![
+    "steelblue", "steelblue", "steelblue",
+    "crimson",   "crimson",   "crimson",
+    "seagreen",  "seagreen",  "seagreen",
+];
+
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_colors(colors)
+    .with_size(6.0);
+
+let plots = vec![Plot::Scatter(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Per-Point Colors")
+    .with_x_label("X")
+    .with_y_label("Y");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/scatter/per_point_colors.svg" alt="Scatter with per-point colors" width="560">
+
+---
+
 ## Multiple series
 
 Wrap multiple `ScatterPlot` structs in a `Vec<Plot>` and pass them to `render_multiple()`. Legends are shown when any series has a label attached via `.with_legend()`.
@@ -282,6 +330,8 @@ let layout = Layout::auto_from_plots(&plots)
 let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 ```
 
+<img src="../assets/scatter/multiple_series.svg" alt="Multiple scatter series with legend" width="560">
+
 ---
 
 ## API reference
@@ -290,9 +340,10 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 |--------|-------------|
 | `ScatterPlot::new()` | Create a new scatter plot with defaults |
 | `.with_data(iter)` | Set (x, y) data; accepts any `Into<f64>` numeric type |
-| `.with_color(s)` | Set point color (CSS color string) |
+| `.with_color(s)` | Set uniform point color (CSS color string, default `"black"`) |
+| `.with_colors(iter)` | Set per-point colors; falls back to `.with_color` for out-of-range indices |
 | `.with_size(r)` | Set uniform point radius in pixels (default 3.0) |
-| `.with_sizes(iter)` | Set per-point radii (bubble plot) |
+| `.with_sizes(iter)` | Set per-point radii (bubble plot); falls back to `.with_size` for out-of-range indices |
 | `.with_marker(MarkerShape)` | Set marker shape (default `Circle`) |
 | `.with_legend(s)` | Attach a legend label to this series |
 | `.with_trend(TrendLine)` | Overlay a trend line |

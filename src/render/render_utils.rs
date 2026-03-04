@@ -77,6 +77,37 @@ pub fn generate_ticks_bin_aligned(x_min: f64, x_max: f64, bin_width: f64, target
         .collect()
 }
 
+/// Generate ticks at exact multiples of `step` within [min, max].
+pub fn generate_ticks_with_step(min: f64, max: f64, step: f64) -> Vec<f64> {
+    if step <= 0.0 { return generate_ticks(min, max, 5); }
+    let start = (min / step).ceil() * step;
+    let end   = (max / step).floor() * step;
+    let mut ticks = Vec::new();
+    let mut tick = start;
+    while tick <= end + 1e-9 * step.abs().max(1e-10) {
+        ticks.push((tick * 1e9).round() / 1e9);
+        tick += step;
+    }
+    ticks
+}
+
+/// Generate minor tick positions between each pair of consecutive major ticks.
+/// `subdivisions` is the total number of sub-intervals (e.g. 5 → 4 minor marks per gap).
+pub fn generate_minor_ticks(major_ticks: &[f64], subdivisions: u32) -> Vec<f64> {
+    if major_ticks.len() < 2 || subdivisions < 2 { return Vec::new(); }
+    let mut minor = Vec::new();
+    for pair in major_ticks.windows(2) {
+        let lo   = pair[0];
+        let hi   = pair[1];
+        let step = (hi - lo) / subdivisions as f64;
+        for k in 1..subdivisions {
+            let v = lo + k as f64 * step;
+            minor.push((v * 1e9).round() / 1e9);
+        }
+    }
+    minor
+}
+
 /// Estimate a good number of ticks based on axis pixel size
 pub fn auto_tick_count(axis_pixels: f64) -> usize {
     let spacing = 40.0; // pixels between ticks

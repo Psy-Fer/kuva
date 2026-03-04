@@ -1,4 +1,4 @@
-use crate::render::layout::Layout;
+use crate::render::layout::{Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
 use crate::render::render::{Primitive, Scene, TextAnchor, render_multiple, collect_legend_entries, render_legend_at};
 use crate::plot::legend::LegendEntry;
@@ -356,7 +356,8 @@ impl Figure {
         // Inherit font_family and theme from first user layout if set
         let figure_theme = user_layouts.first().map(|l| l.theme.clone()).unwrap_or_default();
         master.font_family = user_layouts.first().and_then(|l| l.font_family.clone())
-            .or(figure_theme.font_family.clone());
+            .or(figure_theme.font_family.clone())
+            .or(Some(DEFAULT_FONT_FAMILY.to_string()));
         master.background_color = Some(figure_theme.background.clone());
         master.text_color = Some(figure_theme.text_color.clone());
 

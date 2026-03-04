@@ -36,7 +36,11 @@ pub struct StripGroup {
 /// [`BoxPlot`](crate::plot::BoxPlot)) by passing them together to
 /// [`render_multiple`](crate::render::render::render_multiple). Use
 /// `with_palette` on the [`Layout`](crate::render::layout::Layout) to
-/// auto-assign distinct colors.
+/// auto-assign distinct colors across plots.
+///
+/// To color groups within a single `StripPlot` differently, use
+/// [`with_group_colors`](Self::with_group_colors). This is an alternative to
+/// creating one `StripPlot` per group when the data is already grouped.
 ///
 /// # Example
 ///
@@ -74,6 +78,7 @@ pub struct StripPlot {
     /// RNG seed for jitter and swarm layout. Default `42`.
     pub seed: u64,
     pub legend_label: Option<String>,
+    pub group_colors: Option<Vec<String>>,
 }
 
 impl Default for StripPlot {
@@ -92,6 +97,7 @@ impl StripPlot {
             style: StripStyle::Strip { jitter: 0.3 },
             seed: 42,
             legend_label: None,
+            group_colors: None,
         }
     }
 
@@ -186,6 +192,35 @@ impl StripPlot {
     /// Attach a legend label to this strip plot.
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    /// Set per-group colors.
+    ///
+    /// Colors are matched to groups by position (first color → first group
+    /// added via [`with_group`](Self::with_group), and so on). If the list is
+    /// shorter than the number of groups, the uniform color from
+    /// [`with_color`](Self::with_color) is used as a fallback.
+    ///
+    /// Note that the legend is not automatically updated when using this method.
+    /// If you need a labeled legend, create one `StripPlot` per group (each
+    /// with `.with_legend()`) or supply custom entries via
+    /// `Layout::with_legend_entries` (planned).
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::StripPlot;
+    /// let strip = StripPlot::new()
+    ///     .with_group("Control",   vec![1.0, 2.0, 3.0])
+    ///     .with_group("Treatment", vec![2.0, 3.0, 4.0])
+    ///     .with_group("Placebo",   vec![1.5, 2.5, 3.5])
+    ///     .with_group_colors(vec!["steelblue", "tomato", "seagreen"]);
+    /// ```
+    pub fn with_group_colors<S, I>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.group_colors = Some(colors.into_iter().map(|s| s.into()).collect());
         self
     }
 }
