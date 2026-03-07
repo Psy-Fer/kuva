@@ -2,24 +2,71 @@
 //!
 //! Draws circles, rectangles, and lines with simple scanline algorithms
 //! (no anti-aliasing), matching the approach of plotters' BitMapBackend.
-//! Text is composited via a resvg overlay for correct font shaping.
+//! Text is rendered via fontdue glyph rasterization directly into the
+//! pixel buffer — no SVG round-trip, no second pixmap allocation.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use resvg::tiny_skia::{self, Pixmap, Transform};
 
 use crate::render::color::Color;
 use crate::render::render::{Primitive, Scene, TextAnchor};
 
-fn shared_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
-    static FONTDB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    FONTDB
-        .get_or_init(|| {
-            let mut db = resvg::usvg::fontdb::Database::new();
-            db.load_system_fonts();
-            Arc::new(db)
-        })
-        .clone()
+/// Cached fontdue font loaded from system or embedded fallback.
+fn shared_font() -> &'static fontdue::Font {
+    static FONT: OnceLock<fontdue::Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        // Try common system sans-serif fonts
+        let candidates = if cfg!(target_os = "macos") {
+            vec![
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/System/Library/Fonts/SFNSText.ttf",
+                "/System/Library/Fonts/SFNS.ttf",
+                "/Library/Fonts/Arial.ttf",
+            ]
+        } else {
+            vec![
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            ]
+        };
+
+        for path in &candidates {
+            if let Ok(data) = std::fs::read(path) {
+                if let Ok(font) = fontdue::Font::from_bytes(
+                    data,
+                    fontdue::FontSettings::default(),
+                ) {
+                    return font;
+                }
+            }
+        }
+
+        // Fallback: generate a minimal bitmap font by using fontdue with
+        // whatever the first available system font is via fontdb
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        for face in db.faces() {
+            if let resvg::usvg::fontdb::Source::File(ref path) = face.source {
+                if let Ok(data) = std::fs::read(path) {
+                    if let Ok(font) = fontdue::Font::from_bytes(
+                        data,
+                        fontdue::FontSettings {
+                            collection_index: face.index,
+                            ..Default::default()
+                        },
+                    ) {
+                        return font;
+                    }
+                }
+            }
+        }
+
+        panic!("no usable font found on this system");
+    })
 }
 
 pub struct RasterBackend {
@@ -157,19 +204,15 @@ impl RasterBackend {
 
         let _t_text = std::time::Instant::now();
         if !text_primitives.is_empty() && !self.skip_text {
-            let text_svg = build_text_svg(scene, &text_primitives);
-            let options = resvg::usvg::Options {
-                fontdb: shared_fontdb(),
-                ..Default::default()
-            };
-            if let Ok(tree) = resvg::usvg::Tree::from_str(&text_svg, &options) {
-                let transform = Transform::from_scale(s, s);
-                if let Some(mut text_pm) = Pixmap::new(w, h) {
-                    resvg::render(&tree, transform, &mut text_pm.as_mut());
-                    alpha_composite(pixmap.data_mut(), text_pm.data(), w, h);
+            let font = shared_font();
+            let buf = pixmap.data_mut();
+            for elem in &text_primitives {
+                if let Primitive::Text { x, y, content, size, anchor, rotate, bold: _ } = elem {
+                    let px_size = *size as f32 * s;
+                    render_text_fontdue(buf, w, h, font, content, *x as f32 * s, *y as f32 * s, px_size, anchor, rotate.map(|a| a as f32));
                 }
             }
-            eprintln!("      [raster] text overlay: {:?} ({} texts)", _t_text.elapsed(), text_primitives.len());
+            eprintln!("      [raster] text render:  {:?} ({} texts, fontdue)", _t_text.elapsed(), text_primitives.len());
         }
 
         let _t_encode = std::time::Instant::now();
@@ -298,20 +341,149 @@ fn point_in_quad(px: f32, py: f32, corners: &[(f32, f32); 4]) -> bool {
     true
 }
 
-/// Alpha-composite src (premultiplied RGBA) onto dst (premultiplied RGBA).
-fn alpha_composite(dst: &mut [u8], src: &[u8], _w: u32, _h: u32) {
-    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-        let sa = s[3] as u32;
-        if sa == 0 { continue; }
-        if sa == 255 {
-            d.copy_from_slice(s);
+/// Render a text string into the RGBA buffer using fontdue glyph rasterization.
+fn render_text_fontdue(
+    buf: &mut [u8], w: u32, h: u32,
+    font: &fontdue::Font,
+    text: &str,
+    x: f32, y: f32,
+    px_size: f32,
+    anchor: &TextAnchor,
+    rotate: Option<f32>,
+) {
+    if text.is_empty() || px_size < 1.0 { return; }
+
+    // Measure total advance width for anchoring
+    let mut total_width: f32 = 0.0;
+    for ch in text.chars() {
+        let metrics = font.metrics(ch, px_size);
+        total_width += metrics.advance_width;
+    }
+
+    let x_offset = match anchor {
+        TextAnchor::Start => 0.0,
+        TextAnchor::Middle => -total_width / 2.0,
+        TextAnchor::End => -total_width,
+    };
+
+    // Baseline: SVG text y is the baseline. fontdue metrics give top-relative coords.
+    // We need to shift up by the ascent.
+    let line_metrics = font.horizontal_line_metrics(px_size);
+    let ascent = line_metrics.map(|m| m.ascent).unwrap_or(px_size * 0.8);
+
+    if rotate.is_some() {
+        // For rotated text, rasterize to a temp buffer then rotate-blit.
+        render_text_rotated(buf, w, h, font, text, x, y, px_size, x_offset, ascent, rotate.unwrap());
+        return;
+    }
+
+    // Non-rotated fast path: blit glyphs directly
+    let text_color: [u8; 3] = [0, 0, 0]; // axis labels are black
+    let mut cursor_x = x + x_offset;
+    let base_y = y - ascent;
+
+    for ch in text.chars() {
+        let (metrics, bitmap) = font.rasterize(ch, px_size);
+        if metrics.width == 0 || metrics.height == 0 {
+            cursor_x += metrics.advance_width;
             continue;
         }
-        let inv = 255 - sa;
-        d[0] = ((s[0] as u32 * 255 + d[0] as u32 * inv) / 255) as u8;
-        d[1] = ((s[1] as u32 * 255 + d[1] as u32 * inv) / 255) as u8;
-        d[2] = ((s[2] as u32 * 255 + d[2] as u32 * inv) / 255) as u8;
-        d[3] = ((sa * 255 + d[3] as u32 * inv) / 255) as u8;
+
+        let gx = (cursor_x + metrics.xmin as f32) as i32;
+        let gy = (base_y + (px_size - metrics.height as f32 - metrics.ymin as f32)) as i32;
+
+        blit_glyph(buf, w, h, &bitmap, metrics.width, metrics.height, gx, gy, &text_color);
+        cursor_x += metrics.advance_width;
+    }
+}
+
+/// Render rotated text by rasterizing into a temp buffer then rotating pixels.
+fn render_text_rotated(
+    buf: &mut [u8], w: u32, h: u32,
+    font: &fontdue::Font,
+    text: &str,
+    cx: f32, cy: f32,
+    px_size: f32,
+    x_offset: f32,
+    ascent: f32,
+    angle_deg: f32,
+) {
+    let text_color: [u8; 3] = [0, 0, 0];
+    let angle_rad = angle_deg * std::f32::consts::PI / 180.0;
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+
+    let mut cursor_x = x_offset;
+    let base_y = -ascent;
+
+    for ch in text.chars() {
+        let (metrics, bitmap) = font.rasterize(ch, px_size);
+        if metrics.width == 0 || metrics.height == 0 {
+            cursor_x += metrics.advance_width;
+            continue;
+        }
+
+        let gx0 = cursor_x + metrics.xmin as f32;
+        let gy0 = base_y + (px_size - metrics.height as f32 - metrics.ymin as f32);
+
+        for row in 0..metrics.height {
+            for col in 0..metrics.width {
+                let alpha = bitmap[row * metrics.width + col];
+                if alpha == 0 { continue; }
+
+                let lx = gx0 + col as f32;
+                let ly = gy0 + row as f32;
+                let rx = cx + lx * cos_a - ly * sin_a;
+                let ry = cy + lx * sin_a + ly * cos_a;
+
+                let px = rx as i32;
+                let py = ry as i32;
+                if px >= 0 && py >= 0 && (px as u32) < w && (py as u32) < h {
+                    let off = (py as u32 * w + px as u32) as usize * 4;
+                    let inv = 255 - alpha as u32;
+                    buf[off]     = ((text_color[0] as u32 * alpha as u32 + buf[off] as u32 * inv) / 255) as u8;
+                    buf[off + 1] = ((text_color[1] as u32 * alpha as u32 + buf[off + 1] as u32 * inv) / 255) as u8;
+                    buf[off + 2] = ((text_color[2] as u32 * alpha as u32 + buf[off + 2] as u32 * inv) / 255) as u8;
+                    buf[off + 3] = 255;
+                }
+            }
+        }
+        cursor_x += metrics.advance_width;
+    }
+}
+
+/// Blit a fontdue glyph bitmap (alpha mask) into the RGBA buffer.
+#[inline]
+fn blit_glyph(
+    buf: &mut [u8], w: u32, h: u32,
+    bitmap: &[u8], gw: usize, gh: usize,
+    gx: i32, gy: i32,
+    color: &[u8; 3],
+) {
+    for row in 0..gh {
+        let py = gy + row as i32;
+        if py < 0 || py as u32 >= h { continue; }
+        let dst_row = py as u32 * w;
+        let src_row = row * gw;
+        for col in 0..gw {
+            let px = gx + col as i32;
+            if px < 0 || px as u32 >= w { continue; }
+            let alpha = bitmap[src_row + col];
+            if alpha == 0 { continue; }
+            let off = (dst_row + px as u32) as usize * 4;
+            if alpha == 255 {
+                buf[off] = color[0];
+                buf[off + 1] = color[1];
+                buf[off + 2] = color[2];
+                buf[off + 3] = 255;
+            } else {
+                let inv = 255 - alpha as u32;
+                buf[off]     = ((color[0] as u32 * alpha as u32 + buf[off] as u32 * inv) / 255) as u8;
+                buf[off + 1] = ((color[1] as u32 * alpha as u32 + buf[off + 1] as u32 * inv) / 255) as u8;
+                buf[off + 2] = ((color[2] as u32 * alpha as u32 + buf[off + 2] as u32 * inv) / 255) as u8;
+                buf[off + 3] = 255;
+            }
+        }
     }
 }
 
@@ -406,54 +578,6 @@ fn color_to_rgba(c: &Color) -> Option<[u8; 4]> {
             None
         }
     }
-}
-
-// ── Text overlay SVG ────────────────────────────────────────────────────────
-
-fn build_text_svg(scene: &Scene, texts: &[&Primitive]) -> String {
-    use std::fmt::Write;
-
-    let mut svg = String::with_capacity(texts.len() * 120 + 200);
-    let _ = write!(
-        svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}""#,
-        scene.width, scene.height
-    );
-    if let Some(ref family) = scene.font_family {
-        let _ = write!(svg, r#" font-family="{family}""#);
-    }
-    if let Some(ref color) = scene.text_color {
-        let _ = write!(svg, r#" fill="{color}""#);
-    }
-    svg.push('>');
-
-    for elem in texts {
-        if let Primitive::Text { x, y, content, size, anchor, rotate, bold } = elem {
-            let anchor_str = match anchor {
-                TextAnchor::Start => "start",
-                TextAnchor::Middle => "middle",
-                TextAnchor::End => "end",
-            };
-            let _ = write!(svg, r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}""#);
-            if *bold { svg.push_str(r#" font-weight="bold""#); }
-            if let Some(angle) = rotate {
-                let _ = write!(svg, r#" transform="rotate({angle},{x},{y})""#);
-            }
-            svg.push('>');
-            for b in content.bytes() {
-                match b {
-                    b'&' => svg.push_str("&amp;"),
-                    b'<' => svg.push_str("&lt;"),
-                    b'>' => svg.push_str("&gt;"),
-                    b'"' => svg.push_str("&quot;"),
-                    _ => svg.push(b as char),
-                }
-            }
-            svg.push_str("</text>");
-        }
-    }
-    svg.push_str("</svg>");
-    svg
 }
 
 // ── SVG path parser (for Path fallback) ─────────────────────────────────────

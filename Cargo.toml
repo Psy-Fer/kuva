@@ -16,7 +16,7 @@ all-features = true
 
 [features]
 default = []
-png  = ["dep:resvg"]
+png  = ["dep:resvg", "dep:fontdue"]
 pdf  = ["dep:svg2pdf"]
 cli  = ["dep:clap", "dep:clap_mangen"]
 polars = ["dep:polars"]
@@ -28,6 +28,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
 rayon = "1"
 polars      = { version = "0.46", optional = true, default-features = false }
+fontdue     = { version = "0.9", optional = true }
 resvg       = { version = "0.44", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
