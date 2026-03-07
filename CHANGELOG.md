@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `RasterBackend` — direct pixel rasterization using fontdue for text (no SVG round-trip); significantly faster than `PngBackend` for data-heavy plots
+- `RasterBackend::with_skip_text(bool)` — skip text rendering for maximum throughput when the frontend overlays its own labels
+- `render_to_raster()` and `render_to_raster_no_text()` — one-call raster output (feature `raster`)
+
+### Changed
+
+- Feature `png` renamed to `raster`; `png` remains as a backward-compatible alias
+- Raster text rendering now uses fontdue direct glyph rasterization instead of resvg SVG→pixmap overlay
+
 ---
 
 ## [0.1.3] — 2026-03-04
