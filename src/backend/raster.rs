@@ -99,7 +99,25 @@ impl RasterBackend {
         self
     }
 
+    /// Render to a raw RGBA byte buffer (no PNG encoding).
+    /// Returns `(width, height, rgba_data)`.
+    pub fn render_scene_to_rgba(&self, scene: &Scene) -> Result<(u32, u32, Vec<u8>), String> {
+        let pixmap = self.render_scene_to_pixmap(scene)?;
+        let w = pixmap.width();
+        let h = pixmap.height();
+        Ok((w, h, pixmap.data().to_vec()))
+    }
+
+    /// Render to PNG-encoded bytes.
     pub fn render_scene(&self, scene: &Scene) -> Result<Vec<u8>, String> {
+        let pixmap = self.render_scene_to_pixmap(scene)?;
+        pixmap.encode_png().map_err(|e| e.to_string())
+    }
+
+    /// Render into a tiny_skia Pixmap (raw RGBA). Use this when you need
+    /// the pixel data without PNG encoding overhead, or when you want to
+    /// encode in a different format (JPEG, WebP, etc.).
+    pub fn render_scene_to_pixmap(&self, scene: &Scene) -> Result<Pixmap, String> {
         let w = (scene.width as f32 * self.scale).ceil() as u32;
         let h = (scene.height as f32 * self.scale).ceil() as u32;
         if w == 0 || h == 0 {
@@ -123,8 +141,6 @@ impl RasterBackend {
 
         let mut text_primitives: Vec<&Primitive> = Vec::new();
         let mut path_primitives: Vec<&crate::render::render::PathData> = Vec::new();
-
-        let _t_pixel_start = std::time::Instant::now();
 
         {
             let buf = pixmap.data_mut();
@@ -189,20 +205,12 @@ impl RasterBackend {
                     Primitive::GroupStart { .. } | Primitive::GroupEnd => {}
                 }
             }
-        } // drop buf borrow
+        }
 
-        eprintln!("      [raster] pixel draw:  {:?} ({} elements, {} texts, {} paths)",
-            _t_pixel_start.elapsed(), scene.elements.len(), text_primitives.len(), path_primitives.len());
-
-        let _t_paths = std::time::Instant::now();
         for pd in &path_primitives {
             render_path_with_skia(&mut pixmap, s, pd);
         }
-        if !path_primitives.is_empty() {
-            eprintln!("      [raster] path render: {:?} ({} paths)", _t_paths.elapsed(), path_primitives.len());
-        }
 
-        let _t_text = std::time::Instant::now();
         if !text_primitives.is_empty() && !self.skip_text {
             let font = shared_font();
             let buf = pixmap.data_mut();
@@ -212,13 +220,9 @@ impl RasterBackend {
                     render_text_fontdue(buf, w, h, font, content, *x as f32 * s, *y as f32 * s, px_size, anchor, rotate.map(|a| a as f32));
                 }
             }
-            eprintln!("      [raster] text render:  {:?} ({} texts, fontdue)", _t_text.elapsed(), text_primitives.len());
         }
 
-        let _t_encode = std::time::Instant::now();
-        let result = pixmap.encode_png().map_err(|e| e.to_string());
-        eprintln!("      [raster] png encode:  {:?} ({}x{} @ scale {})", _t_encode.elapsed(), w, h, s);
-        result
+        Ok(pixmap)
     }
 }
 
