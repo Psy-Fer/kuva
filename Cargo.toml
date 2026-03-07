@@ -16,11 +16,12 @@ all-features = true
 
 [features]
 default = []
-png  = ["dep:resvg", "dep:fontdue"]
-pdf  = ["dep:svg2pdf"]
-cli  = ["dep:clap", "dep:clap_mangen"]
+raster = ["dep:resvg", "dep:fontdue"]
+png = ["raster"]  # backward-compat alias
+pdf = ["dep:svg2pdf"]
+cli = ["dep:clap", "dep:clap_mangen"]
 polars = ["dep:polars"]
-full = ["png", "pdf"]
+full = ["raster", "pdf"]
 
 [dependencies]
 colorous = "=1.0.16"
@@ -68,7 +69,7 @@ name = "all_plots_simple"
 
 [[example]]
 name = "all_plots_complex"
-required-features = ["png"]
+required-features = ["raster"]
 
 [[bench]]
 name = "vs_plotters"
@@ -77,4 +78,4 @@ harness = false
 [[bench]]
 name = "raster"
 harness = false
-required-features = ["png"]
+required-features = ["raster"]

@@ -145,7 +145,7 @@ fn test_scatter_color_by() {
 ///   cargo test --test cli_basic test_missing_feature_error -- --ignored
 #[test]
 #[ignore = "requires binary freshly built without --features png; stale binary causes false-positive"]
-#[cfg(not(feature = "png"))]
+#[cfg(not(feature = "raster"))]
 fn test_missing_feature_error() {
     let tsv = "x\ty\n1\t2\n3\t4\n";
     let tmp_png = std::env::temp_dir().join("kuva_test_missing.png");

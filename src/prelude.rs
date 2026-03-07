@@ -107,13 +107,13 @@ pub use crate::render::datetime::{DateTimeAxis, DateUnit, ymd, ymd_hms};
 // ── One-shot render helpers ───────────────────────────────────────────────────
 pub use crate::render_to_svg;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use crate::render_to_png;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use crate::render_to_raster;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use crate::render_to_raster_no_text;
 
 #[cfg(feature = "pdf")]
@@ -123,10 +123,10 @@ pub use crate::render_to_pdf;
 pub use crate::backend::svg::SvgBackend;
 pub use crate::backend::terminal::TerminalBackend;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use crate::backend::png::PngBackend;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use crate::backend::raster::RasterBackend;
 
 #[cfg(feature = "pdf")]
