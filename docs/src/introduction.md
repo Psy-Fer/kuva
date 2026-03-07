@@ -7,7 +7,7 @@
 The API follows a builder pattern. Every plot type is constructed with `::new()`, configured with method chaining, and rendered through a single pipeline:
 
 ```
-plot struct  →  Plot enum  →  Layout  →  SVG / PNG / PDF
+plot struct  →  Plot enum  →  Layout  →  SVG / PNG / PDF / raw RGBA bytes
 ```
 
 ## Quick start
@@ -44,7 +44,7 @@ For raster output (feature `raster`), several formats are available:
 |----------|--------|----------|
 | `render_to_png` | PNG bytes | SVG round-trip; full fidelity |
 | `render_to_png_direct` | PNG bytes | Direct raster; faster for data-heavy plots |
-| `render_to_png_direct_no_text` | PNG bytes | Same, no axis labels (frontend overlays) |
+| `render_to_png_direct_no_text` | PNG bytes | Same, no axis labels (e.g. when you can use a frontend overlay to render the labels instead) |
 | `render_to_rgba` | `(width, height, rgba_bytes)` | Raw RGBA; zero-copy display |
 | `render_to_rgba_no_text` | `(width, height, rgba_bytes)` | Same, no text |
 
