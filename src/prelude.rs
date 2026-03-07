@@ -113,6 +113,9 @@ pub use crate::render_to_png;
 #[cfg(feature = "png")]
 pub use crate::render_to_raster;
 
+#[cfg(feature = "png")]
+pub use crate::render_to_raster_no_text;
+
 #[cfg(feature = "pdf")]
 pub use crate::render_to_pdf;
 

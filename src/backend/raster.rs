@@ -24,6 +24,9 @@ fn shared_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
 
 pub struct RasterBackend {
     pub scale: f32,
+    /// Skip text rendering (axis labels, titles) for maximum speed.
+    /// Useful when the frontend renders its own labels over the image.
+    pub skip_text: bool,
 }
 
 impl Default for RasterBackend {
@@ -34,11 +37,18 @@ impl Default for RasterBackend {
 
 impl RasterBackend {
     pub fn new() -> Self {
-        Self { scale: 2.0 }
+        Self { scale: 2.0, skip_text: false }
     }
 
     pub fn with_scale(mut self, scale: f32) -> Self {
         self.scale = scale;
+        self
+    }
+
+    /// Skip text rendering for maximum throughput.
+    /// Axis labels and titles will not appear in the output image.
+    pub fn with_skip_text(mut self, skip: bool) -> Self {
+        self.skip_text = skip;
         self
     }
 
@@ -67,8 +77,8 @@ impl RasterBackend {
         let mut text_primitives: Vec<&Primitive> = Vec::new();
         let mut path_primitives: Vec<&crate::render::render::PathData> = Vec::new();
 
-        // First pass: direct pixel writes for circles, rects, lines, batches.
-        // Collect paths and text for second pass.
+        let _t_pixel_start = std::time::Instant::now();
+
         {
             let buf = pixmap.data_mut();
             for elem in &scene.elements {
@@ -134,13 +144,19 @@ impl RasterBackend {
             }
         } // drop buf borrow
 
-        // Second pass: render paths via tiny_skia (needs &mut pixmap).
+        eprintln!("      [raster] pixel draw:  {:?} ({} elements, {} texts, {} paths)",
+            _t_pixel_start.elapsed(), scene.elements.len(), text_primitives.len(), path_primitives.len());
+
+        let _t_paths = std::time::Instant::now();
         for pd in &path_primitives {
             render_path_with_skia(&mut pixmap, s, pd);
         }
+        if !path_primitives.is_empty() {
+            eprintln!("      [raster] path render: {:?} ({} paths)", _t_paths.elapsed(), path_primitives.len());
+        }
 
-        // Render text via a minimal SVG overlay through resvg, then alpha-composite.
-        if !text_primitives.is_empty() {
+        let _t_text = std::time::Instant::now();
+        if !text_primitives.is_empty() && !self.skip_text {
             let text_svg = build_text_svg(scene, &text_primitives);
             let options = resvg::usvg::Options {
                 fontdb: shared_fontdb(),
@@ -148,15 +164,18 @@ impl RasterBackend {
             };
             if let Ok(tree) = resvg::usvg::Tree::from_str(&text_svg, &options) {
                 let transform = Transform::from_scale(s, s);
-                // Render text into a separate pixmap, then composite.
                 if let Some(mut text_pm) = Pixmap::new(w, h) {
                     resvg::render(&tree, transform, &mut text_pm.as_mut());
                     alpha_composite(pixmap.data_mut(), text_pm.data(), w, h);
                 }
             }
+            eprintln!("      [raster] text overlay: {:?} ({} texts)", _t_text.elapsed(), text_primitives.len());
         }
 
-        pixmap.encode_png().map_err(|e| e.to_string())
+        let _t_encode = std::time::Instant::now();
+        let result = pixmap.encode_png().map_err(|e| e.to_string());
+        eprintln!("      [raster] png encode:  {:?} ({}x{} @ scale {})", _t_encode.elapsed(), w, h, s);
+        result
     }
 }
 

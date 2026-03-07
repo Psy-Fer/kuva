@@ -125,6 +125,21 @@ pub fn render_to_raster(
     backend::raster::RasterBackend::new().with_scale(scale).render_scene(&scene)
 }
 
+/// Like [`render_to_raster`] but skips text rendering (axis labels, titles)
+/// for maximum throughput.  Useful when the frontend overlays its own labels.
+#[cfg(feature = "png")]
+pub fn render_to_raster_no_text(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new()
+        .with_scale(scale)
+        .with_skip_text(true)
+        .render_scene(&scene)
+}
+
 /// Render a collection of plots to a PDF byte vector in one call (requires feature `pdf`).
 ///
 /// Returns `Err(String)` if SVG parsing or PDF conversion fails.
