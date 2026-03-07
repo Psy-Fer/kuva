@@ -110,6 +110,9 @@ pub use crate::render_to_svg;
 #[cfg(feature = "png")]
 pub use crate::render_to_png;
 
+#[cfg(feature = "png")]
+pub use crate::render_to_raster;
+
 #[cfg(feature = "pdf")]
 pub use crate::render_to_pdf;
 
@@ -120,5 +123,12 @@ pub use crate::backend::terminal::TerminalBackend;
 #[cfg(feature = "png")]
 pub use crate::backend::png::PngBackend;
 
+#[cfg(feature = "png")]
+pub use crate::backend::raster::RasterBackend;
+
 #[cfg(feature = "pdf")]
 pub use crate::backend::pdf::PdfBackend;
+
+// ── Polars integration ──────────────────────────────────────────────────────
+#[cfg(feature = "polars")]
+pub use crate::dataframe::DataFrameExt;

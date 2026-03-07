@@ -19,6 +19,7 @@ default = []
 png  = ["dep:resvg"]
 pdf  = ["dep:svg2pdf"]
 cli  = ["dep:clap", "dep:clap_mangen"]
+polars = ["dep:polars"]
 full = ["png", "pdf"]
 
 [dependencies]
@@ -26,6 +27,7 @@ colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
 rayon = "1"
+polars      = { version = "0.46", optional = true, default-features = false }
 resvg       = { version = "0.44", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }

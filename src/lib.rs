@@ -39,6 +39,9 @@ pub mod backend;
 pub mod render;
 pub mod prelude;
 
+#[cfg(feature = "polars")]
+pub mod dataframe;
+
 pub use backend::terminal::TerminalBackend;
 
 #[cfg(feature = "png")]
