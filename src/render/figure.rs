@@ -7,6 +7,8 @@ use crate::plot::legend::LegendEntry;
 pub enum FigureLegendPosition {
     Right,
     Bottom,
+    /// Arbitrary pixel position within the figure canvas.
+    Custom(f64, f64),
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +249,12 @@ impl Figure {
         self
     }
 
+    /// Place the shared legend at an arbitrary pixel position within the figure canvas.
+    pub fn with_shared_legend_at(mut self, x: f64, y: f64) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::Custom(x, y));
+        self
+    }
+
     /// Provide manual legend entries instead of auto-collecting.
     pub fn with_shared_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
         self.shared_legend_entries = Some(entries);
@@ -460,6 +468,7 @@ impl Figure {
                         let ly = grid_height + legend_spacing / 2.0;
                         (lx, ly)
                     }
+                    FigureLegendPosition::Custom(x, y) => (*x, *y),
                 };
                 let body_size = user_layouts.first().map_or(12, |l| l.body_size);
                 render_legend_at(entries, &mut master, lx, ly, legend_width, body_size, &figure_theme);
@@ -488,6 +497,8 @@ fn clone_layout(l: &Layout) -> Layout {
     new.show_colorbar = l.show_colorbar;
     new.legend_position = l.legend_position;
     new.legend_width = l.legend_width;
+    new.legend_entries = l.legend_entries.clone();
+    new.legend_xy = l.legend_xy;
     new.log_x = l.log_x;
     new.log_y = l.log_y;
     new.suppress_x_ticks = l.suppress_x_ticks;

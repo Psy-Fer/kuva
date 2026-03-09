@@ -4,7 +4,7 @@ use crate::render::plots::Plot;
 use crate::render::annotations::{TextAnnotation, ReferenceLine, ShadedRegion};
 use crate::render::theme::Theme;
 use crate::render::palette::Palette;
-use crate::plot::legend::LegendPosition;
+use crate::plot::legend::{LegendEntry, LegendPosition};
 use crate::render::datetime::DateTimeAxis;
 
 /// Default font-family stack applied when the user has not specified a font
@@ -111,6 +111,11 @@ pub struct Layout {
     pub show_colorbar: bool,
     pub legend_position: LegendPosition,
     pub legend_width: f64,
+    /// Manual legend entries. When `Some`, replaces auto-collection from plot data.
+    pub legend_entries: Option<Vec<LegendEntry>>,
+    /// Absolute SVG pixel coordinate for legend top-left. When `Some`, the legend
+    /// floats at this position and no right-margin space is reserved.
+    pub legend_xy: Option<(f64, f64)>,
     pub log_x: bool,
     pub log_y: bool,
     pub annotations: Vec<TextAnnotation>,
@@ -193,6 +198,8 @@ impl Layout {
             show_colorbar: false,
             legend_position: LegendPosition::TopRight,
             legend_width: 120.0,
+            legend_entries: None,
+            legend_xy: None,
             log_x: false,
             log_y: false,
             annotations: Vec::new(),
@@ -630,6 +637,23 @@ impl Layout {
         self
     }
 
+    /// Supply `Vec<LegendEntry>` directly, bypassing auto-collection from plot data.
+    /// Auto-sizes `legend_width` from the longest label.
+    pub fn with_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
+        let max_chars = entries.iter().map(|e| e.label.len()).max().unwrap_or(4);
+        self.legend_width = (max_chars as f64 * 7.0 + 35.0).max(80.0);
+        self.show_legend = true;
+        self.legend_entries = Some(entries);
+        self
+    }
+
+    /// Place legend at absolute SVG pixel coordinates; no right-margin reserved.
+    pub fn with_legend_at(mut self, x: f64, y: f64) -> Self {
+        self.legend_xy = Some((x, y));
+        self.show_legend = true;
+        self
+    }
+
     pub fn with_log_x(mut self) -> Self {
         self.log_x = true;
         self
@@ -926,7 +950,7 @@ impl ComputedLayout {
             0.0
         };
         margin_right += y2_axis_width;
-        if layout.show_legend {
+        if layout.show_legend && layout.legend_xy.is_none() {
             margin_right += layout.legend_width;
         }
         if layout.show_colorbar {

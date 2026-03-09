@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::plot::scatter::MarkerShape;
 
+#[derive(Clone)]
 pub struct LegendEntry {
     pub label: String,
     pub color: String,
@@ -32,6 +33,12 @@ pub enum LegendPosition {
     BottomRight,
     BottomLeft,
     TopLeft,
+    /// Legend top edge aligns with the plot-area top; placed in the right margin.
+    RightTop,
+    /// Legend vertically centred on the plot area; placed in the right margin.
+    RightMiddle,
+    /// Legend bottom edge aligns with the plot-area bottom; placed in the right margin.
+    RightBottom,
 }
 
 pub struct ColorBarInfo {
