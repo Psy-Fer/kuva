@@ -1548,21 +1548,26 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
     let line_height = computed.legend_line_height;
     let legend_height = legend.entries.len() as f64 * line_height + legend_padding * 2.0;
 
+    let right_x = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
+    let plot_top = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+
     let (legend_x, mut legend_y) = match computed.legend_position {
         LegendPosition::TopRight => {
-            (computed.width - computed.margin_right + computed.y2_axis_width + 10.0, computed.margin_top)
+            (right_x, plot_top)
         }
         LegendPosition::BottomRight => {
-            (computed.width - computed.margin_right + computed.y2_axis_width + 10.0,
-             computed.height - computed.margin_bottom - legend_height)
+            (right_x, plot_bottom - legend_height)
         }
         LegendPosition::TopLeft => {
-            (legend_padding, computed.margin_top)
+            (legend_padding, plot_top)
         }
         LegendPosition::BottomLeft => {
-            (legend_padding,
-             computed.height - computed.margin_bottom - legend_height)
+            (legend_padding, plot_bottom - legend_height)
         }
+        LegendPosition::RightTop => (right_x, plot_top),
+        LegendPosition::RightMiddle => (right_x, (plot_top + plot_bottom) / 2.0 - legend_height / 2.0),
+        LegendPosition::RightBottom => (right_x, plot_bottom - legend_height),
     };
 
     scene.add(Primitive::Rect {
@@ -4310,10 +4315,19 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         let title = dp.size_label.as_deref().unwrap_or("");
         add_dot_stacked_legends(title, &size_entries, &info, &mut scene, &computed);
     } else {
-        let entries = collect_legend_entries(&plots);
+        let entries = if let Some(ref manual) = layout.legend_entries {
+            manual.clone()
+        } else {
+            collect_legend_entries(&plots)
+        };
         if layout.show_legend && !entries.is_empty() {
-            let legend = Legend { entries, position: layout.legend_position };
-            add_legend(&legend, &mut scene, &computed);
+            if let Some((lx, ly)) = layout.legend_xy {
+                render_legend_at(&entries, &mut scene, lx, ly, computed.legend_width,
+                                 computed.body_size, &computed.theme);
+            } else {
+                let legend = Legend { entries, position: layout.legend_position };
+                add_legend(&legend, &mut scene, &computed);
+            }
         }
         if layout.show_colorbar {
             for plot in plots.iter() {

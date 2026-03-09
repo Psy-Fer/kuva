@@ -328,6 +328,26 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 | `.with_reference_line(ReferenceLine)` | Horizontal or vertical dashed line |
 | `.with_shaded_region(ShadedRegion)` | Horizontal or vertical filled band |
 
+### Legend
+
+| Method | Description |
+|--------|-------------|
+| `.with_legend_entries(Vec<LegendEntry>)` | Supply entries directly, bypassing auto-collection; auto-sizes `legend_width` |
+| `.with_legend_at(x, y)` | Place legend at absolute SVG pixel coordinates; no right-margin reserved |
+| `.with_legend_position(LegendPosition)` | Choose a preset legend placement |
+
+`LegendPosition` variants:
+
+| Variant | Placement |
+|---------|-----------|
+| `TopRight` *(default)* | Top of the right margin |
+| `BottomRight` | Bottom of the right margin |
+| `TopLeft` | Top-left inside the plot area |
+| `BottomLeft` | Bottom-left inside the plot area |
+| `RightTop` | Right margin — top edge aligned with the plot-area top |
+| `RightMiddle` | Right margin — vertically centred on the plot area |
+| `RightBottom` | Right margin — bottom edge aligned with the plot-area bottom |
+
 ### Typography
 
 | Method | Default | Description |
