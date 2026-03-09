@@ -16,14 +16,20 @@ all-features = true
 
 [features]
 default = []
-png  = ["dep:resvg"]
-pdf  = ["dep:svg2pdf"]
-cli  = ["dep:clap", "dep:clap_mangen"]
-full = ["png", "pdf"]
+raster = ["dep:resvg", "dep:fontdue"]
+png = ["raster"]  # backward-compat alias
+pdf = ["dep:svg2pdf"]
+cli = ["dep:clap", "dep:clap_mangen"]
+polars = ["dep:polars"]
+full = ["raster", "pdf"]
 
 [dependencies]
 colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+ryu = "1"
+rayon = "1"
+polars      = { version = "0.46", optional = true, default-features = false }
+fontdue     = { version = "0.9", optional = true }
 resvg       = { version = "0.44", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
@@ -33,6 +39,10 @@ clap_mangen = { version = "0.2", optional = true }
 rand = "0.9.1"
 rand_distr = "0.5.1"
 criterion = { version = "0.5", features = ["html_reports"] }
+plotters = "0.3"
+plotters-svg = "0.3"
+plotters-bitmap = "0.3"
+image = "0.24"
 
 [[bench]]
 name = "render"
@@ -59,4 +69,13 @@ name = "all_plots_simple"
 
 [[example]]
 name = "all_plots_complex"
-required-features = ["png"]
+required-features = ["raster"]
+
+[[bench]]
+name = "vs_plotters"
+harness = false
+
+[[bench]]
+name = "raster"
+harness = false
+required-features = ["raster"]

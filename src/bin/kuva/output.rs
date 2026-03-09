@@ -34,12 +34,12 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("svg");
             match ext {
                 "png" => {
-                    #[cfg(feature = "png")]
+                    #[cfg(feature = "raster")]
                     {
                         let bytes = kuva::PngBackend::new().render_scene(&scene)?;
                         fs::write(path, bytes).map_err(|e| e.to_string())
                     }
-                    #[cfg(not(feature = "png"))]
+                    #[cfg(not(feature = "raster"))]
                     Err("PNG output requires the 'png' feature. \
                          Rebuild with: cargo build --bin kuva --features cli,png"
                         .to_string())

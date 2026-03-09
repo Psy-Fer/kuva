@@ -51,7 +51,7 @@ fn test_pie_outside_labels_with_percent() {
     // All labels should show percentages
     assert!(svg.contains("60.0%"));
     // Leader lines should be present
-    assert!(svg.contains("stroke=\"#666\""));
+    assert!(svg.contains("stroke=\"#666666\""));
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn test_pie_auto_labels() {
 
     assert!(svg.contains("<svg"));
     // Small slices should have leader lines (outside)
-    assert!(svg.contains("stroke=\"#666\""));
+    assert!(svg.contains("stroke=\"#666666\""));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn test_pie_outside_labels_font_family() {
     assert!(svg.contains("Alpha"));
     assert!(svg.contains("Epsilon"));
     // Leader lines should be present
-    assert!(svg.contains("stroke=\"#666\""));
+    assert!(svg.contains("stroke=\"#666666\""));
 }
 
 #[test]
@@ -198,8 +198,8 @@ fn test_pie_outside_labels_large_font() {
     // The anti-overlap min_gap is body_size + 2, so large font labels should
     // be spaced further apart. We count the distinct y values in text elements
     // to confirm they are all rendered (no collapsing).
-    let label_count_default = svg_default.matches("stroke=\"#666\"").count();
-    let label_count_large = svg_large.matches("stroke=\"#666\"").count();
+    let label_count_default = svg_default.matches("stroke=\"#666666\"").count();
+    let label_count_large = svg_large.matches("stroke=\"#666666\"").count();
     // Both should have the same number of leader line segments
     assert_eq!(label_count_default, label_count_large);
 }

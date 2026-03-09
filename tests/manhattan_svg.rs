@@ -377,7 +377,7 @@ fn test_manhattan_custom_colors() {
 
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("navy") || svg.contains("cornflowerblue"));
+    assert!(svg.contains("#000080") || svg.contains("#6495ed"));
 }
 
 #[test]

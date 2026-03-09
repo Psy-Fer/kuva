@@ -1,4 +1,5 @@
-use crate::render::render::{Scene, Primitive, TextAnchor};
+use crate::render::render::{Scene, Primitive, PathData, TextAnchor};
+use crate::render::color::Color;
 use crate::render::layout::ComputedLayout;
 
 pub enum Orientation {
@@ -171,7 +172,7 @@ pub fn add_shaded_regions(regions: &[ShadedRegion], scene: &mut Scene, computed:
             y,
             width,
             height,
-            fill: region.color.clone(),
+            fill: Color::from(&region.color),
             stroke: None,
             stroke_width: None,
             opacity: Some(region.opacity),
@@ -202,7 +203,7 @@ pub fn add_reference_lines(lines: &[ReferenceLine], scene: &mut Scene, computed:
             y1,
             x2,
             y2,
-            stroke: line.color.clone(),
+            stroke: Color::from(&line.color),
             stroke_width: line.stroke_width,
             stroke_dasharray: Some(line.dasharray.clone()),
         });
@@ -270,7 +271,7 @@ pub fn add_text_annotations(annotations: &[TextAnnotation], scene: &mut Scene, c
                     y1: ty,
                     x2: tip_x,
                     y2: tip_y,
-                    stroke: ann.color.clone(),
+                    stroke: Color::from(&ann.color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -286,14 +287,14 @@ pub fn add_text_annotations(annotations: &[TextAnnotation], scene: &mut Scene, c
                 let right_x = base_x + uy * arrow_half_w;
                 let right_y = base_y - ux * arrow_half_w;
 
-                scene.add(Primitive::Path {
+                scene.add(Primitive::Path(Box::new(PathData {
                     d: format!("M{tip_x},{tip_y} L{left_x},{left_y} L{right_x},{right_y} Z"),
-                    fill: Some(ann.color.clone()),
-                    stroke: ann.color.clone(),
+                    fill: Some(Color::from(&ann.color)),
+                    stroke: Color::from(&ann.color),
                     stroke_width: 1.0,
                     opacity: None,
                     stroke_dasharray: None,
-                });
+                })));
             }
         }
 

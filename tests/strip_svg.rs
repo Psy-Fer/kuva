@@ -168,9 +168,9 @@ fn test_strip_group_colors() {
     std::fs::write("test_outputs/strip_group_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains(r#"fill="red""#));
-    assert!(svg.contains(r#"fill="green""#));
-    assert!(svg.contains(r#"fill="blue""#));
+    assert!(svg.contains(r##"fill="#ff0000""##));
+    assert!(svg.contains(r##"fill="#008000""##));
+    assert!(svg.contains(r##"fill="#0000ff""##));
 }
 
 #[test]

@@ -2,20 +2,35 @@
 use std::sync::Arc;
 use colorous::{VIRIDIS, INFERNO, GREYS};
 
-// Map [0.0, 1.0] to color string
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+#[inline]
+fn rgb_hex(r: u8, g: u8, b: u8) -> String {
+    let bytes = [
+        b'#',
+        HEX_DIGITS[(r >> 4) as usize],
+        HEX_DIGITS[(r & 0xf) as usize],
+        HEX_DIGITS[(g >> 4) as usize],
+        HEX_DIGITS[(g & 0xf) as usize],
+        HEX_DIGITS[(b >> 4) as usize],
+        HEX_DIGITS[(b & 0xf) as usize],
+    ];
+    unsafe { String::from_utf8_unchecked(bytes.to_vec()) }
+}
+
 fn viridis(value: f64) -> String {
     let rgb = VIRIDIS.eval_continuous(value.clamp(0.0, 1.0));
-    format!("rgb({},{},{})", rgb.r, rgb.g, rgb.b)
+    rgb_hex(rgb.r, rgb.g, rgb.b)
 }
 
 fn inferno(value: f64) -> String {
     let rgb = INFERNO.eval_continuous(value.clamp(0.0, 1.0));
-    format!("rgb({},{},{})", rgb.r, rgb.g, rgb.b)
+    rgb_hex(rgb.r, rgb.g, rgb.b)
 }
 
 fn greyscale(value: f64) -> String {
     let rgb = GREYS.eval_continuous(value.clamp(0.0, 1.0));
-    format!("rgb({},{},{})", rgb.r, rgb.g, rgb.b)
+    rgb_hex(rgb.r, rgb.g, rgb.b)
 }
 
 /// Colormap applied to bin counts in a 2D histogram (or cell values in a heatmap).

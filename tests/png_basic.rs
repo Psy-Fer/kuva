@@ -1,4 +1,4 @@
-#![cfg(feature = "png")]
+#![cfg(feature = "raster")]
 
 use kuva::plot::scatter::ScatterPlot;
 use kuva::plot::LinePlot;

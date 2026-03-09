@@ -89,7 +89,7 @@ fn test_bar_stacked() {
     std::fs::write("test_outputs/bar_stacked.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("tomato"));
+    assert!(svg.contains("#ff6347"));
     assert!(svg.contains("skyblue"));
-    assert!(svg.contains("gold"));
+    assert!(svg.contains("#ffd700"));
 }

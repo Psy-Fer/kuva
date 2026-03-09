@@ -81,25 +81,16 @@ impl From<SankeyPlot>     for Plot { fn from(p: SankeyPlot)     -> Self { Plot::
 impl From<PhyloTree>      for Plot { fn from(p: PhyloTree)      -> Self { Plot::PhyloTree(p) } }
 impl From<SyntenyPlot>    for Plot { fn from(p: SyntenyPlot)    -> Self { Plot::Synteny(p) } }
 
-fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))> 
+fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
         I: IntoIterator,
         I::Item: Into<(f64, f64)>,
     {
-
-    // extract values
-    let mut vals = Vec::new();
-
-    for (x, y) in points.into_iter().map(Into::into) {
-        vals.push((x, y));
-    }
-
-    if vals.is_empty() {
-        return None;
-    }
-    let (mut x_min, mut x_max) = (vals[0].0, vals[0].0);
-    let (mut y_min, mut y_max) = (vals[0].1, vals[0].1);
-    for (x, y) in vals.into_iter() {
+    let mut iter = points.into_iter().map(Into::into);
+    let (x0, y0) = iter.next()?;
+    let (mut x_min, mut x_max) = (x0, x0);
+    let (mut y_min, mut y_max) = (y0, y0);
+    for (x, y) in iter {
         x_min = x_min.min(x);
         x_max = x_max.max(x);
         y_min = y_min.min(y);
@@ -499,6 +490,35 @@ impl Plot {
                 };
                 Some(((x_min, x_max), (0.0, rows as f64)))
             }
+        }
+    }
+
+    /// Rough upper-bound on the number of SVG primitives this plot will emit.
+    /// Used to pre-allocate the Scene elements vector and avoid repeated reallocs.
+    pub fn estimated_primitives(&self) -> usize {
+        match self {
+            Plot::Scatter(s) => {
+                let n = s.data.len();
+                let err = if s.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some()) { n * 3 } else { 0 };
+                n + err + 10
+            }
+            Plot::Line(l) => l.data.len() / 10 + 10,
+            Plot::Series(s) => s.values.len() / 10 + 10,
+            Plot::Manhattan(m) => m.points.len() + m.spans.len() * 2 + 30,
+            Plot::Heatmap(h) => {
+                let cells: usize = h.data.iter().map(|r| r.len()).sum();
+                (if h.show_values { cells * 2 } else { cells }) + 10
+            }
+            Plot::Histogram2d(h) => h.bins.iter().map(|r| r.len()).sum::<usize>() + 10,
+            Plot::Violin(v) => v.groups.len() * 20 + 10,
+            Plot::Bar(b) => b.groups.iter().map(|g| g.bars.len()).sum::<usize>() * 2 + 10,
+            Plot::Histogram(h) => h.bins * 2 + 10,
+            Plot::Brick(b) => {
+                let rows = if b.strigar_exp.is_some() { b.strigar_exp.as_ref().map_or(0, |e| e.len()) } else { b.sequences.len() };
+                let avg_cols = b.sequences.first().map_or(10, |s| s.len());
+                rows * avg_cols + 10
+            }
+            _ => 100,
         }
     }
 

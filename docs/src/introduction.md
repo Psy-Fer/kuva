@@ -7,7 +7,7 @@
 The API follows a builder pattern. Every plot type is constructed with `::new()`, configured with method chaining, and rendered through a single pipeline:
 
 ```
-plot struct  →  Plot enum  →  Layout  →  SVG / PNG / PDF
+plot struct  →  Plot enum  →  Layout  →  SVG / PNG / PDF / raw RGBA bytes
 ```
 
 ## Quick start
@@ -38,7 +38,15 @@ std::fs::write("my_plot.svg", svg).unwrap();
 
 Every plot struct implements `Into<Plot>`, so you can write `plot.into()` instead of `Plot::Scatter(plot)`.
 
-For PNG or PDF output, use `render_to_png` and `render_to_pdf` (require feature flags `png` and `pdf` respectively):
+For raster output (feature `raster`), several formats are available:
+
+| Function | Output | Use case |
+|----------|--------|----------|
+| `render_to_png` | PNG bytes | SVG round-trip; full fidelity |
+| `render_to_png_raster` | PNG bytes | Direct raster; faster for data-heavy plots |
+| `render_to_png_raster_no_text` | PNG bytes | Same, no axis labels (e.g. when you can use a frontend overlay to render the labels instead) |
+| `render_to_rgba_bytes` | `(width, height, rgba_bytes)` | Raw RGBA; zero-copy display |
+| `render_to_rgba_bytes_no_text` | `(width, height, rgba_bytes)` | Same, no text |
 
 ```rust,no_run
 use kuva::prelude::*;
@@ -47,10 +55,14 @@ let plots: Vec<Plot> = vec![/* ... */];
 let layout = Layout::auto_from_plots(&plots);
 
 // SVG — always available
-let svg: String = render_to_svg(plots, layout);
+let svg: String = render_to_svg(plots.clone(), layout.clone());
 
-// PNG — feature = "png"
-let png: Vec<u8> = render_to_png(plots, layout, 2.0).unwrap();
+// PNG — feature = "raster"
+let png: Vec<u8> = render_to_png(plots.clone(), layout.clone(), 2.0).unwrap();
+let png_fast: Vec<u8> = render_to_png_raster(plots.clone(), layout.clone(), 2.0).unwrap();
+
+// Raw RGBA — no encode/decode
+let (width, height, rgba): (u32, u32, Vec<u8>) = render_to_rgba_bytes(plots.clone(), layout.clone(), 2.0).unwrap();
 
 // PDF — feature = "pdf"
 let pdf: Vec<u8> = render_to_pdf(plots, layout).unwrap();

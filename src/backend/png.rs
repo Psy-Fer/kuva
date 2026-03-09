@@ -1,5 +1,18 @@
+use std::sync::{Arc, OnceLock};
+
 use crate::render::render::Scene;
 use crate::backend::svg::SvgBackend;
+
+/// Cached font database shared across all PngBackend render calls.
+/// Loading system fonts is expensive (100ms+); do it only once.
+fn shared_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
+    static FONTDB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    FONTDB.get_or_init(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        Arc::new(db)
+    }).clone()
+}
 
 pub struct PngBackend {
     /// Pixel density multiplier.
@@ -25,10 +38,8 @@ impl PngBackend {
     pub fn render_scene(&self, scene: &Scene) -> Result<Vec<u8>, String> {
         let svg_str = SvgBackend.render_scene(scene);
 
-        let mut fontdb = resvg::usvg::fontdb::Database::new();
-        fontdb.load_system_fonts();
         let options = resvg::usvg::Options {
-            fontdb: std::sync::Arc::new(fontdb),
+            fontdb: shared_fontdb(),
             ..Default::default()
         };
 
@@ -36,7 +47,7 @@ impl PngBackend {
             .map_err(|e| e.to_string())?;
 
         let size = tree.size().to_int_size().scale_by(self.scale)
-            .expect("canvas too large for the requested scale factor");
+            .ok_or_else(|| "canvas too large for the requested scale factor".to_string())?;
         let mut pixmap = resvg::tiny_skia::Pixmap::new(size.width(), size.height())
             .ok_or_else(|| "failed to allocate pixmap".to_string())?;
 

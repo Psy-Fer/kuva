@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `RasterBackend` (`backend::raster`) — direct rasterization into an RGBA pixel buffer; draws circles, rects, and lines with scanline algorithms (no anti-aliasing); SVG `Path` elements use tiny_skia for curves; text rendered via `fontdue` glyph rasterization (~0.08 ms for 15 labels vs 3–25 ms with resvg SVG overlay)
+- `RasterBackend::render_scene()` → PNG bytes; `render_scene_to_pixmap()` → raw RGBA pixmap; `render_scene_to_rgba()` → `(width, height, Vec<u8>)`
+- `RasterBackend::with_skip_text(bool)` — skip text rendering for maximum throughput when the frontend overlays its own labels
+- Polars integration (`dataframe` module, feature `polars`) — `DataFrameExt` trait with `df.scatter("x", "y")`, `df.histogram("col", 30)`, etc.; builder methods like `ScatterPlot::new().with_xy(&df, "x", "y")`; `PlotDataError` for missing columns, wrong dtypes, and nulls
+
+### Changed
+
+- Feature `png` renamed to `raster`; `png` kept as a backward-compatible alias
+- `fontdue` added as an optional dependency (feature `raster`) for direct text rasterization
+
 ---
 
 ## [0.1.3] — 2026-03-04

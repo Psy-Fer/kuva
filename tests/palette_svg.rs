@@ -30,8 +30,8 @@ fn test_palette_dark_theme_with_colorblind() {
     std::fs::write("test_outputs/palette_dark_colorblind.svg", &svg).unwrap();
 
     // Wong palette colors appear in the SVG
-    assert!(svg.contains("#E69F00"), "expected wong color 0");
-    assert!(svg.contains("#56B4E9"), "expected wong color 1");
+    assert!(svg.contains("#e69f00"), "expected wong color 0");
+    assert!(svg.contains("#56b4e9"), "expected wong color 1");
     // Dark background
     assert!(svg.contains(r##"fill="#1e1e1e""##), "expected dark background");
 }
@@ -60,9 +60,9 @@ fn test_palette_auto_cycle() {
     std::fs::write("test_outputs/palette_auto_cycle.svg", &svg).unwrap();
 
     // First three Wong colors assigned automatically
-    assert!(svg.contains("#E69F00"), "expected wong[0]");
-    assert!(svg.contains("#56B4E9"), "expected wong[1]");
-    assert!(svg.contains("#009E73"), "expected wong[2]");
+    assert!(svg.contains("#e69f00"), "expected wong[0]");
+    assert!(svg.contains("#56b4e9"), "expected wong[1]");
+    assert!(svg.contains("#009e73"), "expected wong[2]");
 }
 
 #[test]
@@ -119,6 +119,6 @@ fn test_palette_tritanopia() {
     let svg = SvgBackend.render_scene(&scene);
     std::fs::write("test_outputs/palette_tritanopia.svg", &svg).unwrap();
 
-    assert!(svg.contains("#4477AA"), "expected tol_bright[0]");
-    assert!(svg.contains("#EE6677"), "expected tol_bright[1]");
+    assert!(svg.contains("#4477aa"), "expected tol_bright[0]");
+    assert!(svg.contains("#ee6677"), "expected tol_bright[1]");
 }

@@ -77,9 +77,9 @@ fn test_twin_y_palette() {
     let svg = SvgBackend.render_scene(&scene);
     std::fs::write("test_outputs/twin_y_palette.svg", svg.clone()).unwrap();
 
-    // Wong palette first two colors: #E69F00, #56B4E9
-    assert!(svg.contains("#E69F00"), "SVG should contain wong palette color 1");
-    assert!(svg.contains("#56B4E9"), "SVG should contain wong palette color 2");
+    // Wong palette first two colors: #e69f00, #56b4e9 (Color outputs lowercase hex)
+    assert!(svg.contains("#e69f00"), "SVG should contain wong palette color 1");
+    assert!(svg.contains("#56b4e9"), "SVG should contain wong palette color 2");
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! 1. Build a plot struct using its builder API (e.g. [`plot::scatter::ScatterPlot`]).
 //! 2. Collect plots into a `Vec<`[`render::plots::Plot`]`>` — use `.into()` on any plot struct.
 //! 3. Build a [`render::layout::Layout`] with [`render::layout::Layout::auto_from_plots`] and customise it.
-//! 4. Call [`render_to_svg`] (or [`render_to_png`] / [`render_to_pdf`]) to get the output in one step.
+//! 4. Call [`render_to_svg`], [`render_to_png`], [`render_to_png_raster`], [`render_to_rgba_bytes`], or [`render_to_pdf`] to get the output.
 //!
 //! # Example
 //!
@@ -29,20 +29,27 @@
 //!
 //! | Feature | Description |
 //! |---------|-------------|
-//! | `png`   | Enables [`PngBackend`] for rasterising SVG scenes via `resvg`. |
+//! | `raster`| Enables [`RasterBackend`], [`PngBackend`], and raster output via `resvg`/`fontdue`. |
+//! | `png`   | Alias for `raster` (backward compatibility). |
 //! | `pdf`   | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
 //! | `cli`   | Enables the `kuva` CLI binary (pulls in `clap`). |
-//! | `full`  | Enables `png` + `pdf`. |
+//! | `full`  | Enables `raster` + `pdf`. |
 
 pub mod plot;
 pub mod backend;
 pub mod render;
 pub mod prelude;
 
+#[cfg(feature = "polars")]
+pub mod dataframe;
+
 pub use backend::terminal::TerminalBackend;
 
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub use backend::png::PngBackend;
+
+#[cfg(feature = "raster")]
+pub use backend::raster::RasterBackend;
 
 #[cfg(feature = "pdf")]
 pub use backend::pdf::PdfBackend;
@@ -81,16 +88,16 @@ pub fn render_to_svg(plots: Vec<render::plots::Plot>, layout: render::layout::La
     backend::svg::SvgBackend.render_scene(&scene)
 }
 
-/// Render a collection of plots to a PNG byte vector in one call (requires feature `png`).
+/// Render a collection of plots to a PNG byte vector (requires feature `raster`).
+///
+/// Uses the SVG round-trip path: scene → SVG string → parse → rasterize → PNG.
+/// For data-heavy plots, prefer [`render_to_png_raster`] which skips the SVG step.
 ///
 /// `scale` is the pixel density multiplier: `1.0` matches the SVG logical size,
 /// `2.0` (the [`PngBackend`] default) gives retina/HiDPI quality.
 ///
 /// Returns `Err(String)` if SVG parsing or rasterisation fails.
-///
-/// For fine-grained control use [`render::render::render_multiple`] and
-/// [`backend::png::PngBackend`] directly.
-#[cfg(feature = "png")]
+#[cfg(feature = "raster")]
 pub fn render_to_png(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
@@ -98,6 +105,95 @@ pub fn render_to_png(
 ) -> Result<Vec<u8>, String> {
     let scene = render::render::render_multiple(plots, layout);
     backend::png::PngBackend::new().with_scale(scale).render_scene(&scene)
+}
+
+/// Render a collection of plots directly to a PNG byte vector (requires feature `raster`).
+///
+/// Bypasses SVG serialization and re-parsing: renders straight to a pixel buffer
+/// via `tiny_skia`, then PNG-encodes. Significantly faster than [`render_to_png`]
+/// for data-heavy plots (scatter, manhattan, heatmap).
+///
+/// Text elements (axis labels, titles) are still rendered. For maximum throughput
+/// when the frontend overlays its own labels, use [`render_to_png_raster_no_text`].
+///
+/// `scale` is the pixel density multiplier.
+#[cfg(feature = "raster")]
+pub fn render_to_png_raster(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new().with_scale(scale).render_scene(&scene)
+}
+
+/// Like [`render_to_png_raster`] but skips text rendering (axis labels, titles).
+///
+/// Use when the frontend overlays its own labels for maximum throughput.
+#[cfg(feature = "raster")]
+pub fn render_to_png_raster_no_text(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new()
+        .with_scale(scale)
+        .with_skip_text(true)
+        .render_scene(&scene)
+}
+
+/// Raw RGBA image data for zero-copy display (e.g. Tauri IPC, canvas `ImageData`).
+///
+/// Returns `(width, height, rgba_bytes)` — no PNG encoding. Fastest path for
+/// rapid plotting: no encode on Rust side, no decode on the frontend. Send the
+/// bytes via `Uint8ClampedArray` and construct `ImageData` directly in the browser.
+///
+/// `scale` is the pixel density multiplier.
+#[cfg(feature = "raster")]
+pub fn render_to_rgba_bytes(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new()
+        .with_scale(scale)
+        .render_scene_to_rgba(&scene)
+}
+
+/// Like [`render_to_rgba_bytes`] but skips text rendering for maximum throughput.
+#[cfg(feature = "raster")]
+pub fn render_to_rgba_bytes_no_text(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new()
+        .with_scale(scale)
+        .with_skip_text(true)
+        .render_scene_to_rgba(&scene)
+}
+
+/// Alias for [`render_to_png_raster`]. Kept for backward compatibility.
+#[cfg(feature = "raster")]
+pub fn render_to_raster(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    render_to_png_raster(plots, layout, scale)
+}
+
+/// Alias for [`render_to_png_raster_no_text`]. Kept for backward compatibility.
+#[cfg(feature = "raster")]
+pub fn render_to_raster_no_text(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    render_to_png_raster_no_text(plots, layout, scale)
 }
 
 /// Render a collection of plots to a PDF byte vector in one call (requires feature `pdf`).

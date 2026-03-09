@@ -63,7 +63,7 @@ pub fn generate_ticks_bin_aligned(x_min: f64, x_max: f64, bin_width: f64, target
 
     // Find the smallest n that divides total_bins evenly and gives ≤ target_intervals.
     let n = (1..=total_bins)
-        .find(|&n| total_bins.is_multiple_of(n) && total_bins / n <= target_intervals)
+        .find(|&n| n > 0 && total_bins % n == 0 && total_bins / n <= target_intervals)
         .unwrap_or(total_bins);
 
     let step = n as f64 * bin_width;

@@ -888,6 +888,14 @@ pub struct ComputedLayout {
     pub minor_ticks: Option<u32>,
     /// Draw faint gridlines at minor tick positions.
     pub show_minor_grid: bool,
+
+    // Pre-computed linear transform coefficients for map_x / map_y.
+    // map_x(x) = x_offset + x * x_scale  (linear)
+    // map_x(x) = x_offset + log10(x) * x_scale  (log)
+    x_scale: f64,
+    x_offset: f64,
+    y_scale: f64,
+    y_offset: f64,
 }
 
 impl ComputedLayout {
@@ -1014,7 +1022,7 @@ impl ComputedLayout {
             18.0
         };
 
-        Self {
+        let mut s = Self {
             width,
             height,
             margin_top,
@@ -1049,6 +1057,41 @@ impl ComputedLayout {
             y_tick_step: layout.y_tick_step,
             minor_ticks: layout.minor_ticks,
             show_minor_grid: layout.show_minor_grid,
+            x_scale: 0.0,
+            x_offset: 0.0,
+            y_scale: 0.0,
+            y_offset: 0.0,
+        };
+        s.recompute_transforms();
+        s
+    }
+
+    /// Recompute cached linear-transform coefficients after changing
+    /// width, height, margins, or axis ranges.
+    pub fn recompute_transforms(&mut self) {
+        let pw = self.plot_width();
+        let ph = self.plot_height();
+        if self.log_x {
+            let log_min = self.x_range.0.max(1e-10).log10();
+            let log_max = self.x_range.1.max(1e-10).log10();
+            let span = log_max - log_min;
+            self.x_scale = if span.abs() > f64::EPSILON { pw / span } else { 0.0 };
+            self.x_offset = self.margin_left - log_min * self.x_scale;
+        } else {
+            let span = self.x_range.1 - self.x_range.0;
+            self.x_scale = if span.abs() > f64::EPSILON { pw / span } else { 0.0 };
+            self.x_offset = self.margin_left - self.x_range.0 * self.x_scale;
+        }
+        if self.log_y {
+            let log_min = self.y_range.0.max(1e-10).log10();
+            let log_max = self.y_range.1.max(1e-10).log10();
+            let span = log_max - log_min;
+            self.y_scale = if span.abs() > f64::EPSILON { ph / span } else { 0.0 };
+            self.y_offset = self.height - self.margin_bottom + log_min * self.y_scale;
+        } else {
+            let span = self.y_range.1 - self.y_range.0;
+            self.y_scale = if span.abs() > f64::EPSILON { ph / span } else { 0.0 };
+            self.y_offset = self.height - self.margin_bottom + self.y_range.0 * self.y_scale;
         }
     }
 
@@ -1060,39 +1103,36 @@ impl ComputedLayout {
         self.height - self.margin_top - self.margin_bottom
     }
 
+    #[inline(always)]
     pub fn map_x(&self, x: f64) -> f64 {
         if self.log_x {
-            let x = x.max(1e-10);
-            let log_min = self.x_range.0.log10();
-            let log_max = self.x_range.1.log10();
-            self.margin_left + (x.log10() - log_min) / (log_max - log_min) * self.plot_width()
+            self.x_offset + x.max(1e-10).log10() * self.x_scale
         } else {
-            self.margin_left + (x - self.x_range.0) / (self.x_range.1 - self.x_range.0) * self.plot_width()
+            self.x_offset + x * self.x_scale
         }
     }
 
+    #[inline(always)]
     pub fn map_y(&self, y: f64) -> f64 {
         if self.log_y {
-            let y = y.max(1e-10);
-            let log_min = self.y_range.0.log10();
-            let log_max = self.y_range.1.log10();
-            self.height - self.margin_bottom - (y.log10() - log_min) / (log_max - log_min) * self.plot_height()
+            self.y_offset - y.max(1e-10).log10() * self.y_scale
         } else {
-            self.height - self.margin_bottom - (y - self.y_range.0) / (self.y_range.1 - self.y_range.0) * self.plot_height()
+            self.y_offset - y * self.y_scale
         }
     }
 
     pub fn map_y2(&self, y: f64) -> f64 {
         if let Some((y2_min, y2_max)) = self.y2_range {
+            let ph = self.plot_height();
             if self.log_y2 {
                 let y = y.max(1e-10);
                 let log_min = y2_min.log10();
                 let log_max = y2_max.log10();
                 self.height - self.margin_bottom
-                    - (y.log10() - log_min) / (log_max - log_min) * self.plot_height()
+                    - (y.log10() - log_min) / (log_max - log_min) * ph
             } else {
                 self.height - self.margin_bottom
-                    - (y - y2_min) / (y2_max - y2_min) * self.plot_height()
+                    - (y - y2_min) / (y2_max - y2_min) * ph
             }
         } else {
             self.map_y(y)
@@ -1108,6 +1148,7 @@ impl ComputedLayout {
         }
         c.log_y = self.log_y2;
         c.y_tick_format = self.y2_tick_format.clone();
+        c.recompute_transforms();
         c
     }
 }
