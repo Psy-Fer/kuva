@@ -43,10 +43,10 @@ For raster output (feature `raster`), several formats are available:
 | Function | Output | Use case |
 |----------|--------|----------|
 | `render_to_png` | PNG bytes | SVG round-trip; full fidelity |
-| `render_to_png_direct` | PNG bytes | Direct raster; faster for data-heavy plots |
-| `render_to_png_direct_no_text` | PNG bytes | Same, no axis labels (e.g. when you can use a frontend overlay to render the labels instead) |
-| `render_to_rgba` | `(width, height, rgba_bytes)` | Raw RGBA; zero-copy display |
-| `render_to_rgba_no_text` | `(width, height, rgba_bytes)` | Same, no text |
+| `render_to_png_raster` | PNG bytes | Direct raster; faster for data-heavy plots |
+| `render_to_png_raster_no_text` | PNG bytes | Same, no axis labels (e.g. when you can use a frontend overlay to render the labels instead) |
+| `render_to_rgba_bytes` | `(width, height, rgba_bytes)` | Raw RGBA; zero-copy display |
+| `render_to_rgba_bytes_no_text` | `(width, height, rgba_bytes)` | Same, no text |
 
 ```rust,no_run
 use kuva::prelude::*;
@@ -59,10 +59,10 @@ let svg: String = render_to_svg(plots.clone(), layout.clone());
 
 // PNG — feature = "raster"
 let png: Vec<u8> = render_to_png(plots.clone(), layout.clone(), 2.0).unwrap();
-let png_fast: Vec<u8> = render_to_png_direct(plots.clone(), layout.clone(), 2.0).unwrap();
+let png_fast: Vec<u8> = render_to_png_raster(plots.clone(), layout.clone(), 2.0).unwrap();
 
 // Raw RGBA — no encode/decode
-let (width, height, rgba): (u32, u32, Vec<u8>) = render_to_rgba(plots.clone(), layout.clone(), 2.0).unwrap();
+let (width, height, rgba): (u32, u32, Vec<u8>) = render_to_rgba_bytes(plots.clone(), layout.clone(), 2.0).unwrap();
 
 // PDF — feature = "pdf"
 let pdf: Vec<u8> = render_to_pdf(plots, layout).unwrap();

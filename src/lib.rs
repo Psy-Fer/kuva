@@ -9,7 +9,7 @@
 //! 1. Build a plot struct using its builder API (e.g. [`plot::scatter::ScatterPlot`]).
 //! 2. Collect plots into a `Vec<`[`render::plots::Plot`]`>` — use `.into()` on any plot struct.
 //! 3. Build a [`render::layout::Layout`] with [`render::layout::Layout::auto_from_plots`] and customise it.
-//! 4. Call [`render_to_svg`], [`render_to_png`], [`render_to_png_direct`], [`render_to_rgba`], or [`render_to_pdf`] to get the output.
+//! 4. Call [`render_to_svg`], [`render_to_png`], [`render_to_png_raster`], [`render_to_rgba_bytes`], or [`render_to_pdf`] to get the output.
 //!
 //! # Example
 //!
@@ -91,7 +91,7 @@ pub fn render_to_svg(plots: Vec<render::plots::Plot>, layout: render::layout::La
 /// Render a collection of plots to a PNG byte vector (requires feature `raster`).
 ///
 /// Uses the SVG round-trip path: scene → SVG string → parse → rasterize → PNG.
-/// For data-heavy plots, prefer [`render_to_png_direct`] which skips the SVG step.
+/// For data-heavy plots, prefer [`render_to_png_raster`] which skips the SVG step.
 ///
 /// `scale` is the pixel density multiplier: `1.0` matches the SVG logical size,
 /// `2.0` (the [`PngBackend`] default) gives retina/HiDPI quality.
@@ -114,11 +114,11 @@ pub fn render_to_png(
 /// for data-heavy plots (scatter, manhattan, heatmap).
 ///
 /// Text elements (axis labels, titles) are still rendered. For maximum throughput
-/// when the frontend overlays its own labels, use [`render_to_png_direct_no_text`].
+/// when the frontend overlays its own labels, use [`render_to_png_raster_no_text`].
 ///
 /// `scale` is the pixel density multiplier.
 #[cfg(feature = "raster")]
-pub fn render_to_png_direct(
+pub fn render_to_png_raster(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
@@ -127,11 +127,11 @@ pub fn render_to_png_direct(
     backend::raster::RasterBackend::new().with_scale(scale).render_scene(&scene)
 }
 
-/// Like [`render_to_png_direct`] but skips text rendering (axis labels, titles).
+/// Like [`render_to_png_raster`] but skips text rendering (axis labels, titles).
 ///
 /// Use when the frontend overlays its own labels for maximum throughput.
 #[cfg(feature = "raster")]
-pub fn render_to_png_direct_no_text(
+pub fn render_to_png_raster_no_text(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
@@ -151,7 +151,7 @@ pub fn render_to_png_direct_no_text(
 ///
 /// `scale` is the pixel density multiplier.
 #[cfg(feature = "raster")]
-pub fn render_to_rgba(
+pub fn render_to_rgba_bytes(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
@@ -162,9 +162,9 @@ pub fn render_to_rgba(
         .render_scene_to_rgba(&scene)
 }
 
-/// Like [`render_to_rgba`] but skips text rendering for maximum throughput.
+/// Like [`render_to_rgba_bytes`] but skips text rendering for maximum throughput.
 #[cfg(feature = "raster")]
-pub fn render_to_rgba_no_text(
+pub fn render_to_rgba_bytes_no_text(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
@@ -176,24 +176,24 @@ pub fn render_to_rgba_no_text(
         .render_scene_to_rgba(&scene)
 }
 
-/// Alias for [`render_to_png_direct`]. Kept for backward compatibility.
+/// Alias for [`render_to_png_raster`]. Kept for backward compatibility.
 #[cfg(feature = "raster")]
 pub fn render_to_raster(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
 ) -> Result<Vec<u8>, String> {
-    render_to_png_direct(plots, layout, scale)
+    render_to_png_raster(plots, layout, scale)
 }
 
-/// Alias for [`render_to_png_direct_no_text`]. Kept for backward compatibility.
+/// Alias for [`render_to_png_raster_no_text`]. Kept for backward compatibility.
 #[cfg(feature = "raster")]
 pub fn render_to_raster_no_text(
     plots: Vec<render::plots::Plot>,
     layout: render::layout::Layout,
     scale: f32,
 ) -> Result<Vec<u8>, String> {
-    render_to_png_direct_no_text(plots, layout, scale)
+    render_to_png_raster_no_text(plots, layout, scale)
 }
 
 /// Render a collection of plots to a PDF byte vector in one call (requires feature `pdf`).
