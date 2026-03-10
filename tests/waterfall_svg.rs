@@ -23,8 +23,8 @@ fn test_waterfall_basic() {
     std::fs::write("test_outputs/waterfall_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("rgb(68,170,68)"));
-    assert!(svg.contains("rgb(204,68,68)"));
+    assert!(svg.contains("#44aa44"));
+    assert!(svg.contains("#cc4444"));
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn test_waterfall_with_totals() {
     std::fs::write("test_outputs/waterfall_with_totals.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("steelblue"));
+    assert!(svg.contains("#4682b4"));
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn test_waterfall_difference() {
     let layout = Layout::auto_from_plots(&plots).with_title("Difference +5");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write("test_outputs/waterfall_difference_pos.svg", svg.clone()).unwrap();
-    assert!(svg.contains("rgb(68,170,68)"));  // green
+    assert!(svg.contains("#44aa44"));  // green
 
     let wf_neg = WaterfallPlot::new()
         .with_delta("Start", 50.0)
@@ -98,7 +98,7 @@ fn test_waterfall_difference() {
     let layout2 = Layout::auto_from_plots(&plots2).with_title("Difference -10");
     let svg2 = SvgBackend.render_scene(&render_multiple(plots2, layout2));
     std::fs::write("test_outputs/waterfall_difference_neg.svg", svg2.clone()).unwrap();
-    assert!(svg2.contains("rgb(204,68,68)"));  // red
+    assert!(svg2.contains("#cc4444"));  // red
 }
 
 #[test]
@@ -120,9 +120,9 @@ fn test_waterfall_custom_colors() {
     std::fs::write("test_outputs/waterfall_custom_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("darkgreen"));
-    assert!(svg.contains("crimson"));
-    assert!(svg.contains("navy"));
+    assert!(svg.contains("#006400"));
+    assert!(svg.contains("#dc143c"));
+    assert!(svg.contains("#000080"));
 }
 
 #[test]
@@ -142,5 +142,5 @@ fn test_waterfall_all_negative() {
     std::fs::write("test_outputs/waterfall_all_negative.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("rgb(204,68,68)"));
+    assert!(svg.contains("#cc4444"));
 }

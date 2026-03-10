@@ -205,7 +205,7 @@ fn test_volcano_custom_colors() {
     let svg = SvgBackend.render_scene(&scene);
     std::fs::write("test_outputs/volcano_custom_colors.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("darkorange"));
+    assert!(svg.contains("#ff8c00"));
     assert!(svg.contains("mediumpurple"));
 }
 

@@ -375,9 +375,9 @@ fn test_scatter_per_point_colors() {
     std::fs::write("test_outputs/scatter_per_point_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains(r#"fill="red""#));
-    assert!(svg.contains(r#"fill="green""#));
-    assert!(svg.contains(r#"fill="blue""#));
+    assert!(svg.contains(r##"fill="#ff0000""##));
+    assert!(svg.contains(r##"fill="#008000""##));
+    assert!(svg.contains(r##"fill="#0000ff""##));
 }
 
 #[test]

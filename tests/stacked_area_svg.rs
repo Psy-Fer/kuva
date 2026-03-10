@@ -31,9 +31,9 @@ fn stacked_area_basic() {
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
-    assert!(svg.contains("steelblue"));
-    assert!(svg.contains("orange"));
-    assert!(svg.contains("green"));
+    assert!(svg.contains("#4682b4"));
+    assert!(svg.contains("#ffa500"));
+    assert!(svg.contains("#008000"));
     assert!(svg.contains("Series A"));
     assert!(svg.contains("Series B"));
     assert!(svg.contains("Series C"));

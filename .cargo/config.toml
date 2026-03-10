@@ -1,0 +1,4 @@
+[alias]
+# Run tests without compiling benches (benches pull in plotters -> system fontconfig)
+ci-test    = "test --features cli,full --lib --tests --examples"
+ci-clippy  = "clippy --features cli,full --lib --tests --examples --bins -- -D warnings"

@@ -24,7 +24,7 @@ jobs:
       - name: Test (CLI + all backends)
         run: |
           mkdir -p test_outputs smoke_test_outputs
-          cargo test --features cli,full
+          cargo ci-test
 
   clippy:
     name: Clippy
@@ -35,4 +35,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Clippy (CLI + all backends)
-        run: cargo clippy --features cli,full -- -D warnings
+        run: cargo ci-clippy

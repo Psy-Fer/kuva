@@ -44,6 +44,9 @@ pub use backend::terminal::TerminalBackend;
 #[cfg(feature = "png")]
 pub use backend::png::PngBackend;
 
+#[cfg(feature = "png")]
+pub use backend::raster::RasterBackend;
+
 #[cfg(feature = "pdf")]
 pub use backend::pdf::PdfBackend;
 
@@ -98,6 +101,25 @@ pub fn render_to_png(
 ) -> Result<Vec<u8>, String> {
     let scene = render::render::render_multiple(plots, layout);
     backend::png::PngBackend::new().with_scale(scale).render_scene(&scene)
+}
+
+/// Render a collection of plots directly to a PNG byte vector via `tiny_skia`,
+/// bypassing SVG serialization and re-parsing (requires feature `png`).
+///
+/// This is significantly faster than [`render_to_png`] for data-heavy plots
+/// (scatter, manhattan, heatmap) because it skips the SVG round-trip.
+/// Text elements (axis labels, titles) are still rendered via resvg for
+/// correct font shaping.
+///
+/// `scale` is the pixel density multiplier.
+#[cfg(feature = "png")]
+pub fn render_to_raster(
+    plots: Vec<render::plots::Plot>,
+    layout: render::layout::Layout,
+    scale: f32,
+) -> Result<Vec<u8>, String> {
+    let scene = render::render::render_multiple(plots, layout);
+    backend::raster::RasterBackend::new().with_scale(scale).render_scene(&scene)
 }
 
 /// Render a collection of plots to a PDF byte vector in one call (requires feature `pdf`).

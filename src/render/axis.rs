@@ -1,6 +1,7 @@
 use crate::render::render::{Scene, Primitive, TextAnchor};
 use crate::render::layout::{Layout, ComputedLayout, TickFormat};
 use crate::render::render_utils;
+use crate::render::color::Color;
 
 
 
@@ -18,7 +19,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y1: computed.height - computed.margin_bottom,
         x2: computed.width - computed.margin_right,
         y2: computed.height - computed.margin_bottom,
-        stroke: theme.axis_color.clone(),
+        stroke: Color::from(&theme.axis_color),
         stroke_width: 1.0,
         stroke_dasharray: None,
     });
@@ -29,7 +30,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y1: computed.margin_top,
         x2: computed.margin_left,
         y2: computed.height - computed.margin_bottom,
-        stroke: theme.axis_color.clone(),
+        stroke: Color::from(&theme.axis_color),
         stroke_width: 1.0,
         stroke_dasharray: None,
     });
@@ -65,7 +66,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 scene.add(Primitive::Line {
                     x1: x, y1: computed.margin_top,
                     x2: x, y2: computed.height - computed.margin_bottom,
-                    stroke: theme.grid_color.clone(),
+                    stroke: Color::from(&theme.grid_color),
                     stroke_width: 0.5,
                     stroke_dasharray: None,
                 });
@@ -77,7 +78,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 scene.add(Primitive::Line {
                     x1: computed.margin_left, y1: y,
                     x2: computed.width - computed.margin_right, y2: y,
-                    stroke: theme.grid_color.clone(),
+                    stroke: Color::from(&theme.grid_color),
                     stroke_width: 0.5,
                     stroke_dasharray: None,
                 });
@@ -99,7 +100,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.margin_top,
                     x2: x,
                     y2: computed.height - computed.margin_bottom,
-                    stroke: theme.grid_color.clone(),
+                    stroke: Color::from(&theme.grid_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -115,7 +116,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.width - computed.margin_right,
                     y2: y,
-                    stroke: theme.grid_color.clone(),
+                    stroke: Color::from(&theme.grid_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -145,7 +146,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y_pos,
                     x2: computed.margin_left,
                     y2: y_pos,
-                    stroke: theme.tick_color.clone(),
+                    stroke: Color::from(&theme.tick_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -177,7 +178,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y1: computed.height - computed.margin_bottom,
                         x2: x_pos,
                         y2: computed.height - computed.margin_bottom + 5.0,
-                        stroke: theme.tick_color.clone(),
+                        stroke: Color::from(&theme.tick_color),
                         stroke_width: 1.0,
                         stroke_dasharray: None,
                     });
@@ -191,7 +192,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y1: computed.height - computed.margin_bottom,
                         x2: x,
                         y2: computed.height - computed.margin_bottom + 5.0,
-                        stroke: theme.tick_color.clone(),
+                        stroke: Color::from(&theme.tick_color),
                         stroke_width: 1.0,
                         stroke_dasharray: None,
                     });
@@ -244,7 +245,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.height - computed.margin_bottom,
                     x2: x_pos,
                     y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: theme.tick_color.clone(),
+                    stroke: Color::from(&theme.tick_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -259,7 +260,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.margin_left,
                     y2: y,
-                    stroke: theme.tick_color.clone(),
+                    stroke: Color::from(&theme.tick_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -294,7 +295,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: computed.height - computed.margin_bottom,
                     x2: x,
                     y2: computed.height - computed.margin_bottom + 5.0,
-                    stroke: theme.tick_color.clone(),
+                    stroke: Color::from(&theme.tick_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -331,7 +332,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     y1: y,
                     x2: computed.margin_left,
                     y2: y,
-                    stroke: theme.tick_color.clone(),
+                    stroke: Color::from(&theme.tick_color),
                     stroke_width: 1.0,
                     stroke_dasharray: None,
                 });
@@ -365,7 +366,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y1: computed.height - computed.margin_bottom,
                         x2: x,
                         y2: computed.height - computed.margin_bottom + 3.0,
-                        stroke: theme.tick_color.clone(),
+                        stroke: Color::from(&theme.tick_color),
                         stroke_width: 1.0,
                         stroke_dasharray: None,
                     });
@@ -381,7 +382,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         y1: y,
                         x2: computed.margin_left,
                         y2: y,
-                        stroke: theme.tick_color.clone(),
+                        stroke: Color::from(&theme.tick_color),
                         stroke_width: 1.0,
                         stroke_dasharray: None,
                     });
@@ -400,7 +401,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     scene.add(Primitive::Line {
         x1: axis_x, y1: computed.margin_top,
         x2: axis_x, y2: computed.height - computed.margin_bottom,
-        stroke: theme.axis_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+        stroke: Color::from(&theme.axis_color), stroke_width: 1.0, stroke_dasharray: None,
     });
 
     if layout.suppress_y2_ticks { return; }
@@ -416,7 +417,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
 
         scene.add(Primitive::Line {
             x1: axis_x, y1: y, x2: axis_x + 5.0, y2: y,
-            stroke: theme.tick_color.clone(), stroke_width: 1.0, stroke_dasharray: None,
+            stroke: Color::from(&theme.tick_color), stroke_width: 1.0, stroke_dasharray: None,
         });
 
         let label = if layout.log_y2 && matches!(computed.y2_tick_format, TickFormat::Auto) {

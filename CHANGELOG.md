@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Color` type (`render::color`) — 3-variant enum (Rgb/None/Css) replacing `String` for fill/stroke in the render pipeline; `Color::Rgb(u8,u8,u8)` is 4 bytes inline with zero heap allocation; `From<&str>` parses hex, rgb(), "none", and 50+ named CSS colors
+- `CircleBatch` and `RectBatch` — SoA (struct-of-arrays) `Primitive` variants with contiguous coordinate arrays for scatter and heatmap; all backends support them
+
 ### Changed
 
+- `Primitive::Path` now uses `Box<PathData>` — shrinks enum from ~128 to ~88 bytes per element
+- SVG output uses hex colors for named CSS colors (e.g. `fill="red"` → `fill="#ff0000"`) — test assertions updated accordingly
 - **SVG serialization 50–70% faster** — replaced all `format!()` calls in `SvgBackend` with direct `push_str()`/`write!()` into the output buffer; eliminates per-primitive heap allocations in hot loops
 - **Float formatting via `ryu`** — coordinate values now use `ryu` (the same crate as `serde_json`) for 2–5× faster float→string conversion; coordinates are rounded to 2 decimal places; whole numbers omit the decimal point (e.g. `"72"` not `"72.0"`)
 - **Single-pass XML escaping** — `write_escaped()` scans text content once instead of five chained `.replace()` calls; no allocation when input has no special characters

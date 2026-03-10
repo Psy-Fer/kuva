@@ -441,7 +441,7 @@ impl Canvas {
 
         match p {
             Primitive::Circle { cx, cy, r, fill } => {
-                let rgb = css_to_rgb(fill);
+                let rgb = css_to_rgb(&fill.to_svg_string());
                 let cx_s = cx + tx;
                 let cy_s = cy + ty;
                 let bw = (self.cols * 2) as f64;
@@ -462,7 +462,7 @@ impl Canvas {
             }
 
             Primitive::Line { x1, y1, x2, y2, stroke, .. } => {
-                let rgb = css_to_rgb(stroke);
+                let rgb = css_to_rgb(&stroke.to_svg_string());
                 // Strictly horizontal or vertical lines (within half a scene pixel)
                 // are drawn with box-drawing characters for clean axis rendering.
                 // All other lines use Bresenham braille.
@@ -487,9 +487,10 @@ impl Canvas {
                 }
             }
 
-            Primitive::Path { d, stroke, fill, .. } => {
-                let has_stroke = stroke != "none";
-                let fill_str = fill.as_deref().unwrap_or("none");
+            Primitive::Path(pd) => {
+                let has_stroke = !matches!(pd.stroke, crate::render::color::Color::None);
+                let fill_str_owned = pd.fill.as_ref().map(|c| c.to_svg_string()).unwrap_or_else(|| "none".to_string());
+                let fill_str = fill_str_owned.as_str();
                 // SVG gradient references (url(#...)) can't be resolved in the
                 // terminal; treat them as a neutral grey.
                 let fill_rgb = if fill_str == "none" || fill_str.is_empty() {
@@ -513,7 +514,7 @@ impl Canvas {
                     let mut poly: Vec<(f64, f64)> = Vec::new();
                     let mut cur = (tx, ty);
                     let mut start = cur;
-                    for cmd in parse_path(d) {
+                    for cmd in parse_path(&pd.d) {
                         match cmd {
                             PathCmd::MoveTo(x, y) => {
                                 if poly.len() >= 3 {
@@ -556,13 +557,13 @@ impl Canvas {
 
                 // Stroked paths — draw outline with Bresenham as before.
                 let rgb = if has_stroke {
-                    css_to_rgb(stroke)
+                    css_to_rgb(&pd.stroke.to_svg_string())
                 } else {
                     fill_rgb.unwrap()
                 };
                 let mut cur = (tx, ty);
                 let mut start = cur;
-                for cmd in parse_path(d) {
+                for cmd in parse_path(&pd.d) {
                     match cmd {
                         PathCmd::MoveTo(x, y) => {
                             cur = (x + tx, y + ty);
@@ -624,10 +625,10 @@ impl Canvas {
             }
 
             Primitive::Rect { x, y, width, height, fill, .. } => {
-                if fill == "none" {
+                if matches!(fill, crate::render::color::Color::None) {
                     return;
                 }
-                let rgb = css_to_rgb(fill);
+                let rgb = css_to_rgb(&fill.to_svg_string());
                 let x_s = x + tx;
                 let y_s = y + ty;
                 let width = *width;
@@ -740,6 +741,46 @@ impl Canvas {
             Primitive::GroupEnd => {
                 if self.transform_stack.len() > 1 {
                     self.transform_stack.pop();
+                }
+            }
+
+            Primitive::CircleBatch { cx, cy, r, fill } => {
+                let rgb = css_to_rgb(&fill.to_svg_string());
+                for i in 0..cx.len() {
+                    let cx_s = cx[i] + tx;
+                    let cy_s = cy[i] + ty;
+                    let bw = (self.cols * 2) as f64;
+                    let bh = (self.rows * 4) as f64;
+                    let bx_min = self.to_bx(cx_s - r).max(0);
+                    let by_min = self.to_by(cy_s - r).max(0);
+                    let bx_max = self.to_bx(cx_s + r).min(bw as isize - 1);
+                    let by_max = self.to_by(cy_s + r).min(bh as isize - 1);
+                    for bx in bx_min..=bx_max {
+                        for by in by_min..=by_max {
+                            let px = bx as f64 * self.scene_width / bw;
+                            let py = by as f64 * self.scene_height / bh;
+                            if (px - cx_s).powi(2) + (py - cy_s).powi(2) <= r * r {
+                                self.set_dot(bx, by, rgb);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Primitive::RectBatch { x, y, w, h, fills } => {
+                for i in 0..x.len() {
+                    let rgb = css_to_rgb(&fills[i].to_svg_string());
+                    let x_s = x[i] + tx;
+                    let y_s = y[i] + ty;
+                    let x1 = self.to_bx(x_s).max(0);
+                    let y1 = self.to_by(y_s).max(0);
+                    let x2 = self.to_bx(x_s + w[i]).min((self.cols * 2) as isize - 1);
+                    let y2 = self.to_by(y_s + h[i]).min((self.rows * 4) as isize - 1);
+                    for bx in x1..=x2 {
+                        for by in y1..=y2 {
+                            self.set_dot(bx, by, rgb);
+                        }
+                    }
                 }
             }
         }

@@ -34,6 +34,10 @@ clap_mangen = { version = "0.2", optional = true }
 rand = "0.9.1"
 rand_distr = "0.5.1"
 criterion = { version = "0.5", features = ["html_reports"] }
+plotters = "0.3"
+plotters-svg = "0.3"
+plotters-bitmap = "0.3"
+image = "0.24"
 
 [[bench]]
 name = "render"
@@ -60,4 +64,13 @@ name = "all_plots_simple"
 
 [[example]]
 name = "all_plots_complex"
+required-features = ["png"]
+
+[[bench]]
+name = "vs_plotters"
+harness = false
+
+[[bench]]
+name = "raster"
+harness = false
 required-features = ["png"]

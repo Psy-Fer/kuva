@@ -3,7 +3,7 @@ use kuva::render::render::{Scene, Primitive, TextAnchor};
 
 fn minimal_scene() -> Scene {
     let mut scene = Scene::new(200.0, 100.0);
-    scene.add(Primitive::Circle { cx: 50.0, cy: 50.0, r: 10.0, fill: "red".to_string() });
+    scene.add(Primitive::Circle { cx: 50.0, cy: 50.0, r: 10.0, fill: "red".into() });
     scene.add(Primitive::Text {
         x: 100.0,
         y: 50.0,
@@ -50,7 +50,7 @@ fn test_svg_pretty_groups() {
     // Verify that GroupStart increments depth and GroupEnd decrements it.
     let mut scene = Scene::new(200.0, 100.0);
     scene.add(Primitive::GroupStart { transform: Some("translate(10,10)".to_string()) });
-    scene.add(Primitive::Circle { cx: 5.0, cy: 5.0, r: 3.0, fill: "blue".to_string() });
+    scene.add(Primitive::Circle { cx: 5.0, cy: 5.0, r: 3.0, fill: "blue".into() });
     scene.add(Primitive::GroupEnd);
 
     let svg = SvgBackend::new().with_pretty(true).render_scene(&scene);
