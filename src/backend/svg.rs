@@ -2,10 +2,11 @@ use std::fmt::Write;
 
 use crate::render::render::{Scene, Primitive, TextAnchor};
 
-/// Fast coordinate writer: rounds to 2 decimal places, formats via ryu.
-/// Produces compact output: whole numbers lack a decimal point (e.g. "3" not "3.0").
+/// Fast float-to-string conversion using Ryu.
+/// This will round floats to 2 decimal places.
+/// If whole number, strip the decimal e.g. "3" instead of "3.0".
 #[inline]
-fn write_coord(buf: &mut String, v: f64) {
+fn write_float(buf: &mut String, v: f64) {
     let v = (v * 100.0).round() * 0.01;
     if v.fract() == 0.0 && v.abs() < 1e15 {
         let _ = write!(buf, "{}", v as i64);
@@ -36,7 +37,7 @@ fn write_escaped(buf: &mut String, s: &str) {
     buf.push_str(&s[start..]);
 }
 
-/// Write `depth` levels of two-space indentation directly into `buf`.
+/// Write double whitespace indentations with no allocation.
 #[inline]
 fn write_indent(buf: &mut String, depth: usize, pretty: bool) {
     if pretty {
@@ -47,7 +48,7 @@ fn write_indent(buf: &mut String, depth: usize, pretty: bool) {
 }
 
 #[inline]
-fn push_nl(buf: &mut String, pretty: bool) {
+fn write_newline(buf: &mut String, pretty: bool) {
     if pretty {
         buf.push('\n');
     }
@@ -80,9 +81,9 @@ impl SvgBackend {
         let mut svg = String::with_capacity(estimated_capacity);
 
         svg.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" width=""#);
-        write_coord(&mut svg, scene.width);
+        write_float(&mut svg, scene.width);
         svg.push_str(r#"" height=""#);
-        write_coord(&mut svg, scene.height);
+        write_float(&mut svg, scene.height);
         svg.push('"');
         if let Some(ref family) = scene.font_family {
             svg.push_str(r#" font-family=""#);
@@ -95,14 +96,14 @@ impl SvgBackend {
             svg.push('"');
         }
         svg.push('>');
-        push_nl(&mut svg, p);
+        write_newline(&mut svg, p);
 
         if let Some(color) = &scene.background_color {
             write_indent(&mut svg, 1, p);
             svg.push_str(r#"<rect width="100%" height="100%" fill=""#);
             svg.push_str(color);
             svg.push_str(r#"" />"#);
-            push_nl(&mut svg, p);
+            write_newline(&mut svg, p);
         }
 
         if !scene.defs.is_empty() {
@@ -112,7 +113,7 @@ impl SvgBackend {
                 svg.push_str(d);
             }
             svg.push_str("</defs>");
-            push_nl(&mut svg, p);
+            write_newline(&mut svg, p);
         }
 
         let mut depth: usize = 1;
@@ -121,15 +122,15 @@ impl SvgBackend {
                 Primitive::Circle { cx, cy, r, fill } => {
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<circle cx=""#);
-                    write_coord(&mut svg, *cx);
+                    write_float(&mut svg, *cx);
                     svg.push_str(r#"" cy=""#);
-                    write_coord(&mut svg, *cy);
+                    write_float(&mut svg, *cy);
                     svg.push_str(r#"" r=""#);
-                    write_coord(&mut svg, *r);
+                    write_float(&mut svg, *r);
                     svg.push_str(r#"" fill=""#);
                     fill.write_svg(&mut svg);
                     svg.push_str(r#"" />"#);
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::Text { x, y, content, size, anchor, rotate, bold } => {
                     let anchor_str = match anchor {
@@ -139,9 +140,9 @@ impl SvgBackend {
                     };
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<text x=""#);
-                    write_coord(&mut svg, *x);
+                    write_float(&mut svg, *x);
                     svg.push_str(r#"" y=""#);
-                    write_coord(&mut svg, *y);
+                    write_float(&mut svg, *y);
                     svg.push_str(r#"" font-size=""#);
                     let _ = write!(svg, "{size}");
                     svg.push_str(r#"" text-anchor=""#);
@@ -152,32 +153,32 @@ impl SvgBackend {
                     }
                     if let Some(angle) = rotate {
                         svg.push_str(r#" transform="rotate("#);
-                        write_coord(&mut svg, *angle);
+                        write_float(&mut svg, *angle);
                         svg.push(',');
-                        write_coord(&mut svg, *x);
+                        write_float(&mut svg, *x);
                         svg.push(',');
-                        write_coord(&mut svg, *y);
+                        write_float(&mut svg, *y);
                         svg.push_str(r#")""#);
                     }
                     svg.push('>');
                     write_escaped(&mut svg, content);
                     svg.push_str("</text>");
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_dasharray } => {
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<line x1=""#);
-                    write_coord(&mut svg, *x1);
+                    write_float(&mut svg, *x1);
                     svg.push_str(r#"" y1=""#);
-                    write_coord(&mut svg, *y1);
+                    write_float(&mut svg, *y1);
                     svg.push_str(r#"" x2=""#);
-                    write_coord(&mut svg, *x2);
+                    write_float(&mut svg, *x2);
                     svg.push_str(r#"" y2=""#);
-                    write_coord(&mut svg, *y2);
+                    write_float(&mut svg, *y2);
                     svg.push_str(r#"" stroke=""#);
                     stroke.write_svg(&mut svg);
                     svg.push_str(r#"" stroke-width=""#);
-                    write_coord(&mut svg, *stroke_width);
+                    write_float(&mut svg, *stroke_width);
                     svg.push('"');
                     if let Some(dash) = stroke_dasharray {
                         svg.push_str(r#" stroke-dasharray=""#);
@@ -185,7 +186,7 @@ impl SvgBackend {
                         svg.push('"');
                     }
                     svg.push_str(" />");
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::Path(pd) => {
                     write_indent(&mut svg, depth, p);
@@ -194,7 +195,7 @@ impl SvgBackend {
                     svg.push_str(r#"" stroke=""#);
                     pd.stroke.write_svg(&mut svg);
                     svg.push_str(r#"" stroke-width=""#);
-                    write_coord(&mut svg, pd.stroke_width);
+                    write_float(&mut svg, pd.stroke_width);
                     svg.push('"');
                     if let Some(ref fill) = pd.fill {
                         svg.push_str(r#" fill=""#);
@@ -205,7 +206,7 @@ impl SvgBackend {
                     }
                     if let Some(opacity) = pd.opacity {
                         svg.push_str(r#" fill-opacity=""#);
-                        write_coord(&mut svg, opacity);
+                        write_float(&mut svg, opacity);
                         svg.push('"');
                     }
                     if let Some(ref dash) = pd.stroke_dasharray {
@@ -214,7 +215,7 @@ impl SvgBackend {
                         svg.push('"');
                     }
                     svg.push_str(" />");
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::GroupStart { transform } => {
                     write_indent(&mut svg, depth, p);
@@ -225,25 +226,25 @@ impl SvgBackend {
                         svg.push('"');
                     }
                     svg.push('>');
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                     depth += 1;
                 }
                 Primitive::GroupEnd => {
                     depth -= 1;
                     write_indent(&mut svg, depth, p);
                     svg.push_str("</g>");
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::Rect { x, y, width, height, fill, stroke, stroke_width, opacity } => {
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<rect x=""#);
-                    write_coord(&mut svg, *x);
+                    write_float(&mut svg, *x);
                     svg.push_str(r#"" y=""#);
-                    write_coord(&mut svg, *y);
+                    write_float(&mut svg, *y);
                     svg.push_str(r#"" width=""#);
-                    write_coord(&mut svg, *width);
+                    write_float(&mut svg, *width);
                     svg.push_str(r#"" height=""#);
-                    write_coord(&mut svg, *height);
+                    write_float(&mut svg, *height);
                     svg.push_str(r#"" fill=""#);
                     fill.write_svg(&mut svg);
                     svg.push('"');
@@ -254,16 +255,16 @@ impl SvgBackend {
                     }
                     if let Some(w) = stroke_width {
                         svg.push_str(r#" stroke-width=""#);
-                        write_coord(&mut svg, *w);
+                        write_float(&mut svg, *w);
                         svg.push('"');
                     }
                     if let Some(opacity) = opacity {
                         svg.push_str(r#" fill-opacity=""#);
-                        write_coord(&mut svg, *opacity);
+                        write_float(&mut svg, *opacity);
                         svg.push('"');
                     }
                     svg.push_str(" />");
-                    push_nl(&mut svg, p);
+                    write_newline(&mut svg, p);
                 }
                 Primitive::CircleBatch { cx, cy, r, fill } => {
                     let mut fill_buf = String::with_capacity(7);
@@ -271,39 +272,39 @@ impl SvgBackend {
                     for i in 0..cx.len() {
                         write_indent(&mut svg, depth, p);
                         svg.push_str(r#"<circle cx=""#);
-                        write_coord(&mut svg, cx[i]);
+                        write_float(&mut svg, cx[i]);
                         svg.push_str(r#"" cy=""#);
-                        write_coord(&mut svg, cy[i]);
+                        write_float(&mut svg, cy[i]);
                         svg.push_str(r#"" r=""#);
-                        write_coord(&mut svg, *r);
+                        write_float(&mut svg, *r);
                         svg.push_str(r#"" fill=""#);
                         svg.push_str(&fill_buf);
                         svg.push_str(r#"" />"#);
-                        push_nl(&mut svg, p);
+                        write_newline(&mut svg, p);
                     }
                 }
                 Primitive::RectBatch { x, y, w, h, fills } => {
                     for i in 0..x.len() {
                         write_indent(&mut svg, depth, p);
                         svg.push_str(r#"<rect x=""#);
-                        write_coord(&mut svg, x[i]);
+                        write_float(&mut svg, x[i]);
                         svg.push_str(r#"" y=""#);
-                        write_coord(&mut svg, y[i]);
+                        write_float(&mut svg, y[i]);
                         svg.push_str(r#"" width=""#);
-                        write_coord(&mut svg, w[i]);
+                        write_float(&mut svg, w[i]);
                         svg.push_str(r#"" height=""#);
-                        write_coord(&mut svg, h[i]);
+                        write_float(&mut svg, h[i]);
                         svg.push_str(r#"" fill=""#);
                         fills[i].write_svg(&mut svg);
                         svg.push_str(r#"" />"#);
-                        push_nl(&mut svg, p);
+                        write_newline(&mut svg, p);
                     }
                 }
             }
         }
 
         svg.push_str("</svg>");
-        push_nl(&mut svg, p);
+        write_newline(&mut svg, p);
         svg
     }
 }
