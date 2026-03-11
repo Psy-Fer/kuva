@@ -163,6 +163,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 - [sankey](#sankey)
 - [phylo](#phylo)
 - [synteny](#synteny)
+- [polar](#polar)
+- [ternary](#ternary)
 
 ---
 
@@ -819,6 +821,61 @@ kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
 
 kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
     --proportional --legend "synteny blocks"
+```
+
+---
+
+## polar
+
+Polar coordinate scatter/line plot. Compass convention by default (θ=0 at north, increasing clockwise).
+
+**Input:** TSV/CSV with columns for radial value `r` and angle `theta` (degrees).
+
+| Flag | Default | Description |
+|---|---|---|
+| `--r <COL>` | `0` | Column containing radial values |
+| `--theta <COL>` | `1` | Column containing angle values (degrees) |
+| `--color-by <COL>` | — | Group by column — one series per unique value |
+| `--mode <MODE>` | `scatter` | Plot mode: `scatter` or `line` |
+| `--r-max <F>` | auto | Maximum radial extent |
+| `--theta-divisions <N>` | `12` | Angular spoke divisions (12 = every 30°) |
+| `--theta-start <DEG>` | `0.0` | Where θ=0 appears, degrees CW from north |
+| `--legend` | off | Show legend |
+
+```bash
+kuva polar polar.tsv --r r --theta theta --title "Polar Plot"
+
+kuva polar polar.tsv --r r --theta theta --color-by group --mode line \
+    --title "Wind Rose"
+```
+
+---
+
+## ternary
+
+Ternary (simplex) scatter plot with barycentric coordinate system.
+
+**Input:** TSV/CSV with three columns for the A, B, C components of each point.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--a <COL>` | `0` | Column for the top-vertex (A) component |
+| `--b <COL>` | `1` | Column for the bottom-left (B) component |
+| `--c <COL>` | `2` | Column for the bottom-right (C) component |
+| `--color-by <COL>` | — | Group by column for colored series |
+| `--a-label <S>` | `A` | Label for the top (A) vertex |
+| `--b-label <S>` | `B` | Label for the bottom-left (B) vertex |
+| `--c-label <S>` | `C` | Label for the bottom-right (C) vertex |
+| `--normalize` | off | Normalize each row so a+b+c=1 |
+| `--grid-lines <N>` | `5` | Grid lines per axis |
+| `--legend` | off | Show legend |
+
+```bash
+kuva ternary ternary.tsv --a a --b b --c c --title "Ternary Plot"
+
+kuva ternary ternary.tsv --a a --b b --c c --color-by group \
+    --a-label "Silicon" --b-label "Oxygen" --c-label "Carbon" \
+    --title "Mineral Composition"
 ```
 
 ---

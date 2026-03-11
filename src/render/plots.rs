@@ -25,6 +25,8 @@ use crate::plot::phylo::PhyloTree;
 use crate::plot::synteny::SyntenyPlot;
 use crate::plot::density::DensityPlot;
 use crate::plot::ridgeline::RidgelinePlot;
+use crate::plot::polar::PolarPlot;
+use crate::plot::ternary::TernaryPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -57,6 +59,8 @@ pub enum Plot {
     Synteny(SyntenyPlot),
     Density(DensityPlot),
     Ridgeline(RidgelinePlot),
+    Polar(PolarPlot),
+    Ternary(TernaryPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -86,6 +90,8 @@ impl From<PhyloTree>      for Plot { fn from(p: PhyloTree)      -> Self { Plot::
 impl From<SyntenyPlot>    for Plot { fn from(p: SyntenyPlot)    -> Self { Plot::Synteny(p) } }
 impl From<DensityPlot>   for Plot { fn from(p: DensityPlot)   -> Self { Plot::Density(p) } }
 impl From<RidgelinePlot> for Plot { fn from(p: RidgelinePlot) -> Self { Plot::Ridgeline(p) } }
+impl From<PolarPlot>     for Plot { fn from(p: PolarPlot)     -> Self { Plot::Polar(p) } }
+impl From<TernaryPlot>   for Plot { fn from(p: TernaryPlot)   -> Self { Plot::Ternary(p) } }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
@@ -509,6 +515,14 @@ impl Plot {
                 // data units above group 0's center (at y = n).  Half a unit of
                 // additional padding keeps it off the very top of the plot area.
                 Some(((x_min, x_max), (0.5, n + 1.5 + rp.overlap)))
+            }
+            Plot::Polar(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((-1.0, 1.0), (-1.0, 1.0)))
+            }
+            Plot::Ternary(_) => {
+                // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
+                Some(((-1.0, 1.0), (-1.0, 1.0)))
             }
             Plot::Brick(bp) => {
                 let rows = if let Some(ref exp) = bp.strigar_exp {

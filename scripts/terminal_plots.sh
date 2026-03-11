@@ -181,4 +181,17 @@ run synteny "$DATA/synteny_seqs.tsv" --blocks-file "$DATA/synteny_blocks.tsv" \
     --title "Synteny Map" \
     --terminal $W $H
 
+# ── polar ─────────────────────────────────────────────────────────────────────
+header "polar"
+run polar "$DATA/polar.tsv" --r r --theta theta --color-by group \
+    --title "Polar Plot" \
+    --terminal $W $H
+
+# ── ternary ───────────────────────────────────────────────────────────────────
+header "ternary"
+run ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+    --a-label "A" --b-label "B" --c-label "C" \
+    --title "Ternary Plot" \
+    --terminal $W $H
+
 echo

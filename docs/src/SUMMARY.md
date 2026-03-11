@@ -33,6 +33,8 @@
 - [UpSet Plot](./plots/upset.md)
 - [Volcano Plot](./plots/volcano.md)
 - [Manhattan Plot](./plots/manhattan.md)
+- [Polar Plot](./plots/polar.md)
+- [Ternary Plot](./plots/ternary.md)
 
 # CLI
 

@@ -62,6 +62,11 @@ pub use crate::plot::{
     DensityPlot,
     RidgelinePlot,
     RidgelineGroup,
+    PolarPlot,
+    PolarSeries,
+    PolarMode,
+    TernaryPlot,
+    TernaryPoint,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,

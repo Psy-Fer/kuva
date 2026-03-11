@@ -25,6 +25,8 @@ pub mod phylo;
 pub mod synteny;
 pub mod density;
 pub mod ridgeline;
+pub mod polar;
+pub mod ternary;
 
 pub mod legend;
 
@@ -57,5 +59,7 @@ pub use phylo::{PhyloTree, PhyloNode, TreeOrientation, TreeBranchStyle};
 pub use synteny::{SyntenyPlot, SyntenyBlock, SyntenySequence, Strand};
 pub use density::DensityPlot;
 pub use ridgeline::{RidgelinePlot, RidgelineGroup};
+pub use polar::{PolarPlot, PolarSeries, PolarMode};
+pub use ternary::{TernaryPlot, TernaryPoint};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

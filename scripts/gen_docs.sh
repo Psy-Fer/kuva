@@ -37,6 +37,8 @@ EXAMPLES=(
     violin
     volcano
     waterfall
+    polar
+    ternary
     all_plots_simple
     all_plots_complex
 )

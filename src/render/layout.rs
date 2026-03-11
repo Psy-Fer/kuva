@@ -497,6 +497,26 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Polar(pp) = plot {
+                if pp.show_legend {
+                    has_legend = true;
+                    for s in &pp.series {
+                        if let Some(ref lbl) = s.label {
+                            max_label_len = max_label_len.max(lbl.len());
+                        }
+                    }
+                }
+            }
+
+            if let Plot::Ternary(tp) = plot {
+                if tp.show_legend {
+                    has_legend = true;
+                    for g in tp.unique_groups() {
+                        max_label_len = max_label_len.max(g.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
@@ -1172,6 +1192,30 @@ impl ComputedLayout {
             label_size + y_tick_label_px + 21.0 * s
         };
         let mut margin_right = label_size;
+
+        // For rotated x-axis category labels the text extends horizontally from its anchor.
+        // Negative angle → TextAnchor::End → extends left  → first label can clip left edge.
+        // Positive angle → TextAnchor::Start → extends right → last label can clip right edge.
+        if let Some(angle) = layout.x_tick_rotate {
+            if !layout.suppress_x_ticks {
+                if let Some(ref cats) = layout.x_categories {
+                    let char_w = tick_size * 0.6;
+                    let angle_rad = angle.abs() * std::f64::consts::PI / 180.0;
+                    let cos_a = angle_rad.cos();
+                    if angle < 0.0 {
+                        if let Some(first) = cats.first() {
+                            let needed = first.len() as f64 * char_w * cos_a;
+                            if needed > margin_left { margin_left = needed; }
+                        }
+                    } else {
+                        if let Some(last) = cats.last() {
+                            let needed = last.len() as f64 * char_w * cos_a;
+                            if needed > margin_right { margin_right = needed; }
+                        }
+                    }
+                }
+            }
+        }
 
         let y2_axis_width = if layout.y2_range.is_some() && !layout.suppress_y2_ticks {
             label_size + tick_size * 3.0 + 15.0 * s

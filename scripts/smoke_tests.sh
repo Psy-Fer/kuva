@@ -327,6 +327,45 @@ check "synteny proportional" \
         --blocks-file "$DATA/synteny_blocks.tsv" --proportional --legend "synteny" \
         --title "Synteny Map"
 
+# ── polar ──────────────────────────────────────────────────────────────────────
+check "polar basic" \
+    "$BIN" polar "$DATA/polar.tsv" --r r --theta theta \
+        --title "Polar Plot"
+
+check "polar color-by" \
+    "$BIN" polar "$DATA/polar.tsv" --r r --theta theta --color-by group \
+        --title "Polar Plot"
+
+# ── ternary ────────────────────────────────────────────────────────────────────
+check "ternary basic" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --title "Ternary Plot"
+
+check "ternary color-by" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --a-label "Silicon" --b-label "Oxygen" --c-label "Carbon" \
+        --title "Ternary Composition"
+
+check "ternary normalize" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --normalize \
+        --title "Ternary Normalized"
+
+check "ternary fine grid" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --grid-lines 10 \
+        --title "Ternary Fine Grid"
+
+check "ternary coarse grid" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --grid-lines 4 \
+        --title "Ternary Coarse Grid"
+
+check "ternary legend" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --legend \
+        --title "Ternary Legend"
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
