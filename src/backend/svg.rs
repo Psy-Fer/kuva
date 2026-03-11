@@ -118,7 +118,7 @@ impl SvgBackend {
         let mut depth: usize = 1;
         for elem in &scene.elements {
             match elem {
-                Primitive::Circle { cx, cy, r, fill } => {
+                Primitive::Circle { cx, cy, r, fill, fill_opacity, stroke, stroke_width } => {
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<circle cx=""#);
                     write_coord(&mut svg, *cx);
@@ -128,7 +128,23 @@ impl SvgBackend {
                     write_coord(&mut svg, *r);
                     svg.push_str(r#"" fill=""#);
                     fill.write_svg(&mut svg);
-                    svg.push_str(r#"" />"#);
+                    svg.push('"');
+                    if let Some(op) = fill_opacity {
+                        svg.push_str(r#" fill-opacity=""#);
+                        write_coord(&mut svg, *op);
+                        svg.push('"');
+                    }
+                    if let Some(sc) = stroke {
+                        svg.push_str(r#" stroke=""#);
+                        sc.write_svg(&mut svg);
+                        svg.push('"');
+                    }
+                    if let Some(sw) = stroke_width {
+                        svg.push_str(r#" stroke-width=""#);
+                        write_coord(&mut svg, *sw);
+                        svg.push('"');
+                    }
+                    svg.push_str(" />");
                     push_nl(&mut svg, p);
                 }
                 Primitive::Text { x, y, content, size, anchor, rotate, bold } => {
@@ -265,9 +281,13 @@ impl SvgBackend {
                     svg.push_str(" />");
                     push_nl(&mut svg, p);
                 }
-                Primitive::CircleBatch { cx, cy, r, fill } => {
+                Primitive::CircleBatch { cx, cy, r, fill, fill_opacity, stroke, stroke_width } => {
                     let mut fill_buf = String::with_capacity(7);
                     fill.write_svg(&mut fill_buf);
+                    let mut stroke_buf = String::new();
+                    if let Some(sc) = stroke {
+                        sc.write_svg(&mut stroke_buf);
+                    }
                     for i in 0..cx.len() {
                         write_indent(&mut svg, depth, p);
                         svg.push_str(r#"<circle cx=""#);
@@ -278,7 +298,23 @@ impl SvgBackend {
                         write_coord(&mut svg, *r);
                         svg.push_str(r#"" fill=""#);
                         svg.push_str(&fill_buf);
-                        svg.push_str(r#"" />"#);
+                        svg.push('"');
+                        if let Some(op) = fill_opacity {
+                            svg.push_str(r#" fill-opacity=""#);
+                            write_coord(&mut svg, *op);
+                            svg.push('"');
+                        }
+                        if !stroke_buf.is_empty() {
+                            svg.push_str(r#" stroke=""#);
+                            svg.push_str(&stroke_buf);
+                            svg.push('"');
+                        }
+                        if let Some(sw) = stroke_width {
+                            svg.push_str(r#" stroke-width=""#);
+                            write_coord(&mut svg, *sw);
+                            svg.push('"');
+                        }
+                        svg.push_str(" />");
                         push_nl(&mut svg, p);
                     }
                 }

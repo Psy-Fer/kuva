@@ -79,6 +79,10 @@ pub struct StripPlot {
     pub seed: u64,
     pub legend_label: Option<String>,
     pub group_colors: Option<Vec<String>>,
+    /// Fill opacity for markers (0.0 = transparent, 1.0 = solid). `None` = fully opaque.
+    pub marker_opacity: Option<f64>,
+    /// Stroke (outline) width for markers. `None` = no stroke. Stroke color matches fill.
+    pub marker_stroke_width: Option<f64>,
 }
 
 impl Default for StripPlot {
@@ -98,6 +102,8 @@ impl StripPlot {
             seed: 42,
             legend_label: None,
             group_colors: None,
+            marker_opacity: None,
+            marker_stroke_width: None,
         }
     }
 
@@ -221,6 +227,20 @@ impl StripPlot {
         S: Into<String>,
     {
         self.group_colors = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Set the fill opacity for all markers (0.0 = fully transparent, 1.0 = fully opaque).
+    pub fn with_marker_opacity(mut self, opacity: f64) -> Self {
+        self.marker_opacity = Some(opacity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Draw a solid outline around each marker at the given stroke width.
+    ///
+    /// Stroke color matches the fill color.
+    pub fn with_marker_stroke_width(mut self, width: f64) -> Self {
+        self.marker_stroke_width = Some(width);
         self
     }
 }

@@ -70,8 +70,12 @@ impl RasterBackend {
 
         for elem in &scene.elements {
             match elem {
-                Primitive::Circle { cx, cy, r, fill } => {
-                    if let Some(color) = color_to_skia(fill) {
+                Primitive::Circle { cx, cy, r, fill, fill_opacity, stroke, stroke_width } => {
+                    if let Some(mut color) = color_to_skia(fill) {
+                        if let Some(op) = fill_opacity {
+                            let a = op.clamp(0.0, 1.0) as f32;
+                            color = Color::from_rgba(color.red(), color.green(), color.blue(), a).unwrap_or(color);
+                        }
                         let mut paint = Paint::default();
                         paint.set_color(color);
                         paint.anti_alias = true;
@@ -79,6 +83,16 @@ impl RasterBackend {
                             PathBuilder::from_circle(*cx as f32, *cy as f32, *r as f32)
                         {
                             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+                            if let Some(sc) = stroke {
+                                if let Some(sc_color) = color_to_skia(sc) {
+                                    let mut sp = Paint::default();
+                                    sp.set_color(sc_color);
+                                    sp.anti_alias = true;
+                                    let sw = stroke_width.unwrap_or(1.0) as f32;
+                                    let sk_stroke = Stroke { width: sw, ..Stroke::default() };
+                                    pixmap.stroke_path(&path, &sp, &sk_stroke, transform, None);
+                                }
+                            }
                         }
                     }
                 }
@@ -192,11 +206,23 @@ impl RasterBackend {
                 Primitive::Text { .. } => {
                     text_primitives.push(elem);
                 }
-                Primitive::CircleBatch { cx, cy, r, fill } => {
-                    if let Some(color) = color_to_skia(fill) {
+                Primitive::CircleBatch { cx, cy, r, fill, fill_opacity, stroke, stroke_width } => {
+                    if let Some(mut color) = color_to_skia(fill) {
+                        if let Some(op) = fill_opacity {
+                            let a = op.clamp(0.0, 1.0) as f32;
+                            color = Color::from_rgba(color.red(), color.green(), color.blue(), a).unwrap_or(color);
+                        }
                         let mut paint = Paint::default();
                         paint.set_color(color);
                         paint.anti_alias = true;
+                        let stroke_paint = stroke.as_ref().and_then(color_to_skia).map(|sc| {
+                            let mut sp = Paint::default();
+                            sp.set_color(sc);
+                            sp.anti_alias = true;
+                            sp
+                        });
+                        let sw = stroke_width.unwrap_or(1.0) as f32;
+                        let sk_stroke = Stroke { width: sw, ..Stroke::default() };
                         for i in 0..cx.len() {
                             if let Some(path) =
                                 PathBuilder::from_circle(cx[i] as f32, cy[i] as f32, *r as f32)
@@ -204,6 +230,9 @@ impl RasterBackend {
                                 pixmap.fill_path(
                                     &path, &paint, FillRule::Winding, transform, None,
                                 );
+                                if let Some(ref sp) = stroke_paint {
+                                    pixmap.stroke_path(&path, sp, &sk_stroke, transform, None);
+                                }
                             }
                         }
                     }

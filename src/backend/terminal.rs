@@ -468,7 +468,7 @@ impl Canvas {
         let (tx, ty) = self.current_offset();
 
         match p {
-            Primitive::Circle { cx, cy, r, fill } => {
+            Primitive::Circle { cx, cy, r, fill, .. } => {
                 let rgb = css_to_rgb(&fill.to_svg_string());
                 let cx_s = cx + tx;
                 let cy_s = cy + ty;
@@ -779,7 +779,7 @@ impl Canvas {
                 }
             }
 
-            Primitive::CircleBatch { cx, cy, r, fill } => {
+            Primitive::CircleBatch { cx, cy, r, fill, .. } => {
                 let rgb = css_to_rgb(&fill.to_svg_string());
                 for i in 0..cx.len() {
                     let cx_s = cx[i] + tx;

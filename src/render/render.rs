@@ -63,6 +63,9 @@ pub enum Primitive {
         cy: f64,
         r: f64,
         fill: Color,
+        fill_opacity: Option<f64>,
+        stroke: Option<Color>,
+        stroke_width: Option<f64>,
     },
     Text {
         x: f64,
@@ -102,6 +105,9 @@ pub enum Primitive {
         cy: Vec<f64>,
         r: f64,
         fill: Color,
+        fill_opacity: Option<f64>,
+        stroke: Option<Color>,
+        stroke_width: Option<f64>,
     },
     /// Struct-of-arrays batch of axis-aligned rectangles, each with its own fill.
     /// Produced by heatmap/histogram2d renderers.
@@ -219,10 +225,27 @@ pub fn build_step_path(points: &[(f64, f64)]) -> String {
     path
 }
 
-fn draw_marker(scene: &mut Scene, marker: MarkerShape, cx: f64, cy: f64, size: f64, fill: &str) {
+#[allow(clippy::too_many_arguments)]
+fn draw_marker(
+    scene: &mut Scene,
+    marker: MarkerShape,
+    cx: f64,
+    cy: f64,
+    size: f64,
+    fill: &str,
+    fill_opacity: Option<f64>,
+    stroke: Option<Color>,
+    stroke_width: Option<f64>,
+) {
     match marker {
         MarkerShape::Circle => {
-            scene.add(Primitive::Circle { cx, cy, r: size, fill: fill.into() });
+            scene.add(Primitive::Circle {
+                cx, cy, r: size,
+                fill: fill.into(),
+                fill_opacity,
+                stroke,
+                stroke_width,
+            });
         }
         MarkerShape::Square => {
             scene.add(Primitive::Rect {
@@ -356,6 +379,10 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
         && scatter.colors.is_none()
         && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some());
 
+    // Precompute stroke color once (matches fill, fully opaque) for the slow path.
+    let marker_stroke = scatter.marker_stroke_width
+        .map(|_| Color::from(scatter.color.as_str()));
+
     if uniform_circles {
         let (cx_vec, cy_vec): (Vec<f64>, Vec<f64>) = scatter.data
             .iter()
@@ -366,6 +393,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             cy: cy_vec,
             r: scatter.size,
             fill: Color::from(scatter.color.as_str()),
+            fill_opacity: scatter.marker_opacity,
+            stroke: marker_stroke,
+            stroke_width: scatter.marker_stroke_width,
         });
         // Still need to draw trend line, error bars, etc. below — but no error bars
         // in the fast path, and trend lines are handled after this block.
@@ -377,6 +407,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             let color = scatter.colors.as_ref()
                 .and_then(|c| c.get(i).map(|s| s.as_str()))
                 .unwrap_or(&scatter.color);
+            // Per-point stroke color tracks the per-point fill color.
+            let pt_stroke = scatter.marker_stroke_width
+                .map(|_| Color::from(color));
             draw_marker(
                 scene,
                 scatter.marker,
@@ -384,6 +417,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 computed.map_y(point.y),
                 size,
                 color,
+                scatter.marker_opacity,
+                pt_stroke,
+                scatter.marker_stroke_width,
             );
 
         // x error
@@ -632,7 +668,10 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx:  x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color)
+                    fill: Color::from(&series.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -652,7 +691,10 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx:  x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color)
+                    fill: Color::from(&series.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -943,6 +985,9 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 &boxplot.overlay_color,
                 boxplot.overlay_size,
                 boxplot.overlay_seed.wrapping_add(i as u64),
+                None,
+                None,
+                None,
                 scene,
                 computed,
             );
@@ -1012,6 +1057,9 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
                 &violin.overlay_color,
                 violin.overlay_size,
                 violin.overlay_seed.wrapping_add(i as u64),
+                None,
+                None,
+                None,
                 scene,
                 computed,
             );
@@ -1377,15 +1425,24 @@ fn add_strip_points(
     color: &str,
     point_size: f64,
     seed: u64,
+    fill_opacity: Option<f64>,
+    stroke: Option<Color>,
+    stroke_width: Option<f64>,
     scene: &mut Scene,
     computed: &ComputedLayout,
 ) {
+    let make_circle = |cx: f64, cy: f64| Primitive::Circle {
+        cx, cy, r: point_size,
+        fill: color.into(),
+        fill_opacity,
+        stroke: stroke.clone(),
+        stroke_width,
+    };
     match style {
         StripStyle::Center => {
             let cx = computed.map_x(x_center_data);
             for &v in values {
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+                scene.add(make_circle(cx, computed.map_y(v)));
             }
         }
         StripStyle::Strip { jitter } => {
@@ -1400,8 +1457,7 @@ fn add_strip_points(
                 let rand_val = (rng_state >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
                 let offset: f64 = (rand_val - 0.5) * jitter;
                 let cx = computed.map_x(x_center_data + offset);
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+                scene.add(make_circle(cx, computed.map_y(v)));
             }
         }
         StripStyle::Swarm => {
@@ -1410,8 +1466,7 @@ fn add_strip_points(
             let cx_center = computed.map_x(x_center_data);
             for (i, &v) in values.iter().enumerate() {
                 let cx = cx_center + x_offsets[i];
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+                scene.add(make_circle(cx, computed.map_y(v)));
             }
         }
     }
@@ -1422,6 +1477,7 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let color = strip.group_colors.as_ref()
             .and_then(|c| c.get(i).map(|s| s.as_str()))
             .unwrap_or(&strip.color);
+        let stroke = strip.marker_stroke_width.map(|_| Color::from(color));
         add_strip_points(
             &group.values,
             (i + 1) as f64,
@@ -1429,6 +1485,9 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             color,
             strip.point_size,
             strip.seed.wrapping_add(i as u64),
+            strip.marker_opacity,
+            stroke,
+            strip.marker_stroke_width,
             scene,
             computed,
         );
@@ -1603,9 +1662,12 @@ fn render_legend_entry(entry: &LegendEntry, scene: &mut Scene, legend_x: f64, cu
             cy: swatch_cy,
             r: computed.legend_swatch_r,
             fill: Color::from(&entry.color),
+            fill_opacity: None,
+            stroke: None,
+            stroke_width: None,
         }),
         LegendShape::Marker(marker) => {
-            draw_marker(scene, marker, legend_x + computed.legend_swatch_x + computed.legend_swatch_r, swatch_cy, computed.legend_swatch_r, &entry.color);
+            draw_marker(scene, marker, legend_x + computed.legend_swatch_x + computed.legend_swatch_r, swatch_cy, computed.legend_swatch_r, &entry.color, None, None, None);
         }
         LegendShape::CircleSize(r) => {
             let draw_r = r.min(computed.legend_swatch_half);
@@ -1614,6 +1676,9 @@ fn render_legend_entry(entry: &LegendEntry, scene: &mut Scene, legend_x: f64, cu
                 cy: swatch_cy,
                 r: draw_r,
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             });
         }
     }
@@ -1894,7 +1959,7 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.log2fc);
             let cy = computed.map_y(y_val);
-            scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()) });
+            scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 
@@ -2060,7 +2125,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.x).clamp(band_left, band_right);
             let cy = computed.map_y(y_val);
-            scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color) });
+            scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 
@@ -2667,7 +2732,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let r    = dp.min_radius + norm_size.clamp(0.0, 1.0) * (effective_max_r - dp.min_radius);
         let fill = dp.color_map.map(norm_color.clamp(0.0, 1.0));
 
-        scene.add(Primitive::Circle { cx, cy, r, fill: fill.into() });
+        scene.add(Primitive::Circle { cx, cy, r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
     }
 }
 
@@ -2745,6 +2810,9 @@ fn add_dot_stacked_legends(
                 cy: swatch_cy,
                 r: r.min(computed.legend_swatch_half),
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             });
         }
         legend_y += line_height;
@@ -3305,9 +3373,12 @@ pub fn render_legend_at(
                 cy: swatch_cy,
                 r: 5.0,
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             }),
             LegendShape::Marker(marker) => {
-                draw_marker(scene, marker, x + 5.0 + 6.0, swatch_cy, 5.0, &entry.color);
+                draw_marker(scene, marker, x + 5.0 + 6.0, swatch_cy, 5.0, &entry.color, None, None, None);
             }
             LegendShape::CircleSize(r) => {
                 let swatch_half = 8.0;
@@ -3317,6 +3388,9 @@ pub fn render_legend_at(
                     cy: swatch_cy,
                     r: draw_r,
                     fill: Color::from(&entry.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -3586,7 +3660,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
             } else {
                 up.dot_empty_color.clone()
             };
-            scene.add(Primitive::Circle { cx, cy, r: dot_r, fill: fill.into() });
+            scene.add(Primitive::Circle { cx, cy, r: dot_r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 }
@@ -5176,6 +5250,9 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
         cy: py[tree.root],
         r:  3.0,
         fill: Color::from(&tree.branch_color),
+        fill_opacity: None,
+        stroke: None,
+        stroke_width: None,
     });
 
     // ── Step 7: leaf labels ───────────────────────────────────────────────────
@@ -5554,8 +5631,15 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
         match series.mode {
             PolarMode::Scatter => {
                 let r_dot = series.marker_size;
+                let stroke = series.marker_stroke_width.map(|_| color.clone());
                 for &(px, py) in &pts {
-                    scene.add(Primitive::Circle { cx: px, cy: py, r: r_dot, fill: color.clone() });
+                    scene.add(Primitive::Circle {
+                        cx: px, cy: py, r: r_dot,
+                        fill: color.clone(),
+                        fill_opacity: series.marker_opacity,
+                        stroke: stroke.clone(),
+                        stroke_width: series.marker_stroke_width,
+                    });
                 }
             }
             PolarMode::Line => {
@@ -5799,12 +5883,16 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
         };
         let color = Color::from(&*color_str);
 
+        let stroke = tp.marker_stroke_width.map(|_| color.clone());
         let (px, py) = bary_to_px(a, b, c);
         scene.add(Primitive::Circle {
             cx: px,
             cy: py,
             r: tp.marker_size,
             fill: color,
+            fill_opacity: tp.marker_opacity,
+            stroke,
+            stroke_width: tp.marker_stroke_width,
         });
     }
 

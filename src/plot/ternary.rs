@@ -48,6 +48,10 @@ pub struct TernaryPlot {
     pub show_legend: bool,
     /// Show percentage tick labels on each axis edge. Default: true.
     pub show_percentages: bool,
+    /// Fill opacity for markers (0.0 = transparent, 1.0 = solid). `None` = fully opaque.
+    pub marker_opacity: Option<f64>,
+    /// Stroke (outline) width for markers. `None` = no stroke. Stroke color matches fill.
+    pub marker_stroke_width: Option<f64>,
 }
 
 impl Default for TernaryPlot {
@@ -61,6 +65,8 @@ impl Default for TernaryPlot {
             show_grid: true,
             show_legend: false,
             show_percentages: true,
+            marker_opacity: None,
+            marker_stroke_width: None,
         }
     }
 }
@@ -129,6 +135,20 @@ impl TernaryPlot {
 
     pub fn with_percentages(mut self, show: bool) -> Self {
         self.show_percentages = show;
+        self
+    }
+
+    /// Set the fill opacity for all markers (0.0 = fully transparent, 1.0 = fully opaque).
+    pub fn with_marker_opacity(mut self, opacity: f64) -> Self {
+        self.marker_opacity = Some(opacity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Draw a solid outline around each marker at the given stroke width.
+    ///
+    /// Stroke color matches the fill color.
+    pub fn with_marker_stroke_width(mut self, width: f64) -> Self {
+        self.marker_stroke_width = Some(width);
         self
     }
 

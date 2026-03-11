@@ -17,6 +17,10 @@ pub struct PolarSeries {
     pub marker_size: f64,
     pub stroke_width: f64,
     pub line_dash: Option<String>,
+    /// Fill opacity for scatter markers (0.0 = transparent, 1.0 = solid). `None` = fully opaque.
+    pub marker_opacity: Option<f64>,
+    /// Stroke (outline) width for scatter markers. `None` = no stroke. Stroke color matches fill.
+    pub marker_stroke_width: Option<f64>,
 }
 
 impl Default for PolarSeries {
@@ -30,6 +34,8 @@ impl Default for PolarSeries {
             marker_size: 5.0,
             stroke_width: 1.5,
             line_dash: None,
+            marker_opacity: None,
+            marker_stroke_width: None,
         }
     }
 }
@@ -209,6 +215,25 @@ impl PolarPlot {
     pub fn with_color(mut self, color: impl Into<String>) -> Self {
         if let Some(s) = self.series.last_mut() {
             s.color = Some(color.into());
+        }
+        self
+    }
+
+    /// Set the fill opacity for scatter markers in the last added series
+    /// (0.0 = fully transparent, 1.0 = fully opaque).
+    pub fn with_marker_opacity(mut self, opacity: f64) -> Self {
+        if let Some(s) = self.series.last_mut() {
+            s.marker_opacity = Some(opacity.clamp(0.0, 1.0));
+        }
+        self
+    }
+
+    /// Draw a solid outline around scatter markers in the last added series.
+    ///
+    /// Stroke color matches the fill color.
+    pub fn with_marker_stroke_width(mut self, width: f64) -> Self {
+        if let Some(s) = self.series.last_mut() {
+            s.marker_stroke_width = Some(width);
         }
         self
     }
