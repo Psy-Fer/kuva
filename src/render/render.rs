@@ -5617,16 +5617,10 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             } else {
                 TextAnchor::Middle
             };
-            // Format theta value based on the canonical data angle
-            let canonical = if theta_deg == 0.0 {
-                "0°".to_string()
-            } else {
-                format!("{}°", theta_deg as i64)
-            };
             scene.add(Primitive::Text {
                 x: round2(lx),
                 y: round2(ly + 4.0), // small baseline adjust
-                content: canonical,
+                content: computed.x_tick_format.format(theta_deg),
                 size: tick_sz,
                 anchor,
                 rotate: None,
