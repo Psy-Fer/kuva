@@ -25,6 +25,8 @@ pub enum TickFormat {
     Sci,
     /// Multiply by 100 and append `%`: `0.45` → `"45.0%"`.
     Percent,
+    /// Theta degree for polar plots
+    Degree,
     /// Custom formatter function.
     Custom(Arc<dyn Fn(f64) -> String + Send + Sync>),
 }
@@ -37,6 +39,7 @@ impl Clone for TickFormat {
             Self::Integer   => Self::Integer,
             Self::Sci       => Self::Sci,
             Self::Percent   => Self::Percent,
+            Self::Degree    => Self::Degree,
             Self::Custom(f) => Self::Custom(Arc::clone(f)),
         }
     }
@@ -50,8 +53,17 @@ impl TickFormat {
             Self::Integer   => format!("{:.0}", v),
             Self::Sci       => tick_format_sci(v),
             Self::Percent   => format!("{:.1}%", v * 100.0),
+            Self::Degree    => tick_format_degree(v),
             Self::Custom(f) => f(v),
         }
+    }
+}
+
+fn tick_format_degree(v: f64) -> String {
+    if v == 0.0 {
+        "0°".to_string()
+    } else {
+        format!("{}°", v as i64)
     }
 }
 
@@ -285,6 +297,7 @@ impl Layout {
         let mut has_legend: bool = false;
         let mut has_colorbar: bool = false;
         let mut has_manhattan: bool = false;
+        let mut has_polar: bool = false;
         let mut max_label_len: usize = 0;
 
         for plot in plots {
@@ -499,6 +512,7 @@ impl Layout {
             }
 
             if let Plot::Polar(pp) = plot {
+                has_polar = true;
                 if pp.show_legend {
                     has_legend = true;
                     for s in &pp.series {
@@ -601,6 +615,11 @@ impl Layout {
             layout.suppress_x_ticks = true;
             // Disable horizontal grid lines so threshold lines pop out clearly.
             layout.show_grid = false;
+        }
+
+        if has_polar {
+            // Use degrees as default tick for polar plots
+            layout.x_tick_format = TickFormat::Degree;
         }
 
         // UpSet plots manage their own axes; disable the standard grid.

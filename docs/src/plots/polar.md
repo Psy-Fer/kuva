@@ -60,6 +60,57 @@ let math = PolarPlot::new()
     .with_clockwise(false);
 ```
 
+### Theta tick labels
+
+```rust
+let mut theta: Vec<f64> = (0..8).map(|i| i as f64 * 45.0).collect();
+theta.push(360.0);
+let r_location1 = vec![4.8, 3.2, 2.8, 1.2, 0.5, 1.4, 2.8, 4.1, 4.8];
+let r_location2 = vec![1.8, 2.2, 3.8, 4.2, 4.5, 3.4, 2.2, 1.1, 1.8];
+let plot1 = PolarPlot::new()
+    .with_series_labeled(r_location1, theta.clone(), "Location 1", PolarMode::Line)
+    .with_theta_divisions(8)
+    .with_r_max(5.0)
+    .with_r_grid_lines(5)
+    .with_color("steelblue")
+    .with_legend(true);
+let plot2 = PolarPlot::new()
+    .with_series_labeled(r_location2, theta, "Location 2", PolarMode::Line)
+    .with_theta_divisions(8)
+    .with_r_max(5.0)
+    .with_r_grid_lines(5)
+    .with_color("orange")
+    .with_legend(true);
+
+let plots = vec![Plot::Polar(plot1), Plot::Polar(plot2)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Polar Plot with custom theta ticks")
+    .with_x_tick_format(TickFormat::Custom(std::sync::Arc::new(
+        |v| {
+            let div = 360.0 / 8.0;
+            if v < div {
+                "eventful".to_string()
+            } else if v < 2.0 * div {
+                "exciting".to_string()
+            } else if v < 3.0 * div {
+                "pleasant".to_string()
+            } else if v < 4.0 * div {
+                "calm".to_string()
+            } else if v < 5.0 * div {
+                "uneventful".to_string()
+            } else if v < 6.0 * div {
+                "monotonous".to_string()
+            } else if v < 7.0 * div {
+                "unpleasant".to_string()
+            } else {
+                "chaotic".to_string()
+            }
+        }
+    )));
+```
+<img src="../assets/polar/custom_x_ticks.svg" alt="Custom Tick Labels for Theta axis" width="560">
+
+
 ### Marker opacity and stroke (scatter mode)
 
 Control fill transparency and an optional outline on scatter-mode points. Settings are per-series and must be called immediately after the series they apply to.

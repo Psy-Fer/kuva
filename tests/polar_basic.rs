@@ -4,6 +4,7 @@ use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 use kuva::backend::svg::SvgBackend;
+use kuva::TickFormat;
 
 fn render(plot: PolarPlot) -> String {
     let plots = vec![Plot::Polar(plot)];
@@ -118,6 +119,49 @@ fn test_polar_legend() {
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Wind speed"));
     write("polar_legend", &svg);
+}
+
+#[test]
+fn test_polar_x_tick_format() {
+    let theta: Vec<f64> = (0..36).map(|i| i as f64 * 10.0).collect();
+    let r: Vec<f64> = vec![1.0; 36];
+
+    let plot = PolarPlot::new()
+        .with_series_labeled(r, theta, "Wind speed", PolarMode::Scatter)
+        .with_theta_divisions(8)
+        .with_legend(true);
+    let plots = vec![Plot::Polar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_tick_format(TickFormat::Custom(std::sync::Arc::new(
+            |v| {
+                if v < 45.0 {
+                    "N".to_string()
+                } else if v < 90.0 {
+                    "NE".to_string()
+                } else if v < 135.0 {
+                    "E".to_string()
+                } else if v < 180.0 {
+                    "SE".to_string()
+                } else if v < 225.0 {
+                    "S".to_string()
+                } else if v < 270.0 {
+                    "SW".to_string()
+                } else if v < 315.0 {
+                    "W".to_string()
+                } else {
+                    "NW".to_string()
+                }
+            },
+        )))
+        .with_title("Polar Custom X Ticks Test");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Wind speed"));
+    assert!(svg.contains("NE"));
+    assert!(svg.contains("SE"));
+    assert!(svg.contains("SW"));
+    assert!(svg.contains("NW"));
+    write("polar_x_ticks", &svg);
 }
 
 // ── complex showcase tests ─────────────────────────────────────────────────────
