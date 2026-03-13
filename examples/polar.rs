@@ -14,6 +14,7 @@ use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 use kuva::backend::svg::SvgBackend;
+use kuva::TickFormat;
 
 const OUT: &str = "docs/src/assets/polar";
 
@@ -22,6 +23,7 @@ fn main() {
 
     basic();
     marker_density();
+    theta_labels();
 
     println!("Polar SVGs written to {OUT}/");
 }
@@ -98,4 +100,55 @@ fn marker_density() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/marker_density.svg"), svg).unwrap();
+}
+
+/// Two measurements of perceived acoustic quality according to ISO/TS-12913 with custom x_tick_format
+fn theta_labels() {
+    let mut theta: Vec<f64> = (0..8).map(|i| i as f64 * 45.0).collect();
+    theta.push(360.0);
+    let r_location1 = vec![4.8, 3.2, 2.8, 1.2, 0.5, 1.4, 2.8, 4.1, 4.8];
+    let r_location2 = vec![1.8, 2.2, 3.8, 4.2, 4.5, 3.4, 2.2, 1.1, 1.8];
+    let plot1 = PolarPlot::new()
+        .with_series_labeled(r_location1, theta.clone(), "Location 1", PolarMode::Line)
+        .with_theta_divisions(8)
+        .with_r_max(5.0)
+        .with_r_grid_lines(5)
+        .with_color("steelblue")
+        .with_legend(true);
+    let plot2 = PolarPlot::new()
+        .with_series_labeled(r_location2, theta, "Location 2", PolarMode::Line)
+        .with_theta_divisions(8)
+        .with_r_max(5.0)
+        .with_r_grid_lines(5)
+        .with_color("orange")
+        .with_legend(true);
+
+    let plots = vec![Plot::Polar(plot1), Plot::Polar(plot2)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Polar Plot with custom theta ticks")
+        .with_x_tick_format(TickFormat::Custom(std::sync::Arc::new(
+            |v| {
+                let div = 360.0 / 8.0;
+                if v < div {
+                    "eventful".to_string()
+                } else if v < 2.0 * div {
+                    "exciting".to_string()
+                } else if v < 3.0 * div {
+                    "pleasant".to_string()
+                } else if v < 4.0 * div {
+                    "calm".to_string()
+                } else if v < 5.0 * div {
+                    "uneventful".to_string()
+                } else if v < 6.0 * div {
+                    "monotonous".to_string()
+                } else if v < 7.0 * div {
+                    "unpleasant".to_string()
+                } else {
+                    "chaotic".to_string()
+                }
+            }
+        )));
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/custom_x_ticks.svg"), svg).unwrap();
 }
