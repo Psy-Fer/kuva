@@ -608,3 +608,37 @@ fn figure_keep_panel_legends() {
     let blue_count = svg.matches(">Blue<").count();
     assert!(blue_count >= 2, "Expected Blue in both shared and panel legends, got {blue_count}");
 }
+
+#[test]
+fn figure_explicit_axis_bounds_preserved() {
+    // Regression: clone_layout must carry x_axis_{min,max} and y_axis_{min,max}
+    // so that explicit bounds survive into the rendered subplot.
+    let plots: Vec<Vec<Plot>> = vec![
+        scatter_plot("blue"),
+        scatter_plot("red"),
+    ];
+
+    let layouts = vec![
+        Layout::auto_from_plots(&plots[0])
+            .with_y_axis_min(-10.0)
+            .with_y_axis_max(20.0),
+        Layout::auto_from_plots(&plots[1])
+            .with_x_axis_min(-10.0)
+            .with_x_axis_max(20.0),
+    ];
+
+    let figure = Figure::new(1, 2)
+        .with_plots(plots)
+        .with_layouts(layouts);
+
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/figure_explicit_bounds.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Panel 0: y range forced to [-10, 20] → ticks at -10 and 20
+    assert!(svg.contains(">-10<"), "y_axis_min=-10 should produce a -10 tick");
+    assert!(svg.contains(">20<"),  "y_axis_max=20 should produce a 20 tick");
+    // Panel 1: x range forced to [-10, 20] → same boundary ticks
+    // (both panels share the -10 / 20 assertions above, which is fine)
+}

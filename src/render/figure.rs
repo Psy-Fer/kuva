@@ -521,6 +521,10 @@ fn clone_layout(l: &Layout) -> Layout {
     new.log_y2 = l.log_y2;
     new.y2_tick_format = l.y2_tick_format.clone();
     new.suppress_y2_ticks = l.suppress_y2_ticks;
+    new.x_axis_min = l.x_axis_min;
+    new.x_axis_max = l.x_axis_max;
+    new.y_axis_min = l.y_axis_min;
+    new.y_axis_max = l.y_axis_max;
     new.x_datetime = l.x_datetime.clone();
     new.y_datetime = l.y_datetime.clone();
     new.x_tick_rotate = l.x_tick_rotate;

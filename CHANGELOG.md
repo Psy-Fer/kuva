@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed an issue where manually set x- and y-axis minimum/maximum values were dropped in multi-panel figures.
+
 ---
 
 ## [0.1.4] — 2026-03-12
