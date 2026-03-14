@@ -487,6 +487,21 @@ impl Canvas {
                         }
                     }
                 }
+                // If the circle's center cell already contains a '█' block
+                // (e.g. from a legend background rect), overwrite it with the
+                // circle's fill color so the swatch is visible. Without this,
+                // the background rect's char_grid entry masks the braille dots.
+                let center_col = self.to_cx(cx_s);
+                let center_row = self.to_cy(cy_s);
+                if center_col >= 0
+                    && (center_col as usize) < self.cols
+                    && center_row >= 0
+                    && (center_row as usize) < self.rows
+                {
+                    if let Some(('█', _)) = self.char_grid[center_row as usize][center_col as usize] {
+                        self.set_char(center_col, center_row, '█', rgb);
+                    }
+                }
             }
 
             Primitive::Line { x1, y1, x2, y2, stroke, .. } => {
