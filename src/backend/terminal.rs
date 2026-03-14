@@ -719,9 +719,15 @@ impl Canvas {
 
                 if abs_angle > 45.0 && abs_angle < 135.0 {
                     // ~90°: sideways (y-axis label). Cannot rotate in terminal —
-                    // pin to the left edge so the full string is visible.
+                    // render vertically (one character per row, stacked) at column 0,
+                    // centered on the original row position.
+                    let half = len / 2;
+                    let start_row = row - half;
                     for (i, ch) in chars.iter().enumerate() {
-                        self.set_char(i as isize, row, *ch, rgb);
+                        let r = start_row + i as isize;
+                        if r >= 0 && (r as usize) < self.rows {
+                            self.set_char(0, r, *ch, rgb);
+                        }
                     }
                 } else {
                     let col = self.to_cx(x_s);

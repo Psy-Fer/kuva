@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Terminal y-axis label** — `--y-label` text is now rendered vertically (one character per row) in `--terminal` mode instead of horizontally, preventing overlap with the plot area.
+
 ---
 
 ## [0.1.4] — 2026-03-12

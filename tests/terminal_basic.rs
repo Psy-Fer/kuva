@@ -58,6 +58,44 @@ fn text_labels_present() {
 }
 
 #[test]
+fn ylabel_renders_vertically() {
+    // A y-axis label should be rendered vertically (one char per row) in terminal
+    // mode, not horizontally on a single row where it overlaps the plot area.
+    let bar = BarPlot::new()
+        .with_bar("A", 10.0)
+        .with_bar("B", 20.0)
+        .with_bar("C", 15.0);
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots).with_y_label("Count");
+    let scene = render_multiple(plots, layout);
+    let out = TerminalBackend::new(80, 24).render_scene(&scene);
+
+    // Strip ANSI codes for easier inspection.
+    let stripped: String = {
+        let mut s = String::new();
+        let mut in_esc = false;
+        for c in out.chars() {
+            if c == '\x1b' { in_esc = true; continue; }
+            if in_esc { if c == 'm' { in_esc = false; } continue; }
+            s.push(c);
+        }
+        s
+    };
+
+    // Each character of "Count" should appear on a separate line at column 0.
+    // Collect the first non-space character of each line to find vertical text.
+    let first_chars: Vec<char> = stripped
+        .lines()
+        .filter_map(|line| line.chars().next().filter(|c| c.is_alphabetic()))
+        .collect();
+    let label_str: String = first_chars.iter().collect();
+    assert!(
+        label_str.contains("Count"),
+        "expected 'Count' stacked vertically in first column, got: {label_str:?}"
+    );
+}
+
+#[test]
 fn auto_size_default() {
     let scene = Scene::new(800.0, 500.0);
     let out = TerminalBackend::new(80, 24).render_scene(&scene);
