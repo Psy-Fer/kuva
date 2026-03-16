@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Custom X/Theta-Tick-Labels for `PolarPlot`** — Re-uses `with_x_tick_format()` for theta axis on `PolarPlot`. Introduces new default `TickFormat::Degree` for `PolarPlot`, so default behavior is unchanged.
+- **`Layout::with_polar_r_label_angle(deg)`** — Override the angle at which r-axis ring labels are drawn on polar plots (default: midpoint between 0° and first spoke). Useful to avoid overlap with custom theta tick labels.
+
 ### Fixed
 
 - **Terminal y-axis label** — `--y-label` text is now rendered vertically (one character per row) in `--terminal` mode instead of horizontally, preventing overlap with the plot area.
 - **Terminal legend swatches** — circle-based legend swatches (scatter, density, volcano, manhattan, etc.) now show their actual series color instead of being masked by the legend background in `--terminal` mode.
+- **Polar r-label / theta-label overlap** — r-axis ring labels are now positioned at the midpoint angle between spokes instead of fixed at `cx+4` (directly on the 0° spoke), preventing overlap with the 0° theta tick label.
 
 ---
 
