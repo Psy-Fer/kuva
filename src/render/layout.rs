@@ -479,6 +479,44 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Density(dp) = plot {
+                if let Some(ref label) = dp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
+            if let Plot::Ridgeline(rp) = plot {
+                // Reversed: group[0] at top, map_y maps larger values to top
+                y_labels = Some(rp.groups.iter().rev().map(|g| g.label.clone()).collect());
+                if rp.show_legend {
+                    has_legend = true;
+                    for g in &rp.groups {
+                        max_label_len = max_label_len.max(g.label.len());
+                    }
+                }
+            }
+
+            if let Plot::Polar(pp) = plot {
+                if pp.show_legend {
+                    has_legend = true;
+                    for s in &pp.series {
+                        if let Some(ref lbl) = s.label {
+                            max_label_len = max_label_len.max(lbl.len());
+                        }
+                    }
+                }
+            }
+
+            if let Plot::Ternary(tp) = plot {
+                if tp.show_legend {
+                    has_legend = true;
+                    for g in tp.unique_groups() {
+                        max_label_len = max_label_len.max(g.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)
@@ -1153,7 +1191,47 @@ impl ComputedLayout {
         } else {
             label_size + y_tick_label_px + 21.0 * s
         };
-        let mut margin_right = label_size;
+        // Estimate the overhang of the rightmost numeric x-tick label.
+        // Tick labels are centred on their tick position (TextAnchor::Middle), so the
+        // last tick (at x_max) extends half its pixel width to the right of the plot edge.
+        // Without this, labels like "15000" or "100.5" clip against the SVG boundary.
+        // Uses layout.x_range.1 / x_axis_max as a proxy — nice-rounding rarely changes
+        // the label length, mirroring how y_tick_label_px uses layout.y_range before
+        // auto-ranging (lines ~1174-1187 above).
+        let x_last_tick_half_w: f64 = if layout.suppress_x_ticks
+            || layout.x_categories.is_some()
+            || layout.x_tick_rotate.is_some()
+            || layout.log_x
+        {
+            0.0 // handled elsewhere or not applicable
+        } else {
+            let val = layout.x_axis_max.unwrap_or(layout.x_range.1);
+            let label = layout.x_tick_format.format(val);
+            label.len() as f64 * tick_size * 0.6 * 0.5
+        };
+        let mut margin_right = label_size.max(x_last_tick_half_w);
+
+        // For rotated x-axis category labels the text extends horizontally from its anchor.
+        // Negative angle → TextAnchor::End → extends left  → first label can clip left edge.
+        // Positive angle → TextAnchor::Start → extends right → last label can clip right edge.
+        if let Some(angle) = layout.x_tick_rotate {
+            if !layout.suppress_x_ticks {
+                if let Some(ref cats) = layout.x_categories {
+                    let char_w = tick_size * 0.6;
+                    let angle_rad = angle.abs() * std::f64::consts::PI / 180.0;
+                    let cos_a = angle_rad.cos();
+                    if angle < 0.0 {
+                        if let Some(first) = cats.first() {
+                            let needed = first.len() as f64 * char_w * cos_a;
+                            if needed > margin_left { margin_left = needed; }
+                        }
+                    } else if let Some(last) = cats.last() {
+                        let needed = last.len() as f64 * char_w * cos_a;
+                        if needed > margin_right { margin_right = needed; }
+                    }
+                }
+            }
+        }
 
         let y2_axis_width = if layout.y2_range.is_some() && !layout.suppress_y2_ticks {
             label_size + tick_size * 3.0 + 15.0 * s

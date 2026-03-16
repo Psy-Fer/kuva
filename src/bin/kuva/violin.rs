@@ -24,6 +24,11 @@ pub struct ViolinArgs {
     #[arg(long)]
     pub color: Option<String>,
 
+    /// Per-group fill colors (comma-separated CSS colors, e.g. "steelblue,tomato,seagreen").
+    /// Colors are matched to groups in the order they appear in the data.
+    #[arg(long, value_delimiter = ',')]
+    pub group_colors: Option<Vec<String>>,
+
     /// KDE bandwidth (Silverman's rule-of-thumb if omitted).
     #[arg(long)]
     pub bandwidth: Option<f64>,
@@ -67,6 +72,10 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
     for (name, subtable) in groups {
         let values = subtable.col_f64(&value_col)?;
         plot = plot.with_group(name, values);
+    }
+
+    if let Some(colors) = args.group_colors {
+        plot = plot.with_group_colors(colors);
     }
 
     if args.overlay_swarm {

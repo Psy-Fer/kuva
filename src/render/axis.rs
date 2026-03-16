@@ -162,8 +162,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     let x_val = i as f64 + 1.0;
                     let x_pos = computed.map_x(x_val);
                     let (anchor, rotate) = match layout.x_tick_rotate {
-                        Some(angle) => (TextAnchor::End, Some(angle)),
-                        None        => (TextAnchor::Middle, None),
+                        Some(angle) if angle < 0.0 => (TextAnchor::End,   Some(angle)),
+                        Some(angle)                => (TextAnchor::Start,  Some(angle)),
+                        None                       => (TextAnchor::Middle, None),
                     };
 
                     scene.add(Primitive::Text {
@@ -230,8 +231,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let x_val = i as f64 + 1.0;
                 let x_pos = computed.map_x(x_val);
                 let (anchor, rotate) = match layout.x_tick_rotate {
-                    Some(angle) => (TextAnchor::End, Some(angle)),
-                    None        => (TextAnchor::Middle, None),
+                    Some(angle) if angle < 0.0 => (TextAnchor::End,   Some(angle)),
+                    Some(angle)                => (TextAnchor::Start,  Some(angle)),
+                    None                       => (TextAnchor::Middle, None),
                 };
                 scene.add(Primitive::Text {
                     x: x_pos,
@@ -311,8 +313,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     computed.x_tick_format.format(*tx)
                 };
                 let (anchor, rotate) = match layout.x_tick_rotate {
-                    Some(angle) => (TextAnchor::End, Some(angle)),
-                    None        => (TextAnchor::Middle, None),
+                    Some(angle) if angle < 0.0 => (TextAnchor::End,   Some(angle)),
+                    Some(angle)                => (TextAnchor::Start,  Some(angle)),
+                    None                       => (TextAnchor::Middle, None),
                 };
                 scene.add(Primitive::Text {
                     x,

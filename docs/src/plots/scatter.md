@@ -300,6 +300,89 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Marker opacity and stroke
+
+Two builders control the visual style of markers, enabling three distinct modes useful for dense datasets:
+
+| Mode | Setting | Use case |
+|------|---------|----------|
+| **Solid** (default) | no calls needed | Small N or well-separated clusters |
+| **Semi-transparent** | `opacity < 1` + stroke | Dense regions pool colour; individual points stay visible |
+| **Hollow** | `opacity = 0.0` + stroke | Very large N; overlapping rings reveal density without blobs |
+
+### Semi-transparent markers — overlapping clusters
+
+Three Gaussian clusters of 200 points each share a region in the centre. Solid markers at this density merge into a single opaque mass. Reducing opacity to `0.25` lets the darker overlap region show where clusters share space, while the `0.7 px` stroke keeps each marker individually legible.
+
+```rust,no_run
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+// Three clusters, 200 points each — defined as (center_x, center_y, color, label)
+let series = [
+    (3.0_f64, 4.0_f64, "steelblue", "Cluster A"),
+    (5.0,     5.5,     "tomato",    "Cluster B"),
+    (4.0,     3.0,     "seagreen",  "Cluster C"),
+];
+
+// (populate `data` from your source — each entry is 200 (x, y) points)
+
+# let data: Vec<(f64,f64)> = vec![];
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_color("steelblue")
+    .with_size(5.0)
+    .with_marker_opacity(0.25)
+    .with_marker_stroke_width(0.7)
+    .with_legend("Cluster A");
+
+let plots = vec![Plot::Scatter(plot) /* , ... */];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Overlapping Clusters — semi-transparent markers")
+    .with_x_label("X")
+    .with_y_label("Y");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/scatter/marker_semi_transparent.svg" alt="Three overlapping Gaussian clusters with semi-transparent markers" width="560">
+
+### Hollow open circles — dense annular data
+
+800 points sampled uniformly along a noisy ring. With solid fill the ring becomes a uniform band; hollow circles (`opacity = 0.0`) make the denser arc sections visible through the accumulation of overlapping outlines.
+
+```rust,no_run
+use kuva::plot::scatter::ScatterPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+// 800 points sampled along a noisy annulus of radius ≈ 3
+# let data: Vec<(f64,f64)> = vec![];
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_color("steelblue")
+    .with_size(4.0)
+    .with_marker_opacity(0.0)       // fully hollow
+    .with_marker_stroke_width(1.0); // only the outline is drawn
+
+let plots = vec![Plot::Scatter(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Hollow open circles — 800 pts in a noisy annulus")
+    .with_x_label("X")
+    .with_y_label("Y");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/scatter/marker_hollow.svg" alt="800 hollow open circles forming a noisy ring" width="560">
+
+---
+
 ## Multiple series
 
 Wrap multiple `ScatterPlot` structs in a `Vec<Plot>` and pass them to `render_multiple()`. Legends are shown when any series has a label attached via `.with_legend()`.
@@ -356,6 +439,8 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_y_err(iter)` | Symmetric Y error bars |
 | `.with_y_err_asymmetric(iter)` | Asymmetric Y error bars: `(neg, pos)` tuples |
 | `.with_band(lower, upper)` | Confidence band aligned to scatter x positions |
+| `.with_marker_opacity(f)` | Fill alpha: `0.0` = hollow, `1.0` = solid (default: solid) |
+| `.with_marker_stroke_width(w)` | Outline stroke at the fill color; `None` = no stroke (default) |
 
 ### `MarkerShape` variants
 

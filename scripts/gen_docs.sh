@@ -14,6 +14,8 @@ EXAMPLES=(
     candlestick
     chord
     contour
+    density
+    ridgeline
     dotplot
     heatmap
     histogram
@@ -35,6 +37,8 @@ EXAMPLES=(
     violin
     volcano
     waterfall
+    polar
+    ternary
     all_plots_simple
     all_plots_complex
 )

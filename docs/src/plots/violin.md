@@ -139,6 +139,50 @@ let plot = ViolinPlot::new()
 
 ---
 
+## Per-group colors
+
+Color each group independently within a single `ViolinPlot` using `.with_group_colors()`. Colors are matched to groups by position — the first color applies to the first group added, and so on. The uniform `.with_color()` value is used as a fallback for any group without an entry.
+
+```rust,no_run
+use kuva::plot::ViolinPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let plot = ViolinPlot::new()
+    .with_group("Normal",  normal_samples(0.0, 1.0, 300, 1))
+    .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 300, 2))
+    .with_group("Skewed",  skewed_samples(300, 3))
+    .with_group_colors(["steelblue", "tomato", "seagreen"])
+    .with_width(30.0);
+
+let plots = vec![Plot::Violin(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Violin Plot — Per-group Colors")
+    .with_y_label("Value");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/violin/group_colors.svg" alt="Violin plot with per-group colors" width="560">
+
+A partial list is also valid — groups beyond the list length fall back to the uniform `.with_color()` value:
+
+```rust,no_run
+# use kuva::plot::ViolinPlot;
+let plot = ViolinPlot::new()
+    .with_group("Normal",  vec![/* values */])
+    .with_group("Bimodal", vec![/* values */])
+    .with_group("Skewed",  vec![/* values */])
+    .with_color("steelblue")        // fallback for groups 1 and 2
+    .with_group_colors(["tomato"]); // only group 0 gets this color
+```
+
+> **Legend note:** the legend entry uses the uniform `.with_color()` value. For a fully labeled per-group legend, create one `ViolinPlot` per group and attach `.with_legend()` to each, then use a `Layout::with_palette()` to auto-assign colors.
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -146,6 +190,7 @@ let plot = ViolinPlot::new()
 | `ViolinPlot::new()` | Create a violin plot with defaults |
 | `.with_group(label, values)` | Add a group; accepts any `Into<f64>` iterable |
 | `.with_color(s)` | Violin fill color (CSS color string) |
+| `.with_group_colors(iter)` | Per-group fill colors; falls back to `.with_color` for out-of-range indices |
 | `.with_width(px)` | Maximum half-width of each violin in pixels (default `30.0`) |
 | `.with_legend(s)` | Attach a legend label |
 | `.with_bandwidth(h)` | KDE bandwidth; omit for Silverman's rule (recommended default) |

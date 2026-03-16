@@ -96,6 +96,50 @@ A semi-transparent `overlay_color` is recommended so the box remains visible ben
 
 ---
 
+## Per-group colors
+
+Color each group independently within a single `BoxPlot` using `.with_group_colors()`. Colors are matched to groups by position — the first color applies to the first group added, and so on. The uniform `.with_color()` value is used as a fallback for any group without an entry. All elements of a group (box, whiskers, caps) share the same color.
+
+```rust,no_run
+use kuva::plot::BoxPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let plot = BoxPlot::new()
+    .with_group("Control",     samples(5.0, 1.0, 60, 1))
+    .with_group("Treatment A", samples(6.5, 1.2, 60, 2))
+    .with_group("Treatment B", samples(4.2, 0.9, 60, 3))
+    .with_group("Treatment C", samples(7.1, 1.5, 60, 4))
+    .with_group_colors(["steelblue", "tomato", "seagreen", "goldenrod"]);
+
+let plots = vec![Plot::Box(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Box Plot — Per-group Colors")
+    .with_y_label("Value");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/boxplot/group_colors.svg" alt="Box plot with per-group colors" width="560">
+
+A partial list is also valid — groups beyond the list length fall back to the uniform `.with_color()` value:
+
+```rust,no_run
+# use kuva::plot::BoxPlot;
+let plot = BoxPlot::new()
+    .with_group("Control",     vec![/* values */])
+    .with_group("Treatment A", vec![/* values */])
+    .with_group("Treatment B", vec![/* values */])
+    .with_color("steelblue")          // fallback for groups 1 and 2
+    .with_group_colors(["tomato"]);   // only group 0 gets this color
+```
+
+> **Legend note:** the legend entry uses the uniform `.with_color()` value. For a fully labeled per-group legend, create one `BoxPlot` per group and attach `.with_legend()` to each, then use a `Layout::with_palette()` to auto-assign colors.
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -103,6 +147,7 @@ A semi-transparent `overlay_color` is recommended so the box remains visible ben
 | `BoxPlot::new()` | Create a box plot with defaults |
 | `.with_group(label, values)` | Add a group; accepts any `Into<f64>` iterable |
 | `.with_color(s)` | Box fill color (CSS color string) |
+| `.with_group_colors(iter)` | Per-group fill colors; falls back to `.with_color` for out-of-range indices |
 | `.with_width(f)` | Box width as a fraction of the category slot (default `0.8`) |
 | `.with_legend(s)` | Attach a legend label |
 | `.with_strip(jitter)` | Overlay jittered strip points; `jitter` is horizontal spread width |

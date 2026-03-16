@@ -25,6 +25,7 @@ fn main() {
     basic();
     bandwidth();
     swarm_overlay();
+    group_colors();
 
     println!("Violin SVGs written to {OUT}/");
 }
@@ -98,6 +99,24 @@ fn bandwidth() {
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
         std::fs::write(format!("{OUT}/bandwidth_{name}.svg"), svg).unwrap();
     }
+}
+
+/// Three groups each with a distinct fill color.
+fn group_colors() {
+    let plot = ViolinPlot::new()
+        .with_group("Normal",  normal_samples(0.0, 1.0, 300, 1))
+        .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 300, 2))
+        .with_group("Skewed",  skewed_samples(300, 3))
+        .with_group_colors(["steelblue", "tomato", "seagreen"])
+        .with_width(30.0);
+
+    let plots = vec![Plot::Violin(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Violin Plot — Per-group Colors")
+        .with_y_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
 }
 
 /// Bimodal violin with a beeswarm overlay showing individual points.

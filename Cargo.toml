@@ -1,6 +1,6 @@
 [package]
 name = "kuva"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Scientific plotting library in Rust with various backends."
 authors = ["James M. Ferguson <j.ferguson@garvan.org.au>"]

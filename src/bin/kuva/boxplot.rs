@@ -25,6 +25,11 @@ pub struct BoxArgs {
     #[arg(long)]
     pub color: Option<String>,
 
+    /// Per-group fill colors (comma-separated CSS colors, e.g. "steelblue,tomato,seagreen").
+    /// Colors are matched to groups in the order they appear in the data.
+    #[arg(long, value_delimiter = ',')]
+    pub group_colors: Option<Vec<String>>,
+
     /// Overlay individual data points as a jittered strip.
     #[arg(long)]
     pub overlay_points: bool,
@@ -60,6 +65,10 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
     for (name, subtable) in groups {
         let values = subtable.col_f64(&value_col)?;
         plot = plot.with_group(name, values);
+    }
+
+    if let Some(colors) = args.group_colors {
+        plot = plot.with_group_colors(colors);
     }
 
     if args.overlay_swarm {

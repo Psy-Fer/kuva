@@ -19,6 +19,10 @@ pub enum StripStyle {
 pub struct StripGroup {
     pub label: String,
     pub values: Vec<f64>,
+    /// Optional per-point colors. When set, overrides both `group_colors` and the
+    /// uniform `color` for each point individually. Shorter than `values` → remaining
+    /// points fall back to the group/uniform color.
+    pub point_colors: Option<Vec<String>>,
 }
 
 /// Builder for a strip plot (also called a dot plot or univariate scatter).
@@ -79,6 +83,10 @@ pub struct StripPlot {
     pub seed: u64,
     pub legend_label: Option<String>,
     pub group_colors: Option<Vec<String>>,
+    /// Fill opacity for markers (0.0 = transparent, 1.0 = solid). `None` = fully opaque.
+    pub marker_opacity: Option<f64>,
+    /// Stroke (outline) width for markers. `None` = no stroke. Stroke color matches fill.
+    pub marker_stroke_width: Option<f64>,
 }
 
 impl Default for StripPlot {
@@ -98,6 +106,8 @@ impl StripPlot {
             seed: 42,
             legend_label: None,
             group_colors: None,
+            marker_opacity: None,
+            marker_stroke_width: None,
         }
     }
 
@@ -120,6 +130,45 @@ impl StripPlot {
         self.groups.push(StripGroup {
             label: label.into(),
             values: values.into_iter().map(Into::into).collect(),
+            point_colors: None,
+        });
+        self
+    }
+
+    /// Add a group where each point carries its own color.
+    ///
+    /// `points` is any iterator of `(value, color)` pairs. Colors are matched to points
+    /// by position; the uniform [`with_color`](Self::with_color) / per-group color is
+    /// used as a fallback for any point beyond the end of the list.
+    ///
+    /// Use this when each observation belongs to a distinct category (e.g. a motif type)
+    /// and you want to color individual points independently within the same column.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::StripPlot;
+    /// let strip = StripPlot::new()
+    ///     .with_colored_group("Sample", vec![
+    ///         (1.5, "steelblue"),
+    ///         (2.3, "tomato"),
+    ///         (1.8, "seagreen"),
+    ///     ])
+    ///     .with_swarm();
+    /// ```
+    pub fn with_colored_group<S, V, C, I>(mut self, label: S, points: I) -> Self
+    where
+        S: Into<String>,
+        I: IntoIterator<Item = (V, C)>,
+        V: Into<f64>,
+        C: Into<String>,
+    {
+        let (values, colors): (Vec<f64>, Vec<String>) = points
+            .into_iter()
+            .map(|(v, c)| (v.into(), c.into()))
+            .unzip();
+        self.groups.push(StripGroup {
+            label: label.into(),
+            values,
+            point_colors: Some(colors),
         });
         self
     }
@@ -221,6 +270,20 @@ impl StripPlot {
         S: Into<String>,
     {
         self.group_colors = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Set the fill opacity for all markers (0.0 = fully transparent, 1.0 = fully opaque).
+    pub fn with_marker_opacity(mut self, opacity: f64) -> Self {
+        self.marker_opacity = Some(opacity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Draw a solid outline around each marker at the given stroke width.
+    ///
+    /// Stroke color matches the fill color.
+    pub fn with_marker_stroke_width(mut self, width: f64) -> Self {
+        self.marker_stroke_width = Some(width);
         self
     }
 }

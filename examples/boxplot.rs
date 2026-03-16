@@ -25,6 +25,7 @@ fn main() {
     basic();
     strip_overlay();
     swarm_overlay();
+    group_colors();
 
     println!("Box plot SVGs written to {OUT}/");
 }
@@ -74,6 +75,24 @@ fn strip_overlay() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/strip_overlay.svg"), svg).unwrap();
+}
+
+/// Four groups each with a distinct fill color.
+fn group_colors() {
+    let plot = BoxPlot::new()
+        .with_group("Control",     samples(5.0, 1.0, 60, 1))
+        .with_group("Treatment A", samples(6.5, 1.2, 60, 2))
+        .with_group("Treatment B", samples(4.2, 0.9, 60, 3))
+        .with_group("Treatment C", samples(7.1, 1.5, 60, 4))
+        .with_group_colors(["steelblue", "tomato", "seagreen", "goldenrod"]);
+
+    let plots = vec![Plot::Box(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Box Plot — Per-group Colors")
+        .with_y_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
 }
 
 /// Boxes with a beeswarm overlay — points spread to avoid overlap.

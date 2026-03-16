@@ -44,6 +44,7 @@ pub struct ViolinPlot {
     pub bandwidth: Option<f64>,
     /// Number of KDE evaluation points (default `200`).
     pub kde_samples: usize,
+    pub group_colors: Option<Vec<String>>,
     pub overlay: Option<StripStyle>,
     pub overlay_color: String,
     pub overlay_size: f64,
@@ -73,6 +74,7 @@ impl ViolinPlot {
             legend_label: None,
             bandwidth: None,
             kde_samples: 200,
+            group_colors: None,
             overlay: None,
             overlay_color: "rgba(0,0,0,0.45)".into(),
             overlay_size: 3.0,
@@ -107,6 +109,20 @@ impl ViolinPlot {
     /// Set the violin fill color (CSS color string, e.g. `"steelblue"`).
     pub fn with_color<S: Into<String>>(mut self, color: S) -> Self {
         self.color = color.into();
+        self
+    }
+
+    /// Set per-group fill colors.
+    ///
+    /// Colors are matched to groups by position. If the list is shorter than
+    /// the number of groups, the uniform color from [`with_color`](Self::with_color)
+    /// is used as a fallback.
+    pub fn with_group_colors<S, I>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.group_colors = Some(colors.into_iter().map(|s| s.into()).collect());
         self
     }
 

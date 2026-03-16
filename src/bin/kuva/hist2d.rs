@@ -28,7 +28,7 @@ pub struct Hist2dArgs {
     #[arg(long, default_value_t = 10)]
     pub bins_y: usize,
 
-    /// Color map: viridis (default), inferno, grayscale.
+    /// Color map: viridis (default), inferno, turbo, grayscale.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 
@@ -51,6 +51,7 @@ fn parse_colormap(name: &str) -> ColorMap {
     match name {
         "inferno" => ColorMap::Inferno,
         "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
+        "turbo" => ColorMap::Turbo,
         _ => ColorMap::Viridis,
     }
 }
@@ -70,14 +71,18 @@ pub fn run(args: Hist2dArgs) -> Result<(), String> {
 
     let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
 
-    let x_min = data.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
-    let x_max = data.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
-    let y_min = data.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-    let y_max = data.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
-
     if data.is_empty() {
         return Err("hist2d input has no data".into());
     }
+
+    // Use --x-min/--x-max/--y-min/--y-max to control the binning range when
+    // provided. This is critical for real data with outliers: without explicit
+    // bounds the range spans data_min..data_max and sparse outliers create a
+    // wide grid where most bins are empty.
+    let x_min = args.axis.x_min.unwrap_or_else(|| data.iter().map(|p| p.0).fold(f64::INFINITY, f64::min));
+    let x_max = args.axis.x_max.unwrap_or_else(|| data.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max));
+    let y_min = args.axis.y_min.unwrap_or_else(|| data.iter().map(|p| p.1).fold(f64::INFINITY, f64::min));
+    let y_max = args.axis.y_max.unwrap_or_else(|| data.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max));
 
     let mut plot = Histogram2D::new()
         .with_data(

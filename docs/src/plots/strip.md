@@ -221,12 +221,108 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Per-point colors
+
+`.with_colored_group(label, points)` adds a group where each point carries its own color. `points` is any iterator of `(value, color)` pairs — the value and color travel together. Points beyond the end of the color list fall back to the group/uniform color.
+
+This is useful when each observation belongs to a distinct category within a single sample column — for example, coloring reads by their primary repeat motif in a STR genotyping view.
+
+```rust,no_run
+use kuva::plot::{StripPlot, LegendEntry, LegendShape, LegendPosition};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let strip = StripPlot::new()
+    .with_colored_group("Sample", vec![
+        (6.1, "tomato"),       // ATTC repeat
+        (9.3, "seagreen"),     // GCGC repeat
+        (4.8, "goldenrod"),    // ATAT repeat
+        (11.2, "mediumpurple"), // CGCG repeat
+        (7.0, "steelblue"),   // TTAGG repeat
+        // … more reads
+    ])
+    .with_swarm()
+    .with_point_size(4.5);
+
+// Per-point colors are not reflected in the auto-legend — supply entries manually.
+let legend_entries = vec![
+    LegendEntry { label: "ATTC".into(),  color: "tomato".into(),       shape: LegendShape::Circle, dasharray: None },
+    LegendEntry { label: "GCGC".into(),  color: "seagreen".into(),     shape: LegendShape::Circle, dasharray: None },
+    LegendEntry { label: "ATAT".into(),  color: "goldenrod".into(),    shape: LegendShape::Circle, dasharray: None },
+    LegendEntry { label: "CGCG".into(),  color: "mediumpurple".into(), shape: LegendShape::Circle, dasharray: None },
+    LegendEntry { label: "TTAGG".into(), color: "steelblue".into(),    shape: LegendShape::Circle, dasharray: None },
+];
+
+let plots = vec![Plot::Strip(strip)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("STR Repeat Counts — Per-point Motif Colors")
+    .with_x_label("Sample")
+    .with_y_label("Repeat count")
+    .with_legend_title("Motif")
+    .with_legend_entries(legend_entries)
+    .with_legend_position(LegendPosition::OutsideRightTop);
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+std::fs::write("point_colors.svg", svg).unwrap();
+```
+
+<img src="../assets/strip/point_colors.svg" alt="Strip plot with per-point motif colors and a manual legend" width="560">
+
+> **Legend note:** `.with_colored_group` does not auto-populate the legend. Supply entries manually via `Layout::with_legend_entries` (with `LegendShape::Circle`) as shown above. For per-*group* coloring (one color per column, not per point) see [Per-group colors](#per-group-colors) above.
+
+---
+
+## Marker opacity and stroke
+
+For dense datasets, the default solid fill causes points to merge into an opaque block. Two builders control fill transparency and an optional outline stroke to keep individual points distinguishable.
+
+### Dense strip — 500 points per group
+
+With 500 points per group, solid markers pile into uniform bars and the shape of each distribution is hidden. Setting `opacity = 0.25` makes denser bands visibly darker — here the bimodal "High dose" group clearly shows two sub-populations, and the skewed "Washout" distribution tapers naturally toward its tail. The thin `0.7 px` stroke keeps points individually readable even where they overlap most.
+
+```rust,no_run
+use kuva::plot::StripPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+// (populate each group with 500 values from your data source)
+# let (control, low, high, washout) = (vec![0f64], vec![0f64], vec![0f64], vec![0f64]);
+let strip = StripPlot::new()
+    .with_group("Control",   control)
+    .with_group("Low dose",  low)
+    .with_group("High dose", high)   // bimodal — two sub-populations
+    .with_group("Washout",   washout) // right-skewed
+    .with_color("steelblue")
+    .with_point_size(4.0)
+    .with_jitter(0.3)
+    .with_marker_opacity(0.25)
+    .with_marker_stroke_width(0.7);
+
+let plots = vec![Plot::Strip(strip)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Dense strip — semi-transparent markers (500 pts/group)")
+    .with_y_label("Measurement");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/strip/marker_density.svg" alt="Dense strip plot with semi-transparent markers, 500 points per group" width="560">
+
+The stroke color always matches the fill color set by `.with_color()` or `.with_group_colors()`.
+
+---
+
 ## API reference
 
 | Method | Description |
 |--------|-------------|
 | `StripPlot::new()` | Create a strip plot with defaults |
 | `.with_group(label, values)` | Add a group; accepts any `Into<f64>` iterable |
+| `.with_colored_group(label, points)` | Add a group from `(value, color)` pairs — each point carries its own color |
 | `.with_color(s)` | Uniform point fill color (CSS color string, default `"steelblue"`) |
 | `.with_group_colors(iter)` | Per-group colors; falls back to `.with_color` for out-of-range indices |
 | `.with_point_size(r)` | Point radius in pixels (default `4.0`) |
@@ -235,3 +331,5 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_center()` | All points at group center — vertical density column |
 | `.with_seed(n)` | RNG seed for jitter positions (default `42`) |
 | `.with_legend(s)` | Attach a legend label |
+| `.with_marker_opacity(f)` | Fill alpha: `0.0` = hollow, `1.0` = solid (default: solid) |
+| `.with_marker_stroke_width(w)` | Outline stroke at the fill color; `None` = no stroke (default) |

@@ -215,6 +215,18 @@ impl Canvas {
     /// Draw a horizontal box-drawing line at char_row `cy` from `cx0` to `cx1`.
     fn draw_hline(&mut self, cx0: isize, cy: isize, cx1: isize, color: Rgb) {
         let (lo, hi) = if cx0 <= cx1 { (cx0, cx1) } else { (cx1, cx0) };
+        // Short spans (≤8 cells) are typically legend swatches drawn on top of a
+        // filled legend background rect (█ in char_grid). Write to char_grid for
+        // those so the swatch appears above the background.
+        //
+        // However, tick marks from the y-axis are also short and their right
+        // endpoint lands exactly on the y-axis column, which already has
+        // TOP|BOTTOM bits in line_char_bits.  Writing a short tick to char_grid
+        // would hide the y-axis line at that row (char_grid layer beats
+        // line_char_bits layer).  Fix: only write to char_grid when the cell
+        // already contains a legend background character (█); otherwise always
+        // accumulate bits in line_char_bits so ticks combine with the axis line.
+        let is_swatch = (hi - lo) <= 8;
         for cx in lo..=hi {
             let bits = if lo == hi {
                 LEFT | RIGHT
@@ -225,7 +237,23 @@ impl Canvas {
             } else {
                 LEFT | RIGHT
             };
-            self.set_line_bits(cx, cy, bits, color);
+            if is_swatch {
+                let on_legend_bg = if cx >= 0 && cy >= 0 {
+                    let cxu = cx as usize;
+                    let cyu = cy as usize;
+                    cxu < self.cols && cyu < self.rows
+                        && matches!(self.char_grid[cyu][cxu], Some(('█', _)))
+                } else {
+                    false
+                };
+                if on_legend_bg {
+                    self.set_char(cx, cy, bitmask_to_char(bits), color);
+                } else {
+                    self.set_line_bits(cx, cy, bits, color);
+                }
+            } else {
+                self.set_line_bits(cx, cy, bits, color);
+            }
         }
     }
 
@@ -440,7 +468,7 @@ impl Canvas {
         let (tx, ty) = self.current_offset();
 
         match p {
-            Primitive::Circle { cx, cy, r, fill } => {
+            Primitive::Circle { cx, cy, r, fill, .. } => {
                 let rgb = css_to_rgb(&fill.to_svg_string());
                 let cx_s = cx + tx;
                 let cy_s = cy + ty;
@@ -469,9 +497,14 @@ impl Canvas {
                 let is_h = (y1 - y2).abs() < 0.5;
                 let is_v = (x1 - x2).abs() < 0.5;
                 if is_h {
-                    let cy = self.to_cy(y1 + ty);
                     let cx0 = self.to_cx(x1 + tx);
                     let cx1 = self.to_cx(x2 + tx);
+                    // Short lines (≤8 cells) are legend swatches. The swatch y is
+                    // swatch_cy, which sits ~4.2 px above text_baseline (= body_size
+                    // * 0.35). Adding that offset makes the swatch land in the same
+                    // character row as its label without touching SVG output.
+                    let swatch_y_offset = if (cx1 - cx0).abs() <= 8 { 4.2 } else { 0.0 };
+                    let cy = self.to_cy(y1 + ty + swatch_y_offset);
                     self.draw_hline(cx0, cy, cx1, rgb);
                 } else if is_v {
                     let cx = self.to_cx(x1 + tx);
@@ -653,8 +686,10 @@ impl Canvas {
                 };
                 // Also snap when height is small in absolute SVG pixels (≤16 px
                 // covers legend swatches at 12 px regardless of terminal size).
+                // Snap to the lower-third (0.75) rather than centre (0.5) so the
+                // swatch lands in the same character row as its text_baseline label.
                 let (cy0, cy1) = if height < cell_h.max(16.0) {
-                    let r = self.to_cy(y_s + height * 0.5)
+                    let r = self.to_cy(y_s + height * 0.75)
                         .max(0)
                         .min(self.rows as isize - 1);
                     (r, r)
@@ -744,7 +779,7 @@ impl Canvas {
                 }
             }
 
-            Primitive::CircleBatch { cx, cy, r, fill } => {
+            Primitive::CircleBatch { cx, cy, r, fill, .. } => {
                 let rgb = css_to_rgb(&fill.to_svg_string());
                 for i in 0..cx.len() {
                     let cx_s = cx[i] + tx;

@@ -1,6 +1,8 @@
 use kuva::plot::line::LinePlot;
 use kuva::plot::bar::BarPlot;
 use kuva::plot::histogram::Histogram;
+use kuva::plot::scatter::ScatterPlot;
+use kuva::plot::LegendPosition;
 use kuva::render::layout::{Layout, ComputedLayout};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_twin_y;
@@ -218,4 +220,116 @@ fn test_twin_y_histogram_primary() {
     std::fs::write("test_outputs/twin_y_histogram_primary.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<rect"), "SVG should contain <rect elements (histogram bars rendered)");
+}
+
+/// GC bias-style showcase: Genome GC histogram + Coverage scatter on primary (Norm. Coverage);
+/// Reported BQ + Empirical BQ lines on secondary (Base Quality 0–40). Mirrors the layout of
+/// a typical WGS GC bias QC chart.
+#[test]
+fn test_twin_y_showcase() {
+    // --- Genome GC histogram (primary axis, y 0–0.5) ---
+    // Precomputed bell-curve fraction per 2 % GC bin, peak at ~38 % GC
+    let edges: Vec<f64> = (0..=100).step_by(2).map(|x| x as f64).collect(); // 51 edges → 50 bins
+    let counts: Vec<f64> = (0..50_usize).map(|i| {
+        let gc_center = i as f64 * 2.0 + 1.0; // bin midpoint: 1, 3, 5, … 99
+        0.50 * (-0.5 * ((gc_center - 38.0) / 14.0).powi(2)).exp()
+    }).collect();
+
+    let genome_gc = Plot::Histogram(
+        Histogram::from_bins(edges, counts)
+            .with_color("#a8d8f0")
+            .with_legend("Genome GC"),
+    );
+
+    // --- Coverage scatter (primary axis, y ~0.9–2.0, clamped at 2.0) ---
+    // U-shaped: near 1.0 at mid GC, saturates to 2.0 at extreme GC
+    let coverage_pts: Vec<(f64, f64)> = {
+        let mut v = Vec::new();
+        // Extreme low GC — clamped
+        for gc in [2.0, 4.0, 6.0, 8.0, 10.0] { v.push((gc, 2.0)); }
+        // Transition low
+        for (gc, cov) in [(12.0,1.70),(14.0,1.45),(16.0,1.35),(18.0,1.25),(20.0,1.15)] {
+            v.push((gc, cov));
+        }
+        // Mid range — dense U-shaped minimum
+        for i in 0..=24_u32 {
+            let gc = 22.0 + i as f64 * 2.0;
+            let cov = 0.90 + 0.35 * ((gc - 50.0) / 35.0).powi(2);
+            v.push((gc, cov.min(2.0)));
+        }
+        // Transition high
+        for (gc, cov) in [(72.0,1.05),(74.0,1.10),(76.0,1.20),(78.0,1.30),(80.0,1.45)] {
+            v.push((gc, cov));
+        }
+        // Extreme high GC — clamped
+        for (gc, cov) in [(82.0,1.60),(84.0,1.75),(86.0,1.80)] { v.push((gc, cov)); }
+        for gc in [88.0, 90.0, 92.0, 94.0, 96.0, 98.0] { v.push((gc, 2.0)); }
+        v
+    };
+
+    let coverage = Plot::Scatter(
+        ScatterPlot::new()
+            .with_data(coverage_pts)
+            .with_color("#4e90d9")
+            .with_size(5.0)
+            .with_legend("Coverage"),
+    );
+
+    // --- Reported BQ line (secondary axis, Base Quality 0–40) ---
+    // Broadly flat ~28–30 across mid GC, falling off at extremes
+    let reported_bq: Vec<(f64, f64)> = (1..=20_u32).map(|i| {
+        let gc = i as f64 * 5.0;
+        let bq = if gc < 15.0 || gc > 85.0 {
+            22.0 - (gc - 50.0).abs() * 0.3
+        } else {
+            29.5 - (gc - 50.0).abs() * 0.025
+        };
+        (gc, bq.clamp(8.0, 40.0))
+    }).collect();
+
+    // --- Empirical BQ line (secondary axis, lower trace ~14–16) ---
+    let empirical_bq: Vec<(f64, f64)> = (1..=20_u32).map(|i| {
+        let gc = i as f64 * 5.0;
+        let bq = if gc < 15.0 || gc > 85.0 {
+            10.0 - (gc - 50.0).abs() * 0.1
+        } else {
+            15.0 - (gc - 50.0).abs() * 0.01
+        };
+        (gc, bq.clamp(4.0, 40.0))
+    }).collect();
+
+    let reported = Plot::Line(
+        LinePlot::new()
+            .with_data(reported_bq)
+            .with_color("#2ca02c")
+            .with_legend("Reported BQ"),
+    );
+    let empirical = Plot::Line(
+        LinePlot::new()
+            .with_data(empirical_bq)
+            .with_color("#17becf")
+            .with_legend("Empirical BQ"),
+    );
+
+    let primary   = vec![genome_gc, coverage];
+    let secondary = vec![reported, empirical];
+
+    let layout = Layout::auto_from_twin_y_plots(&primary, &secondary)
+        .with_title("GC Bias — Twin Y Showcase")
+        .with_x_label("GC%")
+        .with_y_label("Normalized Coverage")
+        .with_y2_label("Base Quality")
+        .with_legend_position(LegendPosition::OutsideRightTop);
+
+    let scene = render_twin_y(primary, secondary, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/twin_y_showcase.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"), "SVG should be valid");
+    assert!(svg.contains("GC Bias"), "SVG should contain the title");
+    assert!(svg.contains("Genome GC"), "SVG should contain Genome GC legend entry");
+    assert!(svg.contains("Coverage"), "SVG should contain Coverage legend entry");
+    assert!(svg.contains("Reported BQ"), "SVG should contain Reported BQ legend entry");
+    assert!(svg.contains("Empirical BQ"), "SVG should contain Empirical BQ legend entry");
+    assert!(svg.contains("<rect"), "SVG should contain histogram bars for Genome GC");
 }

@@ -61,6 +61,18 @@ run histogram "$DATA/histogram.tsv" --value-col value \
     --title "Value Distribution" --x-label "Value" --y-label "Count" \
     --terminal $W $H
 
+# ── density ───────────────────────────────────────────────────────────────────
+header "density"
+run density "$DATA/samples.tsv" --value expression --color-by group --filled \
+    --title "Expression by Group" --x-label "Expression" --y-label "Density" \
+    --terminal $W $H
+
+# ── ridgeline ────────────────────────────────────────────────────────────────
+header "ridgeline"
+run ridgeline "$DATA/samples.tsv" --group-by group --value expression \
+    --title "Expression by Group" --x-label "Expression" --y-label "Group" \
+    --terminal $W $H
+
 # ── boxplot ───────────────────────────────────────────────────────────────────
 header "boxplot"
 run box "$DATA/samples.tsv" --group-col group --value-col expression \
@@ -167,6 +179,19 @@ run phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col l
 header "synteny"
 run synteny "$DATA/synteny_seqs.tsv" --blocks-file "$DATA/synteny_blocks.tsv" \
     --title "Synteny Map" \
+    --terminal $W $H
+
+# ── polar ─────────────────────────────────────────────────────────────────────
+header "polar"
+run polar "$DATA/polar.tsv" --r r --theta theta --color-by group \
+    --title "Polar Plot" \
+    --terminal $W $H
+
+# ── ternary ───────────────────────────────────────────────────────────────────
+header "ternary"
+run ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+    --a-label "A" --b-label "B" --c-label "C" \
+    --title "Ternary Plot" \
     --terminal $W $H
 
 echo

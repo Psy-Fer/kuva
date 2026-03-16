@@ -11,7 +11,7 @@
 
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Exp};
-use kuva::plot::{StripPlot, BoxPlot};
+use kuva::plot::{StripPlot, BoxPlot, LegendEntry, LegendShape, LegendPosition};
 use kuva::backend::svg::SvgBackend;
 use kuva::render::render::render_multiple;
 use kuva::render::layout::Layout;
@@ -29,6 +29,8 @@ fn main() {
     composed();
     palette();
     group_colors();
+    marker_density();
+    point_colors();
 
     println!("Strip SVGs written to {OUT}/");
 }
@@ -176,6 +178,83 @@ fn group_colors() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
+}
+
+/// 500 points per group with semi-transparent fill + stroke.
+///
+/// At this density, solid markers pile into an opaque block and the
+/// distribution shape is lost. Reducing opacity lets the darker bands reveal
+/// where points accumulate, while the stroke keeps individual points legible.
+fn marker_density() {
+    let strip = StripPlot::new()
+        .with_group("Control",   normal_samples(5.0, 0.8, 500, 50))
+        .with_group("Low dose",  normal_samples(6.0, 1.2, 500, 51))
+        .with_group("High dose", bimodal_samples(4.5, 8.5, 0.6, 500, 52))
+        .with_group("Washout",   skewed_samples(1.2, 3.5, 500, 53))
+        .with_color("steelblue")
+        .with_point_size(4.0)
+        .with_jitter(0.3)
+        .with_marker_opacity(0.25)
+        .with_marker_stroke_width(0.7);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Dense strip — semi-transparent markers (500 pts/group)")
+        .with_y_label("Measurement");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/marker_density.svg"), svg).unwrap();
+}
+
+/// Per-point colors — each point carries its own color via `.with_colored_group()`.
+///
+/// Simulates a STR genotyping view where each point is a single read and the color
+/// identifies the primary repeat motif. A manual legend maps motif labels to colors.
+fn point_colors() {
+    // Motif categories with representative repeat-count distributions
+    let motifs: &[(&str, &str, f64, f64)] = &[
+        ("ATTC",  "tomato",       6.0, 1.2),
+        ("GCGC",  "seagreen",     9.0, 1.5),
+        ("ATAT",  "goldenrod",    4.5, 0.9),
+        ("CGCG",  "mediumpurple", 11.0, 1.8),
+        ("TTAGG", "steelblue",    7.5, 1.3),
+    ];
+
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(99);
+
+    // Build flat (value, color) list — ~25 reads per motif
+    let mut points: Vec<(f64, &str)> = Vec::new();
+    for &(_, color, mean, std) in motifs {
+        let dist = Normal::new(mean, std).unwrap();
+        for v in dist.sample_iter(&mut rng).take(25) {
+            points.push((v.max(1.0), color));
+        }
+    }
+    // Shuffle deterministically so motifs interleave in the column
+    use rand::seq::SliceRandom;
+    points.shuffle(&mut rng);
+
+    let strip = StripPlot::new()
+        .with_colored_group("Sample", points)
+        .with_swarm()
+        .with_point_size(4.5);
+
+    // Manual legend — one circle swatch per motif
+    let legend_entries: Vec<LegendEntry> = motifs.iter().map(|&(label, color, _, _)| {
+        LegendEntry { label: label.to_string(), color: color.to_string(), shape: LegendShape::Circle, dasharray: None }
+    }).collect();
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("STR Repeat Counts — Per-point Motif Colors")
+        .with_x_label("Sample")
+        .with_y_label("Repeat count")
+        .with_legend_title("Motif")
+        .with_legend_entries(legend_entries)
+        .with_legend_position(LegendPosition::OutsideRightTop);
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/point_colors.svg"), svg).unwrap();
 }
 
 /// Multiple StripPlots with a palette — each plot gets a distinct color.

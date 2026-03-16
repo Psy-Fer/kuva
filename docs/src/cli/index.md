@@ -121,7 +121,7 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--ticks <N>` | `5` | Hint for number of tick marks |
 | `--no-grid` | off | Disable background grid |
 
-### Log scale *(scatter, line, histogram, hist2d)*
+### Log scale *(scatter, line, histogram, density, hist2d)*
 
 | Flag | Description |
 |---|---|
@@ -143,6 +143,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 - [line](#line)
 - [bar](#bar)
 - [histogram](#histogram)
+- [density](#density)
+- [ridgeline](#ridgeline)
 - [box](#box)
 - [violin](#violin)
 - [pie](#pie)
@@ -161,6 +163,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 - [sankey](#sankey)
 - [phylo](#phylo)
 - [synteny](#synteny)
+- [polar](#polar)
+- [ternary](#ternary)
 
 ---
 
@@ -264,6 +268,53 @@ kuva histogram histogram.tsv --bins 20 --normalize \
 
 ---
 
+## density
+
+Kernel density estimate of a single numeric column. Produces a smooth probability density curve; optionally fills the area underneath. Multi-group plots use one curve per group with palette colors.
+
+**Input:** a tabular file with at least one numeric column. When `--color-by` is used, an additional categorical column drives the grouping.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--value <COL>` | `0` | Column of numeric values to estimate |
+| `--color-by <COL>` | — | Group by this column; one curve per unique value |
+| `--filled` | off | Fill the area under each density curve |
+| `--bandwidth <F>` | *(Silverman)* | KDE bandwidth override |
+
+```bash
+kuva density samples.tsv --value expression \
+    --x-label "Expression" --y-label "Density" --title "Expression distribution"
+
+kuva density samples.tsv --value expression --color-by group --filled \
+    --title "Expression by group"
+```
+
+---
+
+## ridgeline
+
+Ridgeline plot (joyplot) — stacked KDE density curves, one per group. Groups are taken from one column; values from another.
+
+**Input:** a tabular file with at least one numeric column and an optional group column.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--value <COL>` | `0` | Column of numeric values |
+| `--group-by <COL>` | — | Group by this column; one ridge per unique value |
+| `--filled` | on | Fill the area under each ridge curve |
+| `--opacity <F>` | `0.7` | Fill opacity |
+| `--overlap <F>` | `0.5` | Ridge overlap factor (0 = no overlap, 1 = full cell height) |
+| `--bandwidth <F>` | *(Silverman)* | KDE bandwidth override |
+
+```bash
+kuva ridgeline samples.tsv --group-by group --value expression \
+    --x-label "Expression" --y-label "Group" --title "Expression by group"
+
+kuva ridgeline samples.tsv --group-by group --value expression --overlap 1.0
+```
+
+---
+
 ## box
 
 Box-and-whisker plot. Groups are taken from one column; values from another.
@@ -274,7 +325,8 @@ Box-and-whisker plot. Groups are taken from one column; values from another.
 |---|---|---|
 | `--group-col <COL>` | `0` | Group label column |
 | `--value-col <COL>` | `1` | Numeric value column |
-| `--color <CSS>` | `steelblue` | Box fill color |
+| `--color <CSS>` | `steelblue` | Box fill color (uniform, all groups) |
+| `--group-colors <CSS,...>` | — | Per-group colors, comma-separated; falls back to `--color` for unlisted groups |
 | `--overlay-points` | off | Overlay individual points as a jittered strip |
 | `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 
@@ -283,6 +335,9 @@ kuva box samples.tsv --group-col group --value-col expression
 
 kuva box samples.tsv --group-col group --value-col expression \
     --overlay-swarm --color "rgba(70,130,180,0.6)"
+
+kuva box samples.tsv --group-col group --value-col expression \
+    --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple"
 ```
 
 ---
@@ -297,7 +352,8 @@ Kernel-density violin plot. Same input format as `box`.
 |---|---|---|
 | `--group-col <COL>` | `0` | Group label column |
 | `--value-col <COL>` | `1` | Numeric value column |
-| `--color <CSS>` | `steelblue` | Violin fill color |
+| `--color <CSS>` | `steelblue` | Violin fill color (uniform, all groups) |
+| `--group-colors <CSS,...>` | — | Per-group colors, comma-separated; falls back to `--color` for unlisted groups |
 | `--bandwidth <F>` | *(Silverman)* | KDE bandwidth |
 | `--overlay-points` | off | Overlay individual points as a jittered strip |
 | `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
@@ -307,6 +363,9 @@ kuva violin samples.tsv --group-col group --value-col expression
 
 kuva violin samples.tsv --group-col group --value-col expression \
     --overlay-swarm --bandwidth 0.3
+
+kuva violin samples.tsv --group-col group --value-col expression \
+    --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple"
 ```
 
 ---
@@ -770,6 +829,61 @@ kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
 
 kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
     --proportional --legend "synteny blocks"
+```
+
+---
+
+## polar
+
+Polar coordinate scatter/line plot. Compass convention by default (θ=0 at north, increasing clockwise).
+
+**Input:** TSV/CSV with columns for radial value `r` and angle `theta` (degrees).
+
+| Flag | Default | Description |
+|---|---|---|
+| `--r <COL>` | `0` | Column containing radial values |
+| `--theta <COL>` | `1` | Column containing angle values (degrees) |
+| `--color-by <COL>` | — | Group by column — one series per unique value |
+| `--mode <MODE>` | `scatter` | Plot mode: `scatter` or `line` |
+| `--r-max <F>` | auto | Maximum radial extent |
+| `--theta-divisions <N>` | `12` | Angular spoke divisions (12 = every 30°) |
+| `--theta-start <DEG>` | `0.0` | Where θ=0 appears, degrees CW from north |
+| `--legend` | off | Show legend |
+
+```bash
+kuva polar polar.tsv --r r --theta theta --title "Polar Plot"
+
+kuva polar polar.tsv --r r --theta theta --color-by group --mode line \
+    --title "Wind Rose"
+```
+
+---
+
+## ternary
+
+Ternary (simplex) scatter plot with barycentric coordinate system.
+
+**Input:** TSV/CSV with three columns for the A, B, C components of each point.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--a <COL>` | `0` | Column for the top-vertex (A) component |
+| `--b <COL>` | `1` | Column for the bottom-left (B) component |
+| `--c <COL>` | `2` | Column for the bottom-right (C) component |
+| `--color-by <COL>` | — | Group by column for colored series |
+| `--a-label <S>` | `A` | Label for the top (A) vertex |
+| `--b-label <S>` | `B` | Label for the bottom-left (B) vertex |
+| `--c-label <S>` | `C` | Label for the bottom-right (C) vertex |
+| `--normalize` | off | Normalize each row so a+b+c=1 |
+| `--grid-lines <N>` | `5` | Grid lines per axis |
+| `--legend` | off | Show legend |
+
+```bash
+kuva ternary ternary.tsv --a a --b b --c c --title "Ternary Plot"
+
+kuva ternary ternary.tsv --a a --b b --c c --color-by group \
+    --a-label "Silicon" --b-label "Oxygen" --c-label "Carbon" \
+    --title "Mineral Composition"
 ```
 
 ---

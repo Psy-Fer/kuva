@@ -134,6 +134,11 @@ check "box overlay-swarm" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm \
         --title "Expression by Group" --x-label "Group" --y-label "Expression"
 
+check "box group-colors" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression \
+        --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple" \
+        --title "Expression by Group (colored)" --x-label "Group" --y-label "Expression"
+
 # ── violin ────────────────────────────────────────────────────────────────────
 check "violin basic" \
     "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression \
@@ -142,6 +147,11 @@ check "violin basic" \
 check "violin overlay-swarm" \
     "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm \
         --title "Expression Distribution" --x-label "Group" --y-label "Expression"
+
+check "violin group-colors" \
+    "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression \
+        --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple" \
+        --title "Expression Distribution (colored)" --x-label "Group" --y-label "Expression"
 
 # ── pie ───────────────────────────────────────────────────────────────────────
 check "pie basic" \
@@ -235,6 +245,15 @@ check "hist2d fine bins" \
     "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 30 --bins-y 30 --correlation \
         --title "2D Density" --x-label "X" --y-label "Y"
 
+check "hist2d explicit range clips outliers" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --x-min 20 --x-max 50 --y-min 20 --y-max 50 \
+        --title "hist2d clipped range" --x-label "X" --y-label "Y"
+
+check "hist2d turbo colormap" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --colormap turbo --title "hist2d turbo" --x-label "X" --y-label "Y"
+
 # ── contour ───────────────────────────────────────────────────────────────────
 check "contour basic" \
     "$BIN" contour "$DATA/contour.tsv" --x x --y y --z density \
@@ -296,6 +315,33 @@ check "phylo circular phylogram" \
     "$BIN" phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col length \
         --branch-style circular --phylogram --width 800 --height 800 --title "Phylogenetic Tree"
 
+# ── density ───────────────────────────────────────────────────────────────────
+check "density basic" \
+    "$BIN" density "$DATA/samples.tsv" \
+        --value expression --x-label "Expression" --y-label "Density" \
+        --title "Density"
+
+check "density filled color-by" \
+    "$BIN" density "$DATA/samples.tsv" \
+        --value expression --color-by group --filled \
+        --title "Density by group"
+
+check "density x-range bounded" \
+    "$BIN" density "$DATA/samples.tsv" \
+        --value expression --x-min 0 --x-max 10 \
+        --x-label "Expression" --y-label "Density" \
+        --title "Density bounded range"
+
+# ── ridgeline ─────────────────────────────────────────────────────────────────
+check "ridgeline basic" \
+    "$BIN" ridgeline "$DATA/samples.tsv" \
+        --group-by group --value expression \
+        --title Ridgeline --x-label Expression --y-label Group
+
+check "ridgeline overlap" \
+    "$BIN" ridgeline "$DATA/samples.tsv" \
+        --group-by group --value expression --overlap 1.0
+
 # ── synteny ───────────────────────────────────────────────────────────────────
 check "synteny basic" \
     "$BIN" synteny "$DATA/synteny_seqs.tsv" \
@@ -305,6 +351,45 @@ check "synteny proportional" \
     "$BIN" synteny "$DATA/synteny_seqs.tsv" \
         --blocks-file "$DATA/synteny_blocks.tsv" --proportional --legend "synteny" \
         --title "Synteny Map"
+
+# ── polar ──────────────────────────────────────────────────────────────────────
+check "polar basic" \
+    "$BIN" polar "$DATA/polar.tsv" --r r --theta theta \
+        --title "Polar Plot"
+
+check "polar color-by" \
+    "$BIN" polar "$DATA/polar.tsv" --r r --theta theta --color-by group \
+        --title "Polar Plot"
+
+# ── ternary ────────────────────────────────────────────────────────────────────
+check "ternary basic" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --title "Ternary Plot"
+
+check "ternary color-by" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --a-label "Silicon" --b-label "Oxygen" --c-label "Carbon" \
+        --title "Ternary Composition"
+
+check "ternary normalize" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --normalize \
+        --title "Ternary Normalized"
+
+check "ternary fine grid" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --grid-lines 10 \
+        --title "Ternary Fine Grid"
+
+check "ternary coarse grid" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c \
+        --grid-lines 4 \
+        --title "Ternary Coarse Grid"
+
+check "ternary legend" \
+    "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
+        --legend \
+        --title "Ternary Legend"
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

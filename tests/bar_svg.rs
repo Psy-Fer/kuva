@@ -1,7 +1,7 @@
 use kuva::plot::BarPlot;
 use kuva::backend::svg::SvgBackend;
 use kuva::render::render::render_multiple;
-use kuva::render::layout::Layout;
+use kuva::render::layout::{Layout, ComputedLayout};
 use kuva::render::plots::Plot;
 
 #[test]
@@ -92,4 +92,96 @@ fn test_bar_stacked() {
     assert!(svg.contains("#ff6347"));
     assert!(svg.contains("skyblue"));
     assert!(svg.contains("#ffd700"));
+}
+
+// ── rotated tick label margin tests ───────────────────────────────────────────
+
+// Helper: build a Layout with x_categories and an optional rotation, then return
+// the ComputedLayout so tests can inspect margin_left / margin_right directly.
+fn computed_for_bar(labels: Vec<&str>, angle: Option<f64>) -> ComputedLayout {
+    let mut bar = BarPlot::new();
+    for label in &labels {
+        bar = bar.with_bar(*label, 1.0);
+    }
+    let plots = vec![Plot::Bar(bar)];
+    let mut layout = Layout::auto_from_plots(&plots);
+    if let Some(a) = angle {
+        layout = layout.with_x_tick_rotate(a);
+    }
+    ComputedLayout::from_layout(&layout)
+}
+
+// Negative rotation (-45°): TextAnchor::End — first label extends left of its tick.
+// With a very long first label the left margin must grow to contain it.
+#[test]
+fn test_rotated_neg45_long_first_label_expands_left_margin() {
+    let long_first  = "VeryLongFirstLabelThatWouldClipWithoutFix_AAAA"; // 46 chars
+    let short_first = "A";
+
+    let long_computed  = computed_for_bar(vec![long_first,  "B", "C"], Some(-45.0));
+    let short_computed = computed_for_bar(vec![short_first, "B", "C"], Some(-45.0));
+
+    assert!(
+        long_computed.margin_left > short_computed.margin_left,
+        "margin_left should be larger for a longer first label \
+         (got long={}, short={})",
+        long_computed.margin_left, short_computed.margin_left,
+    );
+
+    // Also verify the SVG renders and contains the label text.
+    let bar = BarPlot::new()
+        .with_bar(long_first, 3.0)
+        .with_bar("B", 2.0)
+        .with_bar("C", 1.0);
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots).with_x_tick_rotate(-45.0);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains(long_first));
+    std::fs::create_dir_all("test_outputs").ok();
+    std::fs::write("test_outputs/bar_long_first_neg45.svg", &svg).unwrap();
+}
+
+// Positive rotation (+45°): TextAnchor::Start — last label extends right of its tick.
+// With a very long last label the right margin must grow to contain it.
+#[test]
+fn test_rotated_pos45_long_last_label_expands_right_margin() {
+    let long_last  = "VeryLongLastLabelThatWouldClipWithoutFix_ZZZZ"; // 45 chars
+    let short_last = "Z";
+
+    let long_computed  = computed_for_bar(vec!["A", "B", long_last],  Some(45.0));
+    let short_computed = computed_for_bar(vec!["A", "B", short_last], Some(45.0));
+
+    assert!(
+        long_computed.margin_right > short_computed.margin_right,
+        "margin_right should be larger for a longer last label \
+         (got long={}, short={})",
+        long_computed.margin_right, short_computed.margin_right,
+    );
+
+    let bar = BarPlot::new()
+        .with_bar("A", 1.0)
+        .with_bar("B", 2.0)
+        .with_bar(long_last, 3.0);
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots).with_x_tick_rotate(45.0);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains(long_last));
+    std::fs::create_dir_all("test_outputs").ok();
+    std::fs::write("test_outputs/bar_long_last_pos45.svg", &svg).unwrap();
+}
+
+// Short labels should not cause unnecessary margin inflation — both rotations.
+#[test]
+fn test_rotated_short_labels_do_not_inflate_margins() {
+    let with_rot    = computed_for_bar(vec!["A", "B", "C"], Some(-45.0));
+    let without_rot = computed_for_bar(vec!["A", "B", "C"], None);
+
+    // Rotation should not make the left margin dramatically larger than the
+    // unrotated version for single-char labels (cos(45°)*1char ≈ 8px vs y-axis labels).
+    let inflation = with_rot.margin_left - without_rot.margin_left;
+    assert!(
+        inflation < 40.0,
+        "Short labels should not inflate margin_left excessively (inflation={})",
+        inflation,
+    );
 }

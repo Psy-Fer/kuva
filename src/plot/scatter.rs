@@ -104,6 +104,10 @@ pub struct ScatterPlot {
     pub marker: MarkerShape,
     pub sizes: Option<Vec<f64>>,
     pub colors: Option<Vec<String>>,
+    /// Fill opacity for markers (0.0 = transparent, 1.0 = solid). `None` = fully opaque.
+    pub marker_opacity: Option<f64>,
+    /// Stroke (outline) width for markers. `None` = no stroke. Stroke color matches fill.
+    pub marker_stroke_width: Option<f64>,
 }
 
 
@@ -131,6 +135,8 @@ impl ScatterPlot {
             marker: MarkerShape::default(),
             sizes: None,
             colors: None,
+            marker_opacity: None,
+            marker_stroke_width: None,
         }
     }
 
@@ -381,6 +387,25 @@ impl ScatterPlot {
         S: Into<String>,
     {
         self.colors = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Set the fill opacity for all markers (0.0 = fully transparent, 1.0 = fully opaque).
+    ///
+    /// Combine with [`with_marker_stroke_width`](Self::with_marker_stroke_width) for the
+    /// classic "open circle" look where overlapping points show density.
+    pub fn with_marker_opacity(mut self, opacity: f64) -> Self {
+        self.marker_opacity = Some(opacity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Draw a solid outline around each marker at the given stroke width.
+    ///
+    /// The stroke color matches the fill color. Pair with a low
+    /// [`with_marker_opacity`](Self::with_marker_opacity) to make individual
+    /// points visible even in dense regions.
+    pub fn with_marker_stroke_width(mut self, width: f64) -> Self {
+        self.marker_stroke_width = Some(width);
         self
     }
 }

@@ -33,7 +33,10 @@ use crate::plot::chord::ChordPlot;
 use crate::plot::sankey::{SankeyPlot, SankeyLinkColor};
 use crate::plot::phylo::{PhyloTree, TreeBranchStyle, TreeOrientation};
 use crate::plot::synteny::{SyntenyPlot, Strand};
-
+use crate::plot::density::DensityPlot;
+use crate::plot::ridgeline::RidgelinePlot;
+use crate::plot::polar::{PolarPlot, PolarMode};
+use crate::plot::ternary::TernaryPlot;
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -60,6 +63,9 @@ pub enum Primitive {
         cy: f64,
         r: f64,
         fill: Color,
+        fill_opacity: Option<f64>,
+        stroke: Option<Color>,
+        stroke_width: Option<f64>,
     },
     Text {
         x: f64,
@@ -99,6 +105,9 @@ pub enum Primitive {
         cy: Vec<f64>,
         r: f64,
         fill: Color,
+        fill_opacity: Option<f64>,
+        stroke: Option<Color>,
+        stroke_width: Option<f64>,
     },
     /// Struct-of-arrays batch of axis-aligned rectangles, each with its own fill.
     /// Produced by heatmap/histogram2d renderers.
@@ -216,10 +225,27 @@ pub fn build_step_path(points: &[(f64, f64)]) -> String {
     path
 }
 
-fn draw_marker(scene: &mut Scene, marker: MarkerShape, cx: f64, cy: f64, size: f64, fill: &str) {
+#[allow(clippy::too_many_arguments)]
+fn draw_marker(
+    scene: &mut Scene,
+    marker: MarkerShape,
+    cx: f64,
+    cy: f64,
+    size: f64,
+    fill: &str,
+    fill_opacity: Option<f64>,
+    stroke: Option<Color>,
+    stroke_width: Option<f64>,
+) {
     match marker {
         MarkerShape::Circle => {
-            scene.add(Primitive::Circle { cx, cy, r: size, fill: fill.into() });
+            scene.add(Primitive::Circle {
+                cx, cy, r: size,
+                fill: fill.into(),
+                fill_opacity,
+                stroke,
+                stroke_width,
+            });
         }
         MarkerShape::Square => {
             scene.add(Primitive::Rect {
@@ -353,6 +379,10 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
         && scatter.colors.is_none()
         && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some());
 
+    // Precompute stroke color once (matches fill, fully opaque) for the slow path.
+    let marker_stroke = scatter.marker_stroke_width
+        .map(|_| Color::from(scatter.color.as_str()));
+
     if uniform_circles {
         let (cx_vec, cy_vec): (Vec<f64>, Vec<f64>) = scatter.data
             .iter()
@@ -363,6 +393,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             cy: cy_vec,
             r: scatter.size,
             fill: Color::from(scatter.color.as_str()),
+            fill_opacity: scatter.marker_opacity,
+            stroke: marker_stroke,
+            stroke_width: scatter.marker_stroke_width,
         });
         // Still need to draw trend line, error bars, etc. below — but no error bars
         // in the fast path, and trend lines are handled after this block.
@@ -374,6 +407,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             let color = scatter.colors.as_ref()
                 .and_then(|c| c.get(i).map(|s| s.as_str()))
                 .unwrap_or(&scatter.color);
+            // Per-point stroke color tracks the per-point fill color.
+            let pt_stroke = scatter.marker_stroke_width
+                .map(|_| Color::from(color));
             draw_marker(
                 scene,
                 scatter.marker,
@@ -381,6 +417,9 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 computed.map_y(point.y),
                 size,
                 color,
+                scatter.marker_opacity,
+                pt_stroke,
+                scatter.marker_stroke_width,
             );
 
         // x error
@@ -629,7 +668,10 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx:  x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color)
+                    fill: Color::from(&series.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -649,7 +691,10 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx:  x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color)
+                    fill: Color::from(&series.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -851,6 +896,10 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
     for (i, group) in boxplot.groups.iter().enumerate() {
         if group.values.is_empty() { continue; }
 
+        let color = boxplot.group_colors.as_ref()
+            .and_then(|c| c.get(i).map(|s| s.as_str()))
+            .unwrap_or(&boxplot.color);
+
         let mut sorted = group.values.clone();
         sorted.sort_by(|a, b| a.total_cmp(b));
 
@@ -879,7 +928,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y: yq3.min(yq1),
             width: (x1 - x0).abs(),
             height: (yq1 - yq3).abs(),
-            fill: Color::from(&boxplot.color),
+            fill: Color::from(color),
             stroke: None,
             stroke_width: None,
             opacity: None,
@@ -902,7 +951,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y1: ylow,
             x2: xmid,
             y2: yq1,
-            stroke: Color::from(&boxplot.color),
+            stroke: Color::from(color),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
@@ -911,7 +960,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             y1: yq3,
             x2: xmid,
             y2: yhigh,
-            stroke: Color::from(&boxplot.color),
+            stroke: Color::from(color),
             stroke_width: 1.0,
             stroke_dasharray: None,
         });
@@ -923,7 +972,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 x2: computed.map_x(x + w / 2.0),
                 y1: y,
                 y2: y,
-                stroke: Color::from(&boxplot.color),
+                stroke: Color::from(color),
                 stroke_width: 1.0,
                 stroke_dasharray: None,
             });
@@ -938,8 +987,11 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 (i + 1) as f64,
                 style,
                 &boxplot.overlay_color,
+                None,
                 boxplot.overlay_size,
                 boxplot.overlay_seed.wrapping_add(i as u64),
+                None,
+                None,
                 scene,
                 computed,
             );
@@ -952,6 +1004,9 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 
     for (i, group) in violin.groups.iter().enumerate() {
         if group.values.is_empty() { continue; }
+        let color = violin.group_colors.as_ref()
+            .and_then(|c| c.get(i).map(|s| s.as_str()))
+            .unwrap_or(&violin.color);
         let x_center = computed.map_x((i + 1) as f64);
 
         // Compute KDE with auto or manual bandwidth
@@ -991,7 +1046,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 
         scene.add(Primitive::Path(Box::new(PathData {
             d: path_data,
-            fill: Some(Color::from(&violin.color)),
+            fill: Some(Color::from(color)),
             stroke: Color::from(&theme.violin_border),
             stroke_width: 0.5,
             opacity: None,
@@ -1007,8 +1062,11 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
                 (i + 1) as f64,
                 style,
                 &violin.overlay_color,
+                None,
                 violin.overlay_size,
                 violin.overlay_seed.wrapping_add(i as u64),
+                None,
+                None,
                 scene,
                 computed,
             );
@@ -1372,17 +1430,36 @@ fn add_strip_points(
     x_center_data: f64,
     style: &StripStyle,
     color: &str,
+    point_colors: Option<&[String]>,
     point_size: f64,
     seed: u64,
+    fill_opacity: Option<f64>,
+    stroke_width: Option<f64>,
     scene: &mut Scene,
     computed: &ComputedLayout,
 ) {
+    // Resolve the fill color for point index `j`, falling back to the group color.
+    let resolve_color = |j: usize| -> &str {
+        point_colors
+            .and_then(|c| c.get(j).map(|s| s.as_str()))
+            .unwrap_or(color)
+    };
+    let make_circle = |j: usize, cx: f64, cy: f64| -> Primitive {
+        let fill_color = resolve_color(j);
+        let stroke = stroke_width.map(|_| Color::from(fill_color));
+        Primitive::Circle {
+            cx, cy, r: point_size,
+            fill: fill_color.into(),
+            fill_opacity,
+            stroke,
+            stroke_width,
+        }
+    };
     match style {
         StripStyle::Center => {
             let cx = computed.map_x(x_center_data);
-            for &v in values {
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+            for (j, &v) in values.iter().enumerate() {
+                scene.add(make_circle(j, cx, computed.map_y(v)));
             }
         }
         StripStyle::Strip { jitter } => {
@@ -1390,25 +1467,23 @@ fn add_strip_points(
             // as the seeded SmallRng it replaces. XOR with golden-ratio constant so
             // seed=0 doesn't produce an all-zero state.
             let mut rng_state = seed ^ 0x9e3779b97f4a7c15u64;
-            for &v in values {
+            for (j, &v) in values.iter().enumerate() {
                 rng_state ^= rng_state << 13;
                 rng_state ^= rng_state >> 7;
                 rng_state ^= rng_state << 17;
                 let rand_val = (rng_state >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
                 let offset: f64 = (rand_val - 0.5) * jitter;
                 let cx = computed.map_x(x_center_data + offset);
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+                scene.add(make_circle(j, cx, computed.map_y(v)));
             }
         }
         StripStyle::Swarm => {
             let y_screen: Vec<f64> = values.iter().map(|&v| computed.map_y(v)).collect();
             let x_offsets = render_utils::beeswarm_positions(&y_screen, point_size);
             let cx_center = computed.map_x(x_center_data);
-            for (i, &v) in values.iter().enumerate() {
-                let cx = cx_center + x_offsets[i];
-                let cy = computed.map_y(v);
-                scene.add(Primitive::Circle { cx, cy, r: point_size, fill: color.into() });
+            for (j, &v) in values.iter().enumerate() {
+                let cx = cx_center + x_offsets[j];
+                scene.add(make_circle(j, cx, computed.map_y(v)));
             }
         }
     }
@@ -1424,8 +1499,11 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             (i + 1) as f64,
             &strip.style,
             color,
+            group.point_colors.as_deref(),
             strip.point_size,
             strip.seed.wrapping_add(i as u64),
+            strip.marker_opacity,
+            strip.marker_stroke_width,
             scene,
             computed,
         );
@@ -1600,9 +1678,12 @@ fn render_legend_entry(entry: &LegendEntry, scene: &mut Scene, legend_x: f64, cu
             cy: swatch_cy,
             r: computed.legend_swatch_r,
             fill: Color::from(&entry.color),
+            fill_opacity: None,
+            stroke: None,
+            stroke_width: None,
         }),
         LegendShape::Marker(marker) => {
-            draw_marker(scene, marker, legend_x + computed.legend_swatch_x + computed.legend_swatch_r, swatch_cy, computed.legend_swatch_r, &entry.color);
+            draw_marker(scene, marker, legend_x + computed.legend_swatch_x + computed.legend_swatch_r, swatch_cy, computed.legend_swatch_r, &entry.color, None, None, None);
         }
         LegendShape::CircleSize(r) => {
             let draw_r = r.min(computed.legend_swatch_half);
@@ -1611,6 +1692,9 @@ fn render_legend_entry(entry: &LegendEntry, scene: &mut Scene, legend_x: f64, cu
                 cy: swatch_cy,
                 r: draw_r,
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             });
         }
     }
@@ -1891,7 +1975,7 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.log2fc);
             let cy = computed.map_y(y_val);
-            scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()) });
+            scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 
@@ -2057,7 +2141,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.x).clamp(band_left, band_right);
             let cy = computed.map_y(y_val);
-            scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color) });
+            scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 
@@ -2418,7 +2502,195 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     scene
 }
 
+fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
+    use render_utils::{silverman_bandwidth, simple_kde};
 
+    // Determine the (x, y) curve points
+    let curve: Vec<(f64, f64)> = if let Some((xs, ys)) = &dp.precomputed {
+        xs.iter().copied().zip(ys.iter().copied()).collect()
+    } else {
+        if dp.data.len() < 2 { return; }
+        let bw = dp.bandwidth.unwrap_or_else(|| silverman_bandwidth(&dp.data));
+        let raw = simple_kde(&dp.data, bw, dp.kde_samples);
+        // Normalise raw KDE sums to probability density
+        let n = dp.data.len() as f64;
+        let norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
+        let iter = raw.into_iter().map(|(x, y)| (x, y * norm));
+        // Clamp to x_range if set (prevents curve from bleeding outside bounded
+        // domains such as [0, 1] for methylation / frequency data).
+        if let Some((lo, hi)) = dp.x_range {
+            iter.filter(|(x, _)| *x >= lo && *x <= hi).collect()
+        } else {
+            iter.collect()
+        }
+    };
+
+    if curve.is_empty() { return; }
+
+    // Map data coords to pixel coords
+    let pts: Vec<(f64, f64)> = curve.iter()
+        .map(|&(x, y)| (computed.map_x(x), computed.map_y(y)))
+        .collect();
+
+    // Build the SVG path string
+    let mut path = String::with_capacity(pts.len() * 16);
+    let mut rb = ryu::Buffer::new();
+    for (i, &(px, py)) in pts.iter().enumerate() {
+        path.push(if i == 0 { 'M' } else { 'L' });
+        path.push(' ');
+        path.push_str(rb.format(round2(px)));
+        path.push(' ');
+        path.push_str(rb.format(round2(py)));
+        path.push(' ');
+    }
+
+    // Emit filled area first (below the outline)
+    if dp.filled {
+        let y_baseline = computed.map_y(0.0);
+        let &(last_px, _) = pts.last().unwrap();
+        let &(first_px, _) = pts.first().unwrap();
+        let fill_path = format!(
+            "{} L {} {} L {} {} Z",
+            path.trim_end(),
+            round2(last_px), round2(y_baseline),
+            round2(first_px), round2(y_baseline),
+        );
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: fill_path,
+            fill: Some(Color::from(&dp.color)),
+            stroke: Color::from("none"),
+            stroke_width: 0.0,
+            opacity: Some(dp.opacity),
+            stroke_dasharray: None,
+        })));
+    }
+
+    // Emit the outline
+    scene.add(Primitive::Path(Box::new(PathData {
+        d: path.trim_end().to_string(),
+        fill: None,
+        stroke: Color::from(&dp.color),
+        stroke_width: dp.stroke_width,
+        opacity: None,
+        stroke_dasharray: dp.line_dash.clone(),
+    })));
+}
+
+fn add_ridgeline(rp: &RidgelinePlot, computed: &ComputedLayout, scene: &mut Scene) {
+    use render_utils::{silverman_bandwidth, simple_kde};
+    use crate::render::palette::Palette;
+
+    let fallback = Palette::category10();
+    let n = rp.groups.len();
+    if n == 0 { return; }
+
+    // pixels per 1 data unit on y axis
+    let cell_h_px = (computed.map_y(0.0) - computed.map_y(1.0)).abs();
+    let ridge_h_px = cell_h_px * (1.0 + rp.overlap);
+
+    for (i, group) in rp.groups.iter().enumerate() {
+        if group.values.len() < 2 { continue; }
+
+        let color = group.color.as_deref()
+            .unwrap_or_else(|| &fallback[i % fallback.len()]);
+
+        let bw = rp.bandwidth
+            .unwrap_or_else(|| silverman_bandwidth(&group.values));
+
+        let raw = simple_kde(&group.values, bw, rp.kde_samples);
+        let max_d = raw.iter().map(|&(_, d)| d).fold(0.0_f64, f64::max);
+        if max_d == 0.0 { continue; }
+
+        // group 0 = top = largest y-data value = N
+        let y_center_data = (n - i) as f64;
+        let y_center_px = computed.map_y(y_center_data);
+
+        let scale = if rp.normalize {
+            let nf = group.values.len() as f64;
+            let norm_factor = 1.0 / (nf * bw * (2.0 * std::f64::consts::PI).sqrt());
+            let max_normed = max_d * norm_factor;
+            if max_normed > 0.0 { ridge_h_px / max_normed } else { 0.0 }
+        } else {
+            ridge_h_px / max_d
+        };
+
+        // Map KDE points to pixel space
+        let pts: Vec<(f64, f64)> = raw.iter().map(|&(x, d)| {
+            let normed = if rp.normalize {
+                let nf = group.values.len() as f64;
+                d / (nf * bw * (2.0 * std::f64::consts::PI).sqrt())
+            } else {
+                d
+            };
+            (computed.map_x(x), y_center_px - normed * scale)
+        }).collect();
+
+        if pts.is_empty() { continue; }
+
+        let mut rb = ryu::Buffer::new();
+
+        // Baseline: full-width horizontal rule at the group's zero-density level.
+        // Uses the theme axis color (not the group color) so it reads as a neutral
+        // reference guide — no color clash or stroke-width mismatch with the ridge
+        // outline where they meet.  Drawn first so the fill sits on top of it.
+        if rp.show_baseline {
+            scene.add(Primitive::Line {
+                x1: computed.margin_left,
+                y1: y_center_px,
+                x2: computed.width - computed.margin_right,
+                y2: y_center_px,
+                stroke: Color::from(&computed.theme.axis_color),
+                stroke_width: computed.axis_stroke_width * 0.5,
+                stroke_dasharray: None,
+            });
+        }
+
+        // Build outline path string
+        let mut outline = String::with_capacity(pts.len() * 16);
+        for (j, &(px, py)) in pts.iter().enumerate() {
+            outline.push(if j == 0 { 'M' } else { 'L' });
+            outline.push(' ');
+            outline.push_str(rb.format(round2(px)));
+            outline.push(' ');
+            outline.push_str(rb.format(round2(py)));
+            outline.push(' ');
+        }
+        let outline = outline.trim_end().to_string();
+
+        // Emit filled area (closed path) — below outline
+        if rp.filled {
+            let first_px = pts.first().unwrap().0;
+            let last_px = pts.last().unwrap().0;
+            let s_last_px = rb.format(round2(last_px)).to_string();
+            let s_y_center = rb.format(round2(y_center_px)).to_string();
+            let s_first_px = rb.format(round2(first_px)).to_string();
+            let fill_path = format!(
+                "{} L {} {} L {} {} Z",
+                outline,
+                s_last_px, s_y_center,
+                s_first_px, s_y_center,
+            );
+            scene.add(Primitive::Path(Box::new(PathData {
+                d: fill_path,
+                fill: Some(Color::from(color)),
+                stroke: Color::from("none"),
+                stroke_width: 0.0,
+                opacity: Some(rp.opacity),
+                stroke_dasharray: None,
+            })));
+        }
+
+        // Emit outline
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: outline,
+            fill: None,
+            stroke: Color::from(color),
+            stroke_width: rp.stroke_width,
+            opacity: None,
+            stroke_dasharray: rp.line_dash.clone(),
+        })));
+    }
+}
 
 pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
@@ -2483,7 +2755,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let r    = dp.min_radius + norm_size.clamp(0.0, 1.0) * (effective_max_r - dp.min_radius);
         let fill = dp.color_map.map(norm_color.clamp(0.0, 1.0));
 
-        scene.add(Primitive::Circle { cx, cy, r, fill: fill.into() });
+        scene.add(Primitive::Circle { cx, cy, r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
     }
 }
 
@@ -2561,6 +2833,9 @@ fn add_dot_stacked_legends(
                 cy: swatch_cy,
                 r: r.min(computed.legend_swatch_half),
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             });
         }
         legend_y += line_height;
@@ -2952,6 +3227,65 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Density(dp) => {
+                if let Some(ref label) = dp.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: dp.color.clone(),
+                        shape: LegendShape::Line,
+                        dasharray: dp.line_dash.clone(),
+                    });
+                }
+            }
+            Plot::Ridgeline(rp) => {
+                if rp.show_legend {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    for (i, group) in rp.groups.iter().enumerate() {
+                        let color = group.color.clone()
+                            .unwrap_or_else(|| fallback[i % fallback.len()].to_string());
+                        entries.push(LegendEntry {
+                            label: group.label.clone(),
+                            color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
+            Plot::Polar(pp) => {
+                if pp.show_legend {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    for (i, series) in pp.series.iter().enumerate() {
+                        if let Some(ref label) = series.label {
+                            let color = series.color.clone()
+                                .unwrap_or_else(|| fallback[i % fallback.len()].to_string());
+                            entries.push(LegendEntry {
+                                label: label.clone(),
+                                color,
+                                shape: LegendShape::Circle,
+                                dasharray: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Plot::Ternary(tp) => {
+                if tp.show_legend {
+                    use crate::render::palette::Palette;
+                    let fallback = Palette::category10();
+                    let groups = tp.unique_groups();
+                    for (i, group) in groups.iter().enumerate() {
+                        entries.push(LegendEntry {
+                            label: group.clone(),
+                            color: fallback[i % fallback.len()].to_string(),
+                            shape: LegendShape::Circle,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -3062,9 +3396,12 @@ pub fn render_legend_at(
                 cy: swatch_cy,
                 r: 5.0,
                 fill: Color::from(&entry.color),
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
             }),
             LegendShape::Marker(marker) => {
-                draw_marker(scene, marker, x + 5.0 + 6.0, swatch_cy, 5.0, &entry.color);
+                draw_marker(scene, marker, x + 5.0 + 6.0, swatch_cy, 5.0, &entry.color, None, None, None);
             }
             LegendShape::CircleSize(r) => {
                 let swatch_half = 8.0;
@@ -3074,6 +3411,9 @@ pub fn render_legend_at(
                     cy: swatch_cy,
                     r: draw_r,
                     fill: Color::from(&entry.color),
+                    fill_opacity: None,
+                    stroke: None,
+                    stroke_width: None,
                 });
             }
         }
@@ -3343,7 +3683,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
             } else {
                 up.dot_empty_color.clone()
             };
-            scene.add(Primitive::Circle { cx, cy, r: dot_r, fill: fill.into() });
+            scene.add(Primitive::Circle { cx, cy, r: dot_r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
         }
     }
 }
@@ -4309,7 +4649,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             match plot {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
-                Plot::Band(_) | Plot::Strip(_) => {
+                Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -4365,7 +4705,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -4450,6 +4790,18 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Synteny(s) => {
                 add_synteny(s, &mut scene, &computed);
             }
+            Plot::Density(d) => {
+                add_density(d, &computed, &mut scene);
+            }
+            Plot::Ridgeline(rp) => {
+                add_ridgeline(rp, &computed, &mut scene);
+            }
+            Plot::Polar(pp) => {
+                add_polar(pp, &mut scene, &computed);
+            }
+            Plot::Ternary(tp) => {
+                add_ternary(tp, &mut scene, &computed);
+            }
         }
     }
 
@@ -4521,7 +4873,8 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
         for plot in primary.iter_mut().chain(secondary.iter_mut()) {
             match plot {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
-                Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) | Plot::Band(_) | Plot::Strip(_) => {
+                Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) | Plot::Band(_) |
+                Plot::Strip(_) | Plot::Density(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -4552,6 +4905,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::Box(b)         => add_boxplot(b, &mut scene, &computed),
             Plot::Violin(v)      => add_violin(v, &mut scene, &computed),
             Plot::Strip(s)       => add_strip(s, &mut scene, &computed),
+            Plot::Density(d)     => add_density(d, &computed, &mut scene),
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed),
             Plot::Waterfall(w)   => add_waterfall(w, &mut scene, &computed),
             Plot::Candlestick(c) => add_candlestick(c, &mut scene, &computed),
@@ -4569,6 +4923,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::Box(b)         => add_boxplot(b, &mut scene, &computed_y2),
             Plot::Violin(v)      => add_violin(v, &mut scene, &computed_y2),
             Plot::Strip(s)       => add_strip(s, &mut scene, &computed_y2),
+            Plot::Density(d)     => add_density(d, &computed_y2, &mut scene),
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed_y2),
             Plot::Waterfall(w)   => add_waterfall(w, &mut scene, &computed_y2),
             Plot::Candlestick(c) => add_candlestick(c, &mut scene, &computed_y2),
@@ -4921,6 +5276,9 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
         cy: py[tree.root],
         r:  3.0,
         fill: Color::from(&tree.branch_color),
+        fill_opacity: None,
+        stroke: None,
+        stroke_width: None,
     });
 
     // ── Step 7: leaf labels ───────────────────────────────────────────────────
@@ -5148,5 +5506,421 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
     add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     scene
+}
+
+// ── Polar Plot ────────────────────────────────────────────────────────────────
+
+fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    let pw = computed.plot_width();
+    let ph = computed.plot_height();
+    let ml = computed.margin_left;
+    let mt = computed.margin_top;
+
+    // Center of the polar circle
+    let cx = ml + pw / 2.0;
+    let cy = mt + ph / 2.0;
+
+    // Available radius (leave a margin for labels)
+    let label_pad = 30.0_f64;
+    let avail_r = (pw / 2.0 - label_pad).min(ph / 2.0 - label_pad).max(20.0);
+
+    let grid_color = Color::from(&*computed.theme.grid_color);
+    let axis_color = Color::from(&*computed.theme.axis_color);
+    let stroke_w = computed.axis_stroke_width;
+    let tick_sz = computed.tick_size;
+
+    // Determine r_max
+    let r_max = pp.r_max.unwrap_or_else(|| {
+        let m = pp.r_max_auto();
+        if m <= 0.0 { 1.0 } else { m }
+    });
+
+    let n_rings = pp.r_grid_lines.unwrap_or(4).max(1);
+
+    // Helper: convert (r_data, theta_deg) → (px, py)
+    let theta_to_px = |r_data: f64, theta_deg: f64| -> (f64, f64) {
+        let r_frac = r_data / r_max;
+        let display_angle = pp.theta_start + theta_deg * if pp.clockwise { 1.0 } else { -1.0 };
+        // svg_angle: angle from east axis in standard math (CCW positive)
+        let svg_angle = (90.0 - display_angle).to_radians();
+        let px = cx + r_frac * avail_r * svg_angle.cos();
+        let py = cy - r_frac * avail_r * svg_angle.sin(); // SVG y is down
+        (round2(px), round2(py))
+    };
+
+    if pp.show_grid {
+        // ── Concentric grid circles ───────────────────────────────────────────
+        for i in 1..=n_rings {
+            let r = avail_r * (i as f64) / (n_rings as f64);
+            let is_outer = i == n_rings;
+            let (stroke, dasharray) = if is_outer {
+                (axis_color.clone(), None)
+            } else {
+                (grid_color.clone(), Some("4,4".to_string()))
+            };
+            let mut d = String::new();
+            let _ = write!(d,
+                "M {},{} A {},{},0,1,0,{},{} A {},{},0,1,0,{},{} Z",
+                round2(cx - r), round2(cy),
+                round2(r), round2(r), round2(cx + r), round2(cy),
+                round2(r), round2(r), round2(cx - r), round2(cy),
+            );
+            scene.add(Primitive::Path(Box::new(PathData {
+                d,
+                fill: None,
+                stroke,
+                stroke_width: stroke_w,
+                opacity: None,
+                stroke_dasharray: dasharray,
+            })));
+
+            // R-value label at the top of each ring
+            if pp.show_r_labels {
+                let r_val = r_max * (i as f64) / (n_rings as f64);
+                let label = if r_val.fract() == 0.0 {
+                    format!("{}", r_val as i64)
+                } else {
+                    format!("{:.2}", r_val)
+                };
+                // Place label slightly to the right of north on each ring
+                let lx = cx + 4.0;
+                let ly = round2(cy - r - 4.0);
+                scene.add(Primitive::Text {
+                    x: lx,
+                    y: ly,
+                    content: label,
+                    size: tick_sz,
+                    anchor: TextAnchor::Start,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
+
+        // ── Spoke lines ───────────────────────────────────────────────────────
+        let n_div = pp.theta_divisions.max(2);
+        for i in 0..n_div {
+            let theta_deg = i as f64 * 360.0 / n_div as f64;
+            let (x2, y2) = theta_to_px(r_max, theta_deg);
+            scene.add(Primitive::Line {
+                x1: round2(cx),
+                y1: round2(cy),
+                x2,
+                y2,
+                stroke: grid_color.clone(),
+                stroke_width: stroke_w,
+                stroke_dasharray: None,
+            });
+
+            // Spoke angle label
+            let (lx, ly) = theta_to_px(r_max * 1.08, theta_deg);
+            // Determine text anchor based on position relative to center
+            let anchor = if lx < cx - 5.0 {
+                TextAnchor::End
+            } else if lx > cx + 5.0 {
+                TextAnchor::Start
+            } else {
+                TextAnchor::Middle
+            };
+            // Format theta value based on the canonical data angle
+            let canonical = if theta_deg == 0.0 {
+                "0°".to_string()
+            } else {
+                format!("{}°", theta_deg as i64)
+            };
+            scene.add(Primitive::Text {
+                x: round2(lx),
+                y: round2(ly + 4.0), // small baseline adjust
+                content: canonical,
+                size: tick_sz,
+                anchor,
+                rotate: None,
+                bold: false,
+            });
+        }
+    }
+
+    // ── Data series ───────────────────────────────────────────────────────────
+    let palette = Palette::category10();
+    for (si, series) in pp.series.iter().enumerate() {
+        if series.r.is_empty() { continue; }
+        let color_str = series.color.clone()
+            .unwrap_or_else(|| palette[si % palette.len()].to_string());
+        let color = Color::from(&*color_str);
+
+        let pts: Vec<(f64, f64)> = series.r.iter().zip(series.theta.iter())
+            .map(|(&r_val, &t_val)| theta_to_px(r_val, t_val))
+            .collect();
+
+        match series.mode {
+            PolarMode::Scatter => {
+                let r_dot = series.marker_size;
+                let stroke = series.marker_stroke_width.map(|_| color.clone());
+                for &(px, py) in &pts {
+                    scene.add(Primitive::Circle {
+                        cx: px, cy: py, r: r_dot,
+                        fill: color.clone(),
+                        fill_opacity: series.marker_opacity,
+                        stroke: stroke.clone(),
+                        stroke_width: series.marker_stroke_width,
+                    });
+                }
+            }
+            PolarMode::Line => {
+                if pts.len() < 2 { continue; }
+                let path_d = build_path(&pts);
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d: path_d,
+                    fill: None,
+                    stroke: color,
+                    stroke_width: series.stroke_width,
+                    opacity: None,
+                    stroke_dasharray: series.line_dash.clone(),
+                })));
+            }
+        }
+    }
+}
+
+// ── Ternary Plot ──────────────────────────────────────────────────────────────
+
+fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    let pw = computed.plot_width();
+    let ph = computed.plot_height();
+    let ml = computed.margin_left;
+    let mt = computed.margin_top;
+
+    let grid_color = Color::from(&*computed.theme.grid_color);
+    let axis_color = Color::from(&*computed.theme.axis_color);
+    let _text_color = Color::from(&*computed.theme.text_color);
+    let stroke_w = computed.axis_stroke_width;
+    let tick_sz = computed.tick_size;
+    let body_sz = computed.body_size;
+
+    // Triangle geometry — equilateral, anchored so top vertex has clearance from title.
+    // edge_pad_top: space above top vertex for its corner label.
+    // edge_pad_bot: space below base for bottom corner labels + tick labels.
+    // edge_pad_side: space either side for left/right tick labels.
+    let edge_pad_top  = tick_sz as f64 * 2.5;
+    let edge_pad_bot  = tick_sz as f64 * 3.5;
+    let edge_pad_side = tick_sz as f64 * 5.0;
+    let avail_w = pw - 2.0 * edge_pad_side;
+    let avail_h = ph - edge_pad_top - edge_pad_bot;
+    // side such that the triangle fits both width and height constraints
+    let side_from_h = avail_h * 2.0 / 3.0_f64.sqrt();
+    let side = side_from_h.min(avail_w).max(20.0);
+    let tri_h = side * 3.0_f64.sqrt() / 2.0;
+
+    let cx = ml + pw / 2.0;
+    // Anchor top vertex at mt + edge_pad_top; derive cy from that.
+    let cy = mt + edge_pad_top + 2.0 * tri_h / 3.0;
+
+    // Vertices: A = top, B = bottom-left, C = bottom-right
+    let va = (round2(cx), round2(cy - tri_h * 2.0 / 3.0));
+    let vb = (round2(cx - side / 2.0), round2(cy + tri_h / 3.0));
+    let vc = (round2(cx + side / 2.0), round2(cy + tri_h / 3.0));
+
+    // Barycentric → pixel
+    let bary_to_px = |a: f64, b: f64, c: f64| -> (f64, f64) {
+        let sum = a + b + c;
+        let (na, nb, nc) = if sum > 1e-10 {
+            (a / sum, b / sum, c / sum)
+        } else {
+            (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
+        };
+        (
+            round2(na * va.0 + nb * vb.0 + nc * vc.0),
+            round2(na * va.1 + nb * vb.1 + nc * vc.1),
+        )
+    };
+
+    let n = tp.grid_lines.max(1);
+
+    // ── Grid lines ────────────────────────────────────────────────────────────
+    if tp.show_grid {
+        for ki in 1..n {
+            let k = ki as f64 / n as f64;
+            let one_minus_k = 1.0 - k;
+
+            // A = k line: from (k, 1-k, 0) to (k, 0, 1-k)
+            let (ax1, ay1) = bary_to_px(k, one_minus_k, 0.0);
+            let (ax2, ay2) = bary_to_px(k, 0.0, one_minus_k);
+            let mut d = String::new();
+            let _ = write!(d, "M {ax1},{ay1} L {ax2},{ay2}");
+            scene.add(Primitive::Path(Box::new(PathData {
+                d,
+                fill: None,
+                stroke: grid_color.clone(),
+                stroke_width: stroke_w,
+                opacity: None,
+                stroke_dasharray: Some("3,3".to_string()),
+            })));
+
+            // B = k line: from (1-k, k, 0) to (0, k, 1-k)
+            let (bx1, by1) = bary_to_px(one_minus_k, k, 0.0);
+            let (bx2, by2) = bary_to_px(0.0, k, one_minus_k);
+            let mut d2 = String::new();
+            let _ = write!(d2, "M {bx1},{by1} L {bx2},{by2}");
+            scene.add(Primitive::Path(Box::new(PathData {
+                d: d2,
+                fill: None,
+                stroke: grid_color.clone(),
+                stroke_width: stroke_w,
+                opacity: None,
+                stroke_dasharray: Some("3,3".to_string()),
+            })));
+
+            // C = k line: from (1-k, 0, k) to (0, 1-k, k)
+            let (ccx1, ccy1) = bary_to_px(one_minus_k, 0.0, k);
+            let (ccx2, ccy2) = bary_to_px(0.0, one_minus_k, k);
+            let mut d3 = String::new();
+            let _ = write!(d3, "M {ccx1},{ccy1} L {ccx2},{ccy2}");
+            scene.add(Primitive::Path(Box::new(PathData {
+                d: d3,
+                fill: None,
+                stroke: grid_color.clone(),
+                stroke_width: stroke_w,
+                opacity: None,
+                stroke_dasharray: Some("3,3".to_string()),
+            })));
+        }
+    }
+
+    // ── Triangle outline ──────────────────────────────────────────────────────
+    let outline = format!(
+        "M {},{} L {},{} L {},{} Z",
+        va.0, va.1, vb.0, vb.1, vc.0, vc.1
+    );
+    scene.add(Primitive::Path(Box::new(PathData {
+        d: outline,
+        fill: None,
+        stroke: axis_color.clone(),
+        stroke_width: stroke_w,
+        opacity: None,
+        stroke_dasharray: None,
+    })));
+
+    // ── Tick labels on edges ──────────────────────────────────────────────────
+    if tp.show_percentages {
+        for ki in 0..=n {
+            let k = ki as f64 / n as f64;
+            let pct = (k * 100.0).round() as i32;
+            let label = format!("{}%", pct);
+
+            // A-axis: left side (AB edge), A=k, reads 0%→100% bottom-to-top (CCW).
+            // Point on AB edge: A=k, B=1-k, C=0.  Labels to the left (End anchor).
+            let (ax, ay) = bary_to_px(k, 1.0 - k, 0.0);
+            scene.add(Primitive::Text {
+                x: round2(ax - 8.0),
+                y: round2(ay + 4.0),
+                content: label.clone(),
+                size: tick_sz,
+                anchor: TextAnchor::End,
+                rotate: None,
+                bold: false,
+            });
+
+            // C-axis: right side (CA edge), C=k, reads 0%→100% top-to-bottom (CCW).
+            // Point on CA edge: A=1-k, B=0, C=k.  Labels to the right (Start anchor).
+            let (ccx, ccy) = bary_to_px(1.0 - k, 0.0, k);
+            scene.add(Primitive::Text {
+                x: round2(ccx + 8.0),
+                y: round2(ccy + 4.0),
+                content: label.clone(),
+                size: tick_sz,
+                anchor: TextAnchor::Start,
+                rotate: None,
+                bold: false,
+            });
+
+            // B-axis: bottom (BC edge), B=k, reads 0%→100% right-to-left (CCW).
+            // Point on BC edge: A=0, B=k, C=1-k.  Labels below (Middle anchor).
+            let (bx, by) = bary_to_px(0.0, k, 1.0 - k);
+            scene.add(Primitive::Text {
+                x: round2(bx),
+                y: round2(by + 16.0),
+                content: label,
+                size: tick_sz,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+                bold: false,
+            });
+        }
+    }
+
+    // ── Corner labels ─────────────────────────────────────────────────────────
+    // Push well clear of the 0% / 100% tick labels that appear at each vertex.
+    let cl_h = body_sz as f64 * 2.2; // vertical clearance from vertex
+    let cl_w = body_sz as f64 * 1.8; // horizontal clearance from vertex
+    // A = top — centred above the top vertex
+    scene.add(Primitive::Text {
+        x: va.0,
+        y: round2(va.1 - cl_h),
+        content: tp.corner_labels[0].clone(),
+        size: body_sz,
+        anchor: TextAnchor::Middle,
+        rotate: None,
+        bold: true,
+    });
+    // B = bottom-left
+    scene.add(Primitive::Text {
+        x: round2(vb.0 - cl_w),
+        y: round2(vb.1 + cl_h),
+        content: tp.corner_labels[1].clone(),
+        size: body_sz,
+        anchor: TextAnchor::End,
+        rotate: None,
+        bold: true,
+    });
+    // C = bottom-right
+    scene.add(Primitive::Text {
+        x: round2(vc.0 + cl_w),
+        y: round2(vc.1 + cl_h),
+        content: tp.corner_labels[2].clone(),
+        size: body_sz,
+        anchor: TextAnchor::Start,
+        rotate: None,
+        bold: true,
+    });
+
+    // ── Data points ───────────────────────────────────────────────────────────
+    if tp.points.is_empty() { return; }
+
+    let palette = Palette::category10();
+    let groups = tp.unique_groups();
+
+    for pt in &tp.points {
+        let (a, b, c) = if tp.normalize {
+            let s = pt.a + pt.b + pt.c;
+            if s > 1e-10 { (pt.a / s, pt.b / s, pt.c / s) } else { (1.0/3.0, 1.0/3.0, 1.0/3.0) }
+        } else {
+            (pt.a, pt.b, pt.c)
+        };
+
+        let color_str = if let Some(ref g) = pt.group {
+            let idx = groups.iter().position(|x| x == g).unwrap_or(0);
+            palette[idx % palette.len()].to_string()
+        } else {
+            palette[0].to_string()
+        };
+        let color = Color::from(&*color_str);
+
+        let stroke = tp.marker_stroke_width.map(|_| color.clone());
+        let (px, py) = bary_to_px(a, b, c);
+        scene.add(Primitive::Circle {
+            cx: px,
+            cy: py,
+            r: tp.marker_size,
+            fill: color,
+            fill_opacity: tp.marker_opacity,
+            stroke,
+            stroke_width: tp.marker_stroke_width,
+        });
+    }
+
 }
 

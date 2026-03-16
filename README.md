@@ -6,9 +6,9 @@
 [![docs.rs](https://docs.rs/kuva/badge.svg)](https://docs.rs/kuva)
 [![Downloads](https://img.shields.io/crates/d/kuva.svg)](https://crates.io/crates/kuva)
 
-A scientific plotting library in Rust. 25 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
+A scientific plotting library in Rust. 29 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
-![All 25 plot types](docs/src/assets/overview/all_plots_complex.svg)
+![All 27 plot types](docs/src/assets/overview/all_plots_complex.svg)
 
 ![kuva terminal — Sankey diagram](docs/src/assets/terminal/sankey.gif)
 
@@ -71,6 +71,9 @@ kuva scatter data.tsv --x x --y y -o plot.svg
 
 # Volcano plot, label top 20 genes
 kuva volcano gene_stats.tsv --name-col gene --x-col log2fc --y-col pvalue --top-n 20
+
+# Ridgeline plot — stacked density curves, one per group
+kuva ridgeline samples.tsv --group-by group --value expression --overlap 0.6
 
 # Box plot rendered directly in the terminal
 kuva box samples.tsv --group-col group --value-col expression --terminal

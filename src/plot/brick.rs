@@ -285,9 +285,11 @@ impl BrickPlot {
             }
         }
 
-        // Phase C: Sort canonicals by frequency desc, assign global letters
+        // Phase C: Sort canonicals by frequency desc, then canonical string asc as tiebreak.
+        // The secondary key ensures identical frequencies always produce the same ordering
+        // (HashMap iteration order is unspecified, so without a tiebreak the result varies).
         let mut sorted_canonicals: Vec<(String, usize)> = canonical_freq.into_iter().collect();
-        sorted_canonicals.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_canonicals.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let mut canonical_to_global: HashMap<String, char> = HashMap::new();
         let mut global_to_display: HashMap<char, String> = HashMap::new();
@@ -297,9 +299,14 @@ impl BrickPlot {
             let global_letter = (b'A' + idx as u8) as char;
             canonical_to_global.insert(canon.clone(), global_letter);
 
-            // Pick the most-frequent original rotation as display label
+            // Pick the most-frequent original rotation as display label.
+            // Tiebreak by rotation string (ascending) so equal-count rotations
+            // always resolve to the same display form regardless of HashMap order.
             let rotations = rotation_freq.get(canon).expect("canon derived from rotation_freq keys");
-            let display = rotations.iter().max_by_key(|(_, count)| *count).expect("rotation_freq entry is non-empty").0.clone();
+            let display = rotations.iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .expect("rotation_freq entry is non-empty")
+                .0.clone();
             global_to_display.insert(global_letter, display.clone());
             global_to_length.insert(global_letter, display.len());
         }

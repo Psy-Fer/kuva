@@ -28,6 +28,8 @@ fn main() {
     bubble();
     per_point_colors();
     multiple_series();
+    marker_semi_transparent();
+    marker_hollow();
 
     println!("Scatter SVGs written to {OUT}/");
 }
@@ -237,6 +239,95 @@ fn multiple_series() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/multiple_series.svg"), svg).unwrap();
+}
+
+/// Three overlapping Gaussian clusters (200 pts each) — semi-transparent fill
+/// + stroke. Solid markers at this density merge into an opaque blob; reducing
+/// opacity lets the darker overlap region reveal where clusters share space.
+fn marker_semi_transparent() {
+    // Simple LCG so no external crate is needed in this example.
+    let mut seed: u64 = 9_123_456_789;
+    let mut lcg = || -> f64 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as f64 / ((1u64 << 31) as f64)
+    };
+    let gauss = |lcg: &mut dyn FnMut() -> f64| -> (f64, f64) {
+        let u1 = lcg().max(1e-10);
+        let u2 = lcg();
+        let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+        let w = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).sin();
+        (z, w)
+    };
+
+    let centers = [(3.0_f64, 4.0_f64), (5.0, 5.5), (4.0, 3.0)];
+    let colors  = ["steelblue", "tomato", "seagreen"];
+    let labels  = ["Cluster A", "Cluster B", "Cluster C"];
+
+    let plots: Vec<Plot> = centers
+        .iter()
+        .zip(colors.iter())
+        .zip(labels.iter())
+        .map(|((&(cx, cy), &color), &label)| {
+            let mut data = Vec::new();
+            for _ in 0..200 {
+                let (z0, z1) = gauss(&mut lcg);
+                data.push((cx + z0 * 0.7, cy + z1 * 0.7));
+            }
+            Plot::Scatter(
+                ScatterPlot::new()
+                    .with_data(data)
+                    .with_color(color)
+                    .with_size(5.0)
+                    .with_marker_opacity(0.25)
+                    .with_marker_stroke_width(0.7)
+                    .with_legend(label),
+            )
+        })
+        .collect();
+
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Overlapping Clusters — semi-transparent markers")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/marker_semi_transparent.svg"), svg).unwrap();
+}
+
+/// 800 uniformly-sampled points in a noisy annulus — hollow open circles.
+///
+/// With solid fill, the ring interior becomes one dark mass. Hollow circles
+/// let you see exactly where the density is concentrated along the arc.
+fn marker_hollow() {
+    let mut seed: u64 = 5_555_555_555;
+    let mut lcg = || -> f64 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as f64 / ((1u64 << 31) as f64)
+    };
+
+    let data: Vec<(f64, f64)> = (0..800)
+        .map(|_| {
+            let angle = lcg() * 2.0 * std::f64::consts::PI;
+            let r = 3.0 + (lcg() - 0.5) * 1.2;
+            (r * angle.cos(), r * angle.sin())
+        })
+        .collect();
+
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_size(4.0)
+        .with_marker_opacity(0.0)
+        .with_marker_stroke_width(1.0);
+
+    let plots = vec![Plot::Scatter(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Hollow open circles — 800 pts in a noisy annulus")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/marker_hollow.svg"), svg).unwrap();
 }
 
 /// Bubble plot — per-point sizes via `.with_sizes()`.

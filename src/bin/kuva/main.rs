@@ -23,6 +23,10 @@ mod chord;
 mod sankey;
 mod phylo;
 mod synteny;
+mod density;
+mod ridgeline;
+mod polar;
+mod ternary;
 
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -61,6 +65,12 @@ enum Commands {
     Sankey(sankey::SankeyArgs),
     Phylo(phylo::PhyloArgs),
     Synteny(synteny::SyntenyArgs),
+    #[command(name = "density")]
+    Density(density::DensityArgs),
+    #[command(name = "ridgeline")]
+    Ridgeline(ridgeline::RidgelineArgs),
+    Polar(polar::PolarArgs),
+    Ternary(ternary::TernaryArgs),
     #[command(hide = true, about = "Print the man page to stdout")]
     Man,
 }
@@ -97,6 +107,10 @@ fn main() {
         Commands::Sankey(args) => sankey::run(args),
         Commands::Phylo(args) => phylo::run(args),
         Commands::Synteny(args) => synteny::run(args),
+        Commands::Density(args) => density::run(args),
+        Commands::Ridgeline(args) => ridgeline::run(args),
+        Commands::Polar(args) => polar::run(args),
+        Commands::Ternary(args) => ternary::run(args),
         Commands::Man => unreachable!(),
     };
 

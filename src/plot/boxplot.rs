@@ -36,6 +36,7 @@ pub struct BoxPlot {
     pub color: String,
     pub width: f64,
     pub legend_label: Option<String>,
+    pub group_colors: Option<Vec<String>>,
     pub overlay: Option<StripStyle>,
     pub overlay_color: String,
     pub overlay_size: f64,
@@ -63,6 +64,7 @@ impl BoxPlot {
             color: "black".into(),
             width: 0.8,
             legend_label: None,
+            group_colors: None,
             overlay: None,
             overlay_color: "rgba(0,0,0,0.45)".into(),
             overlay_size: 3.0,
@@ -102,6 +104,20 @@ impl BoxPlot {
     /// `BoxPlot` instances in a `Vec<Plot>` with different colors.
     pub fn with_color<S: Into<String>>(mut self, color: S) -> Self {
         self.color = color.into();
+        self
+    }
+
+    /// Set per-group fill colors.
+    ///
+    /// Colors are matched to groups by position. If the list is shorter than
+    /// the number of groups, the uniform color from [`with_color`](Self::with_color)
+    /// is used as a fallback.
+    pub fn with_group_colors<S, I>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.group_colors = Some(colors.into_iter().map(|s| s.into()).collect());
         self
     }
 
