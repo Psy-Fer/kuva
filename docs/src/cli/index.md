@@ -5,7 +5,18 @@
 ```
 kuva <SUBCOMMAND> [FILE] [OPTIONS]
 ```
+---
+## Installation
 
+### Using Cargo
+If you have [Rust and Cargo](https://rustup.rs/) installed, you can install the `kuva` CLI directly:
+
+```bash
+# Install with default features (SVG support)
+cargo install kuva --features cli
+
+# Install with all features (SVG, PNG, and PDF support)
+cargo install kuva --features cli,full
 ---
 
 ## Building
