@@ -64,6 +64,6 @@ pub use ridgeline::{RidgelinePlot, RidgelineGroup};
 pub use polar::{PolarPlot, PolarSeries, PolarMode};
 pub use ternary::{TernaryPlot, TernaryPoint};
 pub use forest::{ForestPlot, ForestRow};
-pub use scatter3d::{Scatter3DPlot, Scatter3DPoint};
+pub use scatter3d::{Scatter3DPlot, Scatter3DPoint, DataRanges3D};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

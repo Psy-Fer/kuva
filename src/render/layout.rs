@@ -67,7 +67,7 @@ fn tick_format_degree(v: f64) -> String {
     }
 }
 
-pub(crate) fn tick_format_auto(v: f64) -> String {
+fn tick_format_auto(v: f64) -> String {
     if v.fract().abs() < 1e-9 {
         format!("{:.0}", v)
     } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {

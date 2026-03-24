@@ -22,6 +22,37 @@ impl Default for View3D {
     }
 }
 
+impl View3D {
+    /// Compute the rotation matrix row 1 (depth axis) for these view angles.
+    /// Used to determine depth without building a full Projection3D.
+    fn depth_row(&self) -> [f64; 3] {
+        let az = self.azimuth.to_radians();
+        let el = self.elevation.to_radians();
+        [az.sin() * el.cos(), az.cos() * el.cos(), -el.sin()]
+    }
+
+    /// Find the bottom-face corner closest to the viewer (smallest depth).
+    /// Returns the normalized (x, y) signs of that corner, e.g. (0.5, -0.5).
+    /// This is the "open front corner" where axes originate.
+    pub fn front_bottom_corner(&self) -> (f64, f64) {
+        let row1 = self.depth_row();
+        let mut best_x = -0.5_f64;
+        let mut best_y = -0.5_f64;
+        let mut best_d = f64::INFINITY;
+        for &nx in &[-0.5_f64, 0.5] {
+            for &ny in &[-0.5_f64, 0.5] {
+                let d = row1[0] * nx + row1[1] * ny + row1[2] * (-0.5);
+                if d < best_d {
+                    best_d = d;
+                    best_x = nx;
+                    best_y = ny;
+                }
+            }
+        }
+        (best_x, best_y)
+    }
+}
+
 /// Pre-computed 3D→2D orthographic projection.
 ///
 /// Projects data-space (x, y, z) coordinates to pixel-space (screen_x, screen_y, depth).

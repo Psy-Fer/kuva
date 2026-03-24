@@ -1643,32 +1643,16 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
 }
 
 fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout) {
-    use crate::render::projection::{View3D, Projection3D};
-    use crate::render::layout::tick_format_auto;
+    use crate::render::projection::Projection3D;
+    use crate::render::layout::TickFormat;
 
-    if s.data.is_empty() { return; }
-
-    // Compute data ranges
-    let mut x_min = f64::INFINITY;
-    let mut x_max = f64::NEG_INFINITY;
-    let mut y_min = f64::INFINITY;
-    let mut y_max = f64::NEG_INFINITY;
-    let mut z_min = f64::INFINITY;
-    let mut z_max = f64::NEG_INFINITY;
-
-    for p in &s.data {
-        x_min = x_min.min(p.x);
-        x_max = x_max.max(p.x);
-        y_min = y_min.min(p.y);
-        y_max = y_max.max(p.y);
-        z_min = z_min.min(p.z);
-        z_max = z_max.max(p.z);
-    }
-
-    // Pad degenerate ranges
-    if (x_max - x_min).abs() < 1e-12 { x_min -= 0.5; x_max += 0.5; }
-    if (y_max - y_min).abs() < 1e-12 { y_min -= 0.5; y_max += 0.5; }
-    if (z_max - z_min).abs() < 1e-12 { z_min -= 0.5; z_max += 0.5; }
+    let ranges = match s.data_ranges() {
+        Some(r) => r,
+        None => return,
+    };
+    let (x_min, x_max) = ranges.x;
+    let (y_min, y_max) = ranges.y;
+    let (z_min, z_max) = ranges.z;
 
     let plot_w = computed.plot_width();
     let plot_h = computed.plot_height();
@@ -1676,33 +1660,15 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
     let plot_cx = computed.margin_left + plot_w / 2.0;
     let plot_cy = computed.margin_top + plot_h / 2.0;
 
-    let view = View3D { azimuth: s.azimuth, elevation: s.elevation };
+    // Find the front corner using only the rotation matrix (no full projection needed)
+    let (fc_x, fc_y) = s.view.front_bottom_corner();
 
-    // Build a temporary projection to find the front corner, then rebuild
-    // with axis ranges flipped so that data-min is always at the open corner.
-    let tmp_proj = Projection3D::new(
-        view, (0.0, 1.0), (0.0, 1.0), (0.0, 1.0),
-        plot_cx, plot_cy, plot_size,
-    );
-    // Front corner = closest bottom corner to viewer
-    let corners_bottom: [[f64; 3]; 4] = [
-        [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5],
-        [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
-    ];
-    let mut fc_x_sign = -0.5_f64;
-    let mut fc_y_sign = -0.5_f64;
-    let mut best_d = f64::INFINITY;
-    for c in &corners_bottom {
-        let (_, _, d) = tmp_proj.project_normalized(c[0], c[1], c[2]);
-        if d < best_d { best_d = d; fc_x_sign = c[0]; fc_y_sign = c[1]; }
-    }
-
-    // If front corner is at +0.5 on an axis, flip that range so min→+0.5 (front)
-    let x_range = if fc_x_sign > 0.0 { (x_max, x_min) } else { (x_min, x_max) };
-    let y_range = if fc_y_sign < 0.0 { (y_max, y_min) } else { (y_min, y_max) };
+    // Flip axis ranges so data-min is always at the open front corner
+    let x_range = if fc_x > 0.0 { (x_max, x_min) } else { (x_min, x_max) };
+    let y_range = if fc_y < 0.0 { (y_max, y_min) } else { (y_min, y_max) };
 
     let proj = Projection3D::new(
-        view, x_range, y_range, (z_min, z_max),
+        s.view, x_range, y_range, (z_min, z_max),
         plot_cx, plot_cy, plot_size,
     );
 
@@ -1752,14 +1718,15 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
     ];
 
     // Classify faces as front-facing (normal · view_dir > 0)
-    let face_front: Vec<bool> = face_normals.iter().map(|n| {
+    let face_front: [bool; 6] = std::array::from_fn(|i| {
+        let n = &face_normals[i];
         n[0]*view_dir[0] + n[1]*view_dir[1] + n[2]*view_dir[2] > 0.0
-    }).collect();
+    });
 
-    let edges: Vec<Edge> = edge_indices.iter().map(|&(a, b)| Edge {
-        a: corners[a],
-        b: corners[b],
-    }).collect();
+    let edges: [Edge; 12] = std::array::from_fn(|i| {
+        let (a, b) = edge_indices[i];
+        Edge { a: corners[a], b: corners[b] }
+    });
 
     // Open-box style (like matplotlib): only draw edges that border at least
     // one back-facing face.  Edges where ALL adjacent faces are front-facing
@@ -1815,14 +1782,9 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
         if face_front[fi] { continue; } // only fill back-facing panes
         let pts: Vec<(f64, f64)> = fc.iter().map(|&ci| {
             let (sx, sy, _) = proj.project_normalized(corners[ci][0], corners[ci][1], corners[ci][2]);
-            (round2(sx), round2(sy))
+            (sx, sy)
         }).collect();
-        let mut d = String::with_capacity(80);
-        for (j, &(px, py)) in pts.iter().enumerate() {
-            let mut rb = ryu::Buffer::new();
-            if j == 0 { d.push('M'); } else { d.push('L'); }
-            d.push_str(rb.format(px)); d.push(','); d.push_str(rb.format(py));
-        }
+        let mut d = build_path(&pts);
         d.push('Z');
         scene.add(Primitive::Path(Box::new(PathData {
             d,
@@ -1837,87 +1799,36 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
     // ── Grid lines on all 3 back-facing walls ──────────────────────────
     if s.show_grid && grid_n > 0 {
         let grid_color = Color::from("#cccccc");
+        // Table-driven grid: (face_index, line1_endpoints_fn, line2_endpoints_fn).
+        // Top face (+z, index 1) is omitted — it is always front-facing at
+        // positive elevation and would occlude data points.
+        type EndpointFn = fn(f64) -> ([f64; 3], [f64; 3]);
+        let grid_faces: [(usize, EndpointFn, EndpointFn); 5] = [
+            // bottom (-z): vary along x and y
+            (0, |t| ([-0.5, t, -0.5], [0.5, t, -0.5]), |t| ([t, -0.5, -0.5], [t, 0.5, -0.5])),
+            // -x wall: vary along y and z
+            (2, |t| ([-0.5, t, -0.5], [-0.5, t, 0.5]), |t| ([-0.5, -0.5, t], [-0.5, 0.5, t])),
+            // +x wall
+            (3, |t| ([0.5, t, -0.5], [0.5, t, 0.5]), |t| ([0.5, -0.5, t], [0.5, 0.5, t])),
+            // -y wall: vary along x and z
+            (4, |t| ([t, -0.5, -0.5], [t, -0.5, 0.5]), |t| ([-0.5, -0.5, t], [0.5, -0.5, t])),
+            // +y wall
+            (5, |t| ([t, 0.5, -0.5], [t, 0.5, 0.5]), |t| ([-0.5, 0.5, t], [0.5, 0.5, t])),
+        ];
+
         for i in 0..=grid_n {
             let t = i as f64 / grid_n as f64 - 0.5;
-
-            // Bottom face (-z): grid if back-facing
-            if !face_front[0] {
-                let (x1, y1, _) = proj.project_normalized(-0.5, t, -0.5);
-                let (x2, y2, _) = proj.project_normalized(0.5, t, -0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-                let (x1, y1, _) = proj.project_normalized(t, -0.5, -0.5);
-                let (x2, y2, _) = proj.project_normalized(t, 0.5, -0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-            }
-
-            // -x wall: grid lines along Y and Z
-            if !face_front[2] {
-                let (x1, y1, _) = proj.project_normalized(-0.5, t, -0.5);
-                let (x2, y2, _) = proj.project_normalized(-0.5, t, 0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-                let (x1, y1, _) = proj.project_normalized(-0.5, -0.5, t);
-                let (x2, y2, _) = proj.project_normalized(-0.5, 0.5, t);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-            }
-
-            // +x wall: grid lines along Y and Z
-            if !face_front[3] {
-                let (x1, y1, _) = proj.project_normalized(0.5, t, -0.5);
-                let (x2, y2, _) = proj.project_normalized(0.5, t, 0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-                let (x1, y1, _) = proj.project_normalized(0.5, -0.5, t);
-                let (x2, y2, _) = proj.project_normalized(0.5, 0.5, t);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-            }
-
-            // -y wall: grid lines along X and Z
-            if !face_front[4] {
-                let (x1, y1, _) = proj.project_normalized(t, -0.5, -0.5);
-                let (x2, y2, _) = proj.project_normalized(t, -0.5, 0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-                let (x1, y1, _) = proj.project_normalized(-0.5, -0.5, t);
-                let (x2, y2, _) = proj.project_normalized(0.5, -0.5, t);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-            }
-
-            // +y wall: grid lines along X and Z
-            if !face_front[5] {
-                let (x1, y1, _) = proj.project_normalized(t, 0.5, -0.5);
-                let (x2, y2, _) = proj.project_normalized(t, 0.5, 0.5);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
-                let (x1, y1, _) = proj.project_normalized(-0.5, 0.5, t);
-                let (x2, y2, _) = proj.project_normalized(0.5, 0.5, t);
-                scene.add(Primitive::Line {
-                    x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
-                    stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
-                });
+            for &(fi, line_a, line_b) in &grid_faces {
+                if face_front[fi] { continue; }
+                for line_fn in [line_a, line_b] {
+                    let (a, b) = line_fn(t);
+                    let (x1, y1, _) = proj.project_normalized(a[0], a[1], a[2]);
+                    let (x2, y2, _) = proj.project_normalized(b[0], b[1], b[2]);
+                    scene.add(Primitive::Line {
+                        x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
+                        stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
+                    });
+                }
             }
         }
     }
@@ -1968,9 +1879,6 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
 
     // Find the open front corner: the bottom corner where all adjacent faces
     // are front-facing (closest to viewer). X and Y axes emanate from here.
-    let fc_x = fc_x_sign; // ±0.5 — the front corner's X in normalized space
-    let fc_y = fc_y_sign; // ±0.5 — the front corner's Y in normalized space
-
     // X-axis ticks along bottom edge at Y=fc_y (the front-corner side).
     // Use the same normalized mapping as the projection: t = (val-min)/span - 0.5
     let x_ticks = render_utils::generate_ticks(x_min, x_max, grid_n.max(3));
@@ -1992,7 +1900,7 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
             let ly = sy + ndy * (tick_len + label_gap);
             scene.add(Primitive::Text {
                 x: round2(lx), y: round2(ly + 3.0),
-                content: tick_format_auto(tick_val),
+                content: TickFormat::Auto.format(tick_val),
                 size: tick_size, anchor: TextAnchor::Middle,
                 rotate: Some(angle_deg(edx, edy)),
                 bold: false,
@@ -2031,7 +1939,7 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
             let ly = sy + ndy * (tick_len + label_gap);
             scene.add(Primitive::Text {
                 x: round2(lx), y: round2(ly + 3.0),
-                content: tick_format_auto(tick_val),
+                content: TickFormat::Auto.format(tick_val),
                 size: tick_size, anchor: TextAnchor::Middle,
                 rotate: Some(angle_deg(edx, edy)),
                 bold: false,
@@ -2091,7 +1999,7 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
             scene.add(Primitive::Text {
                 x: round2(sx + ndx * (tick_len + label_gap)),
                 y: round2(sy + ndy * (tick_len + label_gap) + 4.0),
-                content: tick_format_auto(tick_val),
+                content: TickFormat::Auto.format(tick_val),
                 size: tick_size,
                 anchor: anchor_for(ndx),
                 rotate: None,
@@ -2142,23 +2050,29 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
     };
     let depth_span = (depth_max - depth_min).max(1e-12);
 
+    // Hoist loop-invariant values
+    let stroke_color = s.marker_stroke_width.map(|_| Color::from("#333333"));
+    let base_opacity = s.marker_opacity.unwrap_or(1.0);
+
     for pp in &projected {
         let i = pp.idx;
         let point_size = s.sizes.as_ref().and_then(|v| v.get(i).copied()).unwrap_or(s.size);
 
-        let fill_color = if has_z_cmap {
+        // Avoid per-point String allocation: borrow when possible, only allocate for colormaps
+        let owned_color: String;
+        let fill_ref: &str = if has_z_cmap {
             let norm = (s.data[i].z - z_min) / (z_span + f64::EPSILON);
-            s.z_colormap.as_ref().unwrap().map(norm.clamp(0.0, 1.0))
+            owned_color = s.z_colormap.as_ref().unwrap().map(norm.clamp(0.0, 1.0));
+            &owned_color
         } else if let Some(ref colors) = s.colors {
-            colors.get(i).cloned().unwrap_or_else(|| s.color.clone())
+            colors.get(i).map(|c| c.as_str()).unwrap_or(&s.color)
         } else {
-            s.color.clone()
+            &s.color
         };
 
         let opacity = if s.depth_shade {
-            let t = (pp.depth - depth_min) / depth_span; // 0=front, 1=back
-            let alpha = 1.0 - t * 0.7; // front=1.0, back=0.3
-            Some(s.marker_opacity.unwrap_or(1.0) * alpha)
+            let t = (pp.depth - depth_min) / depth_span;
+            Some(base_opacity * (1.0 - t * 0.7))
         } else {
             s.marker_opacity
         };
@@ -2169,9 +2083,9 @@ fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout
             round2(pp.sx),
             round2(pp.sy),
             point_size,
-            &fill_color,
+            fill_ref,
             opacity,
-            s.marker_stroke_width.map(|_| Color::from("#333333")),
+            stroke_color.clone(),
             s.marker_stroke_width,
         );
     }

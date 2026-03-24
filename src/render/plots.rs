@@ -703,9 +703,8 @@ impl Plot {
             }
             Plot::Scatter3D(s) => {
                 let cmap = s.z_colormap.as_ref()?;
-                if s.data.is_empty() { return None; }
-                let z_min = s.data.iter().map(|p| p.z).fold(f64::INFINITY, f64::min);
-                let z_max = s.data.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max);
+                let ranges = s.data_ranges()?;
+                let (z_min, z_max) = ranges.z;
                 if !z_min.is_finite() || !z_max.is_finite() { return None; }
                 let cmap = cmap.clone();
                 let label = s.z_label.clone();

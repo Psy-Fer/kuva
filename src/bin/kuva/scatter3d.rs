@@ -11,6 +11,14 @@ use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
+fn parse_colormap(name: &str) -> ColorMap {
+    match name {
+        "inferno" => ColorMap::Inferno,
+        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
+        _ => ColorMap::Viridis,
+    }
+}
+
 /// 3D scatter plot with orthographic projection.
 #[derive(Args, Debug)]
 pub struct Scatter3DArgs {
@@ -77,6 +85,29 @@ pub struct Scatter3DArgs {
     pub base: BaseArgs,
 }
 
+/// Apply shared optional args to a plot builder.
+fn apply_options(mut plot: Scatter3DPlot, args: &Scatter3DArgs, z_cmap: &Option<ColorMap>) -> Scatter3DPlot {
+    if let Some(ref c) = args.color {
+        plot = plot.with_color(c.clone());
+    }
+    if let Some(s) = args.size {
+        plot = plot.with_size(s);
+    }
+    if let Some(ref xl) = args.x_label {
+        plot = plot.with_x_label(xl.clone());
+    }
+    if let Some(ref yl) = args.y_label {
+        plot = plot.with_y_label(yl.clone());
+    }
+    if let Some(ref zl) = args.z_label {
+        plot = plot.with_z_label(zl.clone());
+    }
+    if let Some(ref cm) = z_cmap {
+        plot = plot.with_z_colormap(cm.clone());
+    }
+    plot
+}
+
 pub fn run(args: Scatter3DArgs) -> Result<(), String> {
     let table = DataTable::parse(
         args.input.input.as_deref(),
@@ -84,11 +115,7 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
         args.input.delimiter,
     )?;
 
-    let z_cmap = args.z_color.as_deref().map(|name| match name {
-        "inferno" => ColorMap::Inferno,
-        "grayscale" | "greyscale" => ColorMap::Grayscale,
-        _ => ColorMap::Viridis,
-    });
+    let z_cmap = args.z_color.as_deref().map(parse_colormap);
 
     if let Some(ref cb) = args.color_by {
         let pal = Palette::category10();
@@ -106,7 +133,7 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
                 .map(|((x, y), z)| (x, y, z))
                 .collect();
 
-            let mut plot = Scatter3DPlot::new()
+            let plot = Scatter3DPlot::new()
                 .with_data(data)
                 .with_color(&pal[i % pal.len()])
                 .with_azimuth(args.azimuth)
@@ -115,23 +142,7 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
                 .with_depth_shade(args.depth_shade)
                 .with_z_axis_right(!args.z_axis_left);
 
-            if let Some(s) = args.size {
-                plot = plot.with_size(s);
-            }
-            if let Some(ref xl) = args.x_label {
-                plot = plot.with_x_label(xl.clone());
-            }
-            if let Some(ref yl) = args.y_label {
-                plot = plot.with_y_label(yl.clone());
-            }
-            if let Some(ref zl) = args.z_label {
-                plot = plot.with_z_label(zl.clone());
-            }
-            if let Some(ref cm) = z_cmap {
-                plot = plot.with_z_colormap(cm.clone());
-            }
-
-            plots.push(Plot::Scatter3D(plot));
+            plots.push(Plot::Scatter3D(apply_options(plot, &args, &z_cmap)));
         }
 
         let layout = Layout::auto_from_plots(&plots);
@@ -149,33 +160,14 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
             .map(|((x, y), z)| (x, y, z))
             .collect();
 
-        let mut plot = Scatter3DPlot::new()
+        let plot = Scatter3DPlot::new()
             .with_data(data)
             .with_azimuth(args.azimuth)
             .with_elevation(args.elevation)
             .with_depth_shade(args.depth_shade)
-                .with_z_axis_right(!args.z_axis_left);
+            .with_z_axis_right(!args.z_axis_left);
 
-        if let Some(ref c) = args.color {
-            plot = plot.with_color(c.clone());
-        }
-        if let Some(s) = args.size {
-            plot = plot.with_size(s);
-        }
-        if let Some(ref xl) = args.x_label {
-            plot = plot.with_x_label(xl.clone());
-        }
-        if let Some(ref yl) = args.y_label {
-            plot = plot.with_y_label(yl.clone());
-        }
-        if let Some(ref zl) = args.z_label {
-            plot = plot.with_z_label(zl.clone());
-        }
-        if let Some(cm) = z_cmap {
-            plot = plot.with_z_colormap(cm);
-        }
-
-        let plots = vec![Plot::Scatter3D(plot)];
+        let plots = vec![Plot::Scatter3D(apply_options(plot, &args, &z_cmap))];
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let scene = render_multiple(plots, layout);

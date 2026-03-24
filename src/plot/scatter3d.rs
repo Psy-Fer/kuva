@@ -1,5 +1,6 @@
 use crate::plot::heatmap::ColorMap;
 use crate::plot::scatter::MarkerShape;
+use crate::render::projection::View3D;
 
 /// A single 3D data point.
 #[derive(Debug, Clone, Copy)]
@@ -7,6 +8,14 @@ pub struct Scatter3DPoint {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+/// Axis-aligned bounding box for 3D data.
+#[derive(Debug, Clone, Copy)]
+pub struct DataRanges3D {
+    pub x: (f64, f64),
+    pub y: (f64, f64),
+    pub z: (f64, f64),
 }
 
 /// Builder for a 3D scatter plot.
@@ -54,17 +63,15 @@ pub struct Scatter3DPlot {
     pub marker_opacity: Option<f64>,
     /// Marker stroke width.
     pub marker_stroke_width: Option<f64>,
-    /// Azimuth viewing angle in degrees. Default `-60.0`.
-    pub azimuth: f64,
-    /// Elevation viewing angle in degrees. Default `30.0`.
-    pub elevation: f64,
+    /// Viewing angles (azimuth + elevation).
+    pub view: View3D,
     /// X-axis label.
     pub x_label: Option<String>,
     /// Y-axis label.
     pub y_label: Option<String>,
     /// Z-axis label.
     pub z_label: Option<String>,
-    /// Show grid lines on floor plane. Default `true`.
+    /// Show grid lines on back walls. Default `true`.
     pub show_grid: bool,
     /// Show wireframe bounding box. Default `true`.
     pub show_box: bool,
@@ -96,8 +103,7 @@ impl Scatter3DPlot {
             colors: None,
             marker_opacity: None,
             marker_stroke_width: None,
-            azimuth: -60.0,
-            elevation: 30.0,
+            view: View3D::default(),
             x_label: None,
             y_label: None,
             z_label: None,
@@ -108,6 +114,31 @@ impl Scatter3DPlot {
             z_colormap: None,
             z_axis_right: true,
         }
+    }
+
+    /// Compute axis-aligned data ranges. Returns `None` if data is empty.
+    /// Degenerate ranges (min == max) are padded by ±0.5.
+    pub fn data_ranges(&self) -> Option<DataRanges3D> {
+        if self.data.is_empty() { return None; }
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        let mut z_min = f64::INFINITY;
+        let mut z_max = f64::NEG_INFINITY;
+        for p in &self.data {
+            x_min = x_min.min(p.x); x_max = x_max.max(p.x);
+            y_min = y_min.min(p.y); y_max = y_max.max(p.y);
+            z_min = z_min.min(p.z); z_max = z_max.max(p.z);
+        }
+        if (x_max - x_min).abs() < 1e-12 { x_min -= 0.5; x_max += 0.5; }
+        if (y_max - y_min).abs() < 1e-12 { y_min -= 0.5; y_max += 0.5; }
+        if (z_max - z_min).abs() < 1e-12 { z_min -= 0.5; z_max += 0.5; }
+        Some(DataRanges3D {
+            x: (x_min, x_max),
+            y: (y_min, y_max),
+            z: (z_min, z_max),
+        })
     }
 
     /// Set data from (x, y, z) tuples.
@@ -182,13 +213,19 @@ impl Scatter3DPlot {
 
     /// Set the azimuth viewing angle in degrees (default -60).
     pub fn with_azimuth(mut self, deg: f64) -> Self {
-        self.azimuth = deg;
+        self.view.azimuth = deg;
         self
     }
 
     /// Set the elevation viewing angle in degrees (default 30).
     pub fn with_elevation(mut self, deg: f64) -> Self {
-        self.elevation = deg;
+        self.view.elevation = deg;
+        self
+    }
+
+    /// Set both viewing angles at once.
+    pub fn with_view(mut self, view: View3D) -> Self {
+        self.view = view;
         self
     }
 
@@ -210,7 +247,7 @@ impl Scatter3DPlot {
         self
     }
 
-    /// Toggle floor grid lines.
+    /// Toggle grid lines on back walls.
     pub fn with_show_grid(mut self, show: bool) -> Self {
         self.show_grid = show;
         self
