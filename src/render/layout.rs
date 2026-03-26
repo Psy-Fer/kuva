@@ -1394,7 +1394,7 @@ impl ComputedLayout {
             }
         }
         if layout.show_colorbar {
-            margin_right += 85.0 * s; // 20px bar + 50px labels + 15px gap
+            margin_right += 90.0 * s; // 20px label-gap + 20px bar + 5px tick-mark + 30px tick labels + 15px gap
         }
         let plot_width = 600.0;
         let plot_height = 450.0;
@@ -1519,7 +1519,7 @@ impl ComputedLayout {
             annotation_arrow_len: 8.0 * s,
             annotation_arrow_half_w: 4.0 * s,
             colorbar_bar_width: 20.0 * s,
-            colorbar_x_inset: 70.0 * s,
+            colorbar_x_inset: 65.0 * s,
             x_scale: 0.0,
             x_offset: 0.0,
             y_scale: 0.0,

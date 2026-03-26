@@ -2206,15 +2206,18 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
         });
     }
 
-    // Optional label above the bar
+    // Label rotated -90° to the left of the bar (reads bottom-to-top).
+    // Left placement keeps it away from tick labels and avoids right-edge clipping.
     if let Some(ref label) = info.label {
+        let label_x = bar_x - computed.tick_size as f64 * 0.5 - 4.0;
+        let label_y = bar_y + bar_height / 2.0;
         scene.add(Primitive::Text {
-            x: bar_x + bar_width / 2.0,
-            y: bar_y - 6.0,
+            x: label_x,
+            y: label_y,
             content: label.clone(),
             size: computed.tick_size,
             anchor: TextAnchor::Middle,
-            rotate: None,
+            rotate: Some(-90.0),
             bold: false,
         });
     }
@@ -3169,19 +3172,6 @@ fn add_dot_stacked_legends(
     let bar_width = computed.colorbar_bar_width;
     let colorbar_top = box_top - legend_padding + size_legend_height + gap;
 
-    // Colorbar label/title
-    if let Some(ref label) = info.label {
-        scene.add(Primitive::Text {
-            x: bar_x + bar_width * 0.5,
-            y: colorbar_top - 6.0,
-            content: label.clone(),
-            size: computed.tick_size,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-            bold: false,
-        });
-    }
-
     let bar_y = colorbar_top;
     let bar_height = (computed.height - computed.margin_bottom - bar_y - gap).max(50.0);
 
@@ -3239,6 +3229,21 @@ fn add_dot_stacked_legends(
             size: computed.tick_size,
             anchor: TextAnchor::Start,
             rotate: None,
+            bold: false,
+        });
+    }
+
+    // Label rotated -90° to the left of the bar (same convention as add_colorbar).
+    if let Some(ref label) = info.label {
+        let label_x = bar_x - computed.tick_size as f64 * 0.5 - 4.0;
+        let label_y = bar_y + bar_height / 2.0;
+        scene.add(Primitive::Text {
+            x: label_x,
+            y: label_y,
+            content: label.clone(),
+            size: computed.tick_size,
+            anchor: TextAnchor::Middle,
+            rotate: Some(-90.0),
             bold: false,
         });
     }
