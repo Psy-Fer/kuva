@@ -24,6 +24,7 @@ fn main() {
     basic();
     marker_density();
     theta_labels();
+    r_min_antenna();
 
     println!("Polar SVGs written to {OUT}/");
 }
@@ -151,4 +152,34 @@ fn theta_labels() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/custom_x_ticks.svg"), svg).unwrap();
+}
+
+/// Simulated antenna radiation pattern in dBi — r values run from -20 to 0.
+/// r_min=-20 maps the minimum to the plot centre; the centre label shows "-20".
+fn r_min_antenna() {
+    let n = 360usize;
+    let theta: Vec<f64> = (0..=n).map(|i| i as f64).collect();
+
+    // Main lobe centred at 0°: 0 dBi. Back-lobes and nulls drop to -20 dBi.
+    // Pattern: 0 dBi * |cos(θ/2)|^4 + secondary lobe * |cos(θ - 180°)|^2 - 20
+    let r: Vec<f64> = theta.iter().map(|&t| {
+        let rad = t.to_radians();
+        let main  = (rad / 2.0).cos().powi(4);
+        let back  = (rad - std::f64::consts::PI).cos().abs().powi(2) * 0.15;
+        ((main + back) * 20.0 - 20.0).clamp(-20.0, 0.0)
+    }).collect();
+
+    let plot = PolarPlot::new()
+        .with_series_line(r, theta)
+        .with_color("#2171b5")
+        .with_r_min(-20.0)
+        .with_r_max(0.0)
+        .with_r_grid_lines(4);
+
+    let plots = vec![Plot::Polar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Antenna Radiation Pattern (dBi)");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/r_min_antenna.svg"), svg).unwrap();
 }
