@@ -20,6 +20,10 @@ png  = ["dep:resvg"]
 pdf  = ["dep:svg2pdf"]
 cli  = ["dep:clap", "dep:clap_mangen"]
 full = ["png", "pdf"]
+# Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
+# Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
+# Run once: cargo build --bin kuva --features cli,doom
+doom = ["cli"]
 
 [dependencies]
 colorous = "=1.0.16"

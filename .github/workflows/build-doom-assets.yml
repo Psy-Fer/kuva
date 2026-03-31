@@ -1,0 +1,72 @@
+name: Build doom assets
+
+# Run manually once to compile doom.wasm + doom.js and upload them alongside
+# doom1.wad (shareware) to the `doom-assets-v1` release on this repo.
+# After that, `cargo build --bin kuva --features cli,doom` downloads from there.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create/update the release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Install build deps
+        run: sudo apt-get install -y automake autoconf
+
+      - name: Clone cloudflare/doom-wasm
+        run: git clone --depth 1 https://github.com/cloudflare/doom-wasm doom-wasm-src
+
+      - name: Build doom.wasm + doom.js
+        working-directory: doom-wasm-src
+        run: |
+          ./scripts/clean.sh
+          ./scripts/build.sh
+          ls -lh src/websockets-doom.*
+
+      - name: Rename outputs
+        run: |
+          cp doom-wasm-src/src/websockets-doom.wasm doom.wasm
+          cp doom-wasm-src/src/websockets-doom.js   doom.js
+
+      - name: Download DOOM1.WAD shareware
+        run: |
+          # doom1.wad from mattiasgustavsson/doom-crt (GPL v2 repo, shareware WAD).
+          # The WAD itself is freely redistributable shareware (c) id Software.
+          curl -L -f --retry 3 \
+            https://raw.githubusercontent.com/mattiasgustavsson/doom-crt/main/doom1.wad \
+            -o doom1.wad
+          ls -lh doom1.wad
+
+      - name: Create or update doom-assets-v1 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing release if present, then re-create.
+          gh release delete doom-assets-v1 --yes 2>/dev/null || true
+          gh release create doom-assets-v1 \
+            --prerelease \
+            --title "Doom assets v1 (build-time download, not a kuva release)" \
+            --notes "$(cat <<'EOF'
+          Pre-compiled assets used by \`cargo build --bin kuva --features cli,doom\`.
+
+          Contents
+          - **doom.wasm** / **doom.js** — Chocolate Doom compiled via Emscripten
+            Source: https://github.com/cloudflare/doom-wasm (GPL v2)
+          - **doom1.wad** — DOOM shareware episode 1
+            © id Software / ZeniMax Media. Free redistribution permitted.
+
+          These files are NOT part of the kuva library (MIT). They are downloaded
+          automatically by build.rs and embedded into the SVG output of \`kuva doom\`.
+          EOF
+          )" \
+            doom.wasm doom.js doom1.wad

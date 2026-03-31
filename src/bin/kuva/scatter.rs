@@ -93,7 +93,8 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                 let mut plot = ScatterPlot::new()
                     .with_data(data)
                     .with_color(&grp_color)
-                    .with_size(size);
+                    .with_size(size)
+                    .with_group_name(name.clone());
 
                 if trend {
                     plot = plot.with_trend(TrendLine::Linear);

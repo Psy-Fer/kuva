@@ -149,6 +149,10 @@ pub enum Primitive {
         /// SVG `<title>` tooltip text emitted as first child of the `<g>` element.
         /// Ignored by terminal and raster backends.
         title: Option<String>,
+        /// Verbatim attribute string injected into the `<g>` opening tag.
+        /// Used for `data-*` attributes and `class=` overrides in interactive mode.
+        /// Ignored by terminal and raster backends.
+        extra_attrs: Option<String>,
     },
     GroupEnd,
     /// Opens a clipped region. All primitives until the matching `ClipEnd` are
@@ -173,6 +177,23 @@ pub enum TextAnchor {
     End,
 }
 
+/// Axis coordinate metadata embedded in the SVG root element when interactive mode
+/// is enabled.  Allows the injected JavaScript to convert pixel coordinates back to
+/// data coordinates for the tooltip readout.
+#[derive(Debug)]
+pub struct AxisMeta {
+    pub x_min: f64,
+    pub x_max: f64,
+    pub y_min: f64,
+    pub y_max: f64,
+    pub plot_left: f64,
+    pub plot_top: f64,
+    pub plot_right: f64,
+    pub plot_bottom: f64,
+    pub log_x: bool,
+    pub log_y: bool,
+}
+
 #[derive(Debug)]
 pub struct Scene {
     pub width: f64,
@@ -186,6 +207,11 @@ pub struct Scene {
     /// Set to `true` when any `GroupStart { title: Some(_) }` is added.
     /// The SVG backend uses this to inject hover-highlight CSS.
     pub has_tooltips: bool,
+    /// When `true`, the SVG backend injects interactive CSS, JS, and UI elements.
+    pub interactive: bool,
+    /// Axis metadata for the interactive JS coordinate readout.
+    /// `None` for pixel-space plots (Pie, Chord, etc.) or when not interactive.
+    pub axis_meta: Option<AxisMeta>,
 }
 
 impl Scene {
@@ -197,7 +223,9 @@ impl Scene {
                font_family: None,
                elements: Vec::new(),
                defs: Vec::new(),
-               has_tooltips: false }
+               has_tooltips: false,
+               interactive: false,
+               axis_meta: None }
     }
 
     /// Create a scene with a pre-allocated element buffer.
@@ -210,7 +238,9 @@ impl Scene {
                font_family: None,
                elements: Vec::with_capacity(capacity),
                defs: Vec::new(),
-               has_tooltips: false }
+               has_tooltips: false,
+               interactive: false,
+               axis_meta: None }
     }
 
     pub fn with_background(mut self, color: Option<&str>) -> Self {
@@ -429,7 +459,8 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
         && scatter.colors.is_none()
         && !scatter.show_tooltips
         && scatter.tooltip_labels.is_none()
-        && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some());
+        && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some())
+        && !computed.interactive;
 
     // Precompute stroke color once (matches fill, fully opaque) for the slow path.
     let marker_stroke = scatter.marker_stroke_width
@@ -462,10 +493,25 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             // Per-point stroke color tracks the per-point fill color.
             let pt_stroke = scatter.marker_stroke_width
                 .map(|_| Color::from(color));
-            let tip = tooltip(scatter.show_tooltips, &scatter.tooltip_labels, i,
+            // In interactive mode always generate a title so the native browser tooltip
+            // works and search has something to match against.
+            let tip = tooltip(scatter.show_tooltips || computed.interactive,
+                &scatter.tooltip_labels, i,
                 || format!("x={:.2}, y={:.2}", point.x, point.y));
-            if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            let scatter_extra = if computed.interactive {
+                let group = scatter.group_name.as_deref()
+                    .or(scatter.legend_label.as_deref());
+                let group_attr = group
+                    .map(|g| format!(r#" data-group="{g}""#))
+                    .unwrap_or_default();
+                Some(format!(r#"class="tt" data-x="{x}" data-y="{y}"{group_attr}"#,
+                    x = point.x, y = point.y))
+            } else {
+                None
+            };
+            if tip.is_some() || scatter_extra.is_some() {
+                let title = tip.clone();
+                scene.add(Primitive::GroupStart { transform: None, title, extra_attrs: scatter_extra });
             }
             draw_marker(
                 scene,
@@ -554,7 +600,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 stroke_dasharray: None,
             });
         }
-        if tip.is_some() { scene.add(Primitive::GroupEnd); }
+        if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
     }
     } // end else (non-batch path)
     
@@ -776,7 +822,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let tip = tooltip(bar.show_tooltips, &bar.tooltip_labels, flat_i,
                     || format!("{}: {:.2}", group.label, bar_val.value));
                 if let Some(ref t) = tip {
-                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                 }
                 scene.add(Primitive::Rect {
                     x: x0,
@@ -807,7 +853,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let tip = tooltip(bar.show_tooltips, &bar.tooltip_labels, flat_i,
                     || format!("{}: {:.2}", group.label, bar_val.value));
                 if let Some(ref t) = tip {
-                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                 }
                 scene.add(Primitive::Rect {
                     x: x0,
@@ -842,7 +888,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
             let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i,
                 || format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i+1], count));
             if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
             }
             scene.add(Primitive::Rect {
                 x: x0, y: y1.min(y0),
@@ -894,7 +940,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
         let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i,
             || format!("[{:.2}, {:.2}): {}", x, x + bin_width, count));
         if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
         }
         scene.add(Primitive::Rect {
             x: x0,
@@ -1246,7 +1292,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
         let tip = tooltip(pie.show_tooltips, &pie.tooltip_labels, slice_i,
             || format!("{}: {:.2} ({:.1}%)", slice.label, slice.value, slice.value / total * 100.0));
         if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
         }
         scene.add(Primitive::Path(Box::new(PathData {
             d: path_data,
@@ -1417,7 +1463,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
             let tip = tooltip(heatmap.show_tooltips, &heatmap.tooltip_labels, idx,
                 || format!("{}, {}: {:.2}", row_label, col_label, value));
             if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
             }
             scene.add(Primitive::Rect {
                 x: cd.x,
@@ -1602,7 +1648,7 @@ fn add_strip_points(
                 let tip = tooltip(show_tooltips, &tooltip_labels_opt, label_offset + j,
                     || format!("{}: {:.2}", group_label, v));
                 if let Some(ref t) = tip {
-                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                 }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
                 if tip.is_some() { scene.add(Primitive::GroupEnd); }
@@ -1623,7 +1669,7 @@ fn add_strip_points(
                 let tip = tooltip(show_tooltips, &tooltip_labels_opt, label_offset + j,
                     || format!("{}: {:.2}", group_label, v));
                 if let Some(ref t) = tip {
-                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                 }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
                 if tip.is_some() { scene.add(Primitive::GroupEnd); }
@@ -1638,7 +1684,7 @@ fn add_strip_points(
                 let tip = tooltip(show_tooltips, &tooltip_labels_opt, label_offset + j,
                     || format!("{}: {:.2}", group_label, v));
                 if let Some(ref t) = tip {
-                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                    scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                 }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
                 if tip.is_some() { scene.add(Primitive::GroupEnd); }
@@ -1848,7 +1894,7 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
         let tip = tooltip(waterfall.show_tooltips, &waterfall.tooltip_labels, i,
                 || format!("{}: {:.2}", bar.label, top - base));
             if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
             }
             scene.add(Primitive::Rect {
                 x: x0,
@@ -2110,13 +2156,23 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
             });
             cur_y += line_height;
             for entry in &group.entries {
+                if computed.interactive {
+                    let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
+                    scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
+                }
                 render_legend_entry(entry, scene, legend_x, cur_y, computed);
+                if computed.interactive { scene.add(Primitive::GroupEnd); }
                 cur_y += line_height;
             }
         }
     } else {
         for entry in &legend.entries {
+            if computed.interactive {
+                let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
+                scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
+            }
             render_legend_entry(entry, scene, legend_x, cur_y, computed);
+            if computed.interactive { scene.add(Primitive::GroupEnd); }
             cur_y += line_height;
         }
     }
@@ -2238,24 +2294,34 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let y_sig = -vp.p_cutoff.log10();
     if y_sig >= computed.y_range.0 && y_sig <= computed.y_range.1 {
         let sy = computed.map_y(y_sig);
+        if computed.interactive {
+            scene.add(Primitive::GroupStart { transform: None, title: None,
+                extra_attrs: Some(r#"class="kuva-threshold""#.to_string()) });
+        }
         scene.add(Primitive::Line {
             x1: plot_left, y1: sy, x2: plot_right, y2: sy,
             stroke: threshold_color.into(),
             stroke_width: 1.0,
             stroke_dasharray: Some("4 4".into()),
         });
+        if computed.interactive { scene.add(Primitive::GroupEnd); }
     }
 
     // Vertical fc cutoff lines at ±fc_cutoff
     for &fc_val in &[-vp.fc_cutoff, vp.fc_cutoff] {
         if fc_val >= computed.x_range.0 && fc_val <= computed.x_range.1 {
             let sx = computed.map_x(fc_val);
+            if computed.interactive {
+                scene.add(Primitive::GroupStart { transform: None, title: None,
+                    extra_attrs: Some(r#"class="kuva-threshold""#.to_string()) });
+            }
             scene.add(Primitive::Line {
                 x1: sx, y1: plot_top, x2: sx, y2: plot_bottom,
                 stroke: threshold_color.into(),
                 stroke_width: 1.0,
                 stroke_dasharray: Some("4 4".into()),
             });
+            if computed.interactive { scene.add(Primitive::GroupEnd); }
         }
     }
 
@@ -2273,13 +2339,27 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.log2fc);
             let cy = computed.map_y(y_val);
-            let tip = tooltip(vp.show_tooltips, &vp.tooltip_labels, pi,
+            let tip = tooltip(vp.show_tooltips || computed.interactive, &vp.tooltip_labels, pi,
                 || format!("{}\nlog2FC={:.2}\np={:.2e}", p.name, p.log2fc, p.pvalue));
-            if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            let volcano_extra = if computed.interactive {
+                let group = match pass {
+                    0 => "NS",
+                    1 => "Down",
+                    _ => "Up",
+                };
+                Some(format!(
+                    "class=\"tt\" data-logfc=\"{lfc}\" data-pvalue=\"{pv}\" data-group=\"{group}\"",
+                    lfc = p.log2fc, pv = p.pvalue
+                ))
+            } else {
+                None
+            };
+            if tip.is_some() || volcano_extra.is_some() {
+                scene.add(Primitive::GroupStart { transform: None, title: tip.clone(),
+                    extra_attrs: volcano_extra });
             }
             scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()), fill_opacity: None, stroke: None, stroke_width: None });
-            if tip.is_some() { scene.add(Primitive::GroupEnd); }
+            if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
         }
     }
 
@@ -2450,7 +2530,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
                 format!("{}\n{}:{:.0}\np={:.2e}", name, p.chromosome, p.x, p.pvalue)
             });
             if let Some(ref t) = tip {
-                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
             }
             scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color), fill_opacity: None, stroke: None, stroke_width: None });
             if tip.is_some() { scene.add(Primitive::GroupEnd); }
@@ -3077,7 +3157,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let tip = tooltip(dp.show_tooltips, &dp.tooltip_labels, dpi,
             || format!("{}, {}: size={:.2}", pt.x_cat, pt.y_cat, pt.size));
         if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
         }
         scene.add(Primitive::Circle { cx, cy, r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
         if tip.is_some() { scene.add(Primitive::GroupEnd); }
@@ -4165,7 +4245,7 @@ fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedL
         let tip = tooltip(cp.show_tooltips, &cp.tooltip_labels, i,
             || format!("{}\nO:{:.2} H:{:.2} L:{:.2} C:{:.2}", candle.label, candle.open, candle.high, candle.low, candle.close));
         if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
         }
 
         // Wick
@@ -5096,6 +5176,29 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+
+    // Propagate interactivity into the scene so the SVG backend can inject
+    // CSS / JS / UI.  For pixel-space plots (no axis) axis_meta is left None.
+    scene.interactive = computed.interactive;
+    if computed.interactive {
+        let skip_axes_for_meta = plots.iter().all(|p| matches!(p,
+            Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
+            | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)));
+        if !skip_axes_for_meta {
+            scene.axis_meta = Some(AxisMeta {
+                x_min: computed.x_range.0,
+                x_max: computed.x_range.1,
+                y_min: computed.y_range.0,
+                y_max: computed.y_range.1,
+                plot_left: computed.margin_left,
+                plot_top: computed.margin_top,
+                plot_right: computed.width - computed.margin_right,
+                plot_bottom: computed.height - computed.margin_bottom,
+                log_x: computed.log_x,
+                log_y: computed.log_y,
+            });
+        }
+    }
 
     let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)));
     if !skip_axes {
@@ -6161,7 +6264,7 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     let tip = tooltip(pp.show_tooltips, &pp.tooltip_labels, global_pt_idx + j,
                         || format!("r={:.2}, θ={:.1}°", r_val, theta_val));
                     if let Some(ref t) = tip {
-                        scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+                        scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
                     }
                     scene.add(Primitive::Circle {
                         cx: px, cy: py, r: r_dot,
@@ -6423,7 +6526,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let tip = tooltip(tp.show_tooltips, &tp.tooltip_labels, tpi,
             || format!("A={:.2}, B={:.2}, C={:.2}", pt.a, pt.b, pt.c));
         if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()) });
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
         }
         scene.add(Primitive::Circle {
             cx: px,

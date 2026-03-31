@@ -465,6 +465,7 @@ impl Figure {
                 master.add(Primitive::GroupStart {
                     transform: Some(format!("translate({cell_x},{cell_y})")),
                     title: None,
+                    extra_attrs: None,
                 });
                 for elem in cell_scene.elements {
                     master.add(elem);
@@ -593,6 +594,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.y2_label_offset = l.y2_label_offset;
     new.scale = l.scale;
     new.polar_r_label_angle = l.polar_r_label_angle;
+    new.interactive = l.interactive;
     new
 }
 

@@ -68,6 +68,10 @@ pub struct BaseArgs {
     /// Canvas size is unchanged. Values > 1.0 make everything larger. Default: 1.0.
     #[arg(long)]
     pub scale: Option<f64>,
+
+    /// Enable SVG interactivity: hover highlight, click-to-pin, search, and coordinate readout.
+    #[arg(long)]
+    pub interactive: bool,
 }
 
 #[derive(Args, Debug)]
@@ -186,6 +190,9 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     }
     if let Some(f) = args.scale {
         layout = layout.with_scale(f);
+    }
+    if args.interactive {
+        layout = layout.with_interactive();
     }
     layout
 }

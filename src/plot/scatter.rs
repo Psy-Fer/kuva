@@ -110,6 +110,9 @@ pub struct ScatterPlot {
     pub marker_stroke_width: Option<f64>,
     pub show_tooltips: bool,
     pub tooltip_labels: Option<Vec<String>>,
+    /// Series/group name used for `data-group` in interactive SVGs.
+    /// Does not affect legend rendering; set independently of `legend_label`.
+    pub group_name: Option<String>,
 }
 
 
@@ -141,6 +144,7 @@ impl ScatterPlot {
             marker_stroke_width: None,
             show_tooltips: false,
             tooltip_labels: None,
+            group_name: None,
         }
     }
 
@@ -269,6 +273,13 @@ impl ScatterPlot {
     /// the plot has a label.
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    /// Set the group/series name used for `data-group` in interactive SVGs.
+    /// Unlike `with_legend`, this does not add a legend entry.
+    pub fn with_group_name<S: Into<String>>(mut self, name: S) -> Self {
+        self.group_name = Some(name.into());
         self
     }
 

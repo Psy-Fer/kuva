@@ -459,6 +459,13 @@ check "ternary legend" \
         --legend \
         --title "Ternary Legend"
 
+# ── interactive ───────────────────────────────────────────────────────────────
+check "scatter interactive" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --color-by group --legend \
+        --interactive \
+        --title "Interactive Scatter"
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

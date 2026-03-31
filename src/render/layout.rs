@@ -239,6 +239,9 @@ pub struct Layout {
     /// spoke (`360 / (theta_divisions * 2)`). Override to avoid overlap with
     /// custom theta tick labels.
     pub polar_r_label_angle: Option<f64>,
+    /// When `true`, the SVG backend injects interactive CSS, JavaScript, and
+    /// `data-*` attributes so the chart responds to hover, click, and search.
+    pub interactive: bool,
 }
 
 impl Layout {
@@ -313,6 +316,7 @@ impl Layout {
             y2_label_offset: (0.0, 0.0),
             scale: 1.0,
             polar_r_label_angle: None,
+            interactive: false,
         }
     }
 
@@ -903,6 +907,13 @@ impl Layout {
         self
     }
 
+    /// Enable SVG interactivity: hover highlighting, click-to-pin, search box,
+    /// coordinate readout, and legend-driven dim/highlight.
+    pub fn with_interactive(mut self) -> Self {
+        self.interactive = true;
+        self
+    }
+
     pub fn with_log_x(mut self) -> Self {
         self.log_x = true;
         self
@@ -1241,6 +1252,8 @@ pub struct ComputedLayout {
     x_offset: f64,
     y_scale: f64,
     y_offset: f64,
+    /// Mirror of `Layout::interactive` — propagated so renderers can access it.
+    pub interactive: bool,
 }
 
 impl ComputedLayout {
@@ -1413,6 +1426,12 @@ impl ComputedLayout {
         let plot_width = 600.0;
         let plot_height = 450.0;
 
+        // Reserve space below the plot for the interactive UI strip.
+        // Only applies when height is auto-computed; user-fixed heights are left unchanged.
+        if layout.interactive && layout.height.is_none() {
+            margin_bottom += 32.0;
+        }
+
         let width = layout.width.unwrap_or(margin_left + plot_width + margin_right);
         let height = layout.height.unwrap_or(margin_top + plot_height + margin_bottom);
 
@@ -1538,6 +1557,7 @@ impl ComputedLayout {
             x_offset: 0.0,
             y_scale: 0.0,
             y_offset: 0.0,
+            interactive: layout.interactive,
         };
         s.recompute_transforms();
         s

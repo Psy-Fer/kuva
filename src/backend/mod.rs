@@ -1,5 +1,6 @@
 pub mod svg;
 pub mod terminal;
+pub mod interactive_js;
 
 #[cfg(feature = "png")]
 pub mod png;

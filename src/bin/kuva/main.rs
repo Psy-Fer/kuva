@@ -28,6 +28,8 @@ mod ridgeline;
 mod polar;
 mod ternary;
 mod forest;
+#[cfg(feature = "doom")]
+mod doom;
 
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -73,6 +75,9 @@ enum Commands {
     Polar(polar::PolarArgs),
     Ternary(ternary::TernaryArgs),
     Forest(forest::ForestArgs),
+    #[cfg(feature = "doom")]
+    /// Generate a self-contained DOOM SVG playable in any browser.
+    Doom(doom::DoomArgs),
     #[command(hide = true, about = "Print the man page to stdout")]
     Man,
 }
@@ -114,6 +119,8 @@ fn main() {
         Commands::Polar(args) => polar::run(args),
         Commands::Ternary(args) => ternary::run(args),
         Commands::Forest(args) => forest::run(args),
+        #[cfg(feature = "doom")]
+        Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),
     };
 
