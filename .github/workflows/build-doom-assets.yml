@@ -46,11 +46,15 @@ jobs:
 
       - name: Download DOOM1.WAD shareware
         run: |
-          # doom1.wad from mattiasgustavsson/doom-crt (GPL v2 repo, shareware WAD).
-          # The WAD itself is freely redistributable shareware (c) id Software.
-          curl -L -f --retry 3 \
-            https://raw.githubusercontent.com/mattiasgustavsson/doom-crt/main/doom1.wad \
-            -o doom1.wad
+          # doom1.wad is stored in doom-crt via Git LFS.
+          # Use a sparse checkout so we only fetch that one file.
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/mattiasgustavsson/doom-crt.git doom-crt-src
+          cd doom-crt-src
+          git sparse-checkout set doom1.wad
+          git lfs pull --include="doom1.wad"
+          cd ..
+          cp doom-crt-src/doom1.wad doom1.wad
           ls -lh doom1.wad
 
       - name: Create or update doom-assets-v1 release
