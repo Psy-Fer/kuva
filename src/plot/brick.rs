@@ -382,8 +382,8 @@ impl BrickPlot {
                         && motif_segs[motif_idx].trim_start_matches(|c: char| c.is_whitespace())
                             .starts_with("@:");
                     let gap_nt = if is_small_gap {
-                        let gap_seq = motif_segs[motif_idx].splitn(2, ':')
-                            .nth(1).map(|s| s.trim()).unwrap_or("");
+                        let gap_seq = motif_segs[motif_idx].split_once(':')
+                            .map(|x| x.1.trim()).unwrap_or("");
                         motif_idx += 1;
                         gap_seq.len() * gap_n      // typically gap_n == 1
                     } else {
