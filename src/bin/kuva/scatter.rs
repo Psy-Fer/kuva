@@ -17,9 +17,11 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub x: Option<ColSpec>,
 
-    /// Y-axis column (0-based index or header name; default: 1).
-    #[arg(long)]
-    pub y: Option<ColSpec>,
+    /// Y-axis column(s). A single name/index (default: 1) or a comma-separated list
+    /// for multiple series: --y A,B,C plots each column as a separate colour-coded series.
+    /// Mutually exclusive with --color-by when more than one column is given.
+    #[arg(long, value_delimiter = ',')]
+    pub y: Vec<ColSpec>,
 
     /// Colour-code data by group. Provide a column of categorical labels; each unique value
     /// becomes a separate colour-coded series using the active palette. Overrides --color.
@@ -69,7 +71,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     )?;
 
     let x_col = args.x.unwrap_or(ColSpec::Index(0));
-    let y_col = args.y.unwrap_or(ColSpec::Index(1));
+    let y_cols: Vec<ColSpec> = if args.y.is_empty() { vec![ColSpec::Index(1)] } else { args.y };
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
     let size = args.size.unwrap_or(3.0);
     let trend = args.trend;
@@ -78,6 +80,11 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     let legend = args.legend;
 
     let plots: Vec<Plot> = if let Some(color_by) = args.color_by {
+        if y_cols.len() > 1 {
+            return Err("--color-by and multiple --y columns are mutually exclusive. \
+                        Use one or the other to create multiple series.".to_string());
+        }
+        let y_col = &y_cols[0];
         let groups = table.group_by(&color_by)?;
         let palette = Palette::category10();
         let colors: Vec<String> = (0..groups.len()).map(|i| palette[i].to_string()).collect();
@@ -87,7 +94,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .zip(colors)
             .map(|((name, subtable), grp_color)| {
                 let xs = subtable.col_f64(&x_col)?;
-                let ys = subtable.col_f64(&y_col)?;
+                let ys = subtable.col_f64(y_col)?;
                 let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
 
                 let mut plot = ScatterPlot::new()
@@ -107,9 +114,41 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                 Ok(Plot::Scatter(plot))
             })
             .collect::<Result<Vec<_>, String>>()?
-    } else {
+    } else if y_cols.len() > 1 {
+        // Multi-column mode: one series per y column, auto-colored by palette.
+        let palette = Palette::category10();
         let xs = table.col_f64(&x_col)?;
-        let ys = table.col_f64(&y_col)?;
+
+        y_cols
+            .iter()
+            .enumerate()
+            .map(|(i, y_col)| {
+                let series_name = col_display_name(&table, y_col);
+                let ys = table.col_f64(y_col)?;
+                let data: Vec<(f64, f64)> = xs.iter().copied().zip(ys).collect();
+                let grp_color = palette[i].to_string();
+
+                let mut plot = ScatterPlot::new()
+                    .with_data(data)
+                    .with_color(&grp_color)
+                    .with_size(size)
+                    .with_group_name(series_name.clone());
+
+                if trend {
+                    plot = plot.with_trend(TrendLine::Linear);
+                    if equation { plot = plot.with_equation(); }
+                    if correlation { plot = plot.with_correlation(); }
+                }
+                if legend {
+                    plot = plot.with_legend(series_name);
+                }
+                Ok(Plot::Scatter(plot))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    } else {
+        let y_col = &y_cols[0];
+        let xs = table.col_f64(&x_col)?;
+        let ys = table.col_f64(y_col)?;
         let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
 
         let mut plot = ScatterPlot::new()
@@ -132,4 +171,18 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     let layout = apply_log_args(layout, &args.log);
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
+}
+
+/// Return a human-readable name for a column: the header name when available,
+/// or "col_N" for index-based specs with no header.
+fn col_display_name(table: &DataTable, col: &ColSpec) -> String {
+    match col {
+        ColSpec::Name(n) => n.clone(),
+        ColSpec::Index(i) => table
+            .header
+            .as_ref()
+            .and_then(|h| h.get(*i))
+            .cloned()
+            .unwrap_or_else(|| format!("col_{i}")),
+    }
 }

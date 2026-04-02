@@ -73,6 +73,19 @@ check() {
     fi
 }
 
+# Passes when the command exits non-zero (error path test).
+check_error() {
+    local name="$1"
+    shift
+    if ! "$@" > /dev/null 2>&1; then
+        echo "PASS  $name"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL  $name  (expected error, got success)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 # ── scatter ───────────────────────────────────────────────────────────────────
 check "scatter basic" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
@@ -86,6 +99,33 @@ check "scatter trend" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --trend --equation --correlation \
         --title "Scatter with Trend" --x-label "X" --y-label "Y"
 
+check "scatter tick format sci" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-tick-format sci --title "Scatter Y=sci"
+
+check "scatter tick format fixed" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-tick-format fixed:2 --y-tick-format fixed:3 --title "Scatter fixed ticks"
+
+check "line tick format int" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
+        --y-tick-format int --title "Line Y=int"
+
+check "line tick format percent" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
+        --y-tick-format percent --title "Line Y=percent"
+
+check "scatter multi-y two columns" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time --legend \
+        --title "Scatter Multi-Y (2 cols)" --x-label "Time" --y-label "Value"
+
+check "scatter multi-y three columns no legend" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time,value \
+        --title "Scatter Multi-Y (3 cols)"
+
+check_error "scatter multi-y color-by conflict" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time --color-by group
+
 # ── line ──────────────────────────────────────────────────────────────────────
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
@@ -94,6 +134,21 @@ check "line color-by" \
 check "line color-by legend" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group --legend \
         --title "Growth Curves" --x-label "Time" --y-label "Value"
+
+check "line multi-y two columns" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --legend \
+        --title "Line Multi-Y (2 cols)" --x-label "Time" --y-label "Value"
+
+check "line multi-y with fill" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --fill --legend \
+        --title "Line Multi-Y Filled" --x-label "Time" --y-label "Value"
+
+check "line multi-y dashed" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --dashed \
+        --title "Line Multi-Y Dashed"
+
+check_error "line multi-y color-by conflict" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --color-by group
 
 # ── bar ───────────────────────────────────────────────────────────────────────
 check "bar basic" \
