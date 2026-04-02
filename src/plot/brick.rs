@@ -165,6 +165,10 @@ pub struct BrickPlot {
     pub motif_lengths: Option<HashMap<char, usize>>,
     /// When `true`, draw the character label inside each brick.
     pub show_values: bool,
+    /// User-supplied color palette for strigar mode. When set, overrides the
+    /// built-in 20-color default. Colors are assigned in global-letter order
+    /// (most-frequent motif first) and cycle if there are more motifs than colors.
+    pub strigar_palette: Option<Vec<String>>,
 }
 
 impl Default for BrickPlot {
@@ -186,6 +190,7 @@ impl BrickPlot {
             x_offsets: None,
             x_origin: 0.0,
             show_values: false,
+            strigar_palette: None,
         }
     }
 
@@ -253,6 +258,33 @@ impl BrickPlot {
     ///     .with_names(vec!["read_1", "read_2"])
     ///     .with_strigars(strigars);
     /// ```
+    /// Override the auto-generated motif colors used in strigar mode.
+    ///
+    /// Colors are assigned to global letters in order of motif frequency
+    /// (most frequent motif gets the first color). If fewer colors are
+    /// supplied than there are motifs, the list cycles. Gap bricks (`@`)
+    /// always render as light grey regardless of this setting.
+    ///
+    /// Call this **before** [`with_strigars`](Self::with_strigars) so the
+    /// palette is available during color assignment.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_strigar_colors(["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"])
+    ///     .with_strigars(vec![
+    ///         ("CAT:A,C:B".to_string(), "12A1B3A".to_string()),
+    ///     ]);
+    /// ```
+    pub fn with_strigar_colors<I, S>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.strigar_palette = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
     pub fn with_strigars<T, U, I>(mut self, strigars: I) -> Self
     where
         I: IntoIterator<Item = (T, U)>,
@@ -434,22 +466,22 @@ impl BrickPlot {
         }
 
         // Phase E: Auto-generate template colours
-        let motif_colors: &[&str] = &[
-            "rgb(31,119,180)",   // blue
-            "rgb(255,127,14)",   // orange
-            "rgb(44,160,44)",    // green
-            "rgb(214,39,40)",    // red
-            "rgb(148,103,189)",  // purple
-            "rgb(140,86,75)",    // brown
-            "rgb(227,119,194)",  // pink
-            "rgb(127,127,127)",  // gray
-            "rgb(188,189,34)",   // olive
-            "rgb(23,190,207)",   // cyan
+        // Default 20-color palette (tab10 + tab20 lighter variants).
+        // Override with `with_strigar_colors` before calling `with_strigars`.
+        const DEFAULT_COLORS: &[&str] = &[
+            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+            "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+            "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
         ];
+        let palette: Vec<&str> = match &self.strigar_palette {
+            Some(p) => p.iter().map(|s| s.as_str()).collect(),
+            None    => DEFAULT_COLORS.to_vec(),
+        };
         let mut auto_template: HashMap<char, String> = HashMap::new();
         for (idx, (canon, _)) in sorted_canonicals.iter().enumerate() {
             let global_letter = canonical_to_global[canon];
-            auto_template.insert(global_letter, motif_colors[idx % motif_colors.len()].to_string());
+            auto_template.insert(global_letter, palette[idx % palette.len()].to_string());
         }
         // Gaps render as light grey
         if has_gaps {
