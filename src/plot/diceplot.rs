@@ -250,8 +250,8 @@ impl DicePlot {
         let avail_w = w - 2.0 * pad;
         let avail_h = h - 2.0 * pad;
         positions.iter().map(|&p| {
-            let col = ((p - 1) / 3) as f64;  // column-major: pos 1-3 → col 0, 4-6 → col 1, 7-9 → col 2
-            let row = ((p - 1) % 3) as f64;  // row within column: pos 1,4,7 → row 0 (top)
+            let col = ((p - 1) / 3) as f64;  // row-major: pos 1-3 → row 0, 4-6 → row 1, 7-9 → row 2
+            let row = ((p - 1) % 3) as f64;  // column within row: pos 1,4,7 → col 0 (left)
             let dx = col / 2.0 * avail_w + pad - w / 2.0;
             let dy = row / 2.0 * avail_h + pad - h / 2.0;
             (dx, dy)

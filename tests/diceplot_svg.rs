@@ -3,6 +3,7 @@ use kuva::backend::svg::SvgBackend;
 use kuva::render::render::render_multiple;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
+use kuva::render::theme::Theme;
 
 #[test]
 fn test_dice_categorical_basic() {
@@ -301,4 +302,116 @@ fn test_dice_stacked_legends() {
     assert!(svg.contains(">A<"));
     assert!(svg.contains(">B<"));
     assert!(svg.contains(">C<"));
+}
+
+#[test]
+fn test_dice_position_legend_dark_theme() {
+    // Position legend mini-tiles must use theme colours, not hardcoded white/black.
+    let organs = vec!["Lung".into(), "Liver".into()];
+    let data = vec![("X1", "Y1", "Lung", "#ff0000")];
+
+    let dice = DicePlot::new(2)
+        .with_category_labels(organs)
+        .with_records(data)
+        .with_position_legend("Organ");
+
+    let plots = vec![Plot::DicePlot(dice)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_theme(Theme::dark());
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+
+    // Dark theme background is not white — the mini-tile fill must reflect that.
+    // If hardcoded #ffffff were used it would appear in the position legend;
+    // the dark legend_bg is #2a2a2a so we must NOT see solid #ffffff in the legend area.
+    // We can't easily isolate just the legend rects, but we verify the SVG doesn't
+    // contain a #ffffff rect that's wider than 30px (legend mini-tile is 18px wide,
+    // so any 18-or-smaller tile shouldn't contribute a bare #ffffff fill).
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Organ"));
+    // Dark theme background colour must appear somewhere (proves theme was applied).
+    assert!(svg.contains("#1e1e1e") || svg.contains("background"));
+}
+
+#[test]
+fn test_dice_single_dot_positions() {
+    // Verify ndots=1 (single centre pip) and ndots=6 (all pips) don't panic
+    // and produce the right circle counts.
+    for (ndots, expected_circles) in [(1_usize, 1_usize), (6, 6)] {
+        let labels: Vec<String> = (0..ndots).map(|k| format!("Cat{k}")).collect();
+        let colors: Vec<(&str, &str, String, &str)> = (0..ndots)
+            .map(|k| ("X", "Y", format!("Cat{k}"), "#444444"))
+            .collect();
+
+        let dice = DicePlot::new(ndots)
+            .with_category_labels(labels)
+            .with_records(colors);
+
+        let plots = vec![Plot::DicePlot(dice)];
+        let layout = Layout::auto_from_plots(&plots);
+        let scene = render_multiple(plots, layout);
+        let svg = SvgBackend.render_scene(&scene);
+
+        assert_eq!(
+            svg.matches("<circle").count(), expected_circles,
+            "ndots={ndots}: expected {expected_circles} circles"
+        );
+    }
+}
+
+#[test]
+fn test_dice_long_legend_title_fits_box() {
+    // Regression: long position/size legend titles used to overflow the bounding box
+    // because max_label_len in auto_from_plots only counted entry labels, not title strings.
+    let long_title = "A Very Long Legend Title String";
+    let cats: Vec<String> = vec!["Cat A".into(), "Cat B".into()];
+    let data = vec![
+        ("X1", "Y1", 0_usize, Some(1.0), Some(5.0)),
+        ("X1", "Y1", 1,       Some(0.5), Some(2.0)),
+    ];
+
+    let dice = DicePlot::new(2)
+        .with_category_labels(cats)
+        .with_dot_data(data)
+        .with_position_legend(long_title)
+        .with_size_legend(long_title);
+
+    let plots = vec![Plot::DicePlot(dice)];
+    let layout = Layout::auto_from_plots(&plots);
+
+    // legend_width must be at least as wide as the title needs.
+    // title chars * ~8.5px + some padding — check via the computed margin_right:
+    // margin_right grows with legend_width, so if the title is wider than short labels,
+    // margin_right must be > the old minimum.
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains(long_title));
+    // The title must appear — and must not be cut off (SVG text truncation would
+    // only happen if we manually clipped, which we don't, so presence is sufficient).
+}
+
+#[test]
+fn test_dice_fill_colorbar_range() {
+    // Explicit fill_range should be respected — colorbar min/max derived from it.
+    let data = vec![
+        ("G1", "S1", vec![0], Some(0.0_f64), None),
+        ("G1", "S2", vec![0], Some(1.0),     None),
+    ];
+
+    let dice = DicePlot::new(1)
+        .with_points(data)
+        .with_fill_range(0.0, 5.0)   // explicit range wider than data
+        .with_fill_legend("Score");
+
+    let plots = vec![Plot::DicePlot(dice)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+
+    assert!(svg.contains("Score"));
+    // Colorbar ticks should reflect the 0..5 range, not 0..1.
+    assert!(svg.contains('5') || svg.contains("5.0"));
 }

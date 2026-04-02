@@ -3287,8 +3287,20 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
     let tile_h = cell_h * dp.cell_height;
     let offsets = dp.dot_offsets();
 
+    // Detect which input modes are present across all points.
     let categorical_mode = dp.points.iter().any(|p| !p.dot_colors.is_empty());
-    let per_dot_mode = !categorical_mode && dp.points.iter().any(|p| !p.dot_fills.is_empty());
+    let per_dot_mode     = dp.points.iter().any(|p| !p.dot_fills.is_empty() || !p.dot_sizes.is_empty());
+    let tile_mode        = dp.points.iter().any(|p| !p.present.is_empty() || p.fill.is_some() || p.size.is_some());
+
+    // Warn in debug builds if multiple modes are mixed — the renderer only
+    // handles one at a time and will silently prefer categorical > per_dot > tile.
+    debug_assert!(
+        [categorical_mode, per_dot_mode, tile_mode].iter().filter(|&&v| v).count() <= 1,
+        "DicePlot: mixing with_records / with_dot_data / with_points on the same plot \
+         is not supported and will produce unpredictable output. Use a single input mode."
+    );
+
+    let per_dot_mode = !categorical_mode && per_dot_mode;
     let pip_scale = 0.75_f64;
 
     // ggdiceplot 1.2.0 pip sizing: compute max radius from inter-pip distance
@@ -3515,7 +3527,8 @@ fn add_dice_position_legend(
         scene.add(Primitive::Rect {
             x: mini_cx - mini_w * 0.5, y: mini_cy - mini_h * 0.5,
             width: mini_w, height: mini_h,
-            fill: "#ffffff".into(), stroke: Some("#000000".into()),
+            fill: Color::from(&theme.legend_bg),
+            stroke: Some(Color::from(&theme.axis_color)),
             stroke_width: Some(0.5), opacity: None,
         });
 
@@ -3524,9 +3537,9 @@ fn add_dice_position_legend(
             let dot_cx = mini_cx + dx * scale_x;
             let dot_cy = mini_cy + dy * scale_y;
             if j == k {
-                scene.add(Primitive::Circle { cx: dot_cx, cy: dot_cy, r: mini_r, fill: "#000000".into(), fill_opacity: None, stroke: None, stroke_width: None });
+                scene.add(Primitive::Circle { cx: dot_cx, cy: dot_cy, r: mini_r, fill: Color::from(&theme.text_color), fill_opacity: None, stroke: None, stroke_width: None });
             } else {
-                scene.add(Primitive::Circle { cx: dot_cx, cy: dot_cy, r: mini_r * 0.65, fill: "#cccccc".into(), fill_opacity: None, stroke: None, stroke_width: None });
+                scene.add(Primitive::Circle { cx: dot_cx, cy: dot_cy, r: mini_r * 0.65, fill: Color::from(&theme.grid_color), fill_opacity: None, stroke: None, stroke_width: None });
             }
         }
 
@@ -5838,6 +5851,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::DicePlot(d) => {
                 add_diceplot(d, &mut scene, &computed);
+            }
             Plot::Forest(f) => {
                 add_forest(f, &mut scene, &computed);
             }

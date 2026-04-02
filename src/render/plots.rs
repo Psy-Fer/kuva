@@ -745,6 +745,7 @@ impl Plot {
                     min_value: min,
                     max_value: max,
                     label: Some(label),
+                    tick_labels: None,
                 })
             }
             Plot::Contour(cp) => {

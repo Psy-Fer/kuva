@@ -493,15 +493,17 @@ impl Layout {
                         max_label_len = max_label_len.max(label.len());
                     }
                 }
-                if dp.position_legend_label.is_some() {
+                if let Some(ref title) = dp.position_legend_label {
                     has_legend = true;
+                    // Title is centre-anchored — needs same headroom as entry labels.
+                    max_label_len = max_label_len.max(title.len());
                     for label in &dp.category_labels {
                         max_label_len = max_label_len.max(label.len());
                     }
                 }
-                if dp.size_legend_label.is_some() {
+                if let Some(ref title) = dp.size_legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(5);
+                    max_label_len = max_label_len.max(title.len()).max(5);
                 }
                 for label in &dp.y_categories {
                     max_label_len = max_label_len.max(label.len());
