@@ -1,4 +1,4 @@
-//! Compact showcase of all 25 kuva plot types in a single 5×5 Figure grid.
+//! Compact showcase of all 30 kuva plot types in a single 6×5 Figure grid.
 //! Each cell uses minimal inline data — click through to all_plots_complex
 //! for larger datasets with axes, legends, and titles.
 //!
@@ -13,6 +13,7 @@ use kuva::plot::{
     PiePlot, PieLabelPosition, SeriesPlot, Heatmap,
     DotPlot, VolcanoPlot, ManhattanPlot, CandlestickPlot, ContourPlot,
     UpSetPlot, ChordPlot, SankeyPlot, PhyloTree, SyntenyPlot, BrickPlot,
+    DensityPlot, RidgelinePlot, PolarPlot, PolarMode, TernaryPlot, ForestPlot,
 };
 use kuva::plot::brick::BrickTemplate;
 use kuva::render::plots::Plot;
@@ -275,7 +276,53 @@ fn main() {
         .with_names(["read_1", "read_2", "read_3"])
         .with_template(tmpl.template);
 
-    // ── Assemble 5×5 Figure (row-major, 25 cells) ─────────────────────────
+    // ── Row 5: Density, Ridgeline, Polar, Ternary, Forest ─────────────────
+
+    // 25: Density (two overlapping groups)
+    let density_a = DensityPlot::new()
+        .with_data([2.0_f64, 3.0, 3.5, 4.0, 4.0, 4.5, 5.0, 5.0, 5.5, 6.0,
+                    6.0, 6.5, 7.0, 7.5, 8.0])
+        .with_color("steelblue")
+        .with_filled(true)
+        .with_opacity(0.6);
+    let density_b = DensityPlot::new()
+        .with_data([4.0_f64, 5.0, 5.5, 6.0, 6.0, 6.5, 7.0, 7.0, 7.5, 8.0,
+                    8.0, 8.5, 9.0, 9.5, 10.0])
+        .with_color("firebrick")
+        .with_filled(true)
+        .with_opacity(0.6);
+
+    // 26: Ridgeline (3 groups)
+    let ridgeline = RidgelinePlot::new()
+        .with_group("A", vec![1.0_f64, 2.0, 2.5, 3.0, 3.0, 3.5, 4.0, 4.5, 5.0])
+        .with_group("B", vec![3.0_f64, 4.0, 4.5, 5.0, 5.0, 5.5, 6.0, 6.5, 7.0])
+        .with_group("C", vec![5.0_f64, 6.0, 6.5, 7.0, 7.0, 7.5, 8.0, 8.5, 9.0]);
+
+    // 27: Polar (cardioid line curve)
+    let n = 36usize;
+    let theta: Vec<f64> = (0..n).map(|i| i as f64 * 360.0 / n as f64).collect();
+    let r: Vec<f64> = theta.iter().map(|&t| 1.0 + t.to_radians().cos()).collect();
+    let polar = PolarPlot::new()
+        .with_series_labeled(r, theta, "Cardioid", PolarMode::Line);
+
+    // 28: Ternary (3 groups near each vertex)
+    let ternary = TernaryPlot::new()
+        .with_point_group(0.80, 0.12, 0.08, "A-rich")
+        .with_point_group(0.75, 0.15, 0.10, "A-rich")
+        .with_point_group(0.12, 0.78, 0.10, "B-rich")
+        .with_point_group(0.10, 0.80, 0.10, "B-rich")
+        .with_point_group(0.10, 0.12, 0.78, "C-rich")
+        .with_point_group(0.08, 0.10, 0.82, "C-rich");
+
+    // 29: Forest (4 studies + meta)
+    let forest = ForestPlot::new()
+        .with_row("Study A",  0.82, 0.55, 1.21)
+        .with_row("Study B",  1.15, 0.73, 1.62)
+        .with_row("Study C",  0.63, 0.31, 0.94)
+        .with_row("Study D",  1.28, 0.90, 1.75)
+        .with_row("Meta",     0.94, 0.74, 1.14);
+
+    // ── Assemble 6×5 Figure (row-major, 30 cells) ─────────────────────────
 
     let all_plots: Vec<Vec<Plot>> = vec![
         // Row 0
@@ -308,6 +355,12 @@ fn main() {
         vec![Plot::PhyloTree(phylo)],
         vec![Plot::Synteny(synteny)],
         vec![Plot::Brick(brick)],
+        // Row 5
+        vec![Plot::Density(density_a), Plot::Density(density_b)],
+        vec![Plot::Ridgeline(ridgeline)],
+        vec![Plot::Polar(polar)],
+        vec![Plot::Ternary(ternary)],
+        vec![Plot::Forest(forest)],
     ];
 
     // Auto-compute one Layout per cell before moving all_plots into Figure
@@ -315,7 +368,7 @@ fn main() {
         .map(|cell| Layout::auto_from_plots(cell))
         .collect();
 
-    let fig = Figure::new(5, 5)
+    let fig = Figure::new(6, 5)
         .with_cell_size(500.0, 380.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

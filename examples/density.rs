@@ -17,6 +17,7 @@ use kuva::render::render::render_multiple;
 use kuva::render::layout::Layout;
 use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
+use kuva::render::annotations::ReferenceLine;
 
 const OUT: &str = "docs/src/assets/density";
 
@@ -27,6 +28,8 @@ fn main() {
     filled();
     multigroup();
     bandwidth();
+    bounded_unbounded();
+    bounded_reflected();
 
     println!("Density SVGs written to {OUT}/");
 }
@@ -157,4 +160,84 @@ fn bandwidth() {
     save("bandwidth_narrow", Some(0.1), "h = 0.1 (too narrow)");
     save("bandwidth_auto",   None,      "Auto — Silverman");
     save("bandwidth_wide",   Some(2.0), "h = 2.0 (too wide)");
+}
+
+/// Bounded data — unbounded KDE bleeding past [0, 1].
+/// Uses identity-score-like data (two peaks near 0.1 and 0.9).
+/// Reference lines mark the valid [0, 1] range; the KDE visibly extends past them.
+fn bounded_unbounded() {
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(99);
+    let near_zero: Vec<f64> = Normal::new(0.1_f64, 0.05).unwrap()
+        .sample_iter(&mut rng)
+        .take(120)
+        .collect();
+    let mut rng2 = rand::rngs::SmallRng::seed_from_u64(100);
+    let near_one: Vec<f64> = Normal::new(0.9_f64, 0.05).unwrap()
+        .sample_iter(&mut rng2)
+        .take(120)
+        .collect();
+    let mut data = near_zero;
+    data.extend(near_one);
+
+    let density = DensityPlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_filled(true)
+        .with_opacity(0.25)
+        .with_stroke_width(2.0);
+
+    let plots = vec![Plot::Density(density)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Without bounds — tails bleed past 0 and 1")
+        .with_x_label("Identity score")
+        .with_y_label("Density")
+        .with_reference_line(
+            ReferenceLine::vertical(0.0)
+                .with_color("#e05a5a")
+                .with_stroke_width(1.5)
+                .with_label("x = 0"),
+        )
+        .with_reference_line(
+            ReferenceLine::vertical(1.0)
+                .with_color("#e05a5a")
+                .with_stroke_width(1.5)
+                .with_label("x = 1"),
+        );
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/bounded_unbounded.svg"), svg).unwrap();
+}
+
+/// Bounded data — with `with_x_range(0.0, 1.0)` and boundary reflection.
+/// Same data as bounded_unbounded(); curve now tapers smoothly to zero at both edges.
+fn bounded_reflected() {
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(99);
+    let near_zero: Vec<f64> = Normal::new(0.1_f64, 0.05).unwrap()
+        .sample_iter(&mut rng)
+        .take(120)
+        .collect();
+    let mut rng2 = rand::rngs::SmallRng::seed_from_u64(100);
+    let near_one: Vec<f64> = Normal::new(0.9_f64, 0.05).unwrap()
+        .sample_iter(&mut rng2)
+        .take(120)
+        .collect();
+    let mut data = near_zero;
+    data.extend(near_one);
+
+    let density = DensityPlot::new()
+        .with_data(data)
+        .with_x_range(0.0, 1.0)
+        .with_color("steelblue")
+        .with_filled(true)
+        .with_opacity(0.25)
+        .with_stroke_width(2.0);
+
+    let plots = vec![Plot::Density(density)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("With with_x_range(0, 1) — boundary reflection")
+        .with_x_label("Identity score")
+        .with_y_label("Density");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/bounded_reflected.svg"), svg).unwrap();
 }

@@ -33,6 +33,11 @@ pub struct PolarArgs {
     #[arg(long)]
     pub r_max: Option<f64>,
 
+    /// Minimum radial value mapped to the plot centre (default: 0).
+    /// Use a negative value for dB-scale data such as antenna radiation patterns.
+    #[arg(long)]
+    pub r_min: Option<f64>,
+
     /// Angular divisions for grid spokes (default: 12 = every 30°).
     #[arg(long, default_value_t = 12)]
     pub theta_divisions: usize,
@@ -68,6 +73,9 @@ pub fn run(args: PolarArgs) -> Result<(), String> {
 
     if let Some(r_max) = args.r_max {
         plot = plot.with_r_max(r_max);
+    }
+    if let Some(r_min) = args.r_min {
+        plot = plot.with_r_min(r_min);
     }
 
     if let Some(ref cb) = args.color_by {

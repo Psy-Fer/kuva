@@ -28,6 +28,7 @@ use crate::plot::ridgeline::RidgelinePlot;
 use crate::plot::polar::PolarPlot;
 use crate::plot::ternary::TernaryPlot;
 use crate::plot::diceplot::DicePlot;
+use crate::plot::forest::ForestPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -63,6 +64,7 @@ pub enum Plot {
     Polar(PolarPlot),
     Ternary(TernaryPlot),
     DicePlot(DicePlot),
+    Forest(ForestPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -95,6 +97,7 @@ impl From<RidgelinePlot> for Plot { fn from(p: RidgelinePlot) -> Self { Plot::Ri
 impl From<PolarPlot>     for Plot { fn from(p: PolarPlot)     -> Self { Plot::Polar(p) } }
 impl From<TernaryPlot>   for Plot { fn from(p: TernaryPlot)   -> Self { Plot::Ternary(p) } }
 impl From<DicePlot>      for Plot { fn from(p: DicePlot)      -> Self { Plot::DicePlot(p) } }
+impl From<ForestPlot>    for Plot { fn from(p: ForestPlot)    -> Self { Plot::Forest(p) } }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
@@ -144,6 +147,7 @@ impl Plot {
             Plot::Band(b) => b.color = color.into(),
             Plot::Strip(s) => s.color = color.into(),
             Plot::Density(d) => d.color = color.into(),
+            Plot::Forest(f) => f.color = color.into(),
             _ => {}
         }
     }
@@ -254,8 +258,14 @@ impl Plot {
                     };
                     return Some(((x_min, x_max), (0.0, max_y)));
                 }
-                // Auto-binning path: requires explicit range
-                let range = h.range?;
+                // Auto-binning path: use explicit range if set, else derive from data
+                // (mirrors the fallback in the renderer so bounds() always returns a usable range)
+                let range = h.range.unwrap_or_else(|| {
+                    if h.data.is_empty() { return (0.0, 1.0); }
+                    let min = h.data.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let max = h.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    (min, max)
+                });
                 let bins = h.bins;
                 let bin_width = (range.1 - range.0) / bins as f64;
 
@@ -496,13 +506,23 @@ impl Plot {
                 }
                 if dp.data.len() < 2 { return None; }
                 let bw = dp.bandwidth.unwrap_or_else(|| render_utils::silverman_bandwidth(&dp.data));
-                let x_min = dp.data.iter().cloned().fold(f64::INFINITY, f64::min) - 3.0 * bw;
-                let x_max = dp.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + 3.0 * bw;
-                // Compute approximate y_max using 50 sample points
-                let curve = render_utils::simple_kde(&dp.data, bw, 50);
+                let data_min = dp.data.iter().cloned().fold(f64::INFINITY, f64::min);
+                let data_max = dp.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let x_min = dp.x_lo.unwrap_or(data_min - 3.0 * bw);
+                let x_max = dp.x_hi.unwrap_or(data_max + 3.0 * bw);
+                // Use the same KDE path as the renderer (including reflection) so
+                // bounds() and the rendered curve agree on the peak y value.
                 let n = dp.data.len() as f64;
                 let norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
-                let y_max_pdf = curve.iter().map(|(_, y)| y * norm).fold(0.0_f64, f64::max);
+                let curve = if dp.x_lo.is_some() || dp.x_hi.is_some() {
+                    render_utils::simple_kde_reflect(&dp.data, bw, dp.kde_samples,
+                        x_min, x_max, dp.x_lo.is_some(), dp.x_hi.is_some())
+                } else {
+                    render_utils::simple_kde(&dp.data, bw, dp.kde_samples)
+                };
+                let y_max_pdf = curve.iter()
+                    .map(|(_, y)| y * norm)
+                    .fold(0.0_f64, f64::max);
                 Some(((x_min, x_max), (0.0, y_max_pdf * 1.1)))
             }
             Plot::Ridgeline(rp) => {
@@ -552,24 +572,55 @@ impl Plot {
                     bp.sequences.iter().map(|s| s.len()).max().unwrap_or(0) as f64
                 };
 
-                // Strigar mode: always start at 0 (comparing repeat lengths directly).
-                // DNA mode with per-row offsets: find the true x extent across all rows.
-                let (x_min, x_max) = if bp.strigar_exp.is_some() {
-                    (0.0, max_width)
-                } else if let Some(ref offsets) = bp.x_offsets {
-                    let seqs = &bp.sequences;
+                // Compute the true x extent across all rows, accounting for per-row offsets.
+                let row_width = |i: usize| -> f64 {
+                    if let Some(ref exp) = bp.strigar_exp {
+                        if let Some(ref ml) = bp.motif_lengths {
+                            exp.get(i).map(|s| {
+                                s.chars().map(|c| *ml.get(&c).unwrap_or(&1) as f64).sum::<f64>()
+                            }).unwrap_or(0.0)
+                        } else {
+                            exp.get(i).map(|s| s.len() as f64).unwrap_or(0.0)
+                        }
+                    } else {
+                        bp.sequences.get(i).map(|s| s.len() as f64).unwrap_or(0.0)
+                    }
+                };
+                let n_rows = if bp.strigar_exp.is_some() { bp.strigar_exp.as_ref().map_or(0, |e| e.len()) } else { bp.sequences.len() };
+                let (x_min, x_max) = if let Some(ref offsets) = bp.x_offsets {
                     let mut lo = f64::INFINITY;
                     let mut hi = f64::NEG_INFINITY;
-                    for (i, seq) in seqs.iter().enumerate() {
-                        let off = offsets.get(i).copied().flatten().unwrap_or(bp.x_offset);
+                    for i in 0..n_rows {
+                        let off = offsets.get(i).copied().flatten().unwrap_or(bp.x_offset)
+                            + bp.x_origin;
                         lo = lo.min(0.0 - off);
-                        hi = hi.max(seq.len() as f64 - off);
+                        hi = hi.max(row_width(i) - off);
                     }
                     (lo, hi)
                 } else {
-                    (0.0 - bp.x_offset, max_width - bp.x_offset)
+                    let off = bp.x_offset + bp.x_origin;
+                    (0.0 - off, max_width - off)
                 };
                 Some(((x_min, x_max), (0.0, rows as f64)))
+            }
+            Plot::Forest(fp) => {
+                if fp.rows.is_empty() { return None; }
+                let n = fp.rows.len();
+                let y_min = 0.5;
+                let y_max = n as f64 + 0.5;
+                let mut x_min = f64::INFINITY;
+                let mut x_max = f64::NEG_INFINITY;
+                for row in &fp.rows {
+                    x_min = x_min.min(row.ci_lower);
+                    x_max = x_max.max(row.ci_upper);
+                }
+                // Include null value in x range so the reference line is visible
+                if let Some(nv) = fp.null_value {
+                    x_min = x_min.min(nv);
+                    x_max = x_max.max(nv);
+                }
+                if !x_min.is_finite() { return None; }
+                Some(((x_min, x_max), (y_min, y_max)))
             }
         }
     }
@@ -599,6 +650,7 @@ impl Plot {
                 let avg_cols = b.sequences.first().map_or(10, |s| s.len());
                 rows * avg_cols + 10
             }
+            Plot::Forest(f) => f.rows.len() * 4 + 5,
             _ => 100,
         }
     }
@@ -618,20 +670,53 @@ impl Plot {
                     min_value: min,
                     max_value: max,
                     label: None,
+                    tick_labels: None,
                 })
             }
             Plot::Histogram2d(h2d) => {
                 let max_count = h2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
                 let cmap = h2d.color_map.clone();
-                Some(ColorBarInfo {
-                    map_fn: Arc::new(move |t| {
-                        let norm = t / max_count;
-                        cmap.map(norm.clamp(0.0, 1.0))
-                    }),
-                    min_value: 0.0,
-                    max_value: max_count,
-                    label: Some("Count".to_string()),
-                })
+                let log_scale = h2d.log_count;
+                if log_scale {
+                    // Colorbar in log₁₀ space: ticks at integer powers of 10 labelled
+                    // with the actual count value so users can read off "this color = N cells".
+                    let log_max = (max_count + 1.0).log10();
+                    let tick_labels: Vec<(f64, String)> = {
+                        let mut v = vec![(0.0_f64, "0".to_string())];
+                        let mut k = 0u32;
+                        loop {
+                            let count = 10_f64.powi(k as i32);
+                            if count > max_count { break; }
+                            let pos = (count + 1.0).log10();
+                            v.push((pos, format!("{}", count as u64)));
+                            k += 1;
+                        }
+                        // Always include max_count at the top
+                        v.push((log_max, format!("{}", max_count as u64)));
+                        v.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
+                        v
+                    };
+                    Some(ColorBarInfo {
+                        map_fn: Arc::new(move |t| {
+                            // t is a log₁₀ value in [0, log_max]
+                            cmap.map((t / log_max).clamp(0.0, 1.0))
+                        }),
+                        min_value: 0.0,
+                        max_value: log_max,
+                        label: Some("log\u{2081}\u{2080}(Count + 1)".to_string()),
+                        tick_labels: Some(tick_labels),
+                    })
+                } else {
+                    Some(ColorBarInfo {
+                        map_fn: Arc::new(move |t| {
+                            cmap.map((t / max_count).clamp(0.0, 1.0))
+                        }),
+                        min_value: 0.0,
+                        max_value: max_count,
+                        label: Some("Count".to_string()),
+                        tick_labels: None,
+                    })
+                }
             }
             Plot::DotPlot(dp) => {
                 let label = dp.color_legend_label.clone()?;
@@ -645,6 +730,7 @@ impl Plot {
                     min_value: min,
                     max_value: max,
                     label: Some(label),
+                    tick_labels: None,
                 })
             }
             Plot::DicePlot(dp) => {
@@ -675,6 +761,7 @@ impl Plot {
                     min_value: z_min,
                     max_value: z_max,
                     label,
+                    tick_labels: None,
                 })
             }
             _ => None,

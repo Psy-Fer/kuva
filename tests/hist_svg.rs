@@ -1,6 +1,5 @@
 use kuva::plot::Histogram;
 use kuva::backend::svg::SvgBackend;
-// use kuva::render::render::render_histogram;
 use kuva::render::render::render_multiple;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
@@ -136,4 +135,107 @@ fn test_histogram_from_bins_normalize() {
 
     assert!(!svg.contains(">1.1<"),
         "normalized precomputed histogram y-axis must not exceed 1.0");
+}
+
+// Issue #51: zero-count bins must not produce <rect height="0">.
+// Bimodal data with a gap in the middle — several bins will have count == 0.
+// The fix skips those bins entirely instead of emitting a zero-height rect.
+#[test]
+fn test_histogram_zero_count_bins_skipped() {
+    // Two clusters far apart with a gap in the middle → zero-count bins guaranteed.
+    let mut data: Vec<f64> = (0..20).map(|i| i as f64 * 0.1).collect();       // 0.0 – 1.9
+    data.extend((80..100).map(|i| i as f64 * 0.1));                            // 8.0 – 9.9
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(20)
+        .with_range((0.0, 10.0));
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/hist_zero_count_gap.svg", &svg).unwrap();
+
+    assert!(svg.contains("<rect"), "bimodal histogram must still draw bars");
+    assert!(!svg.contains("height=\"0\""), "zero-count bins must not emit height=0 rects");
+}
+
+// Issue #51: same check for Histogram::from_bins with explicit zeros in the middle.
+#[test]
+fn test_histogram_from_bins_zero_counts_skipped() {
+    let edges = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+    let counts = vec![10.0, 0.0, 0.0, 0.0, 8.0]; // zeros in the middle
+    let hist = Histogram::from_bins(edges, counts).with_color("steelblue");
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/hist_from_bins_zero_gap.svg", &svg).unwrap();
+
+    assert!(svg.contains("<rect"), "from_bins histogram must still draw non-zero bars");
+    assert!(!svg.contains("height=\"0\""), "zero-count bins must not emit height=0 rects");
+}
+
+// Regression test for issue #46: last x-axis tick label was truncated when
+// the tick value is a wide number (e.g. "15000").  The fix estimates the
+// half-pixel-width of that label and ensures margin_right >= that estimate.
+//
+// Verification: with tick_size=11 and char_width≈0.6, "15000" (5 chars) has
+// half-width = 5 * 11 * 0.6 * 0.5 = 16.5 px.  The canvas is 500px wide with
+// the default auto-sizing, and margin_right should now absorb at least 16.5px
+// so the label never bleeds past the SVG edge.
+//
+// We check this by parsing the canvas width from the SVG and verifying that
+// the last tick label text element (">15000<") has its x-attribute set to a
+// value strictly less than (canvas_width - 10).
+#[test]
+fn test_histogram_last_tick_no_overflow() {
+    // Genomics-style data: read counts in [0, 15000]
+    let data: Vec<f64> = (0..=150).map(|i| i as f64 * 100.0).collect();
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(10)
+        .with_range((0.0, 15000.0));
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Read counts")
+        .with_x_label("Count");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/hist_last_tick_no_overflow.svg", &svg).unwrap();
+
+    assert!(svg.contains(">15000<"), "last tick label '15000' must be present");
+
+    // Extract SVG canvas width from the width="..." attribute on the root element
+    let canvas_width: f64 = {
+        let marker = "width=\"";
+        let pos = svg.find(marker).expect("SVG must have width attribute");
+        let rest = &svg[pos + marker.len()..];
+        let end = rest.find('"').unwrap_or(rest.len());
+        rest[..end].parse().expect("SVG width must be numeric")
+    };
+
+    // Find x-coordinate of the "15000" text element
+    // Pattern: <text ... x="NNN" ...>15000<
+    let mut tick_x: Option<f64> = None;
+    let needle = ">15000<";
+    if let Some(pos) = svg.find(needle) {
+        // Walk backwards to find the opening <text tag
+        let tag_start = svg[..pos].rfind("<text").unwrap_or(0);
+        let tag_slice = &svg[tag_start..pos];
+        // Extract x="..." attribute
+        if let Some(x_pos) = tag_slice.find(" x=\"") {
+            let rest = &tag_slice[x_pos + 4..];
+            let end = rest.find('"').unwrap_or(rest.len());
+            tick_x = rest[..end].parse().ok();
+        }
+    }
+
+    let x = tick_x.expect("could not parse x-coord of '15000' tick label");
+    // The text is centered (TextAnchor::Middle); half-width ≈ 5 chars * 11 * 0.6 * 0.5 = 16.5
+    let approx_right_edge = x + 16.5;
+    assert!(
+        approx_right_edge <= canvas_width,
+        "tick label '15000' right edge {approx_right_edge:.1} overflows canvas width {canvas_width}"
+    );
 }

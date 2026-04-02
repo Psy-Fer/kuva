@@ -25,10 +25,24 @@ pub enum TickFormat {
     Sci,
     /// Multiply by 100 and append `%`: `0.45` → `"45.0%"`.
     Percent,
-    /// Theta degree for polar plots
+    /// Theta degree for polar plots: `0.0` → `"0°"`, `90.0` → `"90°"`.
     Degree,
     /// Custom formatter function.
     Custom(Arc<dyn Fn(f64) -> String + Send + Sync>),
+}
+
+impl std::fmt::Debug for TickFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto      => write!(f, "TickFormat::Auto"),
+            Self::Fixed(n)  => write!(f, "TickFormat::Fixed({n})"),
+            Self::Integer   => write!(f, "TickFormat::Integer"),
+            Self::Sci       => write!(f, "TickFormat::Sci"),
+            Self::Percent   => write!(f, "TickFormat::Percent"),
+            Self::Degree    => write!(f, "TickFormat::Degree"),
+            Self::Custom(_) => write!(f, "TickFormat::Custom(<fn>)"),
+        }
+    }
 }
 
 impl Clone for TickFormat {
@@ -47,6 +61,9 @@ impl Clone for TickFormat {
 
 impl TickFormat {
     pub fn format(&self, v: f64) -> String {
+        // IEEE 754 negative zero (-0.0 == 0.0 but formats as "-0"). Normalise
+        // it to positive zero so no formatter can produce "-0" on a tick label.
+        let v = if v == 0.0 { 0.0 } else { v };
         match self {
             Self::Auto      => tick_format_auto(v),
             Self::Fixed(n)  => format!("{:.*}", n, v),
@@ -146,10 +163,20 @@ pub struct Layout {
     pub label_size: u32,
     pub tick_size: u32,
     pub body_size: u32,
+    /// Override axis line stroke width (px at scale=1). `None` = use scale default (1.0).
+    pub axis_line_width: Option<f64>,
+    /// Override tick mark stroke width (px at scale=1). `None` = use scale default (1.0).
+    pub tick_width: Option<f64>,
+    /// Override major tick mark length (px at scale=1). `None` = use scale default (5.0).
+    /// Minor tick length scales proportionally (60% of major).
+    pub tick_length: Option<f64>,
+    /// Override grid line stroke width (px at scale=1). `None` = use scale default (1.0).
+    pub grid_line_width: Option<f64>,
     pub theme: Theme,
     pub palette: Option<Palette>,
     pub x_tick_format: TickFormat,
     pub y_tick_format: TickFormat,
+    pub colorbar_tick_format: TickFormat,
     pub y2_range: Option<(f64, f64)>,
     pub data_y2_range: Option<(f64, f64)>,
     pub y2_label: Option<String>,
@@ -207,6 +234,19 @@ pub struct Layout {
     /// legend geometry, arrow sizes). Canvas `width`/`height` are not affected.
     /// Default: 1.0. Set via `with_scale(f)`.
     pub scale: f64,
+    /// Angular position (in degrees) at which r-axis (ring) labels are drawn on
+    /// polar plots. Default: midpoint between the 0° spoke and the first clockwise
+    /// spoke (`360 / (theta_divisions * 2)`). Override to avoid overlap with
+    /// custom theta tick labels.
+    pub polar_r_label_angle: Option<f64>,
+    /// When `true`, the SVG backend injects interactive CSS, JavaScript, and
+    /// `data-*` attributes so the chart responds to hover, click, and search.
+    pub interactive: bool,
+    /// When `true`, enforce equal scaling on both axes so that one data unit
+    /// spans the same number of pixels horizontally and vertically.  Circles
+    /// rendered with equal aspect look circular; without it they look like
+    /// ellipses whenever the x and y data ranges differ.
+    pub equal_aspect: bool,
 }
 
 impl Layout {
@@ -246,10 +286,15 @@ impl Layout {
             label_size: 14,
             tick_size: 12,
             body_size: 12,
+            axis_line_width: None,
+            tick_width: None,
+            tick_length: None,
+            grid_line_width: None,
             theme: Theme::default(),
             palette: None,
             x_tick_format: TickFormat::Auto,
             y_tick_format: TickFormat::Auto,
+            colorbar_tick_format: TickFormat::Auto,
             y2_range: None,
             data_y2_range: None,
             y2_label: None,
@@ -275,6 +320,9 @@ impl Layout {
             y_label_offset: (0.0, 0.0),
             y2_label_offset: (0.0, 0.0),
             scale: 1.0,
+            polar_r_label_angle: None,
+            interactive: false,
+            equal_aspect: false,
         }
     }
 
@@ -528,6 +576,15 @@ impl Layout {
                 }
             }
 
+            if let Plot::Forest(fp) = plot {
+                // Reversed: row[0] at top, map_y maps larger values to top
+                y_labels = Some(fp.rows.iter().rev().map(|r| r.label.clone()).collect());
+                if let Some(ref label) = fp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
             if let Plot::Ridgeline(rp) = plot {
                 // Reversed: group[0] at top, map_y maps larger values to top
                 y_labels = Some(rp.groups.iter().rev().map(|g| g.label.clone()).collect());
@@ -646,7 +703,7 @@ impl Layout {
         }
 
         if has_polar {
-            // Use degrees as default tick for polar plots
+            // Use degrees as default tick format for polar plots.
             layout.x_tick_format = TickFormat::Degree;
         }
 
@@ -863,6 +920,43 @@ impl Layout {
         self
     }
 
+    /// Override the angle (degrees) at which r-axis labels are drawn on polar plots.
+    ///
+    /// By default, labels sit at the midpoint between the 0° spoke and the first
+    /// clockwise spoke (`360 / (theta_divisions * 2)`). Use this to nudge them when
+    /// a custom theta tick label would overlap.
+    ///
+    /// ```rust,no_run
+    /// use kuva::render::layout::Layout;
+    /// use kuva::plot::polar::{PolarPlot, PolarMode};
+    /// use kuva::render::plots::Plot;
+    ///
+    /// let plot = PolarPlot::new().with_series(vec![1.0_f64], vec![0.0_f64]);
+    /// let plots = vec![Plot::Polar(plot)];
+    /// let layout = Layout::auto_from_plots(&plots)
+    ///     .with_polar_r_label_angle(30.0); // labels at 30° from north
+    /// ```
+    pub fn with_polar_r_label_angle(mut self, deg: f64) -> Self {
+        self.polar_r_label_angle = Some(deg);
+        self
+    }
+
+    /// Enable SVG interactivity: hover highlighting, click-to-pin, search box,
+    /// coordinate readout, and legend-driven dim/highlight.
+    pub fn with_interactive(mut self) -> Self {
+        self.interactive = true;
+        self
+    }
+
+    /// Enforce equal x/y scaling so that one data unit spans the same number of
+    /// pixels on both axes.  Circles look circular; squares look square.  The
+    /// axis with the smaller data-to-pixel ratio is expanded symmetrically around
+    /// its midpoint until both ratios match.  Has no effect on log-scale axes.
+    pub fn with_equal_aspect(mut self) -> Self {
+        self.equal_aspect = true;
+        self
+    }
+
     pub fn with_log_x(mut self) -> Self {
         self.log_x = true;
         self
@@ -919,6 +1013,32 @@ impl Layout {
         self
     }
 
+    /// Set the axis line stroke width in logical pixels (at scale 1.0).
+    /// Affects the X and Y axis border lines only, not ticks or grid.
+    pub fn with_axis_line_width(mut self, width: f64) -> Self {
+        self.axis_line_width = Some(width);
+        self
+    }
+
+    /// Set the tick mark stroke width in logical pixels (at scale 1.0).
+    pub fn with_tick_width(mut self, width: f64) -> Self {
+        self.tick_width = Some(width);
+        self
+    }
+
+    /// Set the major tick mark length in logical pixels (at scale 1.0).
+    /// Minor tick length is scaled proportionally (60% of major).
+    pub fn with_tick_length(mut self, length: f64) -> Self {
+        self.tick_length = Some(length);
+        self
+    }
+
+    /// Set the grid line stroke width in logical pixels (at scale 1.0).
+    pub fn with_grid_line_width(mut self, width: f64) -> Self {
+        self.grid_line_width = Some(width);
+        self
+    }
+
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.show_grid = theme.show_grid;
         if let Some(ref font) = theme.font_family {
@@ -949,6 +1069,13 @@ impl Layout {
     /// Set the tick format for the y-axis only.
     pub fn with_y_tick_format(mut self, fmt: TickFormat) -> Self {
         self.y_tick_format = fmt;
+        self
+    }
+
+    /// Set the tick format for colorbar labels. Default: [`TickFormat::Auto`]
+    /// (switches to scientific notation for values ≥ 10 000 or ≤ 0.01).
+    pub fn with_colorbar_tick_format(mut self, fmt: TickFormat) -> Self {
+        self.colorbar_tick_format = fmt;
         self
     }
 
@@ -1115,6 +1242,7 @@ pub struct ComputedLayout {
     pub theme: Theme,
     pub x_tick_format: TickFormat,
     pub y_tick_format: TickFormat,
+    pub colorbar_tick_format: TickFormat,
     pub y2_range: Option<(f64, f64)>,
     pub log_y2: bool,
     pub y2_tick_format: TickFormat,
@@ -1136,12 +1264,18 @@ pub struct ComputedLayout {
     /// Common bin width when all histograms share the same bin size.
     /// When set, x-axis ticks are generated to fall exactly on bin edges.
     pub x_bin_width: Option<f64>,
+    /// Angular position (degrees) at which r-axis labels are drawn on polar plots.
+    /// `None` means auto (midpoint between 0° spoke and first clockwise spoke).
+    pub polar_r_label_angle: Option<f64>,
     /// Scaled pixel constants for rendering, derived from `layout.scale`.
     /// Avoids threading the scale factor through every render function.
-    pub tick_mark_major: f64,       // 5.0 * scale — major tick mark extension
-    pub tick_mark_minor: f64,       // 3.0 * scale — minor tick mark extension
+    pub tick_mark_major: f64,       // 5.0 * scale (or layout.tick_length * scale)
+    pub tick_mark_minor: f64,       // 3.0 * scale (60% of major)
     pub tick_label_margin: f64,     // 8.0 * scale — gap from axis line to tick label text
-    pub axis_stroke_width: f64,     // 1.0 * scale — axis, grid, and tick stroke width
+    pub axis_stroke_width: f64,     // 1.0 * scale — base stroke width (annotations, plot shapes)
+    pub axis_line_width: f64,       // axis border lines (overridable via Layout::with_axis_line_width)
+    pub tick_stroke_width: f64,     // tick mark strokes (overridable via Layout::with_tick_width)
+    pub grid_stroke_width: f64,     // grid line strokes (overridable via Layout::with_grid_line_width)
     pub legend_padding: f64,        // 10.0 * scale — legend box internal padding
     pub legend_inset: f64,          // 8.0 * scale — Inside legend inset from plot edge
     pub legend_swatch_size: f64,    // 12.0 * scale — Rect/Line swatch length and height
@@ -1161,6 +1295,10 @@ pub struct ComputedLayout {
     x_offset: f64,
     y_scale: f64,
     y_offset: f64,
+    /// Mirror of `Layout::interactive` — propagated so renderers can access it.
+    pub interactive: bool,
+    /// Mirror of `Layout::equal_aspect` — read by `recompute_transforms`.
+    pub equal_aspect: bool,
 }
 
 impl ComputedLayout {
@@ -1169,6 +1307,8 @@ impl ComputedLayout {
         let title_size = layout.title_size as f64 * s;
         let label_size = layout.label_size as f64 * s;
         let tick_size = layout.tick_size as f64 * s;
+        // Compute tick mark length early — needed for margin_left and tick_label_margin.
+        let tick_mark_major_px = layout.tick_length.map(|l| l * s).unwrap_or(5.0 * s);
 
         // Top: title height + padding, or small padding if no title
         let mut margin_top = if layout.title.is_some() {
@@ -1176,7 +1316,7 @@ impl ComputedLayout {
         } else {
             10.0 * s
         };
-        // Bottom: tick mark (5) + gap (5) + tick label + gap (5) + axis label + padding
+        // Bottom: tick_mark + gap(5) + tick_label + gap(5) + axis_label + padding(10)
         // When ticks are suppressed AND no rotation is requested (e.g. pure numeric axes),
         // keep only minimal space. When rotation IS set (e.g. Manhattan chromosome labels drawn
         // by the renderer itself), compute space for the rotated custom labels.
@@ -1190,10 +1330,10 @@ impl ComputedLayout {
                 .unwrap_or(10) as f64;
             let label_px = max_chars * char_w;
             let angle_rad = angle.abs() * std::f64::consts::PI / 180.0;
-            let needed = label_px * angle_rad.sin() + tick_size + 15.0 * s;
-            needed.max(tick_size + label_size + 25.0 * s)
+            let needed = label_px * angle_rad.sin() + tick_size + tick_mark_major_px + 10.0 * s;
+            needed.max(tick_size + label_size + tick_mark_major_px + 20.0 * s)
         } else {
-            tick_size + label_size + 25.0 * s
+            tick_size + label_size + tick_mark_major_px + 20.0 * s
         };
         // Left: axis label + y tick label text width + gaps.
         // Compute the actual maximum tick label pixel width from real tick strings so the
@@ -1236,9 +1376,29 @@ impl ComputedLayout {
         let mut margin_left = if layout.suppress_y_ticks {
             10.0 * s
         } else {
-            label_size + y_tick_label_px + 21.0 * s
+            // 16px = 3 edge + 5 label-to-ticklabels gap + 8 tick_label_margin base;
+            // tick_mark_major_px is added separately so the margin grows with tick length.
+            label_size + y_tick_label_px + 16.0 * s + tick_mark_major_px
         };
-        let mut margin_right = label_size;
+        // Estimate the overhang of the rightmost numeric x-tick label.
+        // Tick labels are centred on their tick position (TextAnchor::Middle), so the
+        // last tick (at x_max) extends half its pixel width to the right of the plot edge.
+        // Without this, labels like "15000" or "100.5" clip against the SVG boundary.
+        // Uses layout.x_range.1 / x_axis_max as a proxy — nice-rounding rarely changes
+        // the label length, mirroring how y_tick_label_px uses layout.y_range before
+        // auto-ranging (lines ~1174-1187 above).
+        let x_last_tick_half_w: f64 = if layout.suppress_x_ticks
+            || layout.x_categories.is_some()
+            || layout.x_tick_rotate.is_some()
+            || layout.log_x
+        {
+            0.0 // handled elsewhere or not applicable
+        } else {
+            let val = layout.x_axis_max.unwrap_or(layout.x_range.1);
+            let label = layout.x_tick_format.format(val);
+            label.len() as f64 * tick_size * 0.6 * 0.5
+        };
+        let mut margin_right = label_size.max(x_last_tick_half_w);
 
         // For rotated x-axis category labels the text extends horizontally from its anchor.
         // Negative angle → TextAnchor::End → extends left  → first label can clip left edge.
@@ -1306,10 +1466,16 @@ impl ComputedLayout {
             }
         }
         if layout.show_colorbar {
-            margin_right += 85.0 * s; // 20px bar + 50px labels + 15px gap
+            margin_right += 90.0 * s; // 20px label-gap + 20px bar + 5px tick-mark + 30px tick labels + 15px gap
         }
         let plot_width = 600.0;
         let plot_height = 450.0;
+
+        // Reserve space below the plot for the interactive UI strip.
+        // Only applies when height is auto-computed; user-fixed heights are left unchanged.
+        if layout.interactive && layout.height.is_none() {
+            margin_bottom += 32.0;
+        }
 
         let width = layout.width.unwrap_or(margin_left + plot_width + margin_right);
         let height = layout.height.unwrap_or(margin_top + plot_height + margin_bottom);
@@ -1401,6 +1567,7 @@ impl ComputedLayout {
             theme: layout.theme.clone(),
             x_tick_format: layout.x_tick_format.clone(),
             y_tick_format: layout.y_tick_format.clone(),
+            colorbar_tick_format: layout.colorbar_tick_format.clone(),
             y2_range,
             log_y2: layout.log_y2,
             y2_tick_format: layout.y2_tick_format.clone(),
@@ -1412,10 +1579,14 @@ impl ComputedLayout {
             minor_ticks: layout.minor_ticks,
             show_minor_grid: layout.show_minor_grid,
             x_bin_width: layout.x_bin_width,
-            tick_mark_major: 5.0 * s,
-            tick_mark_minor: 3.0 * s,
-            tick_label_margin: 8.0 * s,
+            polar_r_label_angle: layout.polar_r_label_angle,
+            tick_mark_major: tick_mark_major_px,
+            tick_mark_minor: layout.tick_length.map(|l| l * s * 0.6).unwrap_or(3.0 * s),
+            tick_label_margin: tick_mark_major_px + 3.0 * s,
             axis_stroke_width: s,
+            axis_line_width: layout.axis_line_width.map(|w| w * s).unwrap_or(s),
+            tick_stroke_width: layout.tick_width.map(|w| w * s).unwrap_or(s),
+            grid_stroke_width: layout.grid_line_width.map(|w| w * s).unwrap_or(s),
             legend_padding: 10.0 * s,
             legend_inset: 8.0 * s,
             legend_swatch_size: 12.0 * s,
@@ -1426,11 +1597,13 @@ impl ComputedLayout {
             annotation_arrow_len: 8.0 * s,
             annotation_arrow_half_w: 4.0 * s,
             colorbar_bar_width: 20.0 * s,
-            colorbar_x_inset: 70.0 * s,
+            colorbar_x_inset: 65.0 * s,
             x_scale: 0.0,
             x_offset: 0.0,
             y_scale: 0.0,
             y_offset: 0.0,
+            interactive: layout.interactive,
+            equal_aspect: layout.equal_aspect,
         };
         s.recompute_transforms();
         s
@@ -1462,6 +1635,30 @@ impl ComputedLayout {
             let span = self.y_range.1 - self.y_range.0;
             self.y_scale = if span.abs() > f64::EPSILON { ph / span } else { 0.0 };
             self.y_offset = self.height - self.margin_bottom + self.y_range.0 * self.y_scale;
+        }
+
+        // Equal-aspect: expand the tighter axis so 1 data unit = same pixels on both axes.
+        // Only applies to linear (non-log) axes; ignored when either scale is zero.
+        if self.equal_aspect && !self.log_x && !self.log_y
+            && self.x_scale > f64::EPSILON
+            && self.y_scale > f64::EPSILON
+        {
+            let s = self.x_scale.min(self.y_scale);
+            if self.x_scale > s {
+                // x is more zoomed in — expand x range to match y scale
+                let x_mid = (self.x_range.0 + self.x_range.1) / 2.0;
+                let new_half = self.plot_width() / (2.0 * s);
+                self.x_range = (x_mid - new_half, x_mid + new_half);
+                self.x_scale = s;
+                self.x_offset = self.margin_left - self.x_range.0 * self.x_scale;
+            } else {
+                // y is more zoomed in — expand y range to match x scale
+                let y_mid = (self.y_range.0 + self.y_range.1) / 2.0;
+                let new_half = self.plot_height() / (2.0 * s);
+                self.y_range = (y_mid - new_half, y_mid + new_half);
+                self.y_scale = s;
+                self.y_offset = self.height - self.margin_bottom + self.y_range.0 * self.y_scale;
+            }
         }
     }
 

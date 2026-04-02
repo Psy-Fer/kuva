@@ -1,4 +1,4 @@
-//! Full-featured showcase of all 25 kuva plot types.
+//! Full-featured showcase of all 30 kuva plot types.
 //! Each cell uses a larger dataset and includes a title, axis labels,
 //! and a legend where applicable.
 //!
@@ -13,6 +13,7 @@ use kuva::plot::{
     PiePlot, PieLabelPosition, SeriesPlot, Heatmap,
     DotPlot, VolcanoPlot, ManhattanPlot, CandlestickPlot, ContourPlot,
     UpSetPlot, ChordPlot, SankeyPlot, PhyloTree, SyntenyPlot, BrickPlot,
+    DensityPlot, RidgelinePlot, PolarPlot, PolarMode, TernaryPlot, ForestPlot,
 };
 use kuva::plot::brick::BrickTemplate;
 use kuva::render::plots::Plot;
@@ -407,7 +408,96 @@ fn main() {
         .with_template(tmpl.template)
         .with_x_offset(18.0);
 
-    // ── Assemble 5×5 Figure ────────────────────────────────────────────────
+    // ── Row 5: Density (multi-group, 80 values each) ──────────────────────
+    let dens_a = DensityPlot::new()
+        .with_data({
+            let mut s = 55555u64;
+            (0..80).map(|_| {
+                let u: f64 = (0..6).map(|_| lcg(&mut s)).sum::<f64>() - 3.0;
+                3.0 + u * 0.8
+            }).collect::<Vec<_>>()
+        })
+        .with_color("steelblue").with_filled(true).with_opacity(0.5).with_legend("Low");
+    let dens_b = DensityPlot::new()
+        .with_data({
+            let mut s = 66666u64;
+            (0..80).map(|_| {
+                let u: f64 = (0..6).map(|_| lcg(&mut s)).sum::<f64>() - 3.0;
+                6.0 + u * 0.8
+            }).collect::<Vec<_>>()
+        })
+        .with_color("firebrick").with_filled(true).with_opacity(0.5).with_legend("High");
+
+    // ── Row 5: Ridgeline (seasonal temperatures, 4 groups × 40 values) ────
+    let ridgeline = {
+        let mut s = 44444u64;
+        ["Winter", "Spring", "Summer", "Autumn"].iter().enumerate().fold(
+            RidgelinePlot::new(),
+            |r, (i, &season)| {
+                let mean = 5.0 + i as f64 * 9.0;
+                let data: Vec<f64> = (0..40).map(|_| {
+                    let u: f64 = (0..6).map(|_| lcg(&mut s)).sum::<f64>() - 3.0;
+                    mean + u * 3.5
+                }).collect();
+                r.with_group(season, data)
+            }
+        )
+    };
+
+    // ── Row 5: Polar (cardioid + unit circle) ─────────────────────────────
+    let n_polar = 72usize;
+    let theta_car: Vec<f64> = (0..n_polar).map(|i| i as f64 * 360.0 / n_polar as f64).collect();
+    let r_car: Vec<f64> = theta_car.iter().map(|&t| 1.0 + t.to_radians().cos()).collect();
+    let theta_circ: Vec<f64> = (0..=n_polar).map(|i| i as f64 * 360.0 / n_polar as f64).collect();
+    let r_circ: Vec<f64> = vec![1.0; theta_circ.len()];
+    let polar = PolarPlot::new()
+        .with_series_labeled(r_car, theta_car, "Cardioid", PolarMode::Line)
+        .with_series_labeled(r_circ, theta_circ, "Unit circle", PolarMode::Line)
+        .with_r_max(2.1)
+        .with_r_grid_lines(4)
+        .with_theta_divisions(12)
+        .with_legend(true);
+
+    // ── Row 5: Ternary (3 groups near each vertex, 8 points each) ─────────
+    let ternary = {
+        let mut s = 88888u64;
+        let mut plot = TernaryPlot::new()
+            .with_corner_labels("A", "B", "C")
+            .with_grid_lines(4)
+            .with_legend(true);
+        for (centre, label) in [
+            ([0.78_f64, 0.13, 0.09], "A-rich"),
+            ([0.11_f64, 0.78, 0.11], "B-rich"),
+            ([0.10_f64, 0.11, 0.79], "C-rich"),
+        ] {
+            for _ in 0..8usize {
+                let da = (lcg(&mut s) - 0.5) * 0.08;
+                let db = (lcg(&mut s) - 0.5) * 0.08;
+                let a = (centre[0] + da).clamp(0.01, 0.98);
+                let b = (centre[1] + db).clamp(0.01, 0.98);
+                let c = (1.0 - a - b).clamp(0.01, 0.98);
+                let total = a + b + c;
+                plot = plot.with_point_group(a / total, b / total, c / total, label);
+            }
+        }
+        plot
+    };
+
+    // ── Row 5: Forest (8 studies + pooled estimate) ────────────────────────
+    let forest = ForestPlot::new()
+        .with_weighted_row("Smith 2018",   0.82, 0.55, 1.18, 3.2)
+        .with_weighted_row("Jones 2019",   1.15, 0.72, 1.61, 4.1)
+        .with_weighted_row("Lee 2020",     0.63, 0.31, 0.96, 2.8)
+        .with_weighted_row("Patel 2021",   1.28, 0.89, 1.74, 3.9)
+        .with_weighted_row("Garcia 2021",  0.74, 0.44, 1.08, 3.5)
+        .with_weighted_row("Kim 2022",     1.03, 0.68, 1.45, 4.6)
+        .with_weighted_row("Muller 2022",  0.91, 0.60, 1.26, 5.1)
+        .with_weighted_row("Chen 2023",    1.09, 0.75, 1.51, 4.8)
+        .with_row("Pooled",               0.94, 0.77, 1.11)
+        .with_null_value(1.0)
+        .with_show_null_line(true);
+
+    // ── Assemble 6×5 Figure ────────────────────────────────────────────────
 
     let all_plots: Vec<Vec<Plot>> = vec![
         // Row 0
@@ -440,6 +530,12 @@ fn main() {
         vec![Plot::PhyloTree(phylo)],
         vec![Plot::Synteny(synteny)],
         vec![Plot::Brick(brick)],
+        // Row 5
+        vec![Plot::Density(dens_a), Plot::Density(dens_b)],
+        vec![Plot::Ridgeline(ridgeline)],
+        vec![Plot::Polar(polar)],
+        vec![Plot::Ternary(ternary)],
+        vec![Plot::Forest(forest)],
     ];
 
     // Build one layout per cell: auto-compute ranges, then add metadata
@@ -482,12 +578,18 @@ fn main() {
                 22 => base.with_title("Phylogenetic Tree"),
                 23 => base.with_title("Synteny"),
                 24 => base.with_title("Brick (DNA)"),
+                // Row 5
+                25 => base.with_title("Density").with_x_label("Value").with_y_label("Density"),
+                26 => base.with_title("Ridgeline").with_x_label("Temperature (°C)"),
+                27 => base.with_title("Polar"),
+                28 => base.with_title("Ternary"),
+                29 => base.with_title("Forest Plot").with_x_label("Odds Ratio"),
                 _  => base,
             }
         })
         .collect();
 
-    let fig = Figure::new(5, 5)
+    let fig = Figure::new(6, 5)
         .with_cell_size(600.0, 460.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

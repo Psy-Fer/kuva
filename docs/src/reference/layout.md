@@ -188,6 +188,79 @@ Some plot types (Manhattan, UpSet) suppress the grid automatically.
 
 ---
 
+## Axis and stroke widths
+
+Four independent builders control the stroke thickness of every axis chrome element. All values are in pixels at `scale = 1.0` and multiply by the current `with_scale` factor automatically.
+
+| Builder | Controls | Default |
+|---------|----------|---------|
+| `.with_axis_line_width(px)` | X and Y border lines | `1.0` |
+| `.with_tick_width(px)` | All tick mark strokes | `1.0` |
+| `.with_tick_length(px)` | Major tick length (minor = 60 %) | `5.0` |
+| `.with_grid_line_width(px)` | All grid lines (both axes) | `1.0` |
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+let layout = Layout::auto_from_plots(&plots)
+    .with_axis_line_width(2.0)   // heavier axis borders
+    .with_tick_width(1.5)        // slightly heavier ticks
+    .with_tick_length(8.0)       // longer tick marks
+    .with_grid_line_width(0.5);  // lighter grid
+```
+
+Each control is fully independent — setting `with_grid_line_width` does not affect tick strokes, and vice versa. Axis border lines always render on top of grid lines in the SVG, so thick grid lines never visually cut across the axis border.
+
+`with_tick_length` also affects margins: the left and bottom margins grow automatically to keep tick labels outside the tick marks at any tick length.
+
+<table>
+<tr>
+<td><img src="../assets/layout/tick_controls_default.svg" alt="Default axis chrome" width="280"></td>
+<td><img src="../assets/layout/tick_controls_heavy.svg" alt="Heavy axis chrome" width="280"></td>
+</tr>
+<tr>
+<td align="center">Defaults — axis 1 px, ticks 1 px / 5 px, grid 1 px</td>
+<td align="center"><code>axis_line_width=2, tick_width=1.5, tick_length=10, grid_line_width=0.5</code></td>
+</tr>
+</table>
+
+---
+
+## SVG tooltips
+
+Any plot type that supports `.with_tooltips()` wraps each data element in a `<g class="tt"><title>…</title>…</g>` group in the SVG output. Browsers display the `<title>` as a native hover tooltip, and a small CSS block injected into the SVG dims the hovered element:
+
+```rust,no_run
+use kuva::plot::{ScatterPlot, BarPlot};
+use kuva::render::plots::Plot;
+
+// Auto-generated tooltip text per element
+let scatter = ScatterPlot::new()
+    .with_data(vec![(1.0f64, 2.0f64), (3.0, 4.0)])
+    .with_tooltips();
+
+// Custom tooltip strings (one per data point, in order)
+let bar = BarPlot::new()
+    .with_bar("A", 10.0, "steelblue")
+    .with_bar("B", 25.0, "crimson")
+    .with_tooltip_labels(["Category A: 10 reads", "Category B: 25 reads"]);
+```
+
+**Supported plot types:** Scatter, Bar, Histogram, Pie, Heatmap, Strip, Waterfall, Volcano, Manhattan, DotPlot, Candlestick, Polar, Ternary.
+
+**Auto-generated text** varies by plot type — for example, Scatter shows `(x, y)`, Bar shows `label: value`, Volcano shows `gene (log2fc, −log10p)`.
+
+**Terminal, PNG, and PDF backends** silently ignore the tooltip groups — the `<title>` element and class attribute have no effect outside SVG.
+
+> **Browser behaviour:** tooltips appear after 1 second or so. This is standard browser behaviour for SVG `<title>` elements.
+
+### Deferred (Tier 3)
+
+LinePlot (needs invisible hit-circles added over the path), BoxPlot, ViolinPlot, SankeyPlot, ChordPlot, BrickPlot.
+
+---
+
 ## Annotations
 
 Three types of annotation are available, all added via the `Layout` builder. Any number of each can be chained.
@@ -444,6 +517,15 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 | `.with_log_y()` | Logarithmic y-axis |
 | `.with_log_scale()` | Logarithmic on both axes |
 | `.with_show_grid(bool)` | Show or hide grid lines (default `true`) |
+
+### Axis and stroke widths
+
+| Method | Default | Description |
+|--------|---------|-------------|
+| `.with_axis_line_width(px)` | `1.0` | X and Y axis border line stroke width |
+| `.with_tick_width(px)` | `1.0` | Tick mark stroke width |
+| `.with_tick_length(px)` | `5.0` | Major tick length; minor ticks are 60 % of this |
+| `.with_grid_line_width(px)` | `1.0` | Grid line stroke width (both axes) |
 
 ### Canvas and scale
 

@@ -66,6 +66,8 @@ pub struct PiePlot {
     /// Slices whose fraction of the total is below this threshold receive no
     /// label (default `0.05`, i.e. 5 %).
     pub min_label_fraction: f64,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 /// A single slice of a pie chart.
@@ -94,6 +96,8 @@ impl PiePlot {
             label_position: PieLabelPosition::Auto,
             show_percent: false,
             min_label_fraction: 0.05,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -197,6 +201,16 @@ impl PiePlot {
     /// ```
     pub fn with_min_label_fraction(mut self, fraction: f64) -> Self {
         self.min_label_fraction = fraction;
+        self
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
 }

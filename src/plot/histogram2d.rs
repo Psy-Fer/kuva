@@ -1,6 +1,6 @@
 
 use std::sync::Arc;
-use colorous::{VIRIDIS, INFERNO, GREYS};
+use colorous::{VIRIDIS, INFERNO, GREYS, TURBO};
 
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
@@ -30,6 +30,11 @@ fn inferno(value: f64) -> String {
 
 fn greyscale(value: f64) -> String {
     let rgb = GREYS.eval_continuous(value.clamp(0.0, 1.0));
+    rgb_hex(rgb.r, rgb.g, rgb.b)
+}
+
+fn turbo(value: f64) -> String {
+    let rgb = TURBO.eval_continuous(value.clamp(0.0, 1.0));
     rgb_hex(rgb.r, rgb.g, rgb.b)
 }
 
@@ -65,6 +70,8 @@ pub enum ColorMap {
     Viridis,
     /// Black → orange → yellow (Inferno colormap). High contrast for dense data.
     Inferno,
+    /// Blue → green → yellow → red (Turbo colormap). High contrast across the full range.
+    Turbo,
     /// User-supplied mapping function `f64 → CSS color string`.
     ///
     /// The function receives a normalized value in `[0.0, 1.0]`.
@@ -88,6 +95,7 @@ impl ColorMap {
             ColorMap::Grayscale => greyscale(value),
             ColorMap::Viridis => viridis(value),
             ColorMap::Inferno => inferno(value),
+            ColorMap::Turbo => turbo(value),
             ColorMap::Custom(f) => f(value),
         }
     }
@@ -162,6 +170,8 @@ pub struct Histogram2D {
     pub color_map: ColorMap,
     /// When `true`, the Pearson r coefficient is printed in the top-right corner.
     pub show_correlation: bool,
+    /// When `true`, bin counts are log-scaled before color mapping (`log₁₀(count+1)`).
+    pub log_count: bool,
 }
 
 impl Default for Histogram2D {
@@ -183,6 +193,7 @@ impl Histogram2D {
             bins_y: 10,
             color_map: ColorMap::Viridis,
             show_correlation: false,
+            log_count: false,
         }
     }
 
@@ -211,7 +222,6 @@ impl Histogram2D {
 
         let mut bins = vec![vec![0usize; bins_x]; bins_y];
 
-        // I don't think this is controlling the bin segmentation properly
         let x_bin_width = (x_range.1 - x_range.0) / bins_x as f64;
         let y_bin_height = (y_range.1 - y_range.0) / bins_y as f64;
 
@@ -221,17 +231,15 @@ impl Histogram2D {
 
             self.data.push((x, y));
 
-            if x < x_range.0 || x >= x_range.1 || y < y_range.0 || y >= y_range.1 {
+            if x < x_range.0 || x > x_range.1 || y < y_range.0 || y > y_range.1 {
                 continue; // ignore out-of-bounds
             }
 
-            let col = ((x - x_range.0) / x_bin_width).floor() as usize;
-            let row = ((y - y_range.0) / y_bin_height).floor() as usize;
-
-            // Safety check to ensure we don't overflow
-            if row < bins_y && col < bins_x {
-                bins[row][col] += 1;
-            }
+            // Clamp to last bin so points at exactly x_range.1 / y_range.1
+            // fall into the final bin rather than being silently dropped.
+            let col = (((x - x_range.0) / x_bin_width).floor() as usize).min(bins_x - 1);
+            let row = (((y - y_range.0) / y_bin_height).floor() as usize).min(bins_y - 1);
+            bins[row][col] += 1;
         }
 
         // self.data = data;
@@ -274,6 +282,16 @@ impl Histogram2D {
     /// ```
     pub fn with_correlation(mut self) -> Self {
         self.show_correlation = true;
+        self
+    }
+
+    /// Apply logarithmic scaling to bin counts before color mapping.
+    ///
+    /// Uses `log₁₀(count + 1)` so that zero counts map to 0.0 and the dynamic
+    /// range is compressed. Useful when a few high-density bins dominate the
+    /// color scale and obscure structure in low-density regions.
+    pub fn with_log_count(mut self) -> Self {
+        self.log_count = true;
         self
     }
 }

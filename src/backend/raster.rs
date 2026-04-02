@@ -251,6 +251,7 @@ impl RasterBackend {
                     }
                 }
                 Primitive::GroupStart { .. } | Primitive::GroupEnd => {}
+                Primitive::ClipStart { .. } | Primitive::ClipEnd => {}
             }
         }
 

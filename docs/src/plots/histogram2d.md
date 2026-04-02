@@ -107,6 +107,61 @@ The axis is calibrated directly to the physical `x_range` / `y_range` values you
 
 ---
 
+## Log color scale
+
+When a small number of bins dominate the count (a dense core surrounded by sparse tails), the linear color scale washes out low-density structure. `.with_log_count()` compresses the dynamic range via `ln(count + 1)`, keeping both the core and the halo visible. The colorbar label updates to **"log(Count)"** automatically.
+
+```rust,no_run
+# use kuva::plot::Histogram2D;
+# use kuva::plot::histogram2d::ColorMap;
+# use kuva::render::plots::Plot;
+let hist = Histogram2D::new()
+    .with_data(data, (0.0, 30.0), (0.0, 30.0), 30, 30)
+    .with_color_map(ColorMap::Inferno)
+    .with_log_count();
+```
+
+**Linear** — the dense core saturates the colormap; the surrounding halo is invisible.
+
+<img src="../assets/histogram2d/log_count_linear.svg" alt="2D histogram — linear color scale, halo invisible" width="560">
+
+**Log** — the same data with `with_log_count()`. The halo structure is now visible alongside the core.
+
+<img src="../assets/histogram2d/log_count_log.svg" alt="2D histogram — log color scale, halo visible" width="560">
+
+---
+
+## Colorbar tick format
+
+By default (`TickFormat::Auto`) colorbar tick labels render as plain integers and switch to scientific notation automatically when counts reach 10 000 or more. You can override this with `Layout::with_colorbar_tick_format()`.
+
+```rust,no_run
+# use kuva::plot::Histogram2D;
+# use kuva::render::plots::Plot;
+use kuva::render::layout::{Layout, TickFormat};
+
+let plots = vec![Plot::Histogram2d(hist)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_colorbar_tick_format(TickFormat::Sci);   // always scientific notation
+```
+
+**Auto** — on a 50 000-point dataset the max bin count exceeds 10 000, so `Auto` switches to scientific notation automatically.
+
+<img src="../assets/histogram2d/colorbar_auto.svg" alt="2D histogram — colorbar with auto tick format, sci notation for large counts" width="560">
+
+**Sci** — forces scientific notation at all magnitudes.
+
+<img src="../assets/histogram2d/colorbar_sci.svg" alt="2D histogram — colorbar with explicit sci tick format" width="560">
+
+| `TickFormat` variant | Colorbar label appearance |
+|----------------------|---------------------------|
+| `Auto` *(default)* | Integer counts as-is; sci notation when count ≥ 10 000 |
+| `Sci` | Always `1.23e4` style |
+| `Integer` | Rounded to nearest integer |
+| `Fixed(n)` | Exactly *n* decimal places |
+
+---
+
 ## Colormaps
 
 | `ColorMap` variant | Description |
@@ -114,6 +169,7 @@ The axis is calibrated directly to the physical `x_range` / `y_range` values you
 | `ColorMap::Viridis` | Blue → green → yellow. Perceptually uniform, colorblind-safe. **(default)** |
 | `ColorMap::Inferno` | Black → orange → yellow. High contrast. |
 | `ColorMap::Grayscale` | White → black. Print-friendly. |
+| `ColorMap::Turbo` | Blue → green → red. High contrast over a wide range. |
 | `ColorMap::Custom(f)` | User-supplied `Arc<dyn Fn(f64) -> String>`. |
 
 ---
@@ -126,3 +182,5 @@ The axis is calibrated directly to the physical `x_range` / `y_range` values you
 | `.with_data(data, x_range, y_range, bins_x, bins_y)` | Load `(x, y)` points and bin them |
 | `.with_color_map(cmap)` | Set the colormap (default `ColorMap::Viridis`) |
 | `.with_correlation()` | Print Pearson r in the top-right corner |
+| `.with_log_count()` | Log-scale color mapping via `ln(count+1)`; colorbar label → "log(Count)" |
+| `Layout::with_colorbar_tick_format(fmt)` | Control colorbar tick label format (default `TickFormat::Auto`) |

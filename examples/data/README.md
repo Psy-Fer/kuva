@@ -44,6 +44,16 @@ kuva volcano  gene_stats.tsv --x log2fc --y pvalue --label-col gene --top-n 20
 kuva manhattan gene_stats.tsv --chr chr --pos pos --pvalue pvalue --label-col gene --top-n 10
 ```
 
+### `volcano_logp.tsv` — 200 rows
+Columns: `gene`, `log2fc`, `neg_log10_pvalue`
+Derived from `volcano.tsv` with `pvalue` pre-converted to −log₁₀(p).
+Used to smoke-test `--pvalue-col-is-log` on `kuva volcano`.
+
+### `gene_stats_logp.tsv` — 8 000 rows
+Columns: `gene`, `chr`, `pos`, `neg_log10_pvalue`
+Derived from `gene_stats.tsv` with `pvalue` pre-converted to −log₁₀(p).
+Used to smoke-test `--pvalue-col-is-log` on `kuva manhattan`.
+
 ---
 
 ## Individual datasets

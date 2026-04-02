@@ -169,6 +169,13 @@ run sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-co
     --title "Flow Diagram" \
     --terminal $W $H
 
+# ── forest ───────────────────────────────────────────────────────────────────
+header "forest"
+run forest "$DATA/forest.tsv" --label-col study --estimate-col estimate \
+    --ci-lower-col ci_lower --ci-upper-col ci_upper --weight-col weight \
+    --title "Meta-analysis" --x-label "Effect Size" \
+    --terminal $W $H
+
 # ── phylo ────────────────────────────────────────────────────────────────────
 header "phylo"
 run phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col length \

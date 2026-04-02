@@ -129,10 +129,14 @@ fn test_right_middle_preset() {
     let h_end = out[h_start..].find('"').unwrap() + h_start;
     let svg_height: f64 = out[h_start..h_end].parse().expect("height parse");
 
-    // Find the legend rect y: scan `<rect ... >` tags, only search within the tag boundary.
+    // Find the legend rect y: scan `<rect ... >` tags outside of `<defs>` blocks.
+    // We skip the canvas background rect (no x= attribute) and clipPath rects
+    // (which are inside <defs>...</defs> and have small y values near the top).
     let legend_rect_y = {
         let mut y_val: Option<f64> = None;
-        let mut search = out.as_str();
+        // Start scanning after the closing </defs> tag to skip all def-block rects.
+        let scan_start = out.find("</defs>").map(|i| i + 7).unwrap_or(0);
+        let mut search = &out[scan_start..];
         while let Some(rect_pos) = search.find("<rect") {
             let tag_end = search[rect_pos..].find('>').map(|e| rect_pos + e).unwrap_or(search.len());
             let tag = &search[rect_pos..=tag_end];

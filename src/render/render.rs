@@ -1,16 +1,41 @@
 use crate::render::render_utils::{self, percentile, linear_regression, pearson_corr};
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::render::layout::{Layout, ComputedLayout};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
 use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
 use crate::render::theme::Theme;
 
+/// Monotonically increasing counter used to generate unique `<clipPath>` IDs.
+/// Each call to `render_multiple` / `render_twin_y` grabs one ID so that
+/// Figure panels — which merge many Scenes into a single SVG — never share an ID.
+static PLOT_CLIP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+fn next_clip_id() -> String {
+    let n = PLOT_CLIP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("kuva-clip-{n}")
+}
+
 /// Round to 2 decimal places for compact SVG output.
 #[inline(always)]
 fn round2(v: f64) -> f64 {
     (v * 100.0).round() * 0.01
+}
+
+/// Returns a tooltip string for data element `i` if tooltips are enabled.
+/// Uses `custom_labels[i]` if set; otherwise calls `auto_fn` to generate text.
+#[inline]
+fn tooltip(show: bool, custom_labels: &Option<Vec<String>>, i: usize, auto_fn: impl FnOnce() -> String) -> Option<String> {
+    if let Some(ref labels) = custom_labels {
+        labels.get(i).cloned()
+    } else if show {
+        Some(auto_fn())
+    } else {
+        None
+    }
 }
 
 use crate::plot::scatter::{ScatterPlot, TrendLine, MarkerShape};
@@ -38,6 +63,7 @@ use crate::plot::ridgeline::RidgelinePlot;
 use crate::plot::polar::{PolarPlot, PolarMode};
 use crate::plot::ternary::TernaryPlot;
 use crate::plot::diceplot::DicePlot;
+use crate::plot::forest::ForestPlot;
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -121,8 +147,28 @@ pub enum Primitive {
     },
     GroupStart {
         transform: Option<String>,
+        /// SVG `<title>` tooltip text emitted as first child of the `<g>` element.
+        /// Ignored by terminal and raster backends.
+        title: Option<String>,
+        /// Verbatim attribute string injected into the `<g>` opening tag.
+        /// Used for `data-*` attributes and `class=` overrides in interactive mode.
+        /// Ignored by terminal and raster backends.
+        extra_attrs: Option<String>,
     },
     GroupEnd,
+    /// Opens a clipped region. All primitives until the matching `ClipEnd` are
+    /// clipped to the given rectangle. The SVG backend emits an inline
+    /// `<clipPath>` definition and a `<g clip-path="url(#id)">` wrapper;
+    /// terminal and raster backends ignore this primitive entirely.
+    ClipStart {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        id: String,
+    },
+    /// Closes a clipped region opened by `ClipStart`.
+    ClipEnd,
 }
 
 #[derive(Debug)]
@@ -130,6 +176,23 @@ pub enum TextAnchor {
     Start,
     Middle,
     End,
+}
+
+/// Axis coordinate metadata embedded in the SVG root element when interactive mode
+/// is enabled.  Allows the injected JavaScript to convert pixel coordinates back to
+/// data coordinates for the tooltip readout.
+#[derive(Debug)]
+pub struct AxisMeta {
+    pub x_min: f64,
+    pub x_max: f64,
+    pub y_min: f64,
+    pub y_max: f64,
+    pub plot_left: f64,
+    pub plot_top: f64,
+    pub plot_right: f64,
+    pub plot_bottom: f64,
+    pub log_x: bool,
+    pub log_y: bool,
 }
 
 #[derive(Debug)]
@@ -142,6 +205,14 @@ pub struct Scene {
     pub elements: Vec<Primitive>,
     /// Raw SVG strings to emit inside a `<defs>` block (e.g. linearGradients).
     pub defs: Vec<String>,
+    /// Set to `true` when any `GroupStart { title: Some(_) }` is added.
+    /// The SVG backend uses this to inject hover-highlight CSS.
+    pub has_tooltips: bool,
+    /// When `true`, the SVG backend injects interactive CSS, JS, and UI elements.
+    pub interactive: bool,
+    /// Axis metadata for the interactive JS coordinate readout.
+    /// `None` for pixel-space plots (Pie, Chord, etc.) or when not interactive.
+    pub axis_meta: Option<AxisMeta>,
 }
 
 impl Scene {
@@ -152,7 +223,10 @@ impl Scene {
                text_color: None,
                font_family: None,
                elements: Vec::new(),
-               defs: Vec::new() }
+               defs: Vec::new(),
+               has_tooltips: false,
+               interactive: false,
+               axis_meta: None }
     }
 
     /// Create a scene with a pre-allocated element buffer.
@@ -164,7 +238,10 @@ impl Scene {
                text_color: None,
                font_family: None,
                elements: Vec::with_capacity(capacity),
-               defs: Vec::new() }
+               defs: Vec::new(),
+               has_tooltips: false,
+               interactive: false,
+               axis_meta: None }
     }
 
     pub fn with_background(mut self, color: Option<&str>) -> Self {
@@ -174,6 +251,9 @@ impl Scene {
     }
 
     pub fn add(&mut self, p: Primitive) {
+        if let Primitive::GroupStart { title: Some(_), .. } = &p {
+            self.has_tooltips = true;
+        }
         self.elements.push(p);
     }
 }
@@ -378,7 +458,10 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     let uniform_circles = matches!(scatter.marker, MarkerShape::Circle)
         && scatter.sizes.is_none()
         && scatter.colors.is_none()
-        && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some());
+        && !scatter.show_tooltips
+        && scatter.tooltip_labels.is_none()
+        && !scatter.data.iter().any(|p| p.x_err.is_some() || p.y_err.is_some())
+        && !computed.interactive;
 
     // Precompute stroke color once (matches fill, fully opaque) for the slow path.
     let marker_stroke = scatter.marker_stroke_width
@@ -411,6 +494,26 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             // Per-point stroke color tracks the per-point fill color.
             let pt_stroke = scatter.marker_stroke_width
                 .map(|_| Color::from(color));
+            // In interactive mode always generate a title so the native browser tooltip
+            // works and search has something to match against.
+            let tip = tooltip(scatter.show_tooltips || computed.interactive,
+                &scatter.tooltip_labels, i,
+                || format!("x={:.2}, y={:.2}", point.x, point.y));
+            let scatter_extra = if computed.interactive {
+                let group = scatter.group_name.as_deref()
+                    .or(scatter.legend_label.as_deref());
+                let group_attr = group
+                    .map(|g| format!(r#" data-group="{g}""#))
+                    .unwrap_or_default();
+                Some(format!(r#"class="tt" data-x="{x}" data-y="{y}"{group_attr}"#,
+                    x = point.x, y = point.y))
+            } else {
+                None
+            };
+            if tip.is_some() || scatter_extra.is_some() {
+                let title = tip.clone();
+                scene.add(Primitive::GroupStart { transform: None, title, extra_attrs: scatter_extra });
+            }
             draw_marker(
                 scene,
                 scatter.marker,
@@ -498,6 +601,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 stroke_dasharray: None,
             });
         }
+        if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
     }
     } // end else (non-batch path)
     
@@ -555,6 +659,17 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
 }
 
 fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
+    // In interactive mode, wrap the entire series so legend toggle can mute it.
+    let interactive_group = computed.interactive && line.legend_label.is_some();
+    if interactive_group {
+        let group = line.legend_label.as_deref().unwrap_or("");
+        scene.add(Primitive::GroupStart {
+            transform: None,
+            title: None,
+            extra_attrs: Some(format!("class=\"tt\" data-group=\"{}\"", group)),
+        });
+    }
+
     // Draw band behind line if present
     if let Some(ref band) = line.band {
         add_band(band, scene, computed);
@@ -642,6 +757,8 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
         }
     }
+
+    if interactive_group { scene.add(Primitive::GroupEnd); }
 }
 
 fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -703,18 +820,32 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
 }
 
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let mut flat_i: usize = 0;
     for (i, group) in bar.groups.iter().enumerate() {
         let group_x = i as f64 + 1.0;
         let total_width = bar.width;
 
         if bar.stacked {
             let mut y_accum = 0.0;
-            for bar_val in &group.bars {
+            for (j, bar_val) in group.bars.iter().enumerate() {
                 let x0 = computed.map_x(group_x - total_width / 2.0);
                 let x1 = computed.map_x(group_x + total_width / 2.0);
                 let y0 = computed.map_y(y_accum);
                 let y1 = computed.map_y(y_accum + bar_val.value);
 
+                let series_label = bar.legend_label.as_ref()
+                    .and_then(|ll| ll.get(j))
+                    .map(|s| s.as_str())
+                    .unwrap_or(&group.label);
+                let tip = tooltip(bar.show_tooltips || computed.interactive, &bar.tooltip_labels, flat_i,
+                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value));
+                let extra = if computed.interactive {
+                    Some(format!("class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                        series_label, group.label, bar_val.value))
+                } else { None };
+                if tip.is_some() || extra.is_some() {
+                    scene.add(Primitive::GroupStart { transform: None, title: tip, extra_attrs: extra });
+                }
                 scene.add(Primitive::Rect {
                     x: x0,
                     y: y1.min(y0),
@@ -725,8 +856,10 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     stroke_width: None,
                     opacity: None,
                 });
+                if bar.show_tooltips || computed.interactive { scene.add(Primitive::GroupEnd); }
 
                 y_accum += bar_val.value;
+                flat_i += 1;
             }
         } else {
             let n = group.bars.len();
@@ -739,6 +872,25 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let y0 = computed.map_y(0.0);
                 let y1 = computed.map_y(bar_val.value);
 
+                // In simple mode (1 bar per group), identify by the group's own label.
+                // In grouped mode (n>1 bars per group), identify by the series legend label.
+                let series_label = if n == 1 {
+                    group.label.as_str()
+                } else {
+                    bar.legend_label.as_ref()
+                        .and_then(|ll| ll.get(j))
+                        .map(|s| s.as_str())
+                        .unwrap_or(&group.label)
+                };
+                let tip = tooltip(bar.show_tooltips || computed.interactive, &bar.tooltip_labels, flat_i,
+                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value));
+                let extra = if computed.interactive {
+                    Some(format!("class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                        series_label, group.label, bar_val.value))
+                } else { None };
+                if tip.is_some() || extra.is_some() {
+                    scene.add(Primitive::GroupStart { transform: None, title: tip, extra_attrs: extra });
+                }
                 scene.add(Primitive::Rect {
                     x: x0,
                     y: y1.min(y0),
@@ -749,6 +901,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     stroke_width: None,
                     opacity: None,
                 });
+                if bar.show_tooltips || computed.interactive { scene.add(Primitive::GroupEnd); }
+                flat_i += 1;
             }
         }
     }
@@ -762,10 +916,16 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
         let norm = if hist.normalize { 1.0 / max_count } else { 1.0 };
         for (i, count) in counts.iter().enumerate() {
             if i + 1 >= edges.len() { break; }
+            if *count == 0.0 { continue; }
             let x0 = computed.map_x(edges[i]);
             let x1 = computed.map_x(edges[i + 1]);
             let y0 = computed.map_y(0.0);
             let y1 = computed.map_y(count * norm);
+            let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i,
+                || format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i+1], count));
+            if let Some(ref t) = tip {
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+            }
             scene.add(Primitive::Rect {
                 x: x0, y: y1.min(y0),
                 width: (x1 - x0).abs(),
@@ -773,6 +933,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
                 fill: Color::from(&hist.color),
                 stroke: None, stroke_width: None, opacity: None,
             });
+            if tip.is_some() { scene.add(Primitive::GroupEnd); }
         }
         return;
     }
@@ -800,6 +961,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
     let norm: f64 = if hist.normalize { 1.0 / max_count } else { 1.0 };
 
     for (i, count) in counts.iter().enumerate() {
+        if *count == 0 { continue; }
         let x = range.0 + i as f64 * bin_width;
         let height = *count as f64 * norm;
 
@@ -811,6 +973,11 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
         let rect_width = (x1 - x0).abs();
         let rect_height = (y0 - y1).abs();
 
+        let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i,
+            || format!("[{:.2}, {:.2}): {}", x, x + bin_width, count));
+        if let Some(ref t) = tip {
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+        }
         scene.add(Primitive::Rect {
             x: x0,
             y: y1.min(y0),
@@ -821,11 +988,14 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
             stroke_width: None,
             opacity: None,
         });
+        if tip.is_some() { scene.add(Primitive::GroupEnd); }
     }
 }
 
 fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedLayout) {
     let max_count = hist2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
+    let log_scale = hist2d.log_count;
+    let log_max = (max_count + 1.0).log10();
 
     let x_bin_width = (hist2d.x_range.1 - hist2d.x_range.0) / hist2d.bins_x as f64;
     let y_bin_height = (hist2d.y_range.1 - hist2d.y_range.0) / hist2d.bins_y as f64;
@@ -859,7 +1029,11 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
             let y0 = hist2d.y_range.0 + row_idx as f64 * y_bin_height;
             let x1 = x0 + x_bin_width;
             let y1 = y0 + y_bin_height;
-            let norm = (count as f64 / max_count).clamp(0.0, 1.0);
+            let norm = if log_scale {
+                ((count as f64 + 1.0).log10() / log_max).clamp(0.0, 1.0)
+            } else {
+                (count as f64 / max_count).clamp(0.0, 1.0)
+            };
             let color = cmap.map(norm);
 
             scene.add(Primitive::Rect {
@@ -993,6 +1167,10 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 boxplot.overlay_seed.wrapping_add(i as u64),
                 None,
                 None,
+                false,
+                None,
+                &group.label,
+                0,
                 scene,
                 computed,
             );
@@ -1068,6 +1246,10 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
                 violin.overlay_seed.wrapping_add(i as u64),
                 None,
                 None,
+                false,
+                None,
+                &group.label,
+                0,
                 scene,
                 computed,
             );
@@ -1114,7 +1296,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
     let mut outside_labels: Vec<OutsideLabel> = Vec::new();
 
-    for slice in &pie.slices {
+    for (slice_i, slice) in pie.slices.iter().enumerate() {
         let frac = slice.value / total;
         let sweep = frac * std::f64::consts::TAU;
         let end_angle = angle + sweep;
@@ -1143,6 +1325,11 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             )
         };
 
+        let tip = tooltip(pie.show_tooltips, &pie.tooltip_labels, slice_i,
+            || format!("{}: {:.2} ({:.1}%)", slice.label, slice.value, slice.value / total * 100.0));
+        if let Some(ref t) = tip {
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+        }
         scene.add(Primitive::Path(Box::new(PathData {
             d: path_data,
             fill: Some(Color::from(&slice.color)),
@@ -1151,6 +1338,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
             opacity: None,
             stroke_dasharray: None,
                 })));
+        if tip.is_some() { scene.add(Primitive::GroupEnd); }
 
         // Build label text
         let label_text = if pie.show_percent {
@@ -1299,19 +1487,47 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         })
         .collect();
 
-    let mut xs = Vec::with_capacity(total);
-    let mut ys = Vec::with_capacity(total);
-    let mut ws = Vec::with_capacity(total);
-    let mut hs = Vec::with_capacity(total);
-    let mut fills = Vec::with_capacity(total);
-    for cd in &cell_data {
-        xs.push(cd.x);
-        ys.push(cd.y);
-        ws.push(cd.w);
-        hs.push(cd.h);
-        fills.push(cd.fill.clone());
+    let use_tooltips = heatmap.show_tooltips || heatmap.tooltip_labels.is_some();
+
+    if use_tooltips {
+        for (idx, cd) in cell_data.iter().enumerate() {
+            let row_i = idx / cols;
+            let col_i = idx % cols;
+            let value = heatmap.data[row_i][col_i];
+            let row_label = heatmap.row_labels.as_ref().and_then(|v| v.get(row_i)).map(|s| s.as_str()).unwrap_or("");
+            let col_label = heatmap.col_labels.as_ref().and_then(|v| v.get(col_i)).map(|s| s.as_str()).unwrap_or("");
+            let tip = tooltip(heatmap.show_tooltips, &heatmap.tooltip_labels, idx,
+                || format!("{}, {}: {:.2}", row_label, col_label, value));
+            if let Some(ref t) = tip {
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+            }
+            scene.add(Primitive::Rect {
+                x: cd.x,
+                y: cd.y,
+                width: cd.w,
+                height: cd.h,
+                fill: cd.fill.clone(),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+            if tip.is_some() { scene.add(Primitive::GroupEnd); }
+        }
+    } else {
+        let mut xs = Vec::with_capacity(total);
+        let mut ys = Vec::with_capacity(total);
+        let mut ws = Vec::with_capacity(total);
+        let mut hs = Vec::with_capacity(total);
+        let mut fills = Vec::with_capacity(total);
+        for cd in &cell_data {
+            xs.push(cd.x);
+            ys.push(cd.y);
+            ws.push(cd.w);
+            hs.push(cd.h);
+            fills.push(cd.fill.clone());
+        }
+        scene.add(Primitive::RectBatch { x: xs, y: ys, w: ws, h: hs, fills });
     }
-    scene.add(Primitive::RectBatch { x: xs, y: ys, w: ws, h: hs, fills });
 
     if heatmap.show_values {
         for (idx, cd) in cell_data.iter().enumerate() {
@@ -1347,16 +1563,15 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 
     let has_variable_width = brickplot.motif_lengths.is_some();
     // Resolve the offset for a given row index.
-    // Strigar mode always uses 0; DNA mode uses the per-row value if available,
-    // otherwise falls back to the global x_offset.
+    // Uses per-row offset if set, otherwise falls back to global x_offset.
+    // x_origin is added so that the chosen reference coordinate maps to x=0.
     let row_offset = |i: usize| -> f64 {
-        if brickplot.strigar_exp.is_some() {
-            0.0
-        } else if let Some(ref offsets) = brickplot.x_offsets {
+        let per_row = if let Some(ref offsets) = brickplot.x_offsets {
             offsets.get(i).copied().flatten().unwrap_or(brickplot.x_offset)
         } else {
             brickplot.x_offset
-        }
+        };
+        per_row + brickplot.x_origin
     };
 
     for (i, row) in rows.iter().enumerate() {
@@ -1436,6 +1651,10 @@ fn add_strip_points(
     seed: u64,
     fill_opacity: Option<f64>,
     stroke_width: Option<f64>,
+    show_tooltips: bool,
+    tooltip_labels: Option<&[String]>,
+    group_label: &str,
+    label_offset: usize,
     scene: &mut Scene,
     computed: &ComputedLayout,
 ) {
@@ -1456,11 +1675,26 @@ fn add_strip_points(
             stroke_width,
         }
     };
+    let tooltip_labels_opt: Option<Vec<String>> = tooltip_labels.map(|s| s.to_vec());
+    let strip_extra = |v: f64| -> Option<String> {
+        if computed.interactive {
+            Some(format!("class=\"tt\" data-group=\"{}\" data-y=\"{v}\"", group_label))
+        } else {
+            None
+        }
+    };
     match style {
         StripStyle::Center => {
             let cx = computed.map_x(x_center_data);
             for (j, &v) in values.iter().enumerate() {
+                let tip = tooltip(show_tooltips || computed.interactive, &tooltip_labels_opt, label_offset + j,
+                    || format!("{}: {:.2}", group_label, v));
+                let extra = strip_extra(v);
+                if tip.is_some() || extra.is_some() {
+                    scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
+                }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
+                if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
         StripStyle::Strip { jitter } => {
@@ -1475,7 +1709,14 @@ fn add_strip_points(
                 let rand_val = (rng_state >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
                 let offset: f64 = (rand_val - 0.5) * jitter;
                 let cx = computed.map_x(x_center_data + offset);
+                let tip = tooltip(show_tooltips || computed.interactive, &tooltip_labels_opt, label_offset + j,
+                    || format!("{}: {:.2}", group_label, v));
+                let extra = strip_extra(v);
+                if tip.is_some() || extra.is_some() {
+                    scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
+                }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
+                if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
         StripStyle::Swarm => {
@@ -1484,13 +1725,21 @@ fn add_strip_points(
             let cx_center = computed.map_x(x_center_data);
             for (j, &v) in values.iter().enumerate() {
                 let cx = cx_center + x_offsets[j];
+                let tip = tooltip(show_tooltips || computed.interactive, &tooltip_labels_opt, label_offset + j,
+                    || format!("{}: {:.2}", group_label, v));
+                let extra = strip_extra(v);
+                if tip.is_some() || extra.is_some() {
+                    scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
+                }
                 scene.add(make_circle(j, cx, computed.map_y(v)));
+                if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
     }
 }
 
 fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let mut label_offset: usize = 0;
     for (i, group) in strip.groups.iter().enumerate() {
         let color = strip.group_colors.as_ref()
             .and_then(|c| c.get(i).map(|s| s.as_str()))
@@ -1505,10 +1754,129 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             strip.seed.wrapping_add(i as u64),
             strip.marker_opacity,
             strip.marker_stroke_width,
+            strip.show_tooltips,
+            strip.tooltip_labels.as_deref(),
+            &group.label,
+            label_offset,
             scene,
             computed,
         );
+        label_offset += group.values.len();
     }
+}
+
+fn add_forest(forest: &ForestPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let n = forest.rows.len();
+    if n == 0 { return; }
+
+    let max_weight = forest.rows.iter()
+        .filter_map(|r| r.weight)
+        .fold(0.0_f64, f64::max);
+
+    // Null reference line (vertical dashed line at null_value)
+    if forest.show_null_line {
+        if let Some(nv) = forest.null_value {
+            let x_px = computed.map_x(nv);
+            scene.add(Primitive::Line {
+                x1: x_px,
+                y1: computed.map_y(0.5),
+                x2: x_px,
+                y2: computed.map_y(n as f64 + 0.5),
+                stroke: Color::from("#999999"),
+                stroke_width: 1.0,
+                stroke_dasharray: Some("4,3".into()),
+            });
+        }
+    }
+
+    for (i, row) in forest.rows.iter().enumerate() {
+        // row[0] at top = largest y value
+        let y_data = (n - i) as f64;
+        let y_px = computed.map_y(y_data);
+
+        let color_str = row.color.as_deref().unwrap_or(&forest.color);
+        let color = Color::from(color_str);
+
+        let x_lower = computed.map_x(row.ci_lower);
+        let x_upper = computed.map_x(row.ci_upper);
+        let est_px = computed.map_x(row.estimate);
+
+        // Marker half-width, scaled by weight when present.
+        // Clamped to 15% of base size so the smallest study is still visible.
+        let marker_half_w = if let Some(w) = row.weight {
+            if max_weight > 0.0 {
+                let scaled = forest.marker_size * (w / max_weight).sqrt();
+                scaled.max(forest.marker_size * 0.15).max(1.5)
+            } else {
+                forest.marker_size
+            }
+        } else {
+            forest.marker_size
+        };
+
+        // CI whisker — one continuous line from ci_lower to ci_upper.
+        // Drawn first so the marker sits on top.
+        scene.add(Primitive::Line {
+            x1: x_lower,
+            y1: y_px,
+            x2: x_upper,
+            y2: y_px,
+            stroke: color.clone(),
+            stroke_width: forest.whisker_width,
+            stroke_dasharray: None,
+        });
+
+        // End caps
+        let cap = forest.cap_size;
+        if cap > 0.0 {
+            scene.add(Primitive::Line {
+                x1: x_lower,
+                y1: y_px - cap,
+                x2: x_lower,
+                y2: y_px + cap,
+                stroke: color.clone(),
+                stroke_width: forest.whisker_width,
+                stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: x_upper,
+                y1: y_px - cap,
+                x2: x_upper,
+                y2: y_px + cap,
+                stroke: color.clone(),
+                stroke_width: forest.whisker_width,
+                stroke_dasharray: None,
+            });
+        }
+
+        // Point estimate marker — filled square centered on the whisker.
+        let mh = marker_half_w * 2.0;
+        scene.add(Primitive::Rect {
+            x: est_px - marker_half_w,
+            y: y_px - marker_half_w,
+            width: mh,
+            height: mh,
+            fill: color,
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+}
+
+/// Render a single forest plot with the given layout.
+pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_forest(forest, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
 }
 
 fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -1567,6 +1935,12 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
         let y_screen_hi = computed.map_y(base.max(top));
         let bar_height = (y_screen_lo - y_screen_hi).abs();
         if bar_height > 0.0 {
+            // Use top-base so Total bars show the running total, not the stored 0.0
+        let tip = tooltip(waterfall.show_tooltips, &waterfall.tooltip_labels, i,
+                || format!("{}: {:.2}", bar.label, top - base));
+            if let Some(ref t) = tip {
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+            }
             scene.add(Primitive::Rect {
                 x: x0,
                 y: y_screen_hi,
@@ -1577,6 +1951,7 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
                 stroke_width: None,
                 opacity: None,
             });
+            if tip.is_some() { scene.add(Primitive::GroupEnd); }
         }
 
         // Value label
@@ -1883,13 +2258,23 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
             });
             cur_y += line_height;
             for entry in &group.entries {
+                if computed.interactive {
+                    let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
+                    scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
+                }
                 render_legend_entry(entry, scene, legend_x, cur_y, computed);
+                if computed.interactive { scene.add(Primitive::GroupEnd); }
                 cur_y += line_height;
             }
         }
     } else {
         for entry in &legend.entries {
+            if computed.interactive {
+                let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
+                scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
+            }
             render_legend_entry(entry, scene, legend_x, cur_y, computed);
+            if computed.interactive { scene.add(Primitive::GroupEnd); }
             cur_y += line_height;
         }
     }
@@ -1936,14 +2321,24 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
         opacity: None,
     });
 
-    // Tick marks and labels
-    let ticks = render_utils::generate_ticks(info.min_value, info.max_value, 5);
+    // Tick marks and labels — use custom tick_labels if provided, else auto-generate
     let range = info.max_value - info.min_value;
-    for tick in &ticks {
-        if *tick < info.min_value || *tick > info.max_value {
+    let auto_ticks: Vec<(f64, String)>;
+    let tick_entries: &[(f64, String)] = if let Some(ref tl) = info.tick_labels {
+        tl.as_slice()
+    } else {
+        let raw = render_utils::generate_ticks(info.min_value, info.max_value, 5);
+        auto_ticks = raw.into_iter()
+            .filter(|t| *t >= info.min_value && *t <= info.max_value)
+            .map(|t| (t, computed.colorbar_tick_format.format(t)))
+            .collect();
+        auto_ticks.as_slice()
+    };
+    for (pos, label) in tick_entries {
+        if *pos < info.min_value || *pos > info.max_value {
             continue;
         }
-        let frac = (tick - info.min_value) / range;
+        let frac = (pos - info.min_value) / range;
         let y = bar_y + bar_height - frac * bar_height; // invert: high values at top
 
         // tick mark
@@ -1961,7 +2356,7 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
         scene.add(Primitive::Text {
             x: bar_x + bar_width + computed.tick_mark_major,
             y: y + 4.0,
-            content: format!("{:.1}", tick),
+            content: label.clone(),
             size: computed.tick_size,
             anchor: TextAnchor::Start,
             rotate: None,
@@ -1969,15 +2364,18 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
         });
     }
 
-    // Optional label above the bar
+    // Label rotated -90° to the left of the bar (reads bottom-to-top).
+    // Left placement keeps it away from tick labels and avoids right-edge clipping.
     if let Some(ref label) = info.label {
+        let label_x = bar_x - computed.tick_size as f64 * 0.5 - 4.0;
+        let label_y = bar_y + bar_height / 2.0;
         scene.add(Primitive::Text {
-            x: bar_x + bar_width / 2.0,
-            y: bar_y - 6.0,
+            x: label_x,
+            y: label_y,
             content: label.clone(),
             size: computed.tick_size,
             anchor: TextAnchor::Middle,
-            rotate: None,
+            rotate: Some(-90.0),
             bold: false,
         });
     }
@@ -1998,30 +2396,40 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let y_sig = -vp.p_cutoff.log10();
     if y_sig >= computed.y_range.0 && y_sig <= computed.y_range.1 {
         let sy = computed.map_y(y_sig);
+        if computed.interactive {
+            scene.add(Primitive::GroupStart { transform: None, title: None,
+                extra_attrs: Some(r#"class="kuva-threshold""#.to_string()) });
+        }
         scene.add(Primitive::Line {
             x1: plot_left, y1: sy, x2: plot_right, y2: sy,
             stroke: threshold_color.into(),
             stroke_width: 1.0,
             stroke_dasharray: Some("4 4".into()),
         });
+        if computed.interactive { scene.add(Primitive::GroupEnd); }
     }
 
     // Vertical fc cutoff lines at ±fc_cutoff
     for &fc_val in &[-vp.fc_cutoff, vp.fc_cutoff] {
         if fc_val >= computed.x_range.0 && fc_val <= computed.x_range.1 {
             let sx = computed.map_x(fc_val);
+            if computed.interactive {
+                scene.add(Primitive::GroupStart { transform: None, title: None,
+                    extra_attrs: Some(r#"class="kuva-threshold""#.to_string()) });
+            }
             scene.add(Primitive::Line {
                 x1: sx, y1: plot_top, x2: sx, y2: plot_bottom,
                 stroke: threshold_color.into(),
                 stroke_width: 1.0,
                 stroke_dasharray: Some("4 4".into()),
             });
+            if computed.interactive { scene.add(Primitive::GroupEnd); }
         }
     }
 
     // Draw points: NS first, then Down, then Up
     for pass in 0..3u8 {
-        for p in &vp.points {
+        for (pi, p) in vp.points.iter().enumerate() {
             let is_up = p.log2fc >= vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let is_down = p.log2fc <= -vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let color = match (pass, is_up, is_down) {
@@ -2033,7 +2441,27 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.log2fc);
             let cy = computed.map_y(y_val);
+            let tip = tooltip(vp.show_tooltips || computed.interactive, &vp.tooltip_labels, pi,
+                || format!("{}\nlog2FC={:.2}\np={:.2e}", p.name, p.log2fc, p.pvalue));
+            let volcano_extra = if computed.interactive {
+                let group = match pass {
+                    0 => "NS",
+                    1 => "Down",
+                    _ => "Up",
+                };
+                Some(format!(
+                    "class=\"tt\" data-logfc=\"{lfc}\" data-pvalue=\"{pv}\" data-group=\"{group}\"",
+                    lfc = p.log2fc, pv = p.pvalue
+                ))
+            } else {
+                None
+            };
+            if tip.is_some() || volcano_extra.is_some() {
+                scene.add(Primitive::GroupStart { transform: None, title: tip.clone(),
+                    extra_attrs: volcano_extra });
+            }
             scene.add(Primitive::Circle { cx, cy, r: vp.point_size, fill: Color::from(color.as_str()), fill_opacity: None, stroke: None, stroke_width: None });
+            if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
         }
     }
 
@@ -2199,33 +2627,19 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
             let y_val = -(p.pvalue.max(floor)).log10();
             let cx = computed.map_x(p.x).clamp(band_left, band_right);
             let cy = computed.map_y(y_val);
+            let tip = tooltip(mp.show_tooltips, &mp.tooltip_labels, idx, || {
+                let name = p.label.as_deref().unwrap_or("");
+                format!("{}\n{}:{:.0}\np={:.2e}", name, p.chromosome, p.x, p.pvalue)
+            });
+            if let Some(ref t) = tip {
+                scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+            }
             scene.add(Primitive::Circle { cx, cy, r: mp.point_size, fill: Color::from(&color), fill_opacity: None, stroke: None, stroke_width: None });
+            if tip.is_some() { scene.add(Primitive::GroupEnd); }
         }
     }
 
-    // 4. Chromosome labels in the bottom margin.
-    // Skip bands that are too narrow to fit a label (e.g., MT at genome scale is ~0 px).
-    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
-    let min_label_px = 6.0_f64; // below this the band is invisible; anything above gets a label
-    for span in &mp.spans {
-        let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
-        let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
-            let (anchor, rotate) = match computed.x_tick_rotate {
-                Some(angle) => (TextAnchor::End, Some(angle)),
-                None        => (TextAnchor::Middle, None),
-            };
-            scene.add(Primitive::Text {
-                x: mid_x,
-                y: label_y,
-                content: span.name.clone(),
-                size: computed.tick_size,
-                anchor,
-                rotate,
-                bold: false,
-            });
-        }
-    }
+    // 4. Chromosome labels — drawn by add_manhattan_chr_labels (called after ClipEnd).
 
     // 5. Top-hit labels
     if mp.label_top == 0 {
@@ -2329,6 +2743,35 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     scene
 }
 
+/// Draw chromosome name labels below the plot area.
+/// Must be called OUTSIDE any active clip-path group, since labels sit below
+/// the data-area boundary and would otherwise be invisible.
+fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let plot_left  = computed.margin_left;
+    let plot_right = computed.width - computed.margin_right;
+    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
+    let min_label_px = 6.0_f64;
+    for span in &mp.spans {
+        let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
+        let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
+        if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
+            let (anchor, rotate) = match computed.x_tick_rotate {
+                Some(angle) => (TextAnchor::End, Some(angle)),
+                None        => (TextAnchor::Middle, None),
+            };
+            scene.add(Primitive::Text {
+                x: mid_x,
+                y: label_y,
+                content: span.name.clone(),
+                size: computed.tick_size,
+                anchor,
+                rotate,
+                bold: false,
+            });
+        }
+    }
+}
+
 pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
@@ -2338,6 +2781,7 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_manhattan(mp, &mut scene, &computed);
+    add_manhattan_chr_labels(mp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
@@ -2561,7 +3005,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 }
 
 fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
-    use render_utils::{silverman_bandwidth, simple_kde};
+    use render_utils::{silverman_bandwidth, simple_kde, simple_kde_reflect};
 
     // Determine the (x, y) curve points
     let curve: Vec<(f64, f64)> = if let Some((xs, ys)) = &dp.precomputed {
@@ -2569,10 +3013,24 @@ fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
     } else {
         if dp.data.len() < 2 { return; }
         let bw = dp.bandwidth.unwrap_or_else(|| silverman_bandwidth(&dp.data));
-        let raw = simple_kde(&dp.data, bw, dp.kde_samples);
-        // Normalise raw KDE sums to probability density
         let n = dp.data.len() as f64;
         let norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
+
+        let raw = if dp.x_lo.is_some() || dp.x_hi.is_some() {
+            // Bounded evaluation with boundary reflection. For any active bound,
+            // data points near that boundary are mirrored across it so the curve
+            // terminates smoothly rather than cutting off mid-peak. Normalising
+            // by the original n preserves the density integral over [lo, hi].
+            let data_min = dp.data.iter().cloned().fold(f64::INFINITY, f64::min);
+            let data_max = dp.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let lo = dp.x_lo.unwrap_or(data_min - 3.0 * bw);
+            let hi = dp.x_hi.unwrap_or(data_max + 3.0 * bw);
+            simple_kde_reflect(&dp.data, bw, dp.kde_samples, lo, hi,
+                dp.x_lo.is_some(), dp.x_hi.is_some())
+        } else {
+            simple_kde(&dp.data, bw, dp.kde_samples)
+        };
+
         raw.into_iter().map(|(x, y)| (x, y * norm)).collect()
     };
 
@@ -2787,7 +3245,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Cap effective max radius so circles never bleed outside their grid cell
     let effective_max_r = dp.max_radius.min((cell_w.min(cell_h) / 2.0) * 0.9);
 
-    for pt in &dp.points {
+    for (dpi, pt) in dp.points.iter().enumerate() {
         let xi = dp.x_categories.iter().position(|c| c == &pt.x_cat);
         let yi = dp.y_categories.iter().position(|c| c == &pt.y_cat);
 
@@ -2806,7 +3264,13 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let r    = dp.min_radius + norm_size.clamp(0.0, 1.0) * (effective_max_r - dp.min_radius);
         let fill = dp.color_map.map(norm_color.clamp(0.0, 1.0));
 
+        let tip = tooltip(dp.show_tooltips, &dp.tooltip_labels, dpi,
+            || format!("{}, {}: size={:.2}", pt.x_cat, pt.y_cat, pt.size));
+        if let Some(ref t) = tip {
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+        }
         scene.add(Primitive::Circle { cx, cy, r, fill: fill.into(), fill_opacity: None, stroke: None, stroke_width: None });
+        if tip.is_some() { scene.add(Primitive::GroupEnd); }
     }
 }
 
@@ -3276,19 +3740,6 @@ fn add_dot_stacked_legends(
     let bar_width = computed.colorbar_bar_width;
     let colorbar_top = box_top - legend_padding + size_legend_height + gap;
 
-    // Colorbar label/title
-    if let Some(ref label) = info.label {
-        scene.add(Primitive::Text {
-            x: bar_x + bar_width * 0.5,
-            y: colorbar_top - 6.0,
-            content: label.clone(),
-            size: computed.tick_size,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-            bold: false,
-        });
-    }
-
     let bar_y = colorbar_top;
     let bar_height = (computed.height - computed.margin_bottom - bar_y - gap).max(50.0);
 
@@ -3342,10 +3793,25 @@ fn add_dot_stacked_legends(
         scene.add(Primitive::Text {
             x: bar_x + bar_width + computed.tick_mark_major,
             y: y + 4.0,
-            content: format!("{:.1}", tick),
+            content: computed.colorbar_tick_format.format(*tick),
             size: computed.tick_size,
             anchor: TextAnchor::Start,
             rotate: None,
+            bold: false,
+        });
+    }
+
+    // Label rotated -90° to the left of the bar (same convention as add_colorbar).
+    if let Some(ref label) = info.label {
+        let label_x = bar_x - computed.tick_size as f64 * 0.5 - 4.0;
+        let label_y = bar_y + bar_height / 2.0;
+        scene.add(Primitive::Text {
+            x: label_x,
+            y: label_y,
+            content: label.clone(),
+            size: computed.tick_size,
+            anchor: TextAnchor::Middle,
+            rotate: Some(-90.0),
             bold: false,
         });
     }
@@ -3458,13 +3924,28 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::Strip(sp) => {
-                if let Some(ref label) = sp.legend_label {
-                    entries.push(LegendEntry {
-                        label: label.clone(),
-                        color: sp.color.clone(),
-                        shape: LegendShape::Circle,
-                        dasharray: None,
-                    });
+                if sp.legend_label.is_some() {
+                    if let Some(ref colors) = sp.group_colors {
+                        // Per-group legend entries
+                        for (i, group) in sp.groups.iter().enumerate() {
+                            let color = colors.get(i).cloned().unwrap_or_else(|| sp.color.clone());
+                            entries.push(LegendEntry {
+                                label: group.label.clone(),
+                                color,
+                                shape: LegendShape::Circle,
+                                dasharray: None,
+                            });
+                        }
+                    } else if let Some(ref label) = sp.legend_label {
+                        if !label.is_empty() {
+                            entries.push(LegendEntry {
+                                label: label.clone(),
+                                color: sp.color.clone(),
+                                shape: LegendShape::Circle,
+                                dasharray: None,
+                            });
+                        }
+                    }
                 }
             }
             Plot::Heatmap(heatmap) => {
@@ -4274,6 +4755,12 @@ fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedL
         let x_center = computed.map_x(x_val);
         let color = candle_color(candle).to_string();
 
+        let tip = tooltip(cp.show_tooltips, &cp.tooltip_labels, i,
+            || format!("{}\nO:{:.2} H:{:.2} L:{:.2} C:{:.2}", candle.label, candle.open, candle.high, candle.low, candle.close));
+        if let Some(ref t) = tip {
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+        }
+
         // Wick
         scene.add(Primitive::Line {
             x1: x_center,
@@ -4299,6 +4786,8 @@ fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedL
             stroke_width: Some(0.5),
             opacity: None,
         });
+
+        if tip.is_some() { scene.add(Primitive::GroupEnd); }
     }
 
     // Volume panel
@@ -5037,7 +5526,63 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             stroke_width: 0.0,
             opacity: Some(sankey.link_opacity),
             stroke_dasharray: None,
-                })));
+        })));
+
+        // ── Flow label ──
+        if sankey.flow_labels || sankey.flow_percent {
+            // Preferred: place label at the midpoint of the horizontal clear zone
+            // between the source node's label text right-extent and the target bar's
+            // left edge.  Fallback: if no clear zone exists (long labels in tight
+            // layouts), use t=0.65 so the label is still visible — it may overlap
+            // the source node label slightly, but hiding it entirely is worse.
+            let ts = computed.tick_size as f64;
+            let bs = computed.body_size as f64;
+            let edge_margin = 4.0_f64;
+
+            let src_label_right = if col[src] == 0 {
+                x_src + edge_margin   // source label is on the LEFT; right is clear
+            } else {
+                let chars = sankey.nodes[src].label.chars().count() as f64;
+                x_src + 6.0 + chars * bs * 0.6 + edge_margin
+            };
+            let clear_end = x_tgt - edge_margin;
+
+            let t = if clear_end - src_label_right >= ts {
+                // Clear zone exists: place at its midpoint.
+                ((src_label_right + clear_end) / 2.0 - x_src) / (x_tgt - x_src)
+            } else {
+                // No clear zone: fall back to 65% toward target.
+                0.65
+            }.clamp(0.05, 0.95);
+
+            let yw_src = (1.0 - t) * (1.0 - t) * (1.0 + 2.0 * t);
+            let yw_tgt = t * t * (3.0 - 2.0 * t);
+            let y_top_at_t = yw_src * y_src_top + yw_tgt * y_tgt_top;
+            let y_bot_at_t = yw_src * y_src_bot + yw_tgt * y_tgt_bot;
+            let ribbon_h_at_t = y_bot_at_t - y_top_at_t;
+            if ribbon_h_at_t >= sankey.flow_label_min_height {
+                let label_x = x_src + t * (x_tgt - x_src);
+                let label_y = (y_top_at_t + y_bot_at_t) / 2.0 + ts * 0.35;
+                let text = if sankey.flow_percent {
+                    format!("{:.1}%", (link.value / out_flow[src]) * 100.0)
+                } else {
+                    let formatted = sankey.flow_label_format.format(link.value);
+                    match &sankey.flow_label_unit {
+                        Some(unit) => format!("{formatted} {unit}"),
+                        None => formatted,
+                    }
+                };
+                scene.add(Primitive::Text {
+                    x: label_x,
+                    y: label_y,
+                    content: text,
+                    size: computed.tick_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                });
+            }
+        }
     }
 
     // ── Step 7: Draw node labels (above ribbons so text is never obscured) ──
@@ -5088,7 +5633,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             match plot {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
-                Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) => {
+                Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) |
+                Plot::Forest(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -5144,11 +5690,60 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
 
+    // Propagate interactivity into the scene so the SVG backend can inject
+    // CSS / JS / UI.  For pixel-space plots (no axis) axis_meta is left None.
+    scene.interactive = computed.interactive;
+    if computed.interactive {
+        let skip_axes_for_meta = plots.iter().all(|p| matches!(p,
+            Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
+            | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)));
+        if !skip_axes_for_meta {
+            scene.axis_meta = Some(AxisMeta {
+                x_min: computed.x_range.0,
+                x_max: computed.x_range.1,
+                y_min: computed.y_range.0,
+                y_max: computed.y_range.1,
+                plot_left: computed.margin_left,
+                plot_top: computed.margin_top,
+                plot_right: computed.width - computed.margin_right,
+                plot_bottom: computed.height - computed.margin_bottom,
+                log_x: computed.log_x,
+                log_y: computed.log_y,
+            });
+        }
+    }
+
     let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
     add_labels_and_title(&mut scene, &computed, &layout);
+
+    if !skip_axes {
+        let clip_id = next_clip_id();
+        // Push the <clipPath> definition into the scene's <defs> block.
+        // The data elements are then wrapped in <g clip-path="url(#id)">.
+        // Using scene.defs rather than an inline <defs> keeps the first <rect>
+        // in the element stream as a real data rect (not the clip rect), which
+        // preserves compatibility with tests that scan for rect elements.
+        let clip_def = format!(
+            r#"<clipPath id="{id}"><rect x="{x}" y="{y}" width="{w}" height="{h}"/></clipPath>"#,
+            id = clip_id,
+            x = round2(computed.margin_left),
+            y = round2(computed.margin_top),
+            w = round2(computed.plot_width()),
+            h = round2(computed.plot_height()),
+        );
+        scene.defs.push(clip_def);
+        scene.elements.push(Primitive::ClipStart {
+            x: computed.margin_left,
+            y: computed.margin_top,
+            width: computed.plot_width(),
+            height: computed.plot_height(),
+            id: clip_id,
+        });
+    }
+
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     // for each plot, plot it
@@ -5243,12 +5838,25 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::DicePlot(d) => {
                 add_diceplot(d, &mut scene, &computed);
+            Plot::Forest(f) => {
+                add_forest(f, &mut scene, &computed);
             }
         }
     }
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    if !skip_axes {
+        scene.elements.push(Primitive::ClipEnd);
+    }
+
+    // Manhattan chromosome labels must be drawn after ClipEnd (they sit below the clip rect)
+    for plot in plots.iter() {
+        if let Plot::Manhattan(m) = plot {
+            add_manhattan_chr_labels(m, &mut scene, &computed);
+        }
+    }
 
     // Check for DotPlot stacked legend (size legend + colorbar in one column)
     let dot_stacked = plots.iter().find_map(|p| {
@@ -5362,6 +5970,25 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_y2_axis(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
+
+    let clip_id_twin = next_clip_id();
+    let clip_def_twin = format!(
+        r#"<clipPath id="{id}"><rect x="{x}" y="{y}" width="{w}" height="{h}"/></clipPath>"#,
+        id = clip_id_twin,
+        x = round2(computed.margin_left),
+        y = round2(computed.margin_top),
+        w = round2(computed.plot_width()),
+        h = round2(computed.plot_height()),
+    );
+    scene.defs.push(clip_def_twin);
+    scene.elements.push(Primitive::ClipStart {
+        x: computed.margin_left,
+        y: computed.margin_top,
+        width: computed.plot_width(),
+        height: computed.plot_height(),
+        id: clip_id_twin,
+    });
+
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     for plot in primary.iter() {
@@ -5403,6 +6030,8 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+
+    scene.elements.push(Primitive::ClipEnd);
 
     let mut all_plots_for_legend: Vec<Plot> = primary;
     all_plots_for_legend.extend(secondary);
@@ -6001,17 +6630,19 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let stroke_w = computed.axis_stroke_width;
     let tick_sz = computed.tick_size;
 
-    // Determine r_max
-    let r_max = pp.r_max.unwrap_or_else(|| {
-        let m = pp.r_max_auto();
-        if m <= 0.0 { 1.0 } else { m }
-    });
+    // Determine r_min / r_max
+    let r_min = pp.r_min.unwrap_or(0.0);
+    let r_max = pp.r_max.unwrap_or_else(|| pp.r_max_auto());
+    // Guard: range must be positive.
+    let r_range = (r_max - r_min).max(f64::EPSILON);
 
     let n_rings = pp.r_grid_lines.unwrap_or(4).max(1);
+    let n_div = pp.theta_divisions.max(2);
 
     // Helper: convert (r_data, theta_deg) → (px, py)
+    // Points with r_data < r_min are clamped to the centre.
     let theta_to_px = |r_data: f64, theta_deg: f64| -> (f64, f64) {
-        let r_frac = r_data / r_max;
+        let r_frac = (r_data - r_min).max(0.0) / r_range;
         let display_angle = pp.theta_start + theta_deg * if pp.clockwise { 1.0 } else { -1.0 };
         // svg_angle: angle from east axis in standard math (CCW positive)
         let svg_angle = (90.0 - display_angle).to_radians();
@@ -6021,6 +6652,10 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     };
 
     if pp.show_grid {
+        // Labels are collected here and emitted after all geometry so that
+        // spoke/ring lines never paint over text.
+        let mut label_prims: Vec<Primitive> = Vec::new();
+
         // ── Concentric grid circles ───────────────────────────────────────────
         for i in 1..=n_rings {
             let r = avail_r * (i as f64) / (n_rings as f64);
@@ -6046,18 +6681,23 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 stroke_dasharray: dasharray,
             })));
 
-            // R-value label at the top of each ring
+            // R-value label: placed at the midpoint angle between the 0° spoke
+            // and the first clockwise spoke so it never overlaps the 0° theta label.
             if pp.show_r_labels {
-                let r_val = r_max * (i as f64) / (n_rings as f64);
+                let r_val = r_min + r_range * (i as f64) / (n_rings as f64);
                 let label = if r_val.fract() == 0.0 {
                     format!("{}", r_val as i64)
                 } else {
                     format!("{:.2}", r_val)
                 };
-                // Place label slightly to the right of north on each ring
-                let lx = cx + 4.0;
-                let ly = round2(cy - r - 4.0);
-                scene.add(Primitive::Text {
+                let mid_deg = computed.polar_r_label_angle
+                    .unwrap_or(360.0 / (n_div as f64 * 2.0));
+                let display_angle = pp.theta_start
+                    + mid_deg * if pp.clockwise { 1.0 } else { -1.0 };
+                let svg_angle = (90.0 - display_angle).to_radians();
+                let lx = round2(cx + r * svg_angle.cos() + 2.0);
+                let ly = round2(cy - r * svg_angle.sin() - 2.0);
+                label_prims.push(Primitive::Text {
                     x: lx,
                     y: ly,
                     content: label,
@@ -6069,8 +6709,27 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             }
         }
 
+        // Centre label — only when r_min != 0 so readers know what the origin represents.
+        if pp.show_r_labels && r_min != 0.0 {
+            let label = if r_min.fract() == 0.0 {
+                format!("{}", r_min as i64)
+            } else {
+                format!("{:.2}", r_min)
+            };
+            label_prims.push(Primitive::Text {
+                x: round2(cx + 4.0),
+                y: round2(cy - 2.0),
+                content: label,
+                size: tick_sz,
+                anchor: TextAnchor::Start,
+                rotate: None,
+                bold: false,
+            });
+        }
+
         // ── Spoke lines ───────────────────────────────────────────────────────
-        let n_div = pp.theta_divisions.max(2);
+        let label_gap = 10.0_f64; // fixed pixel gap beyond outer ring
+        let ts = tick_sz as f64;
         for i in 0..n_div {
             let theta_deg = i as f64 * 360.0 / n_div as f64;
             let (x2, y2) = theta_to_px(r_max, theta_deg);
@@ -6084,19 +6743,42 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 stroke_dasharray: None,
             });
 
-            // Spoke angle label
-            let (lx, ly) = theta_to_px(r_max * 1.08, theta_deg);
-            // Determine text anchor based on position relative to center
-            let anchor = if lx < cx - 5.0 {
+            // Spoke angle label — computed directly (not via theta_to_px, which
+            // clamps to the data range) so the label always lands outside the ring.
+            let display_angle = pp.theta_start
+                + theta_deg * if pp.clockwise { 1.0 } else { -1.0 };
+            let svg_angle = (90.0 - display_angle).to_radians();
+            let cos_a = svg_angle.cos();
+            let sin_a = svg_angle.sin();
+            let label_r = avail_r + label_gap;
+            let lx = cx + label_r * cos_a;
+            let ly_raw = cy - label_r * sin_a;
+
+            // Direction-aware vertical alignment.
+            // SVG text y is the baseline; text renders above it.
+            // Labels above centre (sin_a > 0) naturally clear the ring —
+            //   shift the baseline up a little so the text body sits clear.
+            // Labels below centre (sin_a < 0) need the baseline pushed further
+            //   down so the text body (which grows upward) clears the ring.
+            // Horizontal labels get a mid-height nudge.
+            let ly = if sin_a > 0.15 {
+                ly_raw - ts * 0.2       // above centre: nudge up
+            } else if sin_a < -0.15 {
+                ly_raw + ts * 0.8       // below centre: shift baseline down by ~cap-height
+            } else {
+                ly_raw + ts * 0.35      // horizontal: small centering nudge
+            };
+
+            let anchor = if cos_a < -0.1 {
                 TextAnchor::End
-            } else if lx > cx + 5.0 {
+            } else if cos_a > 0.1 {
                 TextAnchor::Start
             } else {
                 TextAnchor::Middle
             };
-            scene.add(Primitive::Text {
+            label_prims.push(Primitive::Text {
                 x: round2(lx),
-                y: round2(ly + 4.0), // small baseline adjust
+                y: round2(ly),
                 content: computed.x_tick_format.format(theta_deg),
                 size: tick_sz,
                 anchor,
@@ -6104,10 +6786,16 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 bold: false,
             });
         }
+
+        // Emit all labels after geometry so lines never overdraw text.
+        for prim in label_prims {
+            scene.add(prim);
+        }
     }
 
     // ── Data series ───────────────────────────────────────────────────────────
     let palette = Palette::category10();
+    let mut global_pt_idx: usize = 0;
     for (si, series) in pp.series.iter().enumerate() {
         if series.r.is_empty() { continue; }
         let color_str = series.color.clone()
@@ -6122,7 +6810,12 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             PolarMode::Scatter => {
                 let r_dot = series.marker_size;
                 let stroke = series.marker_stroke_width.map(|_| color.clone());
-                for &(px, py) in &pts {
+                for (j, (&(px, py), (&r_val, &theta_val))) in pts.iter().zip(series.r.iter().zip(series.theta.iter())).enumerate() {
+                    let tip = tooltip(pp.show_tooltips, &pp.tooltip_labels, global_pt_idx + j,
+                        || format!("r={:.2}, θ={:.1}°", r_val, theta_val));
+                    if let Some(ref t) = tip {
+                        scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+                    }
                     scene.add(Primitive::Circle {
                         cx: px, cy: py, r: r_dot,
                         fill: color.clone(),
@@ -6130,10 +6823,14 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         stroke: stroke.clone(),
                         stroke_width: series.marker_stroke_width,
                     });
+                    if tip.is_some() { scene.add(Primitive::GroupEnd); }
                 }
             }
             PolarMode::Line => {
-                if pts.len() < 2 { continue; }
+                if pts.len() < 2 {
+                    global_pt_idx += series.r.len();
+                    continue;
+                }
                 let path_d = build_path(&pts);
                 scene.add(Primitive::Path(Box::new(PathData {
                     d: path_d,
@@ -6145,6 +6842,7 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 })));
             }
         }
+        global_pt_idx += series.r.len();
     }
 }
 
@@ -6357,7 +7055,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let palette = Palette::category10();
     let groups = tp.unique_groups();
 
-    for pt in &tp.points {
+    for (tpi, pt) in tp.points.iter().enumerate() {
         let (a, b, c) = if tp.normalize {
             let s = pt.a + pt.b + pt.c;
             if s > 1e-10 { (pt.a / s, pt.b / s, pt.c / s) } else { (1.0/3.0, 1.0/3.0, 1.0/3.0) }
@@ -6375,6 +7073,11 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         let stroke = tp.marker_stroke_width.map(|_| color.clone());
         let (px, py) = bary_to_px(a, b, c);
+        let tip = tooltip(tp.show_tooltips, &tp.tooltip_labels, tpi,
+            || format!("A={:.2}, B={:.2}, C={:.2}", pt.a, pt.b, pt.c));
+        if let Some(ref t) = tip {
+            scene.add(Primitive::GroupStart { transform: None, title: Some(t.clone()), extra_attrs: None });
+        }
         scene.add(Primitive::Circle {
             cx: px,
             cy: py,
@@ -6384,6 +7087,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
             stroke,
             stroke_width: tp.marker_stroke_width,
         });
+        if tip.is_some() { scene.add(Primitive::GroupEnd); }
     }
 
 }

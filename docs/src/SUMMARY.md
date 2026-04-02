@@ -34,6 +34,7 @@
 - [UpSet Plot](./plots/upset.md)
 - [Volcano Plot](./plots/volcano.md)
 - [Manhattan Plot](./plots/manhattan.md)
+- [Forest Plot](./plots/forest.md)
 - [Polar Plot](./plots/polar.md)
 - [Ternary Plot](./plots/ternary.md)
 - [Twin-Y Plot](./plots/twin_y.md)
@@ -41,6 +42,33 @@
 # CLI
 
 - [kuva CLI](./cli/index.md)
+  - [scatter](./cli/scatter.md)
+  - [line](./cli/line.md)
+  - [bar](./cli/bar.md)
+  - [histogram](./cli/histogram.md)
+  - [density](./cli/density.md)
+  - [ridgeline](./cli/ridgeline.md)
+  - [box](./cli/box.md)
+  - [violin](./cli/violin.md)
+  - [pie](./cli/pie.md)
+  - [forest](./cli/forest.md)
+  - [strip](./cli/strip.md)
+  - [waterfall](./cli/waterfall.md)
+  - [stacked-area](./cli/stacked_area.md)
+  - [volcano](./cli/volcano.md)
+  - [manhattan](./cli/manhattan.md)
+  - [candlestick](./cli/candlestick.md)
+  - [heatmap](./cli/heatmap.md)
+  - [hist2d](./cli/hist2d.md)
+  - [contour](./cli/contour.md)
+  - [dot](./cli/dot.md)
+  - [upset](./cli/upset.md)
+  - [chord](./cli/chord.md)
+  - [sankey](./cli/sankey.md)
+  - [phylo](./cli/phylo.md)
+  - [synteny](./cli/synteny.md)
+  - [polar](./cli/polar.md)
+  - [ternary](./cli/ternary.md)
 - [Terminal Output](./cli/terminal.md)
 
 # Reference
@@ -50,7 +78,12 @@
 - [Legends](./reference/legends.md)
 - [Themes](./reference/themes.md)
 - [Color Palettes](./reference/palettes.md)
+- [SVG Interactivity](./reference/interactive.md)
 
 # Performance
 
 - [Benchmarks](./benchmarks.md)
+
+# Easter Egg
+
+- [DOOM](./doom.md)

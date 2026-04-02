@@ -15,6 +15,7 @@ EXAMPLES=(
     chord
     contour
     density
+    forest
     ridgeline
     dotplot
     heatmap
@@ -39,6 +40,7 @@ EXAMPLES=(
     waterfall
     polar
     ternary
+    twin_y
     all_plots_simple
     all_plots_complex
 )

@@ -73,6 +73,19 @@ check() {
     fi
 }
 
+# Passes when the command exits non-zero (error path test).
+check_error() {
+    local name="$1"
+    shift
+    if ! "$@" > /dev/null 2>&1; then
+        echo "PASS  $name"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL  $name  (expected error, got success)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 # ── scatter ───────────────────────────────────────────────────────────────────
 check "scatter basic" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
@@ -86,6 +99,33 @@ check "scatter trend" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --trend --equation --correlation \
         --title "Scatter with Trend" --x-label "X" --y-label "Y"
 
+check "scatter tick format sci" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-tick-format sci --title "Scatter Y=sci"
+
+check "scatter tick format fixed" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-tick-format fixed:2 --y-tick-format fixed:3 --title "Scatter fixed ticks"
+
+check "line tick format int" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
+        --y-tick-format int --title "Line Y=int"
+
+check "line tick format percent" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
+        --y-tick-format percent --title "Line Y=percent"
+
+check "scatter multi-y two columns" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time --legend \
+        --title "Scatter Multi-Y (2 cols)" --x-label "Time" --y-label "Value"
+
+check "scatter multi-y three columns no legend" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time,value \
+        --title "Scatter Multi-Y (3 cols)"
+
+check_error "scatter multi-y color-by conflict" \
+    "$BIN" scatter "$DATA/measurements.tsv" --x time --y value,time --color-by group
+
 # ── line ──────────────────────────────────────────────────────────────────────
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
@@ -95,10 +135,41 @@ check "line color-by legend" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group --legend \
         --title "Growth Curves" --x-label "Time" --y-label "Value"
 
+check "line multi-y two columns" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --legend \
+        --title "Line Multi-Y (2 cols)" --x-label "Time" --y-label "Value"
+
+check "line multi-y with fill" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --fill --legend \
+        --title "Line Multi-Y Filled" --x-label "Time" --y-label "Value"
+
+check "line multi-y dashed" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --dashed \
+        --title "Line Multi-Y Dashed"
+
+check_error "line multi-y color-by conflict" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --color-by group
+
 # ── bar ───────────────────────────────────────────────────────────────────────
 check "bar basic" \
     "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
         --title "Category Counts" --x-label "Category" --y-label "Count"
+
+check "bar count-by" \
+    "$BIN" bar "$DATA/scatter.tsv" --count-by group \
+        --title "Points per Group" --x-label "Group" --y-label "Count"
+
+check "bar agg sum" \
+    "$BIN" bar "$DATA/stacked_area.tsv" --label-col species --value-col abundance --agg sum \
+        --title "Total Abundance per Species" --x-label "Species" --y-label "Total Abundance"
+
+check "bar agg mean" \
+    "$BIN" bar "$DATA/stacked_area.tsv" --label-col species --value-col abundance --agg mean \
+        --title "Mean Abundance per Species" --x-label "Species" --y-label "Mean Abundance"
+
+check "bar agg median" \
+    "$BIN" bar "$DATA/stacked_area.tsv" --label-col species --value-col abundance --agg median \
+        --title "Median Abundance per Species" --x-label "Species" --y-label "Median Abundance"
 
 # ── histogram ─────────────────────────────────────────────────────────────────
 check "histogram basic" \
@@ -158,6 +229,10 @@ check "pie basic" \
     "$BIN" pie "$DATA/pie.tsv" --label-col feature --value-col percentage \
         --title "Genome Composition"
 
+check "pie count-by" \
+    "$BIN" pie "$DATA/scatter.tsv" --count-by group --percent --legend \
+        --title "Group Proportions"
+
 check "pie donut percent" \
     "$BIN" pie "$DATA/pie.tsv" --label-col feature --value-col percentage --donut --percent --legend \
         --title "Genome Composition"
@@ -174,6 +249,17 @@ check "strip swarm" \
 check "strip center" \
     "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --center \
         --title "Expression Spread" --x-label "Group" --y-label "Expression"
+
+# ── forest ────────────────────────────────────────────────────────────────────
+check "forest basic" \
+    "$BIN" forest "$DATA/forest.tsv" --label-col study --estimate-col estimate \
+        --ci-lower-col ci_lower --ci-upper-col ci_upper \
+        --title "Meta-Analysis" --x-label "Effect Size"
+
+check "forest weighted" \
+    "$BIN" forest "$DATA/forest.tsv" --label-col study --estimate-col estimate \
+        --ci-lower-col ci_lower --ci-upper-col ci_upper --weight-col weight \
+        --title "Meta-Analysis (Weighted)" --x-label "Effect Size"
 
 # ── waterfall ─────────────────────────────────────────────────────────────────
 check "waterfall basic" \
@@ -202,6 +288,10 @@ check "volcano top-n legend" \
     "$BIN" volcano "$DATA/volcano.tsv" --name-col gene --x-col log2fc --y-col pvalue --top-n 10 --legend \
         --title "Differential Expression" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
 
+check "volcano pvalue-col-is-log" \
+    "$BIN" volcano "$DATA/volcano_logp.tsv" --name-col gene --x-col log2fc --y-col neg_log10_pvalue --pvalue-col-is-log \
+        --title "Differential Expression (log p input)" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
+
 # ── manhattan ─────────────────────────────────────────────────────────────────
 check "manhattan sequential" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue \
@@ -214,6 +304,10 @@ check "manhattan top-n" \
 check "manhattan hg38" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38 \
         --title "GWAS Results (hg38)" --x-label "Chromosome" "--y-label=-log10(p-value)"
+
+check "manhattan pvalue-col-is-log" \
+    "$BIN" manhattan "$DATA/gene_stats_logp.tsv" --chr-col chr --pvalue-col neg_log10_pvalue --pvalue-col-is-log \
+        --title "GWAS Results (log p input)" --x-label "Chromosome" "--y-label=-log10(p-value)"
 
 # ── candlestick ───────────────────────────────────────────────────────────────
 check "candlestick basic" \
@@ -236,6 +330,11 @@ check "heatmap values inferno" \
     "$BIN" heatmap "$DATA/heatmap.tsv" --values --colormap inferno --legend "z-score" --height 800 \
         --title "Gene Expression Heatmap" --x-label "Sample" --y-label "Gene"
 
+check "heatmap long-format" \
+    "$BIN" heatmap "$DATA/stacked_area.tsv" --long-format \
+        --row-col species --col-col week --value-col abundance \
+        --title "Abundance by Species and Week" --x-label "Week" --y-label "Species"
+
 # ── hist2d ────────────────────────────────────────────────────────────────────
 check "hist2d basic" \
     "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y \
@@ -244,6 +343,23 @@ check "hist2d basic" \
 check "hist2d fine bins" \
     "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 30 --bins-y 30 --correlation \
         --title "2D Density" --x-label "X" --y-label "Y"
+
+check "hist2d explicit range clips outliers" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --x-min 20 --x-max 50 --y-min 20 --y-max 50 \
+        --title "hist2d clipped range" --x-label "X" --y-label "Y"
+
+check "hist2d turbo colormap" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --colormap turbo --title "hist2d turbo" --x-label "X" --y-label "Y"
+
+check "hist2d log-count" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --log-count --title "hist2d log count" --x-label "X" --y-label "Y"
+
+check "hist2d colorbar sci format" \
+    "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
+        --colorbar-tick-format sci --title "hist2d sci colorbar" --x-label "X" --y-label "Y"
 
 # ── contour ───────────────────────────────────────────────────────────────────
 check "contour basic" \
@@ -290,6 +406,22 @@ check "sankey link-gradient" \
     "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
         --link-gradient --legend "read flow" --title "Flow Diagram"
 
+check "sankey flow-labels" \
+    "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
+        --flow-labels --title "Flow Labels"
+
+check "sankey flow-percent" \
+    "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
+        --flow-percent --title "Flow Percent"
+
+check "sankey flow-labels-unit" \
+    "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
+        --flow-labels --flow-label-unit reads --flow-label-min-height 0 --title "Flow Labels Unit"
+
+check "sankey flow-labels-sci" \
+    "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
+        --flow-labels --flow-label-format sci --title "Flow Labels Sci"
+
 # ── phylo ─────────────────────────────────────────────────────────────────────
 check "phylo edge-list" \
     "$BIN" phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col length \
@@ -316,6 +448,12 @@ check "density filled color-by" \
     "$BIN" density "$DATA/samples.tsv" \
         --value expression --color-by group --filled \
         --title "Density by group"
+
+check "density x-range bounded" \
+    "$BIN" density "$DATA/samples.tsv" \
+        --value expression --x-min 0 --x-max 10 \
+        --x-label "Expression" --y-label "Density" \
+        --title "Density bounded range"
 
 # ── ridgeline ─────────────────────────────────────────────────────────────────
 check "ridgeline basic" \
@@ -375,6 +513,13 @@ check "ternary legend" \
     "$BIN" ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
         --legend \
         --title "Ternary Legend"
+
+# ── interactive ───────────────────────────────────────────────────────────────
+check "scatter interactive" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --color-by group --legend \
+        --interactive \
+        --title "Interactive Scatter"
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

@@ -88,6 +88,8 @@ pub struct WaterfallPlot {
     /// When `true`, numeric values are printed on each bar.
     pub show_values: bool,
     pub legend_label: Option<String>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for WaterfallPlot {
@@ -109,6 +111,8 @@ impl WaterfallPlot {
             show_connectors: false,
             show_values: false,
             legend_label: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -226,6 +230,16 @@ impl WaterfallPlot {
     /// Attach a legend label to this waterfall chart.
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
 }

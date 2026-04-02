@@ -269,6 +269,62 @@ pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f
 }
 
 
+/// Gaussian KDE with boundary reflection for bounded domains.
+///
+/// Uses the reflection method (same approach as ggplot2 `geom_density(bounds=)`)
+/// to correct the boundary bias that arises when a standard Gaussian kernel
+/// places probability mass outside the valid domain.
+///
+/// For each data point within 3×bandwidth of an active boundary, a ghost point
+/// is mirrored across that boundary. The KDE is then evaluated only within
+/// `[lo, hi]` using the augmented dataset. Normalising by the original `n`
+/// (not the reflected count) preserves the density integral over the bounded
+/// domain — so the curve integrates to 1 over `[lo, hi]` and terminates
+/// smoothly rather than terminating abruptly mid-peak.
+///
+/// `reflect_lo` / `reflect_hi` control whether reflection is applied at each
+/// boundary; setting both to `false` with custom `lo`/`hi` gives a simple
+/// truncated evaluation range without reflection.
+pub fn simple_kde_reflect(
+    values: &[f64],
+    bandwidth: f64,
+    samples: usize,
+    lo: f64,
+    hi: f64,
+    reflect_lo: bool,
+    reflect_hi: bool,
+) -> Vec<(f64, f64)> {
+    use std::cmp::Ordering;
+    if values.is_empty() || samples == 0 || lo >= hi { return Vec::new(); }
+
+    let reflect_threshold = 3.0 * bandwidth;
+    let mut aug: Vec<f64> = Vec::with_capacity(values.len() * 3);
+    aug.extend_from_slice(values);
+    for &v in values {
+        if reflect_lo && (v - lo) < reflect_threshold {
+            aug.push(2.0 * lo - v);
+        }
+        if reflect_hi && (hi - v) < reflect_threshold {
+            aug.push(2.0 * hi - v);
+        }
+    }
+    aug.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    let step = (hi - lo) / (samples - 1).max(1) as f64;
+    let cutoff = 4.0 * bandwidth;
+
+    (0..samples).map(|i| {
+        let x = lo + i as f64 * step;
+        let lo_idx = aug.partition_point(|v| *v < x - cutoff);
+        let hi_idx = aug.partition_point(|v| *v <= x + cutoff);
+        let y: f64 = aug[lo_idx..hi_idx].iter().map(|v| {
+            let u = (x - v) / bandwidth;
+            (-0.5 * u * u).exp()
+        }).sum();
+        (x, y)
+    }).collect()
+}
+
 /// linear regression of a scatter plot so we can make the equation and get correlation
 pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)> 
     where

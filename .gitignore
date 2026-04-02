@@ -27,3 +27,9 @@ CLAUDE.md
 TODO.md
 /terminal.md
 /font_sampler*
+*.svg
+*.tsv
+*.csv
+
+# doom feature asset cache
+/doom-assets/

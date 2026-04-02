@@ -1,5 +1,5 @@
 use clap::Args;
-use kuva::render::layout::Layout;
+use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::palette::Palette;
 use kuva::render::theme::Theme;
 
@@ -68,6 +68,10 @@ pub struct BaseArgs {
     /// Canvas size is unchanged. Values > 1.0 make everything larger. Default: 1.0.
     #[arg(long)]
     pub scale: Option<f64>,
+
+    /// Enable SVG interactivity: hover highlight, click-to-pin, search, and coordinate readout.
+    #[arg(long)]
+    pub interactive: bool,
 }
 
 #[derive(Args, Debug)]
@@ -126,6 +130,16 @@ pub struct AxisArgs {
     /// Draw faint gridlines at minor tick positions (requires --minor-ticks).
     #[arg(long)]
     pub minor_grid: bool,
+
+    /// Tick label format for the X axis.
+    /// auto (default), int, sci, percent, or fixed:N (e.g. fixed:2 → "3.14").
+    #[arg(long, value_name = "FORMAT")]
+    pub x_tick_format: Option<String>,
+
+    /// Tick label format for the Y axis.
+    /// auto (default), int, sci, percent, or fixed:N (e.g. fixed:2 → "3.14").
+    #[arg(long, value_name = "FORMAT")]
+    pub y_tick_format: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -187,6 +201,9 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if let Some(f) = args.scale {
         layout = layout.with_scale(f);
     }
+    if args.interactive {
+        layout = layout.with_interactive();
+    }
     layout
 }
 
@@ -212,6 +229,16 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
     if let Some(s) = args.y_tick_step { layout = layout.with_y_tick_step(s); }
     if let Some(n) = args.minor_ticks { layout = layout.with_minor_ticks(n); }
     if args.minor_grid { layout = layout.with_show_minor_grid(true); }
+    if let Some(ref fmt) = args.x_tick_format {
+        if let Some(tf) = parse_tick_format(fmt) {
+            layout = layout.with_x_tick_format(tf);
+        }
+    }
+    if let Some(ref fmt) = args.y_tick_format {
+        if let Some(tf) = parse_tick_format(fmt) {
+            layout = layout.with_y_tick_format(tf);
+        }
+    }
     layout
 }
 
@@ -257,6 +284,21 @@ fn colourblind_palette(condition: &str) -> Option<Palette> {
         "deuteranopia" | "deuter" => Some(Palette::deuteranopia()),
         "protanopia" | "protan" => Some(Palette::protanopia()),
         "tritanopia" | "tritan" => Some(Palette::tritanopia()),
+        _ => None,
+    }
+}
+
+/// Parse a tick format string from the CLI.
+/// Accepted values: auto, int, sci, percent, fixed:N
+fn parse_tick_format(s: &str) -> Option<TickFormat> {
+    match s {
+        "auto"    => Some(TickFormat::Auto),
+        "int"     => Some(TickFormat::Integer),
+        "sci"     => Some(TickFormat::Sci),
+        "percent" => Some(TickFormat::Percent),
+        _ if s.starts_with("fixed:") => {
+            s["fixed:".len()..].parse::<usize>().ok().map(TickFormat::Fixed)
+        }
         _ => None,
     }
 }

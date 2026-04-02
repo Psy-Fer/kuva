@@ -1,7 +1,7 @@
 use clap::Args;
 
 use kuva::plot::histogram2d::{Histogram2D, ColorMap};
-use kuva::render::layout::Layout;
+use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
@@ -28,13 +28,25 @@ pub struct Hist2dArgs {
     #[arg(long, default_value_t = 10)]
     pub bins_y: usize,
 
-    /// Color map: viridis (default), inferno, grayscale.
+    /// Color map: viridis (default), inferno, turbo, grayscale.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 
     /// Overlay the Pearson correlation coefficient.
     #[arg(long)]
     pub correlation: bool,
+
+    /// Log-scale the color mapping (log10(count+1)). Useful when a few high-density
+    /// bins dominate the color scale and obscure structure elsewhere.
+    #[arg(long)]
+    pub log_count: bool,
+
+    /// Colorbar tick label format: auto (default), sci, integer, fixed2.
+    /// auto: integers as-is, scientific notation for counts ≥ 10 000.
+    /// sci: always scientific notation. integer: round to nearest integer.
+    /// fixed2: two decimal places.
+    #[arg(long, default_value = "auto")]
+    pub colorbar_tick_format: String,
 
     #[command(flatten)]
     pub input: InputArgs,
@@ -47,10 +59,20 @@ pub struct Hist2dArgs {
     pub log: LogArgs,
 }
 
+fn parse_colorbar_tick_format(name: &str) -> TickFormat {
+    match name {
+        "sci"     => TickFormat::Sci,
+        "integer" => TickFormat::Integer,
+        "fixed2"  => TickFormat::Fixed(2),
+        _         => TickFormat::Auto,
+    }
+}
+
 fn parse_colormap(name: &str) -> ColorMap {
     match name {
         "inferno" => ColorMap::Inferno,
         "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
+        "turbo" => ColorMap::Turbo,
         _ => ColorMap::Viridis,
     }
 }
@@ -70,14 +92,18 @@ pub fn run(args: Hist2dArgs) -> Result<(), String> {
 
     let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
 
-    let x_min = data.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
-    let x_max = data.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
-    let y_min = data.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-    let y_max = data.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
-
     if data.is_empty() {
         return Err("hist2d input has no data".into());
     }
+
+    // Use --x-min/--x-max/--y-min/--y-max to control the binning range when
+    // provided. This is critical for real data with outliers: without explicit
+    // bounds the range spans data_min..data_max and sparse outliers create a
+    // wide grid where most bins are empty.
+    let x_min = args.axis.x_min.unwrap_or_else(|| data.iter().map(|p| p.0).fold(f64::INFINITY, f64::min));
+    let x_max = args.axis.x_max.unwrap_or_else(|| data.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max));
+    let y_min = args.axis.y_min.unwrap_or_else(|| data.iter().map(|p| p.1).fold(f64::INFINITY, f64::min));
+    let y_max = args.axis.y_max.unwrap_or_else(|| data.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max));
 
     let mut plot = Histogram2D::new()
         .with_data(
@@ -92,12 +118,16 @@ pub fn run(args: Hist2dArgs) -> Result<(), String> {
     if args.correlation {
         plot = plot.with_correlation();
     }
+    if args.log_count {
+        plot = plot.with_log_count();
+    }
 
     let plots = vec![Plot::Histogram2d(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
     let layout = apply_log_args(layout, &args.log);
+    let layout = layout.with_colorbar_tick_format(parse_colorbar_tick_format(&args.colorbar_tick_format));
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
 }

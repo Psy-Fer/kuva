@@ -159,10 +159,16 @@ pub struct BrickPlot {
     pub x_offset: f64,
     /// Per-row offsets. `None` entries fall back to `x_offset`.
     pub x_offsets: Option<Vec<Option<f64>>>,
+    /// Reference coordinate that maps to x = 0 on the axis. Default: `0.0`.
+    pub x_origin: f64,
     /// Per-character nucleotide length for variable-width bricks (strigar mode).
     pub motif_lengths: Option<HashMap<char, usize>>,
     /// When `true`, draw the character label inside each brick.
     pub show_values: bool,
+    /// User-supplied color palette for strigar mode. When set, overrides the
+    /// built-in 20-color default. Colors are assigned in global-letter order
+    /// (most-frequent motif first) and cycle if there are more motifs than colors.
+    pub strigar_palette: Option<Vec<String>>,
 }
 
 impl Default for BrickPlot {
@@ -182,7 +188,9 @@ impl BrickPlot {
             motif_lengths: None,
             x_offset: 0.0,
             x_offsets: None,
+            x_origin: 0.0,
             show_values: false,
+            strigar_palette: None,
         }
     }
 
@@ -250,6 +258,33 @@ impl BrickPlot {
     ///     .with_names(vec!["read_1", "read_2"])
     ///     .with_strigars(strigars);
     /// ```
+    /// Override the auto-generated motif colors used in strigar mode.
+    ///
+    /// Colors are assigned to global letters in order of motif frequency
+    /// (most frequent motif gets the first color). If fewer colors are
+    /// supplied than there are motifs, the list cycles. Gap bricks (`@`)
+    /// always render as light grey regardless of this setting.
+    ///
+    /// Call this **before** [`with_strigars`](Self::with_strigars) so the
+    /// palette is available during color assignment.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_strigar_colors(["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"])
+    ///     .with_strigars(vec![
+    ///         ("CAT:A,C:B".to_string(), "12A1B3A".to_string()),
+    ///     ]);
+    /// ```
+    pub fn with_strigar_colors<I, S>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.strigar_palette = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
     pub fn with_strigars<T, U, I>(mut self, strigars: I) -> Self
     where
         I: IntoIterator<Item = (T, U)>,
@@ -260,34 +295,73 @@ impl BrickPlot {
                                 .map(|(motif, strigar)| (motif.into(), strigar.into()))
                                 .collect());
 
-        // Phase A: Parse each read's motif string into local_letter → kmer map
-        let per_read_maps: Vec<HashMap<char, String>> = self.strigars.as_ref()
-            .expect("process_strigars called without strigars data")
-            .iter()
-            .map(|(motif_str, _)| {
-                motif_str.split(',')
-                    .map(|pair| {
-                        let parts: Vec<&str> = pair.split(':').collect();
-                        (parts[1].chars().next().expect("STRIGAR motif character is non-empty"), parts[0].to_string())
-                    })
-                    .collect()
-            })
-            .collect();
+        // Returns Some(N) if `seg` is a pure gap token of the form "N@" (only digits + @),
+        // which means it is an inter-candidate gap of N nucleotides.
+        let parse_gap = |seg: &str| -> Option<usize> {
+            let s = seg.trim();
+            if s.ends_with('@') && s.len() > 1 {
+                let num_part = &s[..s.len() - 1];
+                if num_part.chars().all(|c| c.is_ascii_digit()) {
+                    return num_part.parse().ok();
+                }
+            }
+            None
+        };
 
-        // Phase B: Collect all kmers, canonicalize, count frequencies
+        // Parses a motif segment (comma-separated "kmer:letter" pairs) into a
+        // local_letter → kmer map for one candidate.
+        let parse_motif_seg = |seg: &str| -> HashMap<char, String> {
+            seg.split(',')
+                .map(|p| p.trim())
+                .filter(|p| !p.is_empty())
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, ':');
+                    let kmer = parts.next()?.trim();
+                    let letter_field = parts.next()?.trim();
+                    let letter = letter_field.chars().next()?;
+                    Some((letter, kmer.to_string()))
+                })
+                .collect()
+        };
+
+        let strigars_ref = self.strigars.as_ref().expect("strigars just set");
+
+        // Phase B: Walk every candidate segment across all reads, collect kmers,
+        // build canonical-rotation frequency tables.
+        // Gap segments (pure "N@") and small-gap motif entries ("@:seq") are skipped.
         let mut canonical_freq: HashMap<String, usize> = HashMap::new();
         let mut rotation_freq: HashMap<String, HashMap<String, usize>> = HashMap::new();
-        for read_map in &per_read_maps {
-            for kmer in read_map.values() {
-                let canon = canonical_rotation(kmer);
-                *canonical_freq.entry(canon.clone()).or_insert(0) += 1;
-                *rotation_freq.entry(canon).or_default().entry(kmer.clone()).or_insert(0) += 1;
+
+        for (motif_str, strigar_str) in strigars_ref {
+            let motif_segs: Vec<&str> = motif_str.split('|').map(str::trim)
+                .filter(|s| !s.is_empty()).collect();
+            let strigar_segs: Vec<&str> = strigar_str.split('|').map(str::trim)
+                .filter(|s| !s.is_empty()).collect();
+
+            let mut motif_idx = 0usize;
+            for strigar_seg in &strigar_segs {
+                if parse_gap(strigar_seg).is_some() {
+                    // Gap segment: advance motif_idx only if it's a small-gap with motif entry
+                    let is_small_gap = motif_idx < motif_segs.len()
+                        && motif_segs[motif_idx].trim_start_matches(|c: char| c.is_whitespace())
+                            .starts_with("@:");
+                    if is_small_gap { motif_idx += 1; }
+                } else {
+                    // Candidate segment: collect kmers from its motif block
+                    if motif_idx < motif_segs.len() {
+                        for (_, kmer) in parse_motif_seg(motif_segs[motif_idx]) {
+                            let canon = canonical_rotation(&kmer);
+                            *canonical_freq.entry(canon.clone()).or_insert(0) += 1;
+                            *rotation_freq.entry(canon).or_default()
+                                .entry(kmer).or_insert(0) += 1;
+                        }
+                        motif_idx += 1;
+                    }
+                }
             }
         }
 
-        // Phase C: Sort canonicals by frequency desc, then canonical string asc as tiebreak.
-        // The secondary key ensures identical frequencies always produce the same ordering
-        // (HashMap iteration order is unspecified, so without a tiebreak the result varies).
+        // Phase C: Sort canonicals by frequency desc, canonical string asc as tiebreak.
         let mut sorted_canonicals: Vec<(String, usize)> = canonical_freq.into_iter().collect();
         sorted_canonicals.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
@@ -299,9 +373,8 @@ impl BrickPlot {
             let global_letter = (b'A' + idx as u8) as char;
             canonical_to_global.insert(canon.clone(), global_letter);
 
-            // Pick the most-frequent original rotation as display label.
-            // Tiebreak by rotation string (ascending) so equal-count rotations
-            // always resolve to the same display form regardless of HashMap order.
+            // Pick the most-frequent original rotation as the display label.
+            // Tiebreak ascending so the result is deterministic regardless of HashMap order.
             let rotations = rotation_freq.get(canon).expect("canon derived from rotation_freq keys");
             let display = rotations.iter()
                 .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
@@ -311,50 +384,108 @@ impl BrickPlot {
             global_to_length.insert(global_letter, display.len());
         }
 
-        // Phase D: Remap each read's strigar to global letters and expand
-        let mut expanded_strigars: Vec<String> = vec![];
+        // Phase D: Expand each read's strigar using per-segment local→global maps.
+        //
+        // Each "|"-separated strigar segment is either:
+        //   • A pure gap ("N@"): emit N '@' chars (large gap), or
+        //     len(gap_seq) '@' chars (small gap with "@:seq" motif entry).
+        //   • A candidate: build local→global from its motif segment, tokenize, expand.
+        //
+        // Because the global letter assignment is canonical-rotation-aware (Phase B/C),
+        // the same STR unit appearing under different local letters across candidates
+        // (e.g. ACCCTA:A in one and TAACCC:A in another) is automatically assigned
+        // the same global letter and colour.
+        let mut expanded_strigars: Vec<String> = Vec::new();
+        let mut has_gaps = false;
 
-        for (i, (_motif_str, strigar_str)) in self.strigars.as_ref().expect("process_strigars called without strigars data").iter().enumerate() {
-            let read_map = &per_read_maps[i];
+        for (motif_str, strigar_str) in strigars_ref {
+            let motif_segs: Vec<&str> = motif_str.split('|').map(str::trim)
+                .filter(|s| !s.is_empty()).collect();
+            let strigar_segs: Vec<&str> = strigar_str.split('|').map(str::trim)
+                .filter(|s| !s.is_empty()).collect();
 
-            // Build local_letter → global_letter mapping for this read
-            let mut local_to_global: HashMap<char, char> = HashMap::new();
-            for (local_letter, kmer) in read_map {
-                let canon = canonical_rotation(kmer);
-                let global = canonical_to_global[&canon];
-                local_to_global.insert(*local_letter, global);
+            let mut expanded = String::new();
+            let mut motif_idx = 0usize;
+
+            for strigar_seg in &strigar_segs {
+                if let Some(gap_n) = parse_gap(strigar_seg) {
+                    // Small gap: motif block contains "@:seq" for this segment
+                    let is_small_gap = motif_idx < motif_segs.len()
+                        && motif_segs[motif_idx].trim_start_matches(|c: char| c.is_whitespace())
+                            .starts_with("@:");
+                    let gap_nt = if is_small_gap {
+                        let gap_seq = motif_segs[motif_idx].split_once(':')
+                            .map(|x| x.1.trim()).unwrap_or("");
+                        motif_idx += 1;
+                        gap_seq.len() * gap_n      // typically gap_n == 1
+                    } else {
+                        gap_n                      // large gap: N is already in nt
+                    };
+                    for _ in 0..gap_nt { expanded.push('@'); }
+                    has_gaps = true;
+                } else {
+                    // Candidate segment
+                    if motif_idx < motif_segs.len() {
+                        // Build local → global letter map for this candidate
+                        let local_map = parse_motif_seg(motif_segs[motif_idx]);
+                        motif_idx += 1;
+
+                        let mut local_to_global: HashMap<char, char> = HashMap::new();
+                        for (local_letter, kmer) in &local_map {
+                            let canon = canonical_rotation(kmer);
+                            if let Some(&global) = canonical_to_global.get(&canon) {
+                                local_to_global.insert(*local_letter, global);
+                            }
+                        }
+
+                        // Tokenize "NL..." and expand
+                        let mut chars = strigar_seg.chars().peekable();
+                        while chars.peek().is_some() {
+                            let mut num_str = String::new();
+                            while let Some(&c) = chars.peek() {
+                                if c.is_ascii_digit() { num_str.push(chars.next().unwrap()); }
+                                else { break; }
+                            }
+                            if let Some(letter_char) = chars.next() {
+                                let count: usize = num_str.parse()
+                                    .expect("STRIGAR repeat count is a valid integer");
+                                let global = *local_to_global.get(&letter_char)
+                                    .unwrap_or(&letter_char);
+                                expanded.push_str(&global.to_string().repeat(count));
+                            }
+                        }
+                    }
+                }
             }
-
-            // Remap and expand: "10A1B4A" with A→X, B→Y → "XXXXXXXXXXYYYYY..."
-            let expanded: String = strigar_str.split(char::is_alphabetic)
-                .zip(strigar_str.matches(char::is_alphabetic))
-                .map(|(num, ch)| {
-                    let local = ch.chars().next().expect("STRIGAR letter character is non-empty");
-                    let global = local_to_global[&local];
-                    global.to_string().repeat(num.parse::<usize>().expect("STRIGAR repeat count is a valid integer"))
-                })
-                .collect();
 
             expanded_strigars.push(expanded);
         }
 
+        if has_gaps {
+            global_to_display.entry('@').or_insert_with(|| "@".to_string());
+        }
+
         // Phase E: Auto-generate template colours
-        let motif_colors: &[&str] = &[
-            "rgb(31,119,180)",   // blue
-            "rgb(255,127,14)",   // orange
-            "rgb(44,160,44)",    // green
-            "rgb(214,39,40)",    // red
-            "rgb(148,103,189)",  // purple
-            "rgb(140,86,75)",    // brown
-            "rgb(227,119,194)",  // pink
-            "rgb(127,127,127)",  // gray
-            "rgb(188,189,34)",   // olive
-            "rgb(23,190,207)",   // cyan
+        // Default 20-color palette (tab10 + tab20 lighter variants).
+        // Override with `with_strigar_colors` before calling `with_strigars`.
+        const DEFAULT_COLORS: &[&str] = &[
+            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+            "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+            "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
         ];
+        let palette: Vec<&str> = match &self.strigar_palette {
+            Some(p) => p.iter().map(|s| s.as_str()).collect(),
+            None    => DEFAULT_COLORS.to_vec(),
+        };
         let mut auto_template: HashMap<char, String> = HashMap::new();
         for (idx, (canon, _)) in sorted_canonicals.iter().enumerate() {
             let global_letter = canonical_to_global[canon];
-            auto_template.insert(global_letter, motif_colors[idx % motif_colors.len()].to_string());
+            auto_template.insert(global_letter, palette[idx % palette.len()].to_string());
+        }
+        // Gaps render as light grey
+        if has_gaps {
+            auto_template.insert('@', "rgb(200,200,200)".to_string());
         }
 
         self.template = Some(auto_template);
@@ -429,6 +560,60 @@ impl BrickPlot {
         T: IntoRowOffset,
     {
         self.x_offsets = Some(offsets.into_iter().map(|x| x.into_row_offset()).collect());
+        self
+    }
+
+    /// Align reads by their genomic start position (in nucleotides).
+    ///
+    /// Accepts one start coordinate per read (same order as
+    /// [`with_sequences`](Self::with_sequences) /
+    /// [`with_strigars`](Self::with_strigars)). Each value is the position in
+    /// the reference at which that read begins; kuva shifts the row so that
+    /// position aligns with the shared x-axis.
+    ///
+    /// This is a convenience wrapper around [`with_x_offsets`](Self::with_x_offsets):
+    /// internally each start position `s` is stored as `x_offset = -s` so that
+    /// `map_x(x_start - (-s)) = map_x(x_start + s)` places the first brick at
+    /// coordinate `s`.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// // Two reads; read_2 starts 19 nt into the reference so its first brick
+    /// // lines up with position 19 on the shared axis.
+    /// let plot = BrickPlot::new()
+    ///     .with_names(vec!["read_1", "read_2"])
+    ///     .with_start_positions(vec![0.0_f64, 19.0]);
+    /// ```
+    pub fn with_start_positions<T, I>(self, positions: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        let offsets: Vec<Option<f64>> = positions.into_iter()
+            .map(|p| Some(-p.into()))
+            .collect();
+        self.with_x_offsets(offsets)
+    }
+
+    /// Set the reference coordinate that appears at x = 0 on the axis.
+    ///
+    /// Applied on top of any per-row offsets from
+    /// [`with_x_offsets`](Self::with_x_offsets) or
+    /// [`with_start_positions`](Self::with_start_positions). Use this to
+    /// anchor a biologically meaningful position (e.g. the repeat start) to
+    /// the axis origin so the x-axis reads in coordinates relative to that
+    /// point.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// // Reads start at positions 0 and 19; set x=0 at the repeat start (pos 19).
+    /// // x-axis will show -19 … +N rather than 0 … M.
+    /// let plot = BrickPlot::new()
+    ///     .with_start_positions(vec![0.0_f64, 19.0])
+    ///     .with_x_origin(19.0);
+    /// ```
+    pub fn with_x_origin(mut self, origin: f64) -> Self {
+        self.x_origin = origin;
         self
     }
 

@@ -2,6 +2,7 @@ use clap::Args;
 
 use kuva::plot::StripPlot;
 use kuva::render::layout::Layout;
+use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
@@ -35,6 +36,10 @@ pub struct StripArgs {
     /// Place all points at the group center (no horizontal spread).
     #[arg(long)]
     pub center: bool,
+
+    /// Color groups by palette and show a legend.
+    #[arg(long)]
+    pub legend: bool,
 
     #[command(flatten)]
     pub input: InputArgs,
@@ -74,6 +79,12 @@ pub fn run(args: StripArgs) -> Result<(), String> {
     for (name, subtable) in groups {
         let values = subtable.col_f64(&value_col)?;
         plot = plot.with_group(name, values);
+    }
+
+    if args.legend {
+        let pal = Palette::category10();
+        let colors: Vec<String> = (0..plot.groups.len()).map(|i| pal[i].to_string()).collect();
+        plot = plot.with_group_colors(colors).with_legend("");
     }
 
     let plots = vec![Plot::Strip(plot)];

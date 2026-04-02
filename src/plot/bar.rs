@@ -36,6 +36,8 @@ pub struct BarPlot {
     pub width: f64,
     pub legend_label: Option<Vec<String>>,
     pub stacked: bool,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 /// A single category group containing one or more bars.
@@ -69,6 +71,8 @@ impl BarPlot {
             width: 0.8,
             legend_label: None,
             stacked: false,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -195,5 +199,15 @@ impl BarPlot {
 
     fn default_color(&self) -> String {
         "steelblue".into()
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
+        self
     }
 }

@@ -118,6 +118,8 @@ pub struct VolcanoPlot {
     pub pvalue_floor: Option<f64>,
     /// When `Some`, a legend box shows Up / Down / NS entries.
     pub legend_label: Option<String>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for VolcanoPlot {
@@ -142,6 +144,8 @@ impl VolcanoPlot {
             label_style: LabelStyle::default(),
             pvalue_floor: None,
             legend_label: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -339,6 +343,16 @@ impl VolcanoPlot {
     /// ```
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
 }

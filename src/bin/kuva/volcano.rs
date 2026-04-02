@@ -52,6 +52,10 @@ pub struct VolcanoArgs {
     #[arg(long)]
     pub point_size: Option<f64>,
 
+    /// p-value column already contains -log10(p); un-transform before plotting.
+    #[arg(long)]
+    pub pvalue_col_is_log: bool,
+
     /// Show a legend for Up / Down / NS categories.
     #[arg(long)]
     pub legend: bool,
@@ -78,7 +82,13 @@ pub fn run(args: VolcanoArgs) -> Result<(), String> {
 
     let names = table.col_str(&name_col)?;
     let fcs = table.col_f64(&x_col)?;
-    let pvals = table.col_f64(&y_col)?;
+    let raw_pvals = table.col_f64(&y_col)?;
+
+    let pvals: Vec<f64> = if args.pvalue_col_is_log {
+        raw_pvals.into_iter().map(|v| 10.0_f64.powf(-v)).collect()
+    } else {
+        raw_pvals
+    };
 
     let points: Vec<(String, f64, f64)> = names.into_iter()
         .zip(fcs)

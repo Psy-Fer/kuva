@@ -68,6 +68,9 @@ impl Default for PolarSeries {
 pub struct PolarPlot {
     pub series: Vec<PolarSeries>,
     pub r_max: Option<f64>,
+    /// Value mapped to the plot centre. Points with r < r_min are clipped to centre.
+    /// Default `None` = 0.0. Set to a negative value for dB-scale antenna patterns etc.
+    pub r_min: Option<f64>,
     /// Where θ=0 appears on canvas, degrees CW from north (top). Default 0 = north.
     pub theta_start: f64,
     /// true = clockwise (compass), false = CCW (math). Default: true.
@@ -79,6 +82,8 @@ pub struct PolarPlot {
     pub show_grid: bool,
     pub show_r_labels: bool,
     pub show_legend: bool,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for PolarPlot {
@@ -86,6 +91,7 @@ impl Default for PolarPlot {
         PolarPlot {
             series: Vec::new(),
             r_max: None,
+            r_min: None,
             theta_start: 0.0,
             clockwise: true,
             r_grid_lines: None,
@@ -93,6 +99,8 @@ impl Default for PolarPlot {
             show_grid: true,
             show_r_labels: true,
             show_legend: false,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 }
@@ -172,6 +180,16 @@ impl PolarPlot {
         self
     }
 
+    /// Set the value mapped to the plot centre (default 0).
+    ///
+    /// A data point `(r, theta)` is plotted at radial distance `max(r - r_min, 0)` from
+    /// centre. Use negative values for dB-scale quantities where r can go below zero
+    /// (e.g. antenna radiation patterns).
+    pub fn with_r_min(mut self, r_min: f64) -> Self {
+        self.r_min = Some(r_min);
+        self
+    }
+
     /// Set where θ=0 appears on the canvas, in degrees CW from north.
     pub fn with_theta_start(mut self, degrees: f64) -> Self {
         self.theta_start = degrees;
@@ -240,10 +258,23 @@ impl PolarPlot {
 
     /// Compute the maximum r value across all series (for auto-scaling).
     pub fn r_max_auto(&self) -> f64 {
-        self.series
+        let r_min = self.r_min.unwrap_or(0.0);
+        let data_max = self.series
             .iter()
             .flat_map(|s| s.r.iter())
             .cloned()
-            .fold(0.0_f64, f64::max)
+            .fold(r_min, f64::max);
+        // Ensure r_max > r_min so the range is always positive.
+        if data_max <= r_min { r_min + 1.0 } else { data_max }
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
+        self
     }
 }

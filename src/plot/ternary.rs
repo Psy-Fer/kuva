@@ -52,6 +52,8 @@ pub struct TernaryPlot {
     pub marker_opacity: Option<f64>,
     /// Stroke (outline) width for markers. `None` = no stroke. Stroke color matches fill.
     pub marker_stroke_width: Option<f64>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for TernaryPlot {
@@ -67,6 +69,8 @@ impl Default for TernaryPlot {
             show_percentages: true,
             marker_opacity: None,
             marker_stroke_width: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 }
@@ -164,5 +168,15 @@ impl TernaryPlot {
             }
         }
         result
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
+        self
     }
 }

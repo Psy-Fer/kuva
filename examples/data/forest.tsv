@@ -1,0 +1,10 @@
+study	estimate	ci_lower	ci_upper	weight
+Smith 2019	0.50	0.10	0.90	5.2
+Johnson 2020	-0.30	-0.80	0.20	3.8
+Williams 2020	0.20	-0.10	0.50	8.1
+Brown 2021	0.65	0.30	1.00	6.0
+Davis 2021	-0.10	-0.50	0.30	4.5
+Miller 2022	0.35	0.05	0.65	7.3
+Wilson 2022	0.80	0.40	1.20	3.2
+Moore 2023	0.15	-0.20	0.50	9.0
+Overall	0.28	0.10	0.46	10.0

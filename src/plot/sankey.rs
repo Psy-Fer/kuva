@@ -1,3 +1,5 @@
+use crate::render::layout::TickFormat;
+
 /// How ribbon colors are assigned in a Sankey diagram.
 #[derive(Debug, Clone)]
 pub enum SankeyLinkColor {
@@ -43,6 +45,18 @@ pub struct SankeyPlot {
     pub node_gap: f64,
     /// If set, adds one legend entry per node.
     pub legend_label: Option<String>,
+    /// Show the absolute flow value on each ribbon (default false).
+    pub flow_labels: bool,
+    /// Show each flow as a percentage of its source node's total outflow (default false).
+    /// Takes priority over `flow_labels` when both are set.
+    pub flow_percent: bool,
+    /// Number format for absolute flow labels (default `Auto`).
+    pub flow_label_format: TickFormat,
+    /// Optional unit suffix appended to absolute labels, e.g. `"reads"` → `"1 200 reads"`.
+    pub flow_label_unit: Option<String>,
+    /// Minimum ribbon height in pixels required to render a label.
+    /// Set to `0.0` to always show labels regardless of ribbon size (default `8.0`).
+    pub flow_label_min_height: f64,
 }
 
 impl Default for SankeyPlot {
@@ -59,6 +73,11 @@ impl SankeyPlot {
             node_width: 20.0,
             node_gap: 8.0,
             legend_label: None,
+            flow_labels: false,
+            flow_percent: false,
+            flow_label_format: TickFormat::Auto,
+            flow_label_unit: None,
+            flow_label_min_height: 8.0,
         }
     }
 
@@ -162,6 +181,42 @@ impl SankeyPlot {
 
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    /// Show the absolute flow value on each ribbon.
+    /// Combine with [`with_flow_label_format`](Self::with_flow_label_format) and
+    /// [`with_flow_label_unit`](Self::with_flow_label_unit) as needed.
+    pub fn with_flow_labels(mut self) -> Self {
+        self.flow_labels = true;
+        self
+    }
+
+    /// Show each flow as a percentage of its source node's total outflow.
+    /// Takes priority over [`with_flow_labels`](Self::with_flow_labels) when both are set.
+    pub fn with_flow_percent(mut self) -> Self {
+        self.flow_percent = true;
+        self
+    }
+
+    /// Number format for absolute flow labels (default: [`TickFormat::Auto`]).
+    /// Has no effect when [`with_flow_percent`](Self::with_flow_percent) is active.
+    pub fn with_flow_label_format(mut self, fmt: TickFormat) -> Self {
+        self.flow_label_format = fmt;
+        self
+    }
+
+    /// Append a unit string to each absolute flow label, e.g. `"reads"` → `"1200 reads"`.
+    /// Has no effect in percent mode.
+    pub fn with_flow_label_unit<S: Into<String>>(mut self, unit: S) -> Self {
+        self.flow_label_unit = Some(unit.into());
+        self
+    }
+
+    /// Minimum ribbon height in pixels required to render a flow label.
+    /// Set to `0.0` to always show labels regardless of ribbon size (default: `8.0`).
+    pub fn with_flow_label_min_height(mut self, min_h: f64) -> Self {
+        self.flow_label_min_height = min_h;
         self
     }
 }

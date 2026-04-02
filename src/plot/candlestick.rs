@@ -96,6 +96,8 @@ pub struct CandlestickPlot {
     /// Optional legend entry label. When set a legend box is drawn inside
     /// the plot area.
     pub legend_label: Option<String>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for CandlestickPlot {
@@ -118,6 +120,8 @@ impl CandlestickPlot {
             show_volume: false,
             volume_ratio: 0.22,
             legend_label: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -296,6 +300,16 @@ impl CandlestickPlot {
     /// ```
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
+        self
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
 }

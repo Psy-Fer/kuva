@@ -49,7 +49,7 @@ fn test_svg_pretty() {
 fn test_svg_pretty_groups() {
     // Verify that GroupStart increments depth and GroupEnd decrements it.
     let mut scene = Scene::new(200.0, 100.0);
-    scene.add(Primitive::GroupStart { transform: Some("translate(10,10)".to_string()) });
+    scene.add(Primitive::GroupStart { transform: Some("translate(10,10)".to_string()), title: None, extra_attrs: None });
     scene.add(Primitive::Circle { cx: 5.0, cy: 5.0, r: 3.0, fill: "blue".into(), fill_opacity: None, stroke: None, stroke_width: None });
     scene.add(Primitive::GroupEnd);
 

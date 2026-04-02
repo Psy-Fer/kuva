@@ -637,6 +637,34 @@ fn test_missing_feature_pdf() {
     let _ = fs::remove_file(&tmp_pdf);
 }
 
+// ── forest ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_forest_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "forest", &data("forest.tsv"),
+        "--label-col", "study", "--estimate-col", "estimate",
+        "--ci-lower-col", "ci_lower", "--ci-upper-col", "ci_upper",
+        "--title", "Meta-Analysis", "--x-label", "Effect Size",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_forest_has_lines_and_circles() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "forest", &data("forest.tsv"),
+        "--label-col", "study", "--estimate-col", "estimate",
+        "--ci-lower-col", "ci_lower", "--ci-upper-col", "ci_upper",
+        "--weight-col", "weight",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<line"), "SVG should contain line elements (CI whiskers)");
+    assert!(stdout.contains("<rect"), "SVG should contain rect elements (point estimates)");
+    assert!(stdout.contains("stroke-dasharray"), "SVG should contain dashed null line");
+}
+
 #[test]
 fn test_unknown_subcommand() {
     let (_, _, code) = run_with_file(&["notaplot"]);

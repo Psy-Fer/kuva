@@ -130,6 +130,67 @@ Bricks are proportional to motif length (CAT = 3 bp wide; single-nucleotide inte
 
 ---
 
+## Bladerunner stitched format
+
+Bladerunner's stitched output joins multiple STR candidates with `|` separators. Each `|`-delimited section is its own candidate with its own local letter assignments; `with_strigars` handles this automatically.
+
+### Inter-candidate gaps
+
+Gaps between candidates appear as `N@` in the strigar (where N is the gap width in nucleotides) and render as light grey bricks:
+
+| Gap type | Motif string entry | Strigar token | Rendered width |
+|----------|-------------------|---------------|----------------|
+| **Large gap** (above threshold) | *(none)* | `N@` | N nt |
+| **Small gap** (below threshold) | `@:SEQUENCE` | `1@` | `len(seq)` nt |
+
+```rust,no_run
+# use kuva::plot::BrickPlot;
+# use kuva::render::plots::Plot;
+// Three stitched candidates; two large gaps between them.
+// ACCCTA, TAACCC, CCCTAA are all rotations of the same unit —
+// with_strigars assigns them the same global letter and colour.
+let strigars: Vec<(String, String)> = vec![
+    (
+        "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
+        "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
+    ),
+];
+
+let plot = BrickPlot::new()
+    .with_names(vec!["read_1"])
+    .with_strigars(strigars);
+```
+
+### Aligning reads by genomic position
+
+Use `with_start_positions` to pass the reference coordinate where each read begins. Reads are shifted on the shared x-axis so repeat regions line up visually. Combine with `with_x_origin` to anchor a biologically meaningful position (e.g. the repeat start) to x = 0.
+
+```rust,no_run
+# use kuva::plot::BrickPlot;
+# use kuva::render::plots::Plot;
+// read_1: A-repeat (16 nt) + small gap GAA (3 nt) + AGA-repeat.
+//         AGA region starts at reference position 19.
+// read_2: AGA-repeat only, starting at reference position 19.
+//
+// with_start_positions aligns both reads on the shared reference axis.
+// with_x_origin(19) places x=0 at the repeat start; the pre-repeat
+// flanking region of read_1 appears at negative x values.
+let strigars: Vec<(String, String)> = vec![
+    ("A:A | @:GAA | AGA:B".to_string(), "16A | 1@ | 9B".to_string()),
+    ("AGA:A".to_string(),               "12A".to_string()),
+];
+
+let plot = BrickPlot::new()
+    .with_names(vec!["read_1", "read_2"])
+    .with_strigars(strigars)
+    .with_start_positions(vec![0.0_f64, 19.0])  // genomic start coord per read
+    .with_x_origin(19.0);                        // x=0 at the repeat start
+```
+
+`with_start_positions` is equivalent to `with_x_offsets` with negated values but expresses intent clearly: pass the actual reference start coordinate for each read and kuva handles the shift. `with_x_origin` is a separate, independent axis shift applied on top — it does not interact with per-row offsets and can be used with or without `with_start_positions`.
+
+---
+
 ## Built-in templates
 
 | Method | Alphabet | Colors |
@@ -149,9 +210,11 @@ Access the populated map via `.template` and pass it to `with_template()`.
 | `.with_sequences(iter)` | Load character sequences (one string per row) |
 | `.with_names(iter)` | Load row labels (one per sequence) |
 | `.with_template(map)` | Set `HashMap<char, CSS color>` |
-| `.with_x_offset(f)` | Global x-offset applied to all rows |
+| `.with_x_offset(f)` | Global x-offset applied to all rows (shift left by f nt) |
 | `.with_x_offsets(iter)` | Per-row offsets (`f64` or `Option<f64>`; `None` → global fallback) |
+| `.with_start_positions(iter)` | Per-row genomic start coordinates; shifts each read so it begins at that x position |
+| `.with_x_origin(f)` | Reference coordinate mapped to x = 0; applied on top of all per-row offsets |
 | `.with_values()` | Draw character labels inside bricks |
-| `.with_strigars(iter)` | Load strigar data and switch to strigar mode |
+| `.with_strigars(iter)` | Load strigar data and switch to strigar mode; accepts bladerunner stitched format |
 | `BrickTemplate::new().dna()` | Pre-built DNA (A/C/G/T) color template |
 | `BrickTemplate::new().rna()` | Pre-built RNA (A/C/G/U) color template |

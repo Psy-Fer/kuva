@@ -14,6 +14,7 @@ use kuva::backend::svg::SvgBackend;
 use kuva::render::render::render_multiple;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
+use kuva::TickFormat;
 
 const OUT: &str = "docs/src/assets/sankey";
 
@@ -24,6 +25,9 @@ fn main() {
     node_colors();
     gradient();
     variant_filter();
+    flow_labels_absolute();
+    flow_labels_percent();
+    flow_labels_pipeline();
 
     println!("Sankey SVGs written to {OUT}/");
 }
@@ -95,6 +99,87 @@ fn gradient() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/gradient.svg"), svg).unwrap();
+}
+
+/// Absolute flow labels — RNA-seq read processing pipeline, unit suffix "reads".
+fn flow_labels_absolute() {
+    let sankey = SankeyPlot::new()
+        .with_link("Raw reads",  "Trimmed",        82.0)
+        .with_link("Raw reads",  "Discarded",        3.0)
+        .with_link("Trimmed",    "Genome aligned",  68.0)
+        .with_link("Trimmed",    "rRNA",             8.0)
+        .with_link("Trimmed",    "Unmapped",         6.0)
+        .with_link("Genome aligned", "Exonic",      42.0)
+        .with_link("Genome aligned", "Intronic",    18.0)
+        .with_link("Genome aligned", "Intergenic",   8.0)
+        .with_flow_labels()
+        .with_flow_label_unit("M reads")
+        .with_link_opacity(0.5);
+
+    let plots = vec![Plot::Sankey(sankey)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("RNA-seq Pipeline — Absolute Flow (M reads)");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/flow_labels_absolute.svg"), svg).unwrap();
+}
+
+/// Percentage flow labels — fraction of each source node's total outflow.
+fn flow_labels_percent() {
+    let sankey = SankeyPlot::new()
+        .with_node_color("Raw reads",        "#888888")
+        .with_node_color("Trimmed",          "#4daf4a")
+        .with_node_color("Discarded",        "#e41a1c")
+        .with_node_color("Genome aligned",   "#377eb8")
+        .with_node_color("rRNA",             "#ff7f00")
+        .with_node_color("Unmapped",         "#cccccc")
+        .with_link("Raw reads",  "Trimmed",        82.0)
+        .with_link("Raw reads",  "Discarded",        3.0)
+        .with_link("Trimmed",    "Genome aligned",  68.0)
+        .with_link("Trimmed",    "rRNA",             8.0)
+        .with_link("Trimmed",    "Unmapped",         6.0)
+        .with_flow_percent()
+        .with_link_opacity(0.5);
+
+    let plots = vec![Plot::Sankey(sankey)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("RNA-seq Pipeline — % of Source Outflow");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/flow_labels_percent.svg"), svg).unwrap();
+}
+
+/// Large-count pipeline with scientific notation labels.
+fn flow_labels_pipeline() {
+    let sankey = SankeyPlot::new()
+        .with_node_color("Raw Variants",  "#888888")
+        .with_node_color("QC Pass",       "#4daf4a")
+        .with_node_color("QC Fail",       "#e41a1c")
+        .with_node_color("High Conf",     "#377eb8")
+        .with_node_color("Low Conf",      "#ff7f00")
+        .with_node_color("SNP",           "#984ea3")
+        .with_node_color("Indel",         "#a65628")
+        .with_node_color("Filtered Out",  "#cccccc")
+        .with_link("Raw Variants", "QC Pass",      8_000_000.0)
+        .with_link("Raw Variants", "QC Fail",      2_000_000.0)
+        .with_link("QC Pass",      "High Conf",    6_000_000.0)
+        .with_link("QC Pass",      "Low Conf",     2_000_000.0)
+        .with_link("High Conf",    "SNP",          4_500_000.0)
+        .with_link("High Conf",    "Indel",        1_200_000.0)
+        .with_link("High Conf",    "Filtered Out",   300_000.0)
+        .with_link("Low Conf",     "SNP",            800_000.0)
+        .with_link("Low Conf",     "Filtered Out", 1_200_000.0)
+        .with_flow_labels()
+        .with_flow_label_format(TickFormat::Sci)
+        .with_link_opacity(0.45)
+        .with_legend("Stage");
+
+    let plots = vec![Plot::Sankey(sankey)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Variant Filtering — Scientific Notation Labels");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/flow_labels_pipeline.svg"), svg).unwrap();
 }
 
 /// Wide 4-stage variant-filtering pipeline — a bioinformatics use case.

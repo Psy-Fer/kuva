@@ -111,6 +111,8 @@ pub struct ManhattanPlot {
     pub pvalue_floor: Option<f64>,
     /// When `Some`, a legend shows genome-wide and suggestive threshold line entries.
     pub legend_label: Option<String>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 /// Reference genome chromosome sizes used for cumulative x-coordinate layout.
@@ -234,6 +236,8 @@ impl ManhattanPlot {
             label_style: LabelStyle::default(),
             pvalue_floor: None,
             legend_label: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -644,6 +648,16 @@ impl ManhattanPlot {
                 pt.label = Some(label);
             }
         }
+        self
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
 }

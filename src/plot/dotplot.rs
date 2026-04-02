@@ -92,6 +92,8 @@ pub struct DotPlot {
     pub size_label:         Option<String>,
     /// When `Some`, a colorbar is drawn in the right margin using this label.
     pub color_legend_label: Option<String>,
+    pub show_tooltips: bool,
+    pub tooltip_labels: Option<Vec<String>>,
 }
 
 impl Default for DotPlot {
@@ -115,6 +117,8 @@ impl DotPlot {
             color_range: None,
             size_label: None,
             color_legend_label: None,
+            show_tooltips: false,
+            tooltip_labels: None,
         }
     }
 
@@ -318,5 +322,15 @@ impl DotPlot {
         let min = self.points.iter().map(|p| p.color).fold(f64::INFINITY, f64::min);
         let max = self.points.iter().map(|p| p.color).fold(f64::NEG_INFINITY, f64::max);
         (min, max)
+    }
+
+    pub fn with_tooltips(mut self) -> Self {
+        self.show_tooltips = true;
+        self
+    }
+
+    pub fn with_tooltip_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
+        self
     }
 }

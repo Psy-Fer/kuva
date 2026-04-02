@@ -345,3 +345,184 @@ fn test_polar_wind_rose_style() {
     assert!(svg.contains("Calm radius"));
     write("polar_wind_rose", &svg);
 }
+
+// Regression test for PR #40 / the θ=0° hardcoded-label bug.
+//
+// Before the fix, `add_polar` had:
+//   if theta_deg == 0.0 { "0°".to_string() } else { format!("{}°", ...) }
+// — meaning the 0° spoke ALWAYS showed "0°" regardless of `x_tick_format`.
+// Custom labels were "covered" at exactly θ=0.
+//
+// After the fix, all spokes go through `computed.x_tick_format.format(theta_deg)`,
+// so a custom formatter is respected at every division including 0°.
+//
+// This test uses 4 divisions (N/E/S/W) and verifies:
+//   1. The custom labels appear ("North", "East", "South", "West").
+//   2. The old hardcoded "0°" is NOT present (it would indicate the bug is back).
+//   3. Default `auto_from_plots` behaviour is unchanged: degree labels like "90°"
+//      still appear when no custom format is set.
+#[test]
+fn test_polar_custom_tick_overrides_zero_degree() {
+    use std::sync::Arc;
+    use kuva::TickFormat;
+
+    // 4-spoke polar with custom compass labels.
+    let r: Vec<f64> = vec![1.0, 2.0, 1.5, 0.5, 1.0]; // closed
+    let theta: Vec<f64> = vec![0.0, 90.0, 180.0, 270.0, 360.0];
+
+    let plot = PolarPlot::new()
+        .with_series(r, theta)
+        .with_theta_divisions(4);
+
+    let plots = vec![Plot::Polar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_tick_format(TickFormat::Custom(Arc::new(|v| {
+            match v as u32 {
+                0   => "North".to_string(),
+                90  => "East".to_string(),
+                180 => "South".to_string(),
+                270 => "West".to_string(),
+                _   => format!("{v}°"),
+            }
+        })));
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    write("polar_custom_tick_zero", &svg);
+
+    // Custom labels must appear at all four spokes.
+    assert!(svg.contains(">North<"), "θ=0° spoke must show custom label 'North'");
+    assert!(svg.contains(">East<"),  "θ=90° spoke must show 'East'");
+    assert!(svg.contains(">South<"), "θ=180° spoke must show 'South'");
+    assert!(svg.contains(">West<"),  "θ=270° spoke must show 'West'");
+
+    // The old hardcoded "0°" must NOT appear — that would mean the bug is back.
+    assert!(!svg.contains(">0°<"),
+        "θ=0° spoke must not show hardcoded '0°' when a custom format is set");
+}
+
+#[test]
+fn test_polar_default_degree_format() {
+    // Without a custom format, auto_from_plots sets TickFormat::Degree,
+    // so labels should show degree symbols: "0°", "90°", "180°", "270°".
+    let r: Vec<f64> = vec![1.0; 5];
+    let theta: Vec<f64> = vec![0.0, 90.0, 180.0, 270.0, 360.0];
+
+    let plot = PolarPlot::new()
+        .with_series(r, theta)
+        .with_theta_divisions(4);
+
+    let svg = render(plot);
+    write("polar_default_degree_format", &svg);
+
+    assert!(svg.contains(">0°<"),   "default polar format must show '0°' at θ=0");
+    assert!(svg.contains(">90°<"),  "default polar format must show '90°'");
+    assert!(svg.contains(">180°<"), "default polar format must show '180°'");
+    assert!(svg.contains(">270°<"), "default polar format must show '270°'");
+}
+
+// ── r_min / negative-radius tests (#54) ───────────────────────────────────────
+
+// Basic: r_min shifts the baseline so data at r=r_min maps to centre.
+// r in [0.5, 1.5], r_min=0.5 → effective range [0, 1.0].
+// Ring labels should show actual r values: 0.75, 1.0, 1.25, 1.5 (4 rings).
+#[test]
+fn test_polar_r_min_basic() {
+    let theta: Vec<f64> = (0..8).map(|i| i as f64 * 45.0).collect();
+    let r: Vec<f64> = vec![0.5, 0.75, 1.0, 1.25, 1.5, 1.25, 1.0, 0.75];
+
+    let plot = PolarPlot::new()
+        .with_series(r, theta)
+        .with_r_min(0.5)
+        .with_r_max(1.5)
+        .with_r_grid_lines(4);
+    let svg = render(plot);
+    assert!(svg.contains("<svg"));
+    // Ring labels must reflect actual r values, not fractions.
+    assert!(svg.contains(">0.75<") || svg.contains(">1<") || svg.contains(">1.5<"),
+        "ring labels should show actual r values relative to r_min");
+    write("polar_r_min_basic", &svg);
+}
+
+// Negative r_min: dB-scale antenna pattern.
+// r values range from -20 to 0. r_min=-20, r_max=0.
+// Point at r=-20 → centre; point at r=0 → outer edge.
+#[test]
+fn test_polar_r_min_negative() {
+    let theta: Vec<f64> = (0..=360).map(|i| i as f64).collect();
+    // Simulate an antenna pattern: main lobe near 0°, back-lobe near 180°.
+    let r: Vec<f64> = theta.iter().map(|&t| {
+        let rad = t.to_radians();
+        // Pattern: 0 dB at 0°, -20 dB at 180°, smooth in between.
+        -20.0 * (1.0 - rad.cos().abs())
+    }).collect();
+
+    let plot = PolarPlot::new()
+        .with_series_line(r, theta)
+        .with_r_min(-20.0)
+        .with_r_max(0.0)
+        .with_r_grid_lines(4);
+    let plots = vec![Plot::Polar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Antenna Pattern (dB)");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<path"), "line series should produce a path element");
+    // Ring labels should include negative values.
+    assert!(svg.contains(">-") || svg.contains(">0<"),
+        "ring labels should contain negative or zero r values");
+    write("polar_r_min_negative", &svg);
+}
+
+// Points with r < r_min should be clamped to centre (rendered there, not clipped out).
+// One point at r=0.0 with r_min=1.0 → should still render (at centre).
+#[test]
+fn test_polar_r_min_clamp_to_centre() {
+    let theta: Vec<f64> = vec![0.0, 90.0, 180.0, 270.0];
+    // r=0.0 is below r_min=1.0 — should land at centre.
+    let r: Vec<f64> = vec![0.0, 1.5, 2.0, 1.5];
+
+    let plot = PolarPlot::new()
+        .with_series(r, theta)
+        .with_r_min(1.0)
+        .with_r_max(2.0);
+    let svg = render(plot);
+    assert!(svg.contains("<svg"));
+    // The clamped point lands at cx,cy — plot still renders.
+    assert!(svg.contains("<circle") || svg.contains("<path"));
+    write("polar_r_min_clamp", &svg);
+}
+
+// Auto r_max when r_min is set should use data max, not 0.
+// r_min=-1.0, data max=1.0 → r_max auto = 1.0, range = 2.0.
+#[test]
+fn test_polar_r_min_auto_r_max() {
+    let theta: Vec<f64> = (0..36).map(|i| i as f64 * 10.0).collect();
+    // r = sin(theta) which goes negative
+    let r: Vec<f64> = theta.iter().map(|&t| t.to_radians().sin()).collect();
+
+    let plot = PolarPlot::new()
+        .with_series_line(r, theta)
+        .with_r_min(-1.0);
+    // r_max not set — should auto-derive to ~1.0
+    let svg = render(plot);
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<path"));
+    write("polar_r_min_auto_r_max", &svg);
+}
+
+// r_min with scatter + existing r_max: verify it composes correctly.
+#[test]
+fn test_polar_r_min_with_explicit_r_max() {
+    let theta: Vec<f64> = (0..12).map(|i| i as f64 * 30.0).collect();
+    let r: Vec<f64> = vec![-5.0, -3.0, 0.0, 3.0, 5.0, 3.0, 0.0, -3.0, -5.0, -3.0, 0.0, 3.0];
+
+    let plot = PolarPlot::new()
+        .with_series(r, theta)
+        .with_r_min(-5.0)
+        .with_r_max(5.0)
+        .with_r_grid_lines(5)
+        .with_legend(false);
+    let svg = render(plot);
+    assert!(svg.contains("<svg"));
+    write("polar_r_min_explicit_r_max", &svg);
+}

@@ -82,4 +82,7 @@ pub struct ColorBarInfo {
     pub min_value: f64,
     pub max_value: f64,
     pub label: Option<String>,
+    /// When set, overrides auto-generated ticks. Each entry is `(position, label)` where
+    /// `position` is in `[min_value, max_value]` space.
+    pub tick_labels: Option<Vec<(f64, String)>>,
 }

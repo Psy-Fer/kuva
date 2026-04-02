@@ -25,6 +25,7 @@ fn main() {
 
     log_scale();
     tick_formats();
+    tick_controls();
     annotations();
     text_annotation();
     reference_line();
@@ -104,6 +105,29 @@ fn tick_formats() {
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
         std::fs::write(format!("{OUT}/tick_sci.svg"), svg).unwrap();
     }
+}
+
+/// Two panels side-by-side: defaults vs heavier/longer axis chrome.
+fn tick_controls() {
+    let data: Vec<(f64, f64)> = (0..=10).map(|i| (i as f64, (i as f64 * 0.6).sin() * 3.0 + 4.0)).collect();
+
+    let save = |name: &str, title: &str, axis_w: f64, tick_w: f64, tick_len: f64, grid_w: f64| {
+        let plot = ScatterPlot::new().with_data(data.clone()).with_color("steelblue").with_size(4.0);
+        let plots = vec![Plot::Scatter(plot)];
+        let layout = Layout::auto_from_plots(&plots)
+            .with_title(title)
+            .with_width(280.0)
+            .with_height(220.0)
+            .with_axis_line_width(axis_w)
+            .with_tick_width(tick_w)
+            .with_tick_length(tick_len)
+            .with_grid_line_width(grid_w);
+        let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+        std::fs::write(format!("{OUT}/{name}.svg"), svg).unwrap();
+    };
+
+    save("tick_controls_default", "Defaults",         1.0, 1.0, 5.0, 1.0);
+    save("tick_controls_heavy",   "Heavy / long ticks", 2.0, 1.5, 10.0, 0.5);
 }
 
 /// Text annotation — label "Outlier" with arrow pointing to the high point.

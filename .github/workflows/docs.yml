@@ -29,6 +29,21 @@ jobs:
       - name: Build book
         run: mdbook build docs
 
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache doom assets
+        uses: actions/cache@v4
+        with:
+          path: doom-assets
+          key: doom-assets-v1
+
+      - name: Build kuva with doom feature
+        run: cargo build --release --bin kuva --features cli,doom
+
+      - name: Generate doom.svg
+        run: ./target/release/kuva doom -o docs/book/doom.svg
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

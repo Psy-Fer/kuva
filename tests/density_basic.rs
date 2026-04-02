@@ -6,6 +6,8 @@ use kuva::render::palette::Palette;
 use kuva::backend::svg::SvgBackend;
 use std::fs;
 
+// ── Regression tests for #37: density plot unexpectedly behaving on [0,1] data ─
+
 fn render_svg(plots: Vec<Plot>, layout: Layout) -> String {
     let scene = render_multiple(plots, layout);
     SvgBackend.render_scene(&scene)
@@ -130,4 +132,218 @@ fn test_density_precomputed() {
     fs::write("test_outputs/density_precomputed.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"), "precomputed density should emit a path");
+}
+
+/// With no x_range set, the KDE evaluation extends 3×bandwidth below the data
+/// minimum, so bounds() x_min should be negative for data starting at 0.0.
+/// This is the default behaviour (tails taper smoothly), but it means the curve
+/// bleeds into negative territory for bounded data like methylation frequencies.
+#[test]
+fn test_density_unbounded_extends_below_zero() {
+    let data: Vec<f64> = (0..100).map(|i| i as f64 / 100.0).collect(); // [0.0, 0.99]
+    let dp = DensityPlot::new().with_data(data);
+    let plot = Plot::Density(dp);
+    let ((x_min, _), _) = plot.bounds().unwrap();
+    assert!(x_min < 0.0,
+        "without x_range, KDE tail should extend below data_min=0.0; got x_min={x_min}");
+}
+
+/// with_x_range(0.0, 1.0) clamps the KDE evaluation range.  bounds() must
+/// return exactly (0.0, 1.0) as the x extent, preventing the curve from
+/// extending into negative values — the root cause of #37 on [0,1] data.
+#[test]
+fn test_density_x_range_clamps_bounds() {
+    let data: Vec<f64> = (0..100).map(|i| i as f64 / 100.0).collect();
+    let dp = DensityPlot::new().with_data(data).with_x_range(0.0, 1.0);
+    let plot = Plot::Density(dp);
+    let ((x_min, x_max), (y_min, y_max)) = plot.bounds().unwrap();
+    assert_eq!(x_min, 0.0, "x_min should be exactly the lower bound of x_range");
+    assert_eq!(x_max, 1.0, "x_max should be exactly the upper bound of x_range");
+    assert_eq!(y_min, 0.0, "y_min should be 0.0 for a density");
+    assert!(y_max > 0.0, "y_max should be positive; KDE peak was not found");
+}
+
+/// The rendered SVG should not contain NaN or empty paths when x_range is set
+/// and the data lives entirely within the clamped region.
+#[test]
+fn test_density_x_range_renders_cleanly() {
+    outdir();
+    // Simulate methylation β-value data: bimodal near 0 and 1
+    let mut data: Vec<f64> = (0..50).map(|i| i as f64 * 0.01).collect();      // 0.0 – 0.49
+    data.extend((51..100).map(|i| i as f64 * 0.01));                           // 0.51 – 0.99
+    let dp = DensityPlot::new()
+        .with_data(data)
+        .with_x_range(0.0, 1.0)
+        .with_filled(true);
+    let plots = vec![Plot::Density(dp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Methylation-like density")
+        .with_x_label("β-value")
+        .with_y_label("Density");
+    let svg = render_svg(plots, layout);
+    fs::write("test_outputs/density_x_range.svg", &svg).unwrap();
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<path"), "density with x_range should produce a path");
+    assert!(!svg.contains("NaN"), "SVG should not contain NaN");
+}
+
+/// For narrow-bandwidth data, bounds() must correctly capture the KDE peak.
+/// Before the fix, bounds() used only 50 sample points; the renderer used
+/// dp.kde_samples (200).  When the evaluation step was coarser than the peak
+/// width the 50-sample version could miss the peak entirely, returning y_max≈0
+/// and causing the axis to clip the top of the rendered curve.
+///
+/// This test uses an explicit narrow bandwidth and verifies that bounds()
+/// returns a strictly positive y_max — which it would fail to do if it still
+/// used 50 samples with a step larger than the bandwidth.
+#[test]
+fn test_density_narrow_bandwidth_bounds_nonzero() {
+    // 60 points clustered in a narrow range — with bw=0.02 the peak is sharp.
+    let data: Vec<f64> = (0..60).map(|i| 2.0 + i as f64 * 0.01).collect(); // [2.0, 2.59]
+    let dp = DensityPlot::new()
+        .with_data(data)
+        .with_bandwidth(0.02)
+        .with_kde_samples(200);
+    let plot = Plot::Density(dp);
+    let (_, (_, y_max)) = plot.bounds().unwrap();
+    // With bw=0.02 and n=60, the KDE peak ≈ 60/(0.02*√(2π)) ≈ 1194.
+    // Even with 10% headroom the y_max should be >> 1.
+    assert!(y_max > 1.0,
+        "bounds() y_max should reflect the KDE peak; got y_max={y_max}. \
+         This fails if bounds() uses too few samples and misses the peak.");
+}
+
+/// Multi-group density with x_range: each group curve should be clamped,
+/// the plot should render without errors.
+#[test]
+fn test_density_multigroup_x_range() {
+    outdir();
+    let pal = Palette::category10();
+    let group_a: Vec<f64> = (0..50).map(|i| i as f64 * 0.01).collect();       // [0, 0.49]
+    let group_b: Vec<f64> = (50..100).map(|i| i as f64 * 0.01).collect();     // [0.50, 0.99]
+    let plots = vec![
+        Plot::Density(
+            DensityPlot::new()
+                .with_data(group_a)
+                .with_color(pal[0].to_string())
+                .with_legend("Low")
+                .with_x_range(0.0, 1.0)
+        ),
+        Plot::Density(
+            DensityPlot::new()
+                .with_data(group_b)
+                .with_color(pal[1].to_string())
+                .with_legend("High")
+                .with_x_range(0.0, 1.0)
+        ),
+    ];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Density multigroup bounded");
+    let svg = render_svg(plots, layout);
+    fs::write("test_outputs/density_multigroup_x_range.svg", &svg).unwrap();
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"), "no NaN in multigroup bounded density");
+    let path_count = svg.matches("<path").count();
+    assert!(path_count >= 2, "expected at least one path per group; got {path_count}");
+}
+
+// ── Boundary reflection tests (#47) ──────────────────────────────────────────
+
+/// Reflection: the KDE evaluated at the lower bound should be non-trivially
+/// higher than without reflection, because the ghost points restore probability
+/// mass that a plain Gaussian kernel would lose past x=0.
+/// We verify this by comparing density at x=0 with and without the bound set.
+#[test]
+fn test_density_reflection_raises_boundary_density() {
+    // Data concentrated near 0 — standard KDE would lose ~50% of kernel mass
+    // below x=0 at points right at the boundary.
+    let data: Vec<f64> = (0..50).map(|i| i as f64 * 0.02).collect(); // [0.0, 0.98]
+
+    // Without reflection: evaluate normally (tails extend past 0)
+    let dp_plain = DensityPlot::new().with_data(data.clone()).with_bandwidth(0.1);
+    // With reflection at x=0: ghost points restore lost mass
+    let dp_reflect = DensityPlot::new().with_data(data).with_bandwidth(0.1).with_x_lo(0.0);
+
+    // bounds() uses the same KDE path as the renderer; peak y with reflection
+    // should be higher (boundary is not underestimated).
+    let (_, (_, y_plain))  = Plot::Density(dp_plain).bounds().unwrap();
+    let (_, (_, y_reflect)) = Plot::Density(dp_reflect).bounds().unwrap();
+
+    // The reflected version should produce a meaningfully higher peak
+    // (reflection corrects the ~50% loss at the boundary).
+    assert!(y_reflect > y_plain,
+        "reflection should raise peak density; plain={y_plain:.4} reflect={y_reflect:.4}");
+}
+
+/// One-sided x_lo: the left boundary is clamped and reflected; the right tail
+/// is deliberately free to extend past data_max (> 0.79, possibly past 1.0).
+/// Use with_x_range(0.0, 1.0) when you need both sides clamped.
+#[test]
+fn test_density_x_lo_only() {
+    outdir();
+    let data: Vec<f64> = (0..80).map(|i| i as f64 * 0.01).collect(); // [0.0, 0.79]
+    let dp = DensityPlot::new()
+        .with_data(data)
+        .with_x_lo(0.0)
+        .with_filled(true);
+    let plot = Plot::Density(dp);
+    let ((x_min, x_max), _) = plot.bounds().unwrap();
+    assert_eq!(x_min, 0.0, "x_lo should clamp x_min to exactly 0.0");
+    assert!(x_max > 0.79, "right tail should still extend past data_max (one-sided bound)");
+
+    // Also renders without NaN
+    let plots = vec![plot];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = render_svg(plots, layout);
+    fs::write("test_outputs/density_x_lo_only.svg", &svg).unwrap();
+    assert!(!svg.contains("NaN"));
+    assert!(svg.contains("<path"));
+}
+
+/// One-sided x_hi: the right boundary is clamped and reflected; the left tail
+/// is deliberately free to extend past data_min (< 0.2, possibly below 0.0).
+/// Use with_x_range(0.0, 1.0) when you need both sides clamped.
+#[test]
+fn test_density_x_hi_only() {
+    outdir();
+    let data: Vec<f64> = (20..100).map(|i| i as f64 * 0.01).collect(); // [0.2, 0.99]
+    let dp = DensityPlot::new()
+        .with_data(data)
+        .with_x_hi(1.0);
+    let plot = Plot::Density(dp);
+    let ((x_min, x_max), _) = plot.bounds().unwrap();
+    assert_eq!(x_max, 1.0, "x_hi should clamp x_max to exactly 1.0");
+    assert!(x_min < 0.2, "left tail should still extend past data_min (one-sided bound)");
+
+    let plots = vec![plot];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = render_svg(plots, layout);
+    fs::write("test_outputs/density_x_hi_only.svg", &svg).unwrap();
+    assert!(!svg.contains("NaN"));
+    assert!(svg.contains("<path"));
+}
+
+/// Bimodal bounded data: identity scores with peaks at 0.1 and 0.9.
+/// With x_range(0.0, 1.0), neither peak should bleed past the boundaries.
+#[test]
+fn test_density_bounded_bimodal_identity_scores() {
+    outdir();
+    let mut data: Vec<f64> = (0..40).map(|i| 0.05 + i as f64 * 0.005).collect(); // near 0
+    data.extend((0..40).map(|i| 0.85 + i as f64 * 0.005));                        // near 1
+    let dp = DensityPlot::new()
+        .with_data(data)
+        .with_x_range(0.0, 1.0)
+        .with_filled(true)
+        .with_color("steelblue");
+    let plot = Plot::Density(dp);
+    let ((x_min, x_max), _) = plot.bounds().unwrap();
+    assert_eq!(x_min, 0.0);
+    assert_eq!(x_max, 1.0);
+
+    let plots = vec![plot];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = render_svg(plots, layout);
+    fs::write("test_outputs/density_bounded_bimodal.svg", &svg).unwrap();
+    assert!(!svg.contains("NaN"));
+    assert!(svg.contains("<path"));
 }

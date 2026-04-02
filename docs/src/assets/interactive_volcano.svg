@@ -1,0 +1,667 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="520" font-family="DejaVu Sans, Liberation Sans, Arial, sans-serif" fill="black" data-xmin="-4" data-xmax="6" data-ymin="0" data-ymax="10" data-plot-left="59" data-plot-top="44" data-plot-right="622" data-plot-bottom="469" data-log-x="0" data-log-y="0"><rect width="100%" height="100%" fill="white" /><defs><clipPath id="kuva-clip-0"><rect x="59" y="44" width="563" height="425"/></clipPath><style>g.tt{cursor:pointer;}g.tt:hover>*{opacity:0.75;}g.tt.pinned>*{stroke:gold!important;stroke-width:2px!important;}g.tt.dim>*{opacity:0.1!important;}g.tt.muted>*{opacity:0.12!important;}g.legend-entry{cursor:pointer;}#kuva-save-btn{cursor:pointer;}#kuva-save-btn:hover rect{fill:#e8e8e8;}#kuva-search{position:absolute;font-size:12px;padding:2px 4px;border:1px solid #aaa;border-radius:3px;}#kuva-readout{pointer-events:none;font-size:11px;fill:#555;}</style></defs><line x1="171.6" y1="44" x2="171.6" y2="469" stroke="#cccccc" stroke-width="1" /><line x1="284.2" y1="44" x2="284.2" y2="469" stroke="#cccccc" stroke-width="1" /><line x1="396.8" y1="44" x2="396.8" y2="469" stroke="#cccccc" stroke-width="1" /><line x1="509.40000000000003" y1="44" x2="509.40000000000003" y2="469" stroke="#cccccc" stroke-width="1" /><line x1="622" y1="44" x2="622" y2="469" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="384" x2="622" y2="384" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="299" x2="622" y2="299" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="214" x2="622" y2="214" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="129" x2="622" y2="129" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="44" x2="622" y2="44" stroke="#cccccc" stroke-width="1" /><line x1="59" y1="469" x2="622" y2="469" stroke="#000000" stroke-width="1" /><line x1="59" y1="44" x2="59" y2="469" stroke="#000000" stroke-width="1" /><line x1="59" y1="469" x2="59" y2="474" stroke="#000000" stroke-width="1" /><text x="59" y="486" font-size="12" text-anchor="middle">-4</text><line x1="171.6" y1="469" x2="171.6" y2="474" stroke="#000000" stroke-width="1" /><text x="171.6" y="486" font-size="12" text-anchor="middle">-2</text><line x1="284.2" y1="469" x2="284.2" y2="474" stroke="#000000" stroke-width="1" /><text x="284.2" y="486" font-size="12" text-anchor="middle">0</text><line x1="396.8" y1="469" x2="396.8" y2="474" stroke="#000000" stroke-width="1" /><text x="396.8" y="486" font-size="12" text-anchor="middle">2</text><line x1="509.40000000000003" y1="469" x2="509.40000000000003" y2="474" stroke="#000000" stroke-width="1" /><text x="509.40000000000003" y="486" font-size="12" text-anchor="middle">4</text><line x1="622" y1="469" x2="622" y2="474" stroke="#000000" stroke-width="1" /><text x="622" y="486" font-size="12" text-anchor="middle">6</text><line x1="54" y1="469" x2="59" y2="469" stroke="#000000" stroke-width="1" /><text x="51" y="473.2" font-size="12" text-anchor="end">0</text><line x1="54" y1="384" x2="59" y2="384" stroke="#000000" stroke-width="1" /><text x="51" y="388.2" font-size="12" text-anchor="end">2</text><line x1="54" y1="299" x2="59" y2="299" stroke="#000000" stroke-width="1" /><text x="51" y="303.2" font-size="12" text-anchor="end">4</text><line x1="54" y1="214" x2="59" y2="214" stroke="#000000" stroke-width="1" /><text x="51" y="218.20000000000002" font-size="12" text-anchor="end">6</text><line x1="54" y1="129" x2="59" y2="129" stroke="#000000" stroke-width="1" /><text x="51" y="133.2" font-size="12" text-anchor="end">8</text><line x1="54" y1="44" x2="59" y2="44" stroke="#000000" stroke-width="1" /><text x="51" y="48.2" font-size="12" text-anchor="end">10</text><text x="340.5" y="513" font-size="14" text-anchor="middle">log₂ fold change</text><text x="340.5" y="22" font-size="18" text-anchor="middle">Differential Expression</text><g clip-path="url(#kuva-clip-0)"><g class="kuva-threshold"><line x1="59" y1="413.71000000000004" x2="622" y2="413.71000000000004" stroke="#888888" stroke-width="1" stroke-dasharray="4 4" /></g><g class="kuva-threshold"><line x1="227.9" y1="44" x2="227.9" y2="469" stroke="#888888" stroke-width="1" stroke-dasharray="4 4" /></g><g class="kuva-threshold"><line x1="340.5" y1="44" x2="340.5" y2="469" stroke="#888888" stroke-width="1" stroke-dasharray="4 4" /></g><g class="tt" data-logfc="0.87" data-pvalue="0.041" data-group="NS"><title>GPX1
+log2FC=0.87
+p=4.10e-2</title><circle cx="333.18" cy="410.04" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.74" data-pvalue="0.062" data-group="NS"><title>SOD1
+log2FC=0.74
+p=6.20e-2</title><circle cx="325.86" cy="417.68" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.91" data-pvalue="0.033" data-group="NS"><title>SOD2
+log2FC=0.91
+p=3.30e-2</title><circle cx="335.43" cy="406.04" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.63" data-pvalue="0.088" data-group="NS"><title>CAT
+log2FC=0.63
+p=8.80e-2</title><circle cx="319.67" cy="424.14" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.81" data-pvalue="0.047" data-group="NS"><title>TXNRD1
+log2FC=0.81
+p=4.70e-2</title><circle cx="329.8" cy="412.56" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.74" data-pvalue="0.064" data-group="NS"><title>GSTP1
+log2FC=-0.74
+p=6.40e-2</title><circle cx="242.54" cy="418.26" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.61" data-pvalue="0.1" data-group="NS"><title>GSTM1
+log2FC=-0.61
+p=1.00e-1</title><circle cx="249.86" cy="426.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.53" data-pvalue="0.14" data-group="NS"><title>GSTT1
+log2FC=-0.53
+p=1.40e-1</title><circle cx="254.36" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.97" data-pvalue="0.024" data-group="NS"><title>CYP1B1
+log2FC=0.97
+p=2.40e-2</title><circle cx="338.81" cy="400.16" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.83" data-pvalue="0.044" data-group="NS"><title>CYP3A4
+log2FC=-0.83
+p=4.40e-2</title><circle cx="237.47" cy="411.35" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.69" data-pvalue="0.077" data-group="NS"><title>CYP2D6
+log2FC=-0.69
+p=7.70e-2</title><circle cx="245.35" cy="421.68" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.94" data-pvalue="0.028" data-group="NS"><title>ABCG2
+log2FC=0.94
+p=2.80e-2</title><circle cx="337.12" cy="403" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.78" data-pvalue="0.054" data-group="NS"><title>ABCC1
+log2FC=0.78
+p=5.40e-2</title><circle cx="328.11" cy="415.13" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.93" data-pvalue="0.03" data-group="NS"><title>SLC2A1
+log2FC=0.93
+p=3.00e-2</title><circle cx="336.56" cy="404.28000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.88" data-pvalue="0.038" data-group="NS"><title>PKM
+log2FC=0.88
+p=3.80e-2</title><circle cx="333.74" cy="408.64" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.74" data-pvalue="0.063" data-group="NS"><title>G6PD
+log2FC=0.74
+p=6.30e-2</title><circle cx="325.86" cy="417.97" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.97" data-pvalue="0.025" data-group="NS"><title>ACACA
+log2FC=0.97
+p=2.50e-2</title><circle cx="338.81" cy="400.91" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.83" data-pvalue="0.045" data-group="NS"><title>HMGCR
+log2FC=0.83
+p=4.50e-2</title><circle cx="330.93" cy="411.76" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.93" data-pvalue="0.031" data-group="NS"><title>IDH1
+log2FC=-0.93
+p=3.10e-2</title><circle cx="231.84" cy="404.88" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.81" data-pvalue="0.048" data-group="NS"><title>IDH2
+log2FC=-0.81
+p=4.80e-2</title><circle cx="238.6" cy="412.95" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.67" data-pvalue="0.082" data-group="NS"><title>SDHA
+log2FC=-0.67
+p=8.20e-2</title><circle cx="246.48000000000002" cy="422.84000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.59" data-pvalue="0.11" data-group="NS"><title>SDHB
+log2FC=-0.59
+p=1.10e-1</title><circle cx="250.98000000000002" cy="428.26" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.72" data-pvalue="0.067" data-group="NS"><title>FH
+log2FC=-0.72
+p=6.70e-2</title><circle cx="243.66" cy="419.11" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.86" data-pvalue="0.04" data-group="NS"><title>PPARG
+log2FC=-0.86
+p=4.00e-2</title><circle cx="235.78" cy="409.59000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.74" data-pvalue="0.062" data-group="NS"><title>PPARA
+log2FC=-0.74
+p=6.20e-2</title><circle cx="242.54" cy="417.68" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.61" data-pvalue="0.1" data-group="NS"><title>RXRA
+log2FC=-0.61
+p=1.00e-1</title><circle cx="249.86" cy="426.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.71" data-pvalue="0.071" data-group="NS"><title>NCOA1
+log2FC=0.71
+p=7.10e-2</title><circle cx="324.17" cy="420.18" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.83" data-pvalue="0.045" data-group="NS"><title>NCOA3
+log2FC=0.83
+p=4.50e-2</title><circle cx="330.93" cy="411.76" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.94" data-pvalue="0.028" data-group="NS"><title>NFKB1
+log2FC=0.94
+p=2.80e-2</title><circle cx="337.12" cy="403" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.83" data-pvalue="0.046" data-group="NS"><title>NFKBIA
+log2FC=-0.83
+p=4.60e-2</title><circle cx="237.47" cy="412.17" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.88" data-pvalue="0.038" data-group="NS"><title>RELA
+log2FC=0.88
+p=3.80e-2</title><circle cx="333.74" cy="408.64" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.71" data-pvalue="0.07" data-group="NS"><title>IKBKB
+log2FC=0.71
+p=7.00e-2</title><circle cx="324.17" cy="419.92" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.74" data-pvalue="0.063" data-group="NS"><title>MAP2K1
+log2FC=0.74
+p=6.30e-2</title><circle cx="325.86" cy="417.97" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.61" data-pvalue="0.1" data-group="NS"><title>MAP2K2
+log2FC=0.61
+p=1.00e-1</title><circle cx="318.54" cy="426.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.53" data-pvalue="0.14" data-group="NS"><title>MAPK1
+log2FC=0.53
+p=1.40e-1</title><circle cx="314.04" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.48" data-pvalue="0.17" data-group="NS"><title>MAPK3
+log2FC=0.48
+p=1.70e-1</title><circle cx="311.22" cy="436.29" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.67" data-pvalue="0.083" data-group="NS"><title>RAF1
+log2FC=0.67
+p=8.30e-2</title><circle cx="321.92" cy="423.06" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.91" data-pvalue="0.033" data-group="NS"><title>BRAF
+log2FC=0.91
+p=3.30e-2</title><circle cx="335.43" cy="406.04" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.78" data-pvalue="0.054" data-group="NS"><title>HRAS
+log2FC=0.78
+p=5.40e-2</title><circle cx="328.11" cy="415.13" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.83" data-pvalue="0.045" data-group="NS"><title>NRAS
+log2FC=0.83
+p=4.50e-2</title><circle cx="330.93" cy="411.76" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.61" data-pvalue="0.1" data-group="NS"><title>RAC1
+log2FC=0.61
+p=1.00e-1</title><circle cx="318.54" cy="426.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.53" data-pvalue="0.14" data-group="NS"><title>RHOA
+log2FC=0.53
+p=1.40e-1</title><circle cx="314.04" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.44" data-pvalue="0.2" data-group="NS"><title>CDC42
+log2FC=0.44
+p=2.00e-1</title><circle cx="308.97" cy="439.29" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.88" data-pvalue="0.038" data-group="NS"><title>YES1
+log2FC=0.88
+p=3.80e-2</title><circle cx="333.74" cy="408.64" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.74" data-pvalue="0.063" data-group="NS"><title>FYN
+log2FC=0.74
+p=6.30e-2</title><circle cx="325.86" cy="417.97" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.61" data-pvalue="0.1" data-group="NS"><title>LCK
+log2FC=0.61
+p=1.00e-1</title><circle cx="318.54" cy="426.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.78" data-pvalue="0.054" data-group="NS"><title>ZAP70
+log2FC=-0.78
+p=5.40e-2</title><circle cx="240.29" cy="415.13" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.53" data-pvalue="0.14" data-group="NS"><title>LYN
+log2FC=0.53
+p=1.40e-1</title><circle cx="314.04" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.67" data-pvalue="0.082" data-group="NS"><title>BTK
+log2FC=-0.67
+p=8.20e-2</title><circle cx="246.48000000000002" cy="422.84000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.53" data-pvalue="0.14" data-group="NS"><title>ITK
+log2FC=-0.53
+p=1.40e-1</title><circle cx="254.36" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.67" data-pvalue="0.083" data-group="NS"><title>PLCG1
+log2FC=0.67
+p=8.30e-2</title><circle cx="321.92" cy="423.06" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.53" data-pvalue="0.14" data-group="NS"><title>PLCG2
+log2FC=0.53
+p=1.40e-1</title><circle cx="314.04" cy="432.71000000000004" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.44" data-pvalue="0.2" data-group="NS"><title>IP3R1
+log2FC=-0.44
+p=2.00e-1</title><circle cx="259.43" cy="439.29" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.36" data-pvalue="0.28" data-group="NS"><title>RYR1
+log2FC=-0.36
+p=2.80e-1</title><circle cx="263.93" cy="445.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.48" data-pvalue="0.18" data-group="NS"><title>CAMK2A
+log2FC=-0.48
+p=1.80e-1</title><circle cx="257.18" cy="437.35" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.31" data-pvalue="0.35" data-group="NS"><title>CALM1
+log2FC=0.31
+p=3.50e-1</title><circle cx="301.65000000000003" cy="449.62" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.27" data-pvalue="0.4" data-group="NS"><title>PKC
+log2FC=0.27
+p=4.00e-1</title><circle cx="299.40000000000003" cy="452.09000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.39" data-pvalue="0.26" data-group="NS"><title>PRKCA
+log2FC=0.39
+p=2.60e-1</title><circle cx="306.16" cy="444.14" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.31" data-pvalue="0.35" data-group="NS"><title>PRKCB
+log2FC=0.31
+p=3.50e-1</title><circle cx="301.65000000000003" cy="449.62" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.22" data-pvalue="0.47" data-group="NS"><title>GRB2
+log2FC=0.22
+p=4.70e-1</title><circle cx="296.59000000000003" cy="455.06" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.17" data-pvalue="0.56" data-group="NS"><title>SOS1
+log2FC=0.17
+p=5.60e-1</title><circle cx="293.77" cy="458.3" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.27" data-pvalue="0.4" data-group="NS"><title>GAB1
+log2FC=0.27
+p=4.00e-1</title><circle cx="299.40000000000003" cy="452.09000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.33" data-pvalue="0.31" data-group="NS"><title>IRS1
+log2FC=-0.33
+p=3.10e-1</title><circle cx="265.62" cy="447.38" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.27" data-pvalue="0.4" data-group="NS"><title>IRS2
+log2FC=-0.27
+p=4.00e-1</title><circle cx="269" cy="452.09000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.22" data-pvalue="0.47" data-group="NS"><title>INSR
+log2FC=-0.22
+p=4.70e-1</title><circle cx="271.81" cy="455.06" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.33" data-pvalue="0.31" data-group="NS"><title>IGF1
+log2FC=0.33
+p=3.10e-1</title><circle cx="302.78000000000003" cy="447.38" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.39" data-pvalue="0.26" data-group="NS"><title>IGFBP3
+log2FC=-0.39
+p=2.60e-1</title><circle cx="262.24" cy="444.14" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.44" data-pvalue="0.21" data-group="NS"><title>IGFBP5
+log2FC=-0.44
+p=2.10e-1</title><circle cx="259.43" cy="440.19" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.27" data-pvalue="0.39" data-group="NS"><title>GHR
+log2FC=-0.27
+p=3.90e-1</title><circle cx="269" cy="451.62" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.19" data-pvalue="0.53" data-group="NS"><title>LEPR
+log2FC=-0.19
+p=5.30e-1</title><circle cx="273.5" cy="457.28000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.44" data-pvalue="0.21" data-group="NS"><title>ADIPOQ
+log2FC=-0.44
+p=2.10e-1</title><circle cx="259.43" cy="440.19" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.33" data-pvalue="0.32" data-group="NS"><title>LEP
+log2FC=-0.33
+p=3.20e-1</title><circle cx="265.62" cy="447.97" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.57" data-pvalue="0.12" data-group="NS"><title>PPARGC1A
+log2FC=-0.57
+p=1.20e-1</title><circle cx="252.11" cy="429.87" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.44" data-pvalue="0.21" data-group="NS"><title>SIRT3
+log2FC=-0.44
+p=2.10e-1</title><circle cx="259.43" cy="440.19" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.36" data-pvalue="0.28" data-group="NS"><title>CPT1A
+log2FC=-0.36
+p=2.80e-1</title><circle cx="263.93" cy="445.5" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="0.31" data-pvalue="0.35" data-group="NS"><title>ACSL4
+log2FC=0.31
+p=3.50e-1</title><circle cx="301.65000000000003" cy="449.62" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.27" data-pvalue="0.4" data-group="NS"><title>HADHA
+log2FC=-0.27
+p=4.00e-1</title><circle cx="269" cy="452.09000000000003" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.22" data-pvalue="0.47" data-group="NS"><title>ACAD9
+log2FC=-0.22
+p=4.70e-1</title><circle cx="271.81" cy="455.06" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.17" data-pvalue="0.56" data-group="NS"><title>ETFDH
+log2FC=-0.17
+p=5.60e-1</title><circle cx="274.63" cy="458.3" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-0.14" data-pvalue="0.64" data-group="NS"><title>ATP5F1A
+log2FC=-0.14
+p=6.40e-1</title><circle cx="276.32" cy="460.76" r="3" fill="#aaaaaa" /></g><g class="tt" data-logfc="-3.42" data-pvalue="0.0000008" data-group="Down"><title>TP53
+log2FC=-3.42
+p=8.00e-7</title><circle cx="91.65" cy="209.88" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.93" data-pvalue="0.0000051" data-group="Down"><title>PTEN
+log2FC=-2.93
+p=5.10e-6</title><circle cx="119.24000000000001" cy="244.07" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.71" data-pvalue="0.000009" data-group="Down"><title>RB1
+log2FC=-2.71
+p=9.00e-6</title><circle cx="131.63" cy="254.56" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-3.17" data-pvalue="0.0000031" data-group="Down"><title>CDH1
+log2FC=-3.17
+p=3.10e-6</title><circle cx="105.73" cy="234.88" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.62" data-pvalue="0.000014" data-group="Down"><title>CDKN2A
+log2FC=-2.62
+p=1.40e-5</title><circle cx="136.69" cy="262.71" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.94" data-pvalue="0.00038" data-group="Down"><title>CDKN1A
+log2FC=-1.94
+p=3.80e-4</title><circle cx="174.98" cy="323.64" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.71" data-pvalue="0.00086" data-group="Down"><title>CDKN1B
+log2FC=-1.71
+p=8.60e-4</title><circle cx="187.93" cy="338.72" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.89" data-pvalue="0.00039" data-group="Down"><title>BAX
+log2FC=-1.89
+p=3.90e-4</title><circle cx="177.79" cy="324.12" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.71" data-pvalue="0.00082" data-group="Down"><title>BAD
+log2FC=-1.71
+p=8.20e-4</title><circle cx="187.93" cy="337.84000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.04" data-pvalue="0.00019" data-group="Down"><title>CASP3
+log2FC=-2.04
+p=1.90e-4</title><circle cx="169.35" cy="310.85" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.88" data-pvalue="0.00044" data-group="Down"><title>CASP8
+log2FC=-1.88
+p=4.40e-4</title><circle cx="178.36" cy="326.35" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.74" data-pvalue="0.00077" data-group="Down"><title>CASP9
+log2FC=-1.74
+p=7.70e-4</title><circle cx="186.24" cy="336.68" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.66" data-pvalue="0.001" data-group="Down"><title>FAS
+log2FC=-1.66
+p=1.00e-3</title><circle cx="190.74" cy="341.5" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.48" data-pvalue="0.0027" data-group="Down"><title>FASLG
+log2FC=-1.48
+p=2.70e-3</title><circle cx="200.88" cy="359.83" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.54" data-pvalue="0.002" data-group="Down"><title>TNF
+log2FC=-1.54
+p=2.00e-3</title><circle cx="197.5" cy="354.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.42" data-pvalue="0.0036" data-group="Down"><title>SMAD4
+log2FC=-1.42
+p=3.60e-3</title><circle cx="204.25" cy="365.14" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.61" data-pvalue="0.0013" data-group="Down"><title>IL10
+log2FC=-1.61
+p=1.30e-3</title><circle cx="193.56" cy="346.34000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.67" data-pvalue="0.00097" data-group="Down"><title>TIMP1
+log2FC=-1.67
+p=9.70e-4</title><circle cx="190.18" cy="340.94" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.53" data-pvalue="0.002" data-group="Down"><title>TIMP2
+log2FC=-1.53
+p=2.00e-3</title><circle cx="198.06" cy="354.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.88" data-pvalue="0.00046" data-group="Down"><title>EPCAM
+log2FC=-1.88
+p=4.60e-4</title><circle cx="178.36" cy="327.17" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.67" data-pvalue="0.00098" data-group="Down"><title>CK18
+log2FC=-1.67
+p=9.80e-4</title><circle cx="190.18" cy="341.13" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.54" data-pvalue="0.002" data-group="Down"><title>CK19
+log2FC=-1.54
+p=2.00e-3</title><circle cx="197.5" cy="354.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.41" data-pvalue="0.000048" data-group="Down"><title>AR
+log2FC=-2.41
+p=4.80e-5</title><circle cx="148.52" cy="285.45" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-2.19" data-pvalue="0.00013" data-group="Down"><title>ESR1
+log2FC=-2.19
+p=1.30e-4</title><circle cx="160.9" cy="303.84000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.88" data-pvalue="0.00046" data-group="Down"><title>PGR
+log2FC=-1.88
+p=4.60e-4</title><circle cx="178.36" cy="327.17" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.71" data-pvalue="0.00084" data-group="Down"><title>FOXA1
+log2FC=-1.71
+p=8.40e-4</title><circle cx="187.93" cy="338.28000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.57" data-pvalue="0.0017" data-group="Down"><title>GATA3
+log2FC=-1.57
+p=1.70e-3</title><circle cx="195.81" cy="351.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.44" data-pvalue="0.0033" data-group="Down"><title>SPDEF
+log2FC=-1.44
+p=3.30e-3</title><circle cx="203.13" cy="363.54" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.83" data-pvalue="0.00053" data-group="Down"><title>ATM
+log2FC=-1.83
+p=5.30e-4</title><circle cx="181.17000000000002" cy="329.78000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.61" data-pvalue="0.0013" data-group="Down"><title>CHEK2
+log2FC=-1.61
+p=1.30e-3</title><circle cx="193.56" cy="346.34000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.44" data-pvalue="0.0033" data-group="Down"><title>PALB2
+log2FC=-1.44
+p=3.30e-3</title><circle cx="203.13" cy="363.54" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.33" data-pvalue="0.0051" data-group="Down"><title>NBN
+log2FC=-1.33
+p=5.10e-3</title><circle cx="209.32" cy="371.57" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.22" data-pvalue="0.0083" data-group="Down"><title>FANCA
+log2FC=-1.22
+p=8.30e-3</title><circle cx="215.51" cy="380.56" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.48" data-pvalue="0.0028" data-group="Down"><title>TET1
+log2FC=-1.48
+p=2.80e-3</title><circle cx="200.88" cy="360.5" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.36" data-pvalue="0.0046" data-group="Down"><title>TET2
+log2FC=-1.36
+p=4.60e-3</title><circle cx="207.63" cy="369.67" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.33" data-pvalue="0.0052" data-group="Down"><title>SIRT1
+log2FC=-1.33
+p=5.20e-3</title><circle cx="209.32" cy="371.93" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.27" data-pvalue="0.0072" data-group="Down"><title>CREBBP
+log2FC=-1.27
+p=7.20e-3</title><circle cx="212.70000000000002" cy="377.94" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.21" data-pvalue="0.0088" data-group="Down"><title>EP300
+log2FC=-1.21
+p=8.80e-3</title><circle cx="216.08" cy="381.64" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.57" data-pvalue="0.0017" data-group="Down"><title>ARID1A
+log2FC=-1.57
+p=1.70e-3</title><circle cx="195.81" cy="351.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.44" data-pvalue="0.0033" data-group="Down"><title>SMARCA4
+log2FC=-1.44
+p=3.30e-3</title><circle cx="203.13" cy="363.54" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.31" data-pvalue="0.0053" data-group="Down"><title>SETD2
+log2FC=-1.31
+p=5.30e-3</title><circle cx="210.45000000000002" cy="372.28000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.19" data-pvalue="0.0098" data-group="Down"><title>KDM5C
+log2FC=-1.19
+p=9.80e-3</title><circle cx="217.20000000000002" cy="383.63" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.62" data-pvalue="0.0012" data-group="Down"><title>NF1
+log2FC=-1.62
+p=1.20e-3</title><circle cx="192.99" cy="344.87" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.48" data-pvalue="0.0028" data-group="Down"><title>NF2
+log2FC=-1.48
+p=2.80e-3</title><circle cx="200.88" cy="360.5" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.83" data-pvalue="0.00054" data-group="Down"><title>VHL
+log2FC=-1.83
+p=5.40e-4</title><circle cx="181.17000000000002" cy="330.13" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.44" data-pvalue="0.0034" data-group="Down"><title>TSC1
+log2FC=-1.44
+p=3.40e-3</title><circle cx="203.13" cy="364.09000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.57" data-pvalue="0.0017" data-group="Down"><title>TSC2
+log2FC=-1.57
+p=1.70e-3</title><circle cx="195.81" cy="351.29" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.88" data-pvalue="0.00045" data-group="Down"><title>APC
+log2FC=-1.88
+p=4.50e-4</title><circle cx="178.36" cy="326.76" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.38" data-pvalue="0.0043" data-group="Down"><title>AXIN1
+log2FC=-1.38
+p=4.30e-3</title><circle cx="206.51" cy="368.42" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.62" data-pvalue="0.0013" data-group="Down"><title>FBXW7
+log2FC=-1.62
+p=1.30e-3</title><circle cx="192.99" cy="346.34000000000003" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.27" data-pvalue="0.0071" data-group="Down"><title>CUL3
+log2FC=-1.27
+p=7.10e-3</title><circle cx="212.70000000000002" cy="377.68" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="-1.14" data-pvalue="0.012" data-group="Down"><title>KEAP1
+log2FC=-1.14
+p=1.20e-2</title><circle cx="220.02" cy="387.37" r="3" fill="#4682b4" /></g><g class="tt" data-logfc="2.81" data-pvalue="0.000003" data-group="Up"><title>BRCA1
+log2FC=2.81
+p=3.00e-6</title><circle cx="442.40000000000003" cy="234.28" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.14" data-pvalue="0.000041" data-group="Up"><title>BRCA2
+log2FC=2.14
+p=4.10e-5</title><circle cx="404.68" cy="282.54" r="3" fill="#b22222" /></g><g class="tt" data-logfc="4.11" data-pvalue="0.000000012" data-group="Up"><title>MYC
+log2FC=4.11
+p=1.20e-8</title><circle cx="515.59" cy="132.37" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.67" data-pvalue="0.000018" data-group="Up"><title>KRAS
+log2FC=2.67
+p=1.80e-5</title><circle cx="434.52" cy="267.35" r="3" fill="#b22222" /></g><g class="tt" data-logfc="3.08" data-pvalue="0.0000023" data-group="Up"><title>EGFR
+log2FC=3.08
+p=2.30e-6</title><circle cx="457.6" cy="229.37" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.55" data-pvalue="0.000072" data-group="Up"><title>MDM2
+log2FC=2.55
+p=7.20e-5</title><circle cx="427.77" cy="292.94" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.44" data-pvalue="0.000034" data-group="Up"><title>VEGFA
+log2FC=2.44
+p=3.40e-5</title><circle cx="421.57" cy="279.09000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.19" data-pvalue="0.000087" data-group="Up"><title>HIF1A
+log2FC=2.19
+p=8.70e-5</title><circle cx="407.5" cy="296.43" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.38" data-pvalue="0.000062" data-group="Up"><title>VIM
+log2FC=2.38
+p=6.20e-5</title><circle cx="418.19" cy="290.18" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.02" data-pvalue="0.00021" data-group="Up"><title>SNAI1
+log2FC=2.02
+p=2.10e-4</title><circle cx="397.93" cy="312.69" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.89" data-pvalue="0.00043" data-group="Up"><title>CDK4
+log2FC=1.89
+p=4.30e-4</title><circle cx="390.61" cy="325.92" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.76" data-pvalue="0.00071" data-group="Up"><title>CDK6
+log2FC=1.76
+p=7.10e-4</title><circle cx="383.29" cy="335.18" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.31" data-pvalue="0.000095" data-group="Up"><title>CCND1
+log2FC=2.31
+p=9.50e-5</title><circle cx="414.25" cy="298.05" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.83" data-pvalue="0.00051" data-group="Up"><title>AKT1
+log2FC=1.83
+p=5.10e-4</title><circle cx="387.23" cy="329.07" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.67" data-pvalue="0.00098" data-group="Up"><title>PIK3CA
+log2FC=1.67
+p=9.80e-4</title><circle cx="378.22" cy="341.13" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.55" data-pvalue="0.0018" data-group="Up"><title>MTOR
+log2FC=1.55
+p=1.80e-3</title><circle cx="371.47" cy="352.35" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.08" data-pvalue="0.00017" data-group="Up"><title>STAT3
+log2FC=2.08
+p=1.70e-4</title><circle cx="401.3" cy="308.79" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.74" data-pvalue="0.00079" data-group="Up"><title>JAK2
+log2FC=1.74
+p=7.90e-4</title><circle cx="382.16" cy="337.15000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.91" data-pvalue="0.00032" data-group="Up"><title>WNT5A
+log2FC=1.91
+p=3.20e-4</title><circle cx="391.73" cy="320.47" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.62" data-pvalue="0.0012" data-group="Up"><title>CTNNB1
+log2FC=1.62
+p=1.20e-3</title><circle cx="375.41" cy="344.87" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.58" data-pvalue="0.0016" data-group="Up"><title>NOTCH1
+log2FC=1.58
+p=1.60e-3</title><circle cx="373.15000000000003" cy="350.18" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.89" data-pvalue="0.0000042" data-group="Up"><title>ERBB2
+log2FC=2.89
+p=4.20e-6</title><circle cx="446.91" cy="240.49" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.44" data-pvalue="0.0031" data-group="Up"><title>ERBB3
+log2FC=1.44
+p=3.10e-3</title><circle cx="365.27" cy="362.38" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.11" data-pvalue="0.00014" data-group="Up"><title>MET
+log2FC=2.11
+p=1.40e-4</title><circle cx="402.99" cy="305.21" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.87" data-pvalue="0.00047" data-group="Up"><title>FGF2
+log2FC=1.87
+p=4.70e-4</title><circle cx="389.48" cy="327.56" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.71" data-pvalue="0.00083" data-group="Up"><title>FGFR1
+log2FC=1.71
+p=8.30e-4</title><circle cx="380.47" cy="338.06" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.63" data-pvalue="0.0011" data-group="Up"><title>IGF1R
+log2FC=1.63
+p=1.10e-3</title><circle cx="375.97" cy="343.26" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.52" data-pvalue="0.0021" data-group="Up"><title>PDGFRA
+log2FC=1.52
+p=2.10e-3</title><circle cx="369.78000000000003" cy="355.19" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.78" data-pvalue="0.00068" data-group="Up"><title>BCL2
+log2FC=1.78
+p=6.80e-4</title><circle cx="384.41" cy="334.38" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.57" data-pvalue="0.0017" data-group="Up"><title>BCL2L1
+log2FC=1.57
+p=1.70e-3</title><circle cx="372.59000000000003" cy="351.29" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.44" data-pvalue="0.0032" data-group="Up"><title>TGFB1
+log2FC=1.44
+p=3.20e-3</title><circle cx="365.27" cy="362.97" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.38" data-pvalue="0.0041" data-group="Up"><title>TGFBR1
+log2FC=1.38
+p=4.10e-3</title><circle cx="361.89" cy="367.54" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.31" data-pvalue="0.0053" data-group="Up"><title>SMAD2
+log2FC=1.31
+p=5.30e-3</title><circle cx="357.95" cy="372.28000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.27" data-pvalue="0.00011" data-group="Up"><title>IL6
+log2FC=2.27
+p=1.10e-4</title><circle cx="412" cy="300.76" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.44" data-pvalue="0.000037" data-group="Up"><title>IL8
+log2FC=2.44
+p=3.70e-5</title><circle cx="421.57" cy="280.65000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.96" data-pvalue="0.00027" data-group="Up"><title>IL1B
+log2FC=1.96
+p=2.70e-4</title><circle cx="394.55" cy="317.33" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.83" data-pvalue="0.00052" data-group="Up"><title>CXCL12
+log2FC=1.83
+p=5.20e-4</title><circle cx="387.23" cy="329.43" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.76" data-pvalue="0.00073" data-group="Up"><title>CXCR4
+log2FC=1.76
+p=7.30e-4</title><circle cx="383.29" cy="335.69" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.02" data-pvalue="0.00021" data-group="Up"><title>MMP2
+log2FC=2.02
+p=2.10e-4</title><circle cx="397.93" cy="312.69" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.18" data-pvalue="0.00013" data-group="Up"><title>MMP9
+log2FC=2.18
+p=1.30e-4</title><circle cx="406.93" cy="303.84000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.91" data-pvalue="0.00033" data-group="Up"><title>COL1A1
+log2FC=1.91
+p=3.30e-4</title><circle cx="391.73" cy="321.04" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.74" data-pvalue="0.00078" data-group="Up"><title>COL3A1
+log2FC=1.74
+p=7.80e-4</title><circle cx="382.16" cy="336.91" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.88" data-pvalue="0.00046" data-group="Up"><title>FN1
+log2FC=1.88
+p=4.60e-4</title><circle cx="390.04" cy="327.17" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.59" data-pvalue="0.0015" data-group="Up"><title>ITGB1
+log2FC=1.59
+p=1.50e-3</title><circle cx="373.72" cy="348.98" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.44" data-pvalue="0.0033" data-group="Up"><title>ITGAV
+log2FC=1.44
+p=3.30e-3</title><circle cx="365.27" cy="363.54" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.13" data-pvalue="0.000016" data-group="Up"><title>ZEB1
+log2FC=2.13
+p=1.60e-5</title><circle cx="404.12" cy="265.18" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.97" data-pvalue="0.00026" data-group="Up"><title>ZEB2
+log2FC=1.97
+p=2.60e-4</title><circle cx="395.11" cy="316.64" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.07" data-pvalue="0.00018" data-group="Up"><title>TWIST1
+log2FC=2.07
+p=1.80e-4</title><circle cx="400.74" cy="309.85" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.79" data-pvalue="0.00065" data-group="Up"><title>TWIST2
+log2FC=1.79
+p=6.50e-4</title><circle cx="384.98" cy="333.55" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.63" data-pvalue="0.0011" data-group="Up"><title>E2F1
+log2FC=1.63
+p=1.10e-3</title><circle cx="375.97" cy="343.26" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.51" data-pvalue="0.0022" data-group="Up"><title>E2F3
+log2FC=1.51
+p=2.20e-3</title><circle cx="369.21" cy="356.05" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.72" data-pvalue="0.00081" data-group="Up"><title>PCNA
+log2FC=1.72
+p=8.10e-4</title><circle cx="381.04" cy="337.61" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.88" data-pvalue="0.00045" data-group="Up"><title>KI67
+log2FC=1.88
+p=4.50e-4</title><circle cx="390.04" cy="326.76" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.67" data-pvalue="0.00099" data-group="Up"><title>AURKA
+log2FC=1.67
+p=9.90e-4</title><circle cx="378.22" cy="341.31" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.74" data-pvalue="0.00076" data-group="Up"><title>AURKB
+log2FC=1.74
+p=7.60e-4</title><circle cx="382.16" cy="336.43" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.83" data-pvalue="0.00053" data-group="Up"><title>PLK1
+log2FC=1.83
+p=5.30e-4</title><circle cx="387.23" cy="329.78000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.91" data-pvalue="0.00034" data-group="Up"><title>CDC20
+log2FC=1.91
+p=3.40e-4</title><circle cx="391.73" cy="321.59000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.04" data-pvalue="0.0002" data-group="Up"><title>BIRC5
+log2FC=2.04
+p=2.00e-4</title><circle cx="399.05" cy="311.79" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.16" data-pvalue="0.00014" data-group="Up"><title>FOXM1
+log2FC=2.16
+p=1.40e-4</title><circle cx="405.81" cy="305.21" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.54" data-pvalue="0.0019" data-group="Up"><title>SOX2
+log2FC=1.54
+p=1.90e-3</title><circle cx="370.90000000000003" cy="353.35" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.38" data-pvalue="0.0043" data-group="Up"><title>OCT4
+log2FC=1.38
+p=4.30e-3</title><circle cx="361.89" cy="368.42" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.27" data-pvalue="0.0071" data-group="Up"><title>NANOG
+log2FC=1.27
+p=7.10e-3</title><circle cx="355.7" cy="377.68" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.19" data-pvalue="0.0097" data-group="Up"><title>KLF4
+log2FC=1.19
+p=9.70e-3</title><circle cx="351.2" cy="383.44" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.62" data-pvalue="0.0013" data-group="Up"><title>ALDH1A1
+log2FC=1.62
+p=1.30e-3</title><circle cx="375.41" cy="346.34000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.74" data-pvalue="0.00078" data-group="Up"><title>CD44
+log2FC=1.74
+p=7.80e-4</title><circle cx="382.16" cy="336.91" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.51" data-pvalue="0.0023" data-group="Up"><title>CD133
+log2FC=1.51
+p=2.30e-3</title><circle cx="369.21" cy="356.87" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.54" data-pvalue="0.002" data-group="Up"><title>CHEK1
+log2FC=1.54
+p=2.00e-3</title><circle cx="370.90000000000003" cy="354.29" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.71" data-pvalue="0.00083" data-group="Up"><title>RAD51
+log2FC=1.71
+p=8.30e-4</title><circle cx="380.47" cy="338.06" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.57" data-pvalue="0.0017" data-group="Up"><title>DNMT1
+log2FC=1.57
+p=1.70e-3</title><circle cx="372.59000000000003" cy="351.29" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.43" data-pvalue="0.0034" data-group="Up"><title>DNMT3A
+log2FC=1.43
+p=3.40e-3</title><circle cx="364.71" cy="364.09000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.31" data-pvalue="0.0054" data-group="Up"><title>DNMT3B
+log2FC=1.31
+p=5.40e-3</title><circle cx="357.95" cy="372.63" r="3" fill="#b22222" /></g><g class="tt" data-logfc="2.03" data-pvalue="0.000021" data-group="Up"><title>EZH2
+log2FC=2.03
+p=2.10e-5</title><circle cx="398.49" cy="270.19" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.74" data-pvalue="0.00077" data-group="Up"><title>SUZ12
+log2FC=1.74
+p=7.70e-4</title><circle cx="382.16" cy="336.68" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.67" data-pvalue="0.00099" data-group="Up"><title>BMI1
+log2FC=1.67
+p=9.90e-4</title><circle cx="378.22" cy="341.31" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.54" data-pvalue="0.002" data-group="Up"><title>HDAC1
+log2FC=1.54
+p=2.00e-3</title><circle cx="370.90000000000003" cy="354.29" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.42" data-pvalue="0.0036" data-group="Up"><title>HDAC2
+log2FC=1.42
+p=3.60e-3</title><circle cx="364.15000000000003" cy="365.14" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.38" data-pvalue="0.0043" data-group="Up"><title>NFE2L2
+log2FC=1.38
+p=4.30e-3</title><circle cx="361.89" cy="368.42" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.26" data-pvalue="0.0072" data-group="Up"><title>NQO1
+log2FC=1.26
+p=7.20e-3</title><circle cx="355.14" cy="377.94" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.17" data-pvalue="0.011" data-group="Up"><title>HMOX1
+log2FC=1.17
+p=1.10e-2</title><circle cx="350.07" cy="385.76" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.14" data-pvalue="0.013" data-group="Up"><title>CYP1A1
+log2FC=1.14
+p=1.30e-2</title><circle cx="348.38" cy="388.84000000000003" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.07" data-pvalue="0.018" data-group="Up"><title>ABCB1
+log2FC=1.07
+p=1.80e-2</title><circle cx="344.44" cy="394.85" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.17" data-pvalue="0.011" data-group="Up"><title>SLC7A11
+log2FC=1.17
+p=1.10e-2</title><circle cx="350.07" cy="385.76" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.04" data-pvalue="0.019" data-group="Up"><title>LDHA
+log2FC=1.04
+p=1.90e-2</title><circle cx="342.75" cy="395.85" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.12" data-pvalue="0.014" data-group="Up"><title>HK2
+log2FC=1.12
+p=1.40e-2</title><circle cx="347.26" cy="390.21000000000004" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.21" data-pvalue="0.0088" data-group="Up"><title>FASN
+log2FC=1.21
+p=8.80e-3</title><circle cx="352.32" cy="381.64" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.08" data-pvalue="0.017" data-group="Up"><title>ACLY
+log2FC=1.08
+p=1.70e-2</title><circle cx="345" cy="393.79" r="3" fill="#b22222" /></g><g class="tt" data-logfc="1.04" data-pvalue="0.02" data-group="Up"><title>SRC
+log2FC=1.04
+p=2.00e-2</title><circle cx="342.75" cy="396.79" r="3" fill="#b22222" /></g><text x="91.65" y="204.88" font-size="12" text-anchor="middle">TP53</text><text x="105.73" y="229.88" font-size="12" text-anchor="middle">CDH1</text><text x="119.24000000000001" y="215.88" font-size="12" text-anchor="middle">PTEN</text><text x="131.63" y="249.56" font-size="12" text-anchor="middle">RB1</text><text x="136.69" y="235.56" font-size="12" text-anchor="middle">CDKN2A</text><text x="398.49" y="265.19" font-size="12" text-anchor="middle">EZH2</text><text x="404.12" y="251.19" font-size="12" text-anchor="middle">ZEB1</text><text x="404.68" y="277.54" font-size="12" text-anchor="middle">BRCA2</text><text x="421.57" y="263.54" font-size="12" text-anchor="middle">VEGFA</text><text x="421.57" y="249.54" font-size="12" text-anchor="middle">IL8</text><text x="434.52" y="235.54" font-size="12" text-anchor="middle">KRAS</text><text x="442.40000000000003" y="221.54" font-size="12" text-anchor="middle">BRCA1</text><text x="446.91" y="207.54" font-size="12" text-anchor="middle">ERBB2</text><text x="457.6" y="224.37" font-size="12" text-anchor="middle">EGFR</text><text x="515.59" y="127.37" font-size="12" text-anchor="middle">MYC</text></g><rect x="627" y="34" width="80" height="74" fill="#ffffff" /><rect x="627" y="34" width="80" height="74" fill="none" stroke="#000000" stroke-width="1" /><g class="legend-entry" data-group="Up"><text x="657" y="53.2" font-size="12" text-anchor="start">Up</text><circle cx="642" cy="49" r="5" fill="#b22222" /></g><g class="legend-entry" data-group="Down"><text x="657" y="71.2" font-size="12" text-anchor="start">Down</text><circle cx="642" cy="67" r="5" fill="#4682b4" /></g><g class="legend-entry" data-group="NS"><text x="657" y="89.2" font-size="12" text-anchor="start">NS</text><circle cx="642" cy="85" r="5" fill="#aaaaaa" /></g><foreignObject x="59" y="494" width="148" height="22"><div xmlns="http://www.w3.org/1999/xhtml" style="margin:0;padding:0;background:transparent;"><input id="kuva-search" type="text" placeholder="search…" style="width:100%;height:20px;font-size:11px;padding:1px 3px;border:1px solid #ccc;border-radius:2px;box-sizing:border-box;background:white;"/></div></foreignObject><g id="kuva-save-btn"><rect x="210" y="495" width="38" height="20" rx="3" fill="white" stroke="#ccc" stroke-width="1"/><text x="229" y="505" dy="0.35em" text-anchor="middle" font-size="11" fill="#333">save</text></g><g style="cursor:help"><circle cx="263" cy="505" r="9" fill="#ebebeb" stroke="#bbb" stroke-width="1.2"/><text x="263" y="505" dy="0.35em" text-anchor="middle" font-size="11" fill="#555" font-style="italic">i</text><title>Interactive controls:
+• Hover inside plot → x,y coordinate readout near cursor
+• Hover a point → native tooltip with values
+• Click a point → highlight it, dim others; click again to release
+• Click legend entry → mute/unmute that group
+• Click empty area or Esc → reset all
+• Search → type a group name or x/y value to filter</title></g><text id="kuva-readout" x="-9999" y="-9999"></text><script type="text/javascript"><![CDATA[
+(function() {
+  var svg = document.currentScript
+    ? document.currentScript.closest('svg')
+    : document.querySelector('svg[data-xmin]');
+  if (!svg) return;
+
+  // ── coordinate readout ──────────────────────────────────────────────
+  var readout = svg.getElementById('kuva-readout');
+  var xmin = parseFloat(svg.getAttribute('data-xmin') || 'NaN');
+  var xmax = parseFloat(svg.getAttribute('data-xmax') || 'NaN');
+  var ymin = parseFloat(svg.getAttribute('data-ymin') || 'NaN');
+  var ymax = parseFloat(svg.getAttribute('data-ymax') || 'NaN');
+  var pl   = parseFloat(svg.getAttribute('data-plot-left')   || 'NaN');
+  var pt   = parseFloat(svg.getAttribute('data-plot-top')    || 'NaN');
+  var pr   = parseFloat(svg.getAttribute('data-plot-right')  || 'NaN');
+  var pb   = parseFloat(svg.getAttribute('data-plot-bottom') || 'NaN');
+  var logX = svg.getAttribute('data-log-x') === '1';
+  var logY = svg.getAttribute('data-log-y') === '1';
+  var hasAxes = !isNaN(xmin);
+
+  function px2data(px, py) {
+    if (!hasAxes) return null;
+    var fx = (px - pl) / (pr - pl);
+    var fy = (py - pt) / (pb - pt);
+    var x = logX ? Math.pow(10, xmin + fx * (xmax - xmin)) : xmin + fx * (xmax - xmin);
+    var y = logY ? Math.pow(10, ymax - fy * (ymax - ymin)) : ymax - fy * (ymax - ymin);
+    return { x: x, y: y };
+  }
+
+  function fmt(v) {
+    if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 0.01)) return v.toExponential(2);
+    return parseFloat(v.toFixed(3)).toString();
+  }
+
+  if (readout && hasAxes) {
+    svg.addEventListener('mousemove', function(e) {
+      var rect = svg.getBoundingClientRect();
+      var scaleX = (svg.viewBox && svg.viewBox.baseVal.width) ? svg.viewBox.baseVal.width / rect.width : 1;
+      var scaleY = (svg.viewBox && svg.viewBox.baseVal.height) ? svg.viewBox.baseVal.height / rect.height : 1;
+      var px = (e.clientX - rect.left) * scaleX;
+      var py = (e.clientY - rect.top)  * scaleY;
+      var d = px2data(px, py);
+      if (d && px >= pl && px <= pr && py >= pt && py <= pb) {
+        readout.setAttribute('x', px + 6);
+        readout.setAttribute('y', py - 6);
+        readout.textContent = 'x=' + fmt(d.x) + '  y=' + fmt(d.y);
+      } else {
+        readout.textContent = '';
+      }
+    });
+    svg.addEventListener('mouseleave', function() { readout.textContent = ''; });
+  }
+
+  // ── state ────────────────────────────────────────────────────────────
+  var ttGroups     = Array.prototype.slice.call(svg.querySelectorAll('g.tt'));
+  var legendEntries = Array.prototype.slice.call(svg.querySelectorAll('g.legend-entry'));
+  var pinned = null;
+  var hiddenGroups = {};  // group-name → true when hidden via legend
+
+  function groupOf(g) { return g.getAttribute('data-group'); }
+  function isMuted(g) { var gr = groupOf(g); return gr && hiddenGroups[gr]; }
+
+  // ── highlight helpers ────────────────────────────────────────────────
+  // Only dim/undim groups that are currently visible (not legend-hidden).
+  // Hover dim: only affects non-muted groups.
+  function highlight(g) {
+    ttGroups.forEach(function(other) {
+      if (other !== g && !isMuted(other)) other.classList.add('dim');
+    });
+    g.classList.remove('dim');
+  }
+
+  function unhighlight() {
+    ttGroups.forEach(function(g) {
+      if (!isMuted(g)) g.classList.remove('dim');
+    });
+  }
+
+  // ── clear-all ────────────────────────────────────────────────────────
+  function clearAll() {
+    if (pinned) { pinned.classList.remove('pinned'); pinned = null; }
+    unhighlight();
+    // Unmute all legend-muted series.
+    var anyMuted = false;
+    for (var k in hiddenGroups) { if (hiddenGroups[k]) { anyMuted = true; break; } }
+    if (anyMuted) {
+      legendEntries.forEach(function(le) { le.style.opacity = ''; });
+      ttGroups.forEach(function(g) { g.classList.remove('muted'); });
+      hiddenGroups = {};
+    }
+    // Clear search.
+    var inp = svg.querySelector('foreignObject input');
+    if (inp && inp.value) {
+      inp.value = '';
+      ttGroups.forEach(function(g) { g.classList.remove('dim'); });
+    }
+  }
+
+  // ── point click / hover ──────────────────────────────────────────────
+  ttGroups.forEach(function(g) {
+    g.addEventListener('mouseenter', function() {
+      if (pinned) return;
+      highlight(g);
+    });
+    g.addEventListener('mouseleave', function() {
+      if (pinned) return;
+      unhighlight();
+    });
+    g.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (pinned === g) {
+        g.classList.remove('pinned'); pinned = null; unhighlight();
+      } else {
+        if (pinned) pinned.classList.remove('pinned');
+        pinned = g;
+        g.classList.add('pinned');
+        highlight(g);
+      }
+    });
+  });
+
+  // ── legend toggle ────────────────────────────────────────────────────
+  legendEntries.forEach(function(le) {
+    le.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var group = groupOf(le);
+      if (!group) return;
+      if (hiddenGroups[group]) {
+        // Unmute this group.
+        delete hiddenGroups[group];
+        le.style.opacity = '';
+        ttGroups.forEach(function(g) {
+          if (groupOf(g) === group) g.classList.remove('muted');
+        });
+      } else {
+        // Mute this group (semi-transparent, still visible).
+        hiddenGroups[group] = true;
+        le.style.opacity = '0.35';
+        ttGroups.forEach(function(g) {
+          if (groupOf(g) === group) { g.classList.add('muted'); g.classList.remove('dim'); }
+        });
+      }
+    });
+  });
+
+  // ── search ───────────────────────────────────────────────────────────
+  var inp = svg.querySelector('foreignObject input');
+  if (inp) {
+    inp.addEventListener('input', function() {
+      var q = inp.value.trim().toLowerCase();
+      ttGroups.forEach(function(g) {
+        if (isMuted(g)) return;
+        if (!q) { g.classList.remove('dim'); return; }
+        var title = g.querySelector('title');
+        var text = [(title ? title.textContent : ''), groupOf(g) || '',
+                    g.getAttribute('data-x') || '', g.getAttribute('data-y') || ''].join(' ');
+        g.classList.toggle('dim', text.toLowerCase().indexOf(q) < 0);
+      });
+    });
+    inp.addEventListener('click', function(e) { e.stopPropagation(); });
+  }
+
+  // ── save SVG ─────────────────────────────────────────────────────────
+  var btn = svg.getElementById('kuva-save-btn');
+  if (btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var s = new XMLSerializer().serializeToString(svg);
+      var blob = new Blob([s], { type: 'image/svg+xml' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a'); a.href = url; a.download = 'kuva-chart.svg'; a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  // ── click anywhere (on the SVG but not on a point/legend/UI) → clear ─
+  document.addEventListener('click', function(e) {
+    if (!svg.contains(e.target)) return;
+    if (e.target.closest('g.tt') || e.target.closest('g.legend-entry') || e.target.closest('foreignObject')) return;
+    clearAll();
+  });
+
+  // ── Escape → clear ───────────────────────────────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') clearAll();
+  });
+
+  // ── volcano threshold dragging ────────────────────────────────────────
+  svg.querySelectorAll('g.kuva-threshold').forEach(function(g) {
+    if (g.getAttribute('data-axis') !== 'y') return;
+    var dragging = false, startY = 0, startVal = 0;
+    g.style.cursor = 'ns-resize';
+    g.addEventListener('mousedown', function(e) {
+      dragging = true; startY = e.clientY; startVal = parseFloat(g.getAttribute('data-value') || 0);
+      e.preventDefault(); e.stopPropagation();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      var rect = svg.getBoundingClientRect();
+      var scaleY = (svg.viewBox && svg.viewBox.baseVal.height) ? svg.viewBox.baseVal.height / rect.height : 1;
+      var newVal = startVal - (e.clientY - startY) * scaleY * (ymax - ymin) / (pb - pt);
+      g.setAttribute('data-value', newVal);
+      var line = g.querySelector('line');
+      if (line) {
+        var newY = pt + (ymax - newVal) / (ymax - ymin) * (pb - pt);
+        line.setAttribute('y1', newY); line.setAttribute('y2', newY);
+      }
+      var lfc_g = svg.querySelector('g.kuva-threshold[data-axis="x"]');
+      var lfc_thresh = lfc_g ? parseFloat(lfc_g.getAttribute('data-value') || 1) : 1;
+      ttGroups.forEach(function(pt_g) {
+        var lfc = parseFloat(pt_g.getAttribute('data-logfc') || 'NaN');
+        var nlp = parseFloat(pt_g.getAttribute('data-pvalue') || 'NaN');
+        if (isNaN(lfc) || isNaN(nlp)) return;
+        var sig = nlp >= newVal;
+        var circle = pt_g.querySelector('circle');
+        if (circle) circle.setAttribute('fill', sig && lfc >= lfc_thresh ? '#d73027' : sig && lfc <= -lfc_thresh ? '#4575b4' : '#aaaaaa');
+      });
+    });
+    document.addEventListener('mouseup', function() { dragging = false; });
+  });
+})();
+]]></script></svg>

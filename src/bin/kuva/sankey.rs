@@ -1,7 +1,7 @@
 use clap::Args;
 
 use kuva::plot::SankeyPlot;
-use kuva::render::layout::Layout;
+use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
@@ -36,11 +36,40 @@ pub struct SankeyArgs {
     #[arg(long)]
     pub legend: Option<String>,
 
+    /// Show the absolute flow value on each ribbon.
+    #[arg(long)]
+    pub flow_labels: bool,
+
+    /// Show each flow as a percentage of its source node's total outflow.
+    #[arg(long)]
+    pub flow_percent: bool,
+
+    /// Number format for flow labels: auto (default), sci, integer, fixed2.
+    #[arg(long, default_value = "auto")]
+    pub flow_label_format: String,
+
+    /// Unit suffix appended to each absolute flow label, e.g. "reads".
+    #[arg(long)]
+    pub flow_label_unit: Option<String>,
+
+    /// Minimum ribbon height in pixels required to show a label (default 8.0; 0 = always show).
+    #[arg(long)]
+    pub flow_label_min_height: Option<f64>,
+
     #[command(flatten)]
     pub input: InputArgs,
 
     #[command(flatten)]
     pub base: BaseArgs,
+}
+
+fn parse_flow_label_format(name: &str) -> TickFormat {
+    match name {
+        "sci"     => TickFormat::Sci,
+        "integer" => TickFormat::Integer,
+        "fixed2"  => TickFormat::Fixed(2),
+        _         => TickFormat::Auto,
+    }
 }
 
 pub fn run(args: SankeyArgs) -> Result<(), String> {
@@ -68,6 +97,21 @@ pub fn run(args: SankeyArgs) -> Result<(), String> {
     }
     if let Some(ref label) = args.legend {
         plot = plot.with_legend(label.clone());
+    }
+    if args.flow_labels {
+        plot = plot.with_flow_labels();
+    }
+    if args.flow_percent {
+        plot = plot.with_flow_percent();
+    }
+    if args.flow_label_format != "auto" {
+        plot = plot.with_flow_label_format(parse_flow_label_format(&args.flow_label_format));
+    }
+    if let Some(ref unit) = args.flow_label_unit {
+        plot = plot.with_flow_label_unit(unit.clone());
+    }
+    if let Some(min_h) = args.flow_label_min_height {
+        plot = plot.with_flow_label_min_height(min_h);
     }
 
     for ((source, target), value) in sources.iter().zip(targets.iter()).zip(values.iter()) {

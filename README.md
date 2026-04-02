@@ -6,9 +6,9 @@
 [![docs.rs](https://docs.rs/kuva/badge.svg)](https://docs.rs/kuva)
 [![Downloads](https://img.shields.io/crates/d/kuva.svg)](https://crates.io/crates/kuva)
 
-A scientific plotting library in Rust. 29 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
+A scientific plotting library in Rust. 30 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
-![All 27 plot types](docs/src/assets/overview/all_plots_complex.svg)
+![All 30 plot types](docs/src/assets/overview/all_plots_complex.svg)
 
 ![kuva terminal — Sankey diagram](docs/src/assets/terminal/sankey.gif)
 
@@ -18,16 +18,28 @@ A scientific plotting library in Rust. 29 plot types, SVG output, optional PNG/P
 
 ### Install the CLI
 
+**Step 1 — install Rust** (skip if you already have `cargo`):
+
 ```bash
-# From crates.io
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# then restart your shell, or run:
+source ~/.cargo/env
+```
+
+**Step 2 — install kuva:**
+
+```bash
+# From crates.io — installs to ~/.cargo/bin/ (on your $PATH after rustup setup)
 cargo install kuva --features cli
 
-# From source (SVG only)
-cargo build --release --bin kuva --features cli
+# From a local clone — SVG output only
+cargo install --path . --features cli
 
-# From source (all backends)
-cargo build --release --bin kuva --features cli,full
+# From a local clone — with PNG and PDF output
+cargo install --path . --features cli,full
 ```
+
+After installation, `kuva` is available anywhere in your shell — no need to reference `./target/release/kuva` or set any paths manually.
 
 ### Use as a library
 
@@ -86,6 +98,22 @@ Input is auto-detected TSV or CSV. Columns are selectable by name or 0-based ind
 ## Documentation
 
 Full documentation — plot type reference, API guide, CLI flag reference, themes, palettes, and benchmarks — is at **[psy-fer.github.io/kuva](https://psy-fer.github.io/kuva)**.
+
+---
+
+## Contributors
+
+Thank you to everyone who has contributed to kuva!
+
+[![Contributors](https://contrib.rocks/image?repo=Psy-Fer/kuva)](https://github.com/Psy-Fer/kuva/graphs/contributors)
+
+<!-- To manually add contributors not captured above, add entries here:
+<table>
+<tr>
+  <td align="center"><a href="https://github.com/username"><img src="https://github.com/username.png" width="60"/><br/>@username</a></td>
+</tr>
+</table>
+-->
 
 ---
 

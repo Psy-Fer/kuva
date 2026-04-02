@@ -52,6 +52,10 @@ pub struct ManhattanArgs {
     #[arg(long)]
     pub color_b: Option<String>,
 
+    /// p-value column already contains -log10(p); un-transform before plotting.
+    #[arg(long)]
+    pub pvalue_col_is_log: bool,
+
     /// Show a legend for the significance thresholds.
     #[arg(long)]
     pub legend: bool,
@@ -77,7 +81,13 @@ pub fn run(args: ManhattanArgs) -> Result<(), String> {
     let pvalue_col = args.pvalue_col.unwrap_or(ColSpec::Index(2));
 
     let chroms = table.col_str(&chr_col)?;
-    let pvalues = table.col_f64(&pvalue_col)?;
+    let raw_pvalues = table.col_f64(&pvalue_col)?;
+
+    let pvalues: Vec<f64> = if args.pvalue_col_is_log {
+        raw_pvalues.into_iter().map(|v| 10.0_f64.powf(-v)).collect()
+    } else {
+        raw_pvalues
+    };
 
     let mut plot = ManhattanPlot::new();
 

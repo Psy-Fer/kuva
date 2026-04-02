@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use clap::Args;
 
 use kuva::plot::PiePlot;
@@ -21,6 +23,10 @@ pub struct PieArgs {
     /// Value column (0-based index or header name; default: 1).
     #[arg(long)]
     pub value_col: Option<ColSpec>,
+
+    /// Count occurrences of each unique value in this column (ignores --value-col).
+    #[arg(long)]
+    pub count_by: Option<ColSpec>,
 
     /// Optional color column (CSS colors). If omitted, uses the category10 palette.
     #[arg(long)]
@@ -60,11 +66,20 @@ pub fn run(args: PieArgs) -> Result<(), String> {
         args.input.delimiter,
     )?;
 
-    let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
-    let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
-
-    let labels = table.col_str(&label_col)?;
-    let values = table.col_f64(&value_col)?;
+    let (labels, values): (Vec<String>, Vec<f64>) = if let Some(ref count_col) = args.count_by {
+        let raw = table.col_str(count_col)?;
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for v in raw {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts.into_iter().map(|(k, c)| (k, c as f64)).unzip()
+    } else {
+        let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
+        let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
+        let labels = table.col_str(&label_col)?;
+        let values = table.col_f64(&value_col)?;
+        (labels, values)
+    };
 
     let colors: Vec<String> = if let Some(ref cc) = args.color_col {
         table.col_str(cc)?

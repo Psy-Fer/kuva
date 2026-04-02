@@ -242,3 +242,66 @@ fn test_brick_legend_order() {
         "legend entry 'CAT' (global letter A, most frequent) must appear before 'T' (global letter B)"
     );
 }
+
+#[test]
+fn test_brick_stitched_format_with_gaps() {
+    // Bladerunner stitched STRIGAR format: | as segment separator, @ as gap code.
+    // Read_1: 16×A(1nt) + small gap GAA(3nt) + 9×AGA(3nt)
+    //         AGA region starts at nt position 16+3 = 19.
+    // Read_2: 12×AGA(3nt) starting at position 0.
+    //         with_start_positions([0, 19]) aligns read_2's AGA with read_1's.
+    let strigars: Vec<(String, String)> = vec![
+        ("A:A | @:GAA | AGA:B".to_string(), "16A | 1@ | 9B".to_string()),
+        ("AGA:A".to_string(), "12A".to_string()),
+    ];
+    let brickplot = BrickPlot::new()
+        .with_names(vec!["read_1", "read_2"])
+        .with_strigars(strigars)
+        .with_x_origin(19.0)
+        .with_start_positions(vec![0.0_f64, 19.0]);
+
+    let plots = vec![Plot::Brick(brickplot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/brickplot_stitched_gaps.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"));
+    // Gap bricks should be rendered (grey color in template; SVG emits as #c8c8c8)
+    assert!(svg.contains("#c8c8c8"), "gap bricks should use grey color");
+}
+
+#[test]
+fn test_brick_stitched_per_segment_canonical() {
+    // Two reads using bladerunner stitched format.
+    // ACCCTA, TAACCC, CCCTAA are all rotations of the same canonical → must get the same
+    // global letter and therefore the same colour across all candidates.
+    // Large gaps (36@, 213@, 31@) have no motif entry; they are scaled by N nt.
+    // Small-gap case exercised by the previous test.
+    let strigars: Vec<(String, String)> = vec![
+        (
+            "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
+            "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
+        ),
+        (
+            "ACCCTA:A".to_string(),
+            "5A".to_string(),
+        ),
+    ];
+    let brickplot = BrickPlot::new()
+        .with_names(vec!["read_1", "read_2"])
+        .with_strigars(strigars);
+
+    let plots = vec![Plot::Brick(brickplot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write("test_outputs/brickplot_stitched_canonical.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // ACCCTA, TAACCC, CCCTAA all same canonical → single motif colour in SVG
+    // Gaps present → grey bricks
+    assert!(svg.contains("#c8c8c8"), "gap bricks should be grey");
+    // Only one non-gap motif colour should appear for the ACCCTA family
+    // (global letter A = blue = #1f77b4)
+    assert!(svg.contains("#1f77b4"), "ACCCTA-family should be blue (global A)");
+}

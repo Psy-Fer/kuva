@@ -2,11 +2,13 @@ use crate::render::render::{Scene, Primitive, PathData, TextAnchor};
 use crate::render::color::Color;
 use crate::render::layout::ComputedLayout;
 
+#[derive(Clone)]
 pub enum Orientation {
     Horizontal,
     Vertical,
 }
 
+#[derive(Clone)]
 pub struct TextAnnotation {
     pub text: String,
     pub text_x: f64,
@@ -54,6 +56,7 @@ impl TextAnnotation {
     }
 }
 
+#[derive(Clone)]
 pub struct ReferenceLine {
     pub value: f64,
     pub orientation: Orientation,
@@ -107,6 +110,7 @@ impl ReferenceLine {
     }
 }
 
+#[derive(Clone)]
 pub struct ShadedRegion {
     pub orientation: Orientation,
     pub min_val: f64,

@@ -487,6 +487,21 @@ impl Canvas {
                         }
                     }
                 }
+                // If the circle's center cell already contains a '█' block
+                // (e.g. from a legend background rect), overwrite it with the
+                // circle's fill color so the swatch is visible. Without this,
+                // the background rect's char_grid entry masks the braille dots.
+                let center_col = self.to_cx(cx_s);
+                let center_row = self.to_cy(cy_s);
+                if center_col >= 0
+                    && (center_col as usize) < self.cols
+                    && center_row >= 0
+                    && (center_row as usize) < self.rows
+                {
+                    if let Some(('█', _)) = self.char_grid[center_row as usize][center_col as usize] {
+                        self.set_char(center_col, center_row, '█', rgb);
+                    }
+                }
             }
 
             Primitive::Line { x1, y1, x2, y2, stroke, .. } => {
@@ -499,12 +514,7 @@ impl Canvas {
                 if is_h {
                     let cx0 = self.to_cx(x1 + tx);
                     let cx1 = self.to_cx(x2 + tx);
-                    // Short lines (≤8 cells) are legend swatches. The swatch y is
-                    // swatch_cy, which sits ~4.2 px above text_baseline (= body_size
-                    // * 0.35). Adding that offset makes the swatch land in the same
-                    // character row as its label without touching SVG output.
-                    let swatch_y_offset = if (cx1 - cx0).abs() <= 8 { 4.2 } else { 0.0 };
-                    let cy = self.to_cy(y1 + ty + swatch_y_offset);
+                    let cy = self.to_cy(y1 + ty);
                     self.draw_hline(cx0, cy, cx1, rgb);
                 } else if is_v {
                     let cx = self.to_cx(x1 + tx);
@@ -687,9 +697,10 @@ impl Canvas {
                 // Also snap when height is small in absolute SVG pixels (≤16 px
                 // covers legend swatches at 12 px regardless of terminal size).
                 // Snap to the lower-third (0.75) rather than centre (0.5) so the
-                // swatch lands in the same character row as its text_baseline label.
+                // Small rects (legend swatches, markers) snap to the single
+                // cell containing the rect's vertical centre.
                 let (cy0, cy1) = if height < cell_h.max(16.0) {
-                    let r = self.to_cy(y_s + height * 0.75)
+                    let r = self.to_cy(y_s + height * 0.5)
                         .max(0)
                         .min(self.rows as isize - 1);
                     (r, r)
@@ -706,11 +717,17 @@ impl Canvas {
                 }
             }
 
-            Primitive::Text { x, y, content, anchor, rotate, .. } => {
+            Primitive::Text { x, y, content, size, anchor, rotate, .. } => {
                 let rgb = self.text_color;
                 let x_s = x + tx;
                 let y_s = y + ty;
-                let row = self.to_cy(y_s);
+                // SVG text is positioned by baseline (bottom of glyphs).  The
+                // axis code adds `font_size * 0.35` so text visually centres on
+                // tick lines.  Terminal cells have no baseline concept — subtract
+                // that offset so text lands on the same character row as its
+                // reference line/tick.
+                let baseline = *size as f64 * 0.35;
+                let row = self.to_cy(y_s - baseline);
                 let chars: Vec<char> = content.chars().collect();
                 let len = chars.len() as isize;
 
@@ -719,9 +736,15 @@ impl Canvas {
 
                 if abs_angle > 45.0 && abs_angle < 135.0 {
                     // ~90°: sideways (y-axis label). Cannot rotate in terminal —
-                    // pin to the left edge so the full string is visible.
+                    // render vertically (one character per row, stacked) at column 0,
+                    // centered on the original row position.
+                    let half = len / 2;
+                    let start_row = row - half;
                     for (i, ch) in chars.iter().enumerate() {
-                        self.set_char(i as isize, row, *ch, rgb);
+                        let r = start_row + i as isize;
+                        if r >= 0 && (r as usize) < self.rows {
+                            self.set_char(0, r, *ch, rgb);
+                        }
                     }
                 } else {
                     let col = self.to_cx(x_s);
@@ -765,7 +788,9 @@ impl Canvas {
                 }
             }
 
-            Primitive::GroupStart { transform } => {
+            Primitive::ClipStart { .. } | Primitive::ClipEnd => {}
+
+            Primitive::GroupStart { transform, .. } => {
                 let offset = transform
                     .as_ref()
                     .map(|t| parse_translate(t))

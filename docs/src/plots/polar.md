@@ -145,6 +145,32 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 These builders have no effect on `PolarMode::Line` series.
 
+### Negative radius / shifted baseline
+
+Use `.with_r_min(f64)` to set the value that maps to the plot centre. By default `r_min = 0`, so a data point at `r = 0` lands at the centre. When you set a non-zero `r_min`, a data point `(r, θ)` is plotted at radial distance `max(r − r_min, 0) / (r_max − r_min)` from the centre. Points below `r_min` are clamped to the centre.
+
+This is most useful for dB-scale quantities such as antenna radiation patterns, where gain naturally runs from a large negative value (e.g. −20 dBi) up to 0 dBi.
+
+```rust
+// Antenna pattern: gain ranges from -20 dBi (null) to 0 dBi (main lobe)
+let theta: Vec<f64> = (0..=360).map(|i| i as f64).collect();
+let gain_dbi: Vec<f64> = theta.iter().map(|&t| {
+    let rad = t.to_radians();
+    let main = (rad / 2.0).cos().powi(4);
+    ((main * 20.0) - 20.0).clamp(-20.0, 0.0)
+}).collect();
+
+let plot = PolarPlot::new()
+    .with_series_line(gain_dbi, theta)
+    .with_r_min(-20.0)
+    .with_r_max(0.0)
+    .with_r_grid_lines(4);
+```
+
+<img src="../assets/polar/r_min_antenna.svg" alt="Antenna radiation pattern in dBi with negative r_min" width="560">
+
+The centre label automatically shows the `r_min` value (here `−20`) so the scale is unambiguous. Ring labels always display actual data values regardless of the shift.
+
 ### Grid control
 
 ```rust
@@ -163,6 +189,7 @@ let plot = PolarPlot::new()
 | `.with_series_line(r, theta)` | — | Add line series |
 | `.with_series_labeled(r, theta, label, mode)` | — | Add labeled series |
 | `.with_r_max(f64)` | auto | Set maximum radial extent |
+| `.with_r_min(f64)` | `0.0` | Value mapped to the plot centre; enables negative-radius data |
 | `.with_theta_start(deg)` | `0.0` | Where θ=0 appears (CW from north) |
 | `.with_clockwise(bool)` | `true` | Direction of increasing θ |
 | `.with_r_grid_lines(n)` | `4` | Number of concentric grid circles |

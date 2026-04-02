@@ -8,16 +8,56 @@ kuva <SUBCOMMAND> [FILE] [OPTIONS]
 
 ---
 
-## Building
+## Installation
+
+### Step 1 — install Rust
+
+If you don't have Rust installed, get it via [rustup](https://rustup.rs):
 
 ```bash
-cargo build --bin kuva --features cli              # SVG output only
-cargo build --bin kuva --features cli,png          # adds PNG output via resvg
-cargo build --bin kuva --features cli,pdf          # adds PDF output via svg2pdf
-cargo build --bin kuva --features cli,full         # both PNG and PDF
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-After building, the binary is at `target/debug/kuva` (or `target/release/kuva` with `--release`).
+Follow the on-screen prompts (the defaults are fine). Then either restart your shell or run:
+
+```bash
+source ~/.cargo/env
+```
+
+Verify with `cargo --version`. You only need to do this once.
+
+### Step 2 — install kuva
+
+**From crates.io** (recommended once a release is published):
+
+```bash
+cargo install kuva --features cli          # SVG output
+cargo install kuva --features cli,full     # SVG + PNG + PDF
+```
+
+**From a local clone** (install to `~/.cargo/bin/` and put it on your `$PATH`):
+
+```bash
+git clone https://github.com/Psy-Fer/kuva && cd kuva
+
+cargo install --path . --features cli          # SVG output
+cargo install --path . --features cli,full     # SVG + PNG + PDF
+```
+
+After either method, `kuva` is available anywhere in your shell — no need to reference `./target/release/kuva` or modify `$PATH` manually. Confirm with:
+
+```bash
+kuva --help
+```
+
+### Building without installing
+
+If you only want to build and run from the repo without installing:
+
+```bash
+cargo build --release --bin kuva --features cli,full
+./target/release/kuva --help
+```
 
 ---
 
@@ -89,6 +129,28 @@ These flags are available on every subcommand.
 | `--cvd-palette <NAME>` | — | Colour-vision-deficiency palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
 | `--background <COLOR>` | *(theme default)* | SVG background color (any CSS color string) |
 
+### SVG interactivity
+
+| Flag | Default | Description |
+|---|---|---|
+| `--interactive` | off | Embed browser interactivity in SVG output (ignored for PNG/PDF/terminal) |
+
+When `--interactive` is set the output SVG contains a self-contained `<script>` block with no external dependencies. Features:
+
+- **Hover tooltip** — hovering a data point shows its label and value.
+- **Click to pin** — click a point to keep its highlight; click again or press **Escape** to clear all pins.
+- **Search** — type in the search box (top-left of the plot area) to dim non-matching points. **Escape** clears.
+- **Coordinate readout** — mouse position inside the plot area is shown in data-space coordinates.
+- **Legend toggle** — click a legend entry to show/hide that series.
+- **Save button** — top-right button serialises the current SVG DOM (including any pinned/dimmed state). *Note: the download is not yet functional; this will be fixed in v0.2.*
+
+Supported in this release: `scatter`, `line`, `bar`, `strip`, `volcano`. All other subcommands accept `--interactive` and load the UI chrome (coordinate readout, search box) but do not yet have per-point hover/search — remaining renderers will be wired in v0.2.
+
+```bash
+kuva scatter data.tsv --x x --y y --color-by group --legend --interactive -o plot.svg
+kuva volcano hits.tsv --gene gene --log2fc log2fc --pvalue pvalue --legend --interactive -o volcano.svg
+```
+
 ### Terminal output
 
 | Flag | Default | Description |
@@ -139,752 +201,35 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 
 ## Subcommands
 
-- [scatter](#scatter)
-- [line](#line)
-- [bar](#bar)
-- [histogram](#histogram)
-- [density](#density)
-- [ridgeline](#ridgeline)
-- [box](#box)
-- [violin](#violin)
-- [pie](#pie)
-- [strip](#strip)
-- [waterfall](#waterfall)
-- [stacked-area](#stacked-area)
-- [volcano](#volcano)
-- [manhattan](#manhattan)
-- [candlestick](#candlestick)
-- [heatmap](#heatmap)
-- [hist2d](#hist2d)
-- [contour](#contour)
-- [dot](#dot)
-- [upset](#upset)
-- [chord](#chord)
-- [sankey](#sankey)
-- [phylo](#phylo)
-- [synteny](#synteny)
-- [polar](#polar)
-- [ternary](#ternary)
-
----
-
-## scatter
-
-Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines, and log scale.
-
-**Input:** any tabular file with two numeric columns.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x <COL>` | `0` | X-axis column |
-| `--y <COL>` | `1` | Y-axis column |
-| `--color-by <COL>` | — | Group by this column; each group gets a distinct color |
-| `--color <CSS>` | `steelblue` | Point color (single-series only) |
-| `--size <PX>` | `3.0` | Point radius in pixels |
-| `--trend` | off | Overlay a linear trend line |
-| `--equation` | off | Annotate with regression equation (requires `--trend`) |
-| `--correlation` | off | Annotate with Pearson R² (requires `--trend`) |
-| `--legend` | off | Show legend |
-
-```bash
-kuva scatter measurements.tsv --x time --y value --color steelblue
-
-kuva scatter measurements.tsv --x time --y value \
-    --color-by group --legend --title "Expression over time"
-
-kuva scatter measurements.tsv --x time --y value \
-    --trend --equation --correlation --log-y
-```
-
----
-
-## line
-
-Line plot. Identical column flags to scatter; adds line-style options.
-
-**Input:** any tabular file with two numeric columns, sorted by x.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x <COL>` | `0` | X-axis column |
-| `--y <COL>` | `1` | Y-axis column |
-| `--color-by <COL>` | — | Multi-series grouping |
-| `--color <CSS>` | `steelblue` | Line color (single-series) |
-| `--stroke-width <PX>` | `2.0` | Line stroke width |
-| `--dashed` | off | Dashed line style |
-| `--dotted` | off | Dotted line style |
-| `--fill` | off | Fill area under the line |
-| `--legend` | off | Show legend |
-
-```bash
-kuva line measurements.tsv --x time --y value --color-by group --legend
-
-kuva line measurements.tsv --x time --y value --fill --color "rgba(70,130,180,0.4)"
-```
-
----
-
-## bar
-
-Bar chart from label/value pairs.
-
-**Input:** first column labels, second column numeric values.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--label-col <COL>` | `0` | Label column |
-| `--value-col <COL>` | `1` | Value column |
-| `--color <CSS>` | `steelblue` | Bar fill color |
-| `--bar-width <F>` | `0.8` | Bar width as a fraction of the slot |
-
-```bash
-kuva bar bar.tsv --label-col category --value-col count --color "#4682b4"
-
-kuva bar bar.tsv --x-label "Pathway" --y-label "Gene count" \
-    -o pathways.svg
-```
-
----
-
-## histogram
-
-Frequency histogram from a single numeric column.
-
-**Input:** one numeric column per row.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--value-col <COL>` | `0` | Value column |
-| `--color <CSS>` | `steelblue` | Bar fill color |
-| `--bins <N>` | `10` | Number of bins |
-| `--normalize` | off | Normalize to probability density (area = 1) |
-
-```bash
-kuva histogram histogram.tsv --value-col value --bins 30
-
-kuva histogram histogram.tsv --bins 20 --normalize \
-    --title "Expression distribution" --y-label "Density"
-```
-
----
-
-## density
-
-Kernel density estimate of a single numeric column. Produces a smooth probability density curve; optionally fills the area underneath. Multi-group plots use one curve per group with palette colors.
-
-**Input:** a tabular file with at least one numeric column. When `--color-by` is used, an additional categorical column drives the grouping.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--value <COL>` | `0` | Column of numeric values to estimate |
-| `--color-by <COL>` | — | Group by this column; one curve per unique value |
-| `--filled` | off | Fill the area under each density curve |
-| `--bandwidth <F>` | *(Silverman)* | KDE bandwidth override |
-
-```bash
-kuva density samples.tsv --value expression \
-    --x-label "Expression" --y-label "Density" --title "Expression distribution"
-
-kuva density samples.tsv --value expression --color-by group --filled \
-    --title "Expression by group"
-```
-
----
-
-## ridgeline
-
-Ridgeline plot (joyplot) — stacked KDE density curves, one per group. Groups are taken from one column; values from another.
-
-**Input:** a tabular file with at least one numeric column and an optional group column.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--value <COL>` | `0` | Column of numeric values |
-| `--group-by <COL>` | — | Group by this column; one ridge per unique value |
-| `--filled` | on | Fill the area under each ridge curve |
-| `--opacity <F>` | `0.7` | Fill opacity |
-| `--overlap <F>` | `0.5` | Ridge overlap factor (0 = no overlap, 1 = full cell height) |
-| `--bandwidth <F>` | *(Silverman)* | KDE bandwidth override |
-
-```bash
-kuva ridgeline samples.tsv --group-by group --value expression \
-    --x-label "Expression" --y-label "Group" --title "Expression by group"
-
-kuva ridgeline samples.tsv --group-by group --value expression --overlap 1.0
-```
-
----
-
-## box
-
-Box-and-whisker plot. Groups are taken from one column; values from another.
-
-**Input:** two columns — group label and numeric value, one observation per row.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--group-col <COL>` | `0` | Group label column |
-| `--value-col <COL>` | `1` | Numeric value column |
-| `--color <CSS>` | `steelblue` | Box fill color (uniform, all groups) |
-| `--group-colors <CSS,...>` | — | Per-group colors, comma-separated; falls back to `--color` for unlisted groups |
-| `--overlay-points` | off | Overlay individual points as a jittered strip |
-| `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
-
-```bash
-kuva box samples.tsv --group-col group --value-col expression
-
-kuva box samples.tsv --group-col group --value-col expression \
-    --overlay-swarm --color "rgba(70,130,180,0.6)"
-
-kuva box samples.tsv --group-col group --value-col expression \
-    --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple"
-```
-
----
-
-## violin
-
-Kernel-density violin plot. Same input format as `box`.
-
-**Input:** two columns — group label and numeric value, one observation per row.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--group-col <COL>` | `0` | Group label column |
-| `--value-col <COL>` | `1` | Numeric value column |
-| `--color <CSS>` | `steelblue` | Violin fill color (uniform, all groups) |
-| `--group-colors <CSS,...>` | — | Per-group colors, comma-separated; falls back to `--color` for unlisted groups |
-| `--bandwidth <F>` | *(Silverman)* | KDE bandwidth |
-| `--overlay-points` | off | Overlay individual points as a jittered strip |
-| `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
-
-```bash
-kuva violin samples.tsv --group-col group --value-col expression
-
-kuva violin samples.tsv --group-col group --value-col expression \
-    --overlay-swarm --bandwidth 0.3
-
-kuva violin samples.tsv --group-col group --value-col expression \
-    --group-colors "steelblue,tomato,seagreen,goldenrod,mediumpurple"
-```
-
----
-
-## pie
-
-Pie or donut chart.
-
-**Input:** label column + numeric value column.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--label-col <COL>` | `0` | Label column |
-| `--value-col <COL>` | `1` | Value column |
-| `--color-col <COL>` | — | Optional CSS color column |
-| `--donut` | off | Render as a donut (hollow center) |
-| `--inner-radius <PX>` | `80` | Donut hole radius in pixels |
-| `--percent` | off | Append percentage to slice labels |
-| `--label-position <MODE>` | *(auto)* | `inside`, `outside`, or `none` |
-| `--legend` | off | Show legend |
-
-```bash
-kuva pie pie.tsv --label-col feature --value-col percentage --percent
-
-kuva pie pie.tsv --label-col feature --value-col percentage \
-    --donut --legend --label-position outside
-```
-
----
-
-## strip
-
-Strip / jitter plot — individual points along a categorical axis.
-
-**Input:** group label column + numeric value column, one observation per row.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--group-col <COL>` | `0` | Group label column |
-| `--value-col <COL>` | `1` | Numeric value column |
-| `--color <CSS>` | `steelblue` | Point color |
-| `--point-size <PX>` | `4.0` | Point radius in pixels |
-| `--swarm` | off | Beeswarm (non-overlapping) layout |
-| `--center` | off | All points at group center (no spread) |
-
-Default layout when neither `--swarm` nor `--center` is given: random jitter (±30 % of slot width).
-
-```bash
-kuva strip samples.tsv --group-col group --value-col expression
-
-kuva strip samples.tsv --group-col group --value-col expression --swarm
-```
-
----
-
-## waterfall
-
-Waterfall / bridge chart showing a running total built from incremental bars.
-
-**Input:** label column + numeric value column. Mark subtotal/total bars with `--total`.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--label-col <COL>` | `0` | Label column |
-| `--value-col <COL>` | `1` | Value column |
-| `--total <LABEL>` | — | Mark this label as a summary bar (repeatable) |
-| `--connectors` | off | Draw dashed connector lines between bars |
-| `--values` | off | Print numeric values on each bar |
-| `--color-pos <CSS>` | green | Positive delta bar color |
-| `--color-neg <CSS>` | red | Negative delta bar color |
-| `--color-total <CSS>` | `steelblue` | Total/subtotal bar color |
-
-```bash
-kuva waterfall waterfall.tsv --label-col process --value-col log2fc \
-    --connectors --values
-
-# mark two rows as summary bars
-kuva waterfall income.tsv \
-    --total "Gross profit" --total "Net income" \
-    --connectors --values
-```
-
----
-
-## stacked-area
-
-Stacked area chart in long format.
-
-**Input:** three columns — x value, group label, y value — one observation per row. Rows are grouped by the group column; within each group the x/y pairs are collected in order.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x-col <COL>` | `0` | X-axis column |
-| `--group-col <COL>` | `1` | Series group column |
-| `--y-col <COL>` | `2` | Y-axis column |
-| `--normalize` | off | Normalize each x-position to 100 % |
-| `--fill-opacity <F>` | `0.7` | Fill opacity for each band |
-
-```bash
-kuva stacked-area stacked_area.tsv \
-    --x-col week --group-col species --y-col abundance
-
-kuva stacked-area stacked_area.tsv \
-    --x-col week --group-col species --y-col abundance \
-    --normalize --y-label "Relative abundance (%)"
-```
-
----
-
-## volcano
-
-Volcano plot for differential expression results.
-
-**Input:** three columns — gene name, log₂ fold change, raw p-value.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--name-col <COL>` | `0` | Gene/feature name column |
-| `--x-col <COL>` | `1` | log₂FC column |
-| `--y-col <COL>` | `2` | p-value column (raw, not −log₁₀) |
-| `--fc-cutoff <F>` | `1.0` | \|log₂FC\| threshold |
-| `--p-cutoff <F>` | `0.05` | p-value significance threshold |
-| `--top-n <N>` | `0` | Label the N most-significant points |
-| `--color-up <CSS>` | `firebrick` | Up-regulated point color |
-| `--color-down <CSS>` | `steelblue` | Down-regulated point color |
-| `--color-ns <CSS>` | `#aaaaaa` | Not-significant point color |
-| `--point-size <PX>` | `3.0` | Point radius |
-| `--legend` | off | Show Up / Down / NS legend |
-
-```bash
-kuva volcano gene_stats.tsv \
-    --name-col gene --x-col log2fc --y-col pvalue \
-    --top-n 20 --legend
-
-kuva volcano gene_stats.tsv \
-    --name-col gene --x-col log2fc --y-col pvalue \
-    --fc-cutoff 2.0 --p-cutoff 0.01 --top-n 10
-```
-
----
-
-## manhattan
-
-Manhattan plot for GWAS results.
-
-**Input:** chromosome, (optional) base-pair position, and p-value columns.
-
-Two layout modes:
-- **Sequential** *(default)*: chromosomes are sorted and SNPs receive consecutive integer x-positions. Position column is not used.
-- **Base-pair** (`--genome-build`): SNP x-coordinates are resolved from chromosome sizes in a reference build.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--chr-col <COL>` | `0` | Chromosome column |
-| `--pos-col <COL>` | `1` | Base-pair position column (bp mode only) |
-| `--pvalue-col <COL>` | `2` | p-value column |
-| `--genome-build <BUILD>` | — | Enable bp mode: `hg19`, `hg38`, or `t2t` |
-| `--genome-wide <F>` | `7.301` | Genome-wide threshold (−log₁₀ scale) |
-| `--suggestive <F>` | `5.0` | Suggestive threshold (−log₁₀ scale) |
-| `--top-n <N>` | `0` | Label N most-significant points above genome-wide threshold |
-| `--point-size <PX>` | `2.5` | Point radius |
-| `--color-a <CSS>` | `steelblue` | Even-chromosome color |
-| `--color-b <CSS>` | `#5aadcb` | Odd-chromosome color |
-| `--legend` | off | Show threshold legend |
-
-```bash
-# sequential mode (no position column needed)
-kuva manhattan gene_stats.tsv --chr-col chr --pvalue-col pvalue --top-n 5
-
-# base-pair mode
-kuva manhattan gwas.tsv \
-    --chr-col chr --pos-col pos --pvalue-col pvalue \
-    --genome-build hg38 --top-n 10 --legend
-```
-
----
-
-## candlestick
-
-OHLC candlestick chart.
-
-**Input:** label, open, high, low, close columns (and optionally volume).
-
-| Flag | Default | Description |
-|---|---|---|
-| `--label-col <COL>` | `0` | Period label column |
-| `--open-col <COL>` | `1` | Open price column |
-| `--high-col <COL>` | `2` | High price column |
-| `--low-col <COL>` | `3` | Low price column |
-| `--close-col <COL>` | `4` | Close price column |
-| `--volume-col <COL>` | — | Optional volume column |
-| `--volume-panel` | off | Show volume bar panel below price chart |
-| `--candle-width <F>` | `0.7` | Body width as a fraction of slot |
-| `--color-up <CSS>` | green | Bullish candle color |
-| `--color-down <CSS>` | red | Bearish candle color |
-| `--color-doji <CSS>` | `#888888` | Doji candle color |
-
-```bash
-kuva candlestick candlestick.tsv \
-    --label-col date --open-col open --high-col high \
-    --low-col low --close-col close
-
-kuva candlestick candlestick.tsv \
-    --label-col date --open-col open --high-col high \
-    --low-col low --close-col close \
-    --volume-col volume --volume-panel
-```
-
----
-
-## heatmap
-
-Color-encoded matrix heatmap.
-
-**Input:** wide-format matrix — first column is the row label, remaining columns are numeric values. The header row (if present) supplies column labels.
-
-```
-gene    Sample_01  Sample_02  Sample_03 …
-TP53    0.25       -1.78       1.58     …
-BRCA1   0.23        0.48       1.06     …
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--colormap <NAME>` | `viridis` | Color map: `viridis`, `inferno`, `grayscale` |
-| `--values` | off | Print numeric values in each cell |
-| `--legend <LABEL>` | — | Show color bar with this label |
-
-```bash
-kuva heatmap heatmap.tsv
-
-kuva heatmap heatmap.tsv --colormap inferno --values --legend "z-score"
-```
-
----
-
-## hist2d
-
-Two-dimensional histogram (density grid) from two numeric columns.
-
-**Input:** two numeric columns.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x <COL>` | `0` | X-axis column |
-| `--y <COL>` | `1` | Y-axis column |
-| `--bins-x <N>` | `10` | Number of bins on the X axis |
-| `--bins-y <N>` | `10` | Number of bins on the Y axis |
-| `--colormap <NAME>` | `viridis` | Color map: `viridis`, `inferno`, `grayscale` |
-| `--correlation` | off | Overlay Pearson correlation coefficient |
-
-```bash
-kuva hist2d measurements.tsv --x time --y value
-
-kuva hist2d measurements.tsv --x time --y value \
-    --bins-x 20 --bins-y 20 --correlation
-```
-
----
-
-## contour
-
-Contour plot from scattered (x, y, z) triplets.
-
-**Input:** three columns — x coordinate, y coordinate, scalar value.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x <COL>` | `0` | X column |
-| `--y <COL>` | `1` | Y column |
-| `--z <COL>` | `2` | Scalar value column |
-| `--levels <N>` | `8` | Number of contour levels |
-| `--filled` | off | Fill between contour levels |
-| `--colormap <NAME>` | `viridis` | Color map (filled mode) |
-| `--line-color <CSS>` | — | Line color (unfilled mode) |
-| `--legend <LABEL>` | — | Show legend entry |
-
-```bash
-kuva contour contour.tsv --x x --y y --z density
-
-kuva contour contour.tsv --x x --y y --z density \
-    --filled --levels 12 --colormap inferno
-```
-
----
-
-## dot
-
-Dot plot encoding two variables (size and color) at categorical (x, y) positions.
-
-**Input:** four columns — x category, y category, size value, color value.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--x-col <COL>` | `0` | X-category column |
-| `--y-col <COL>` | `1` | Y-category column |
-| `--size-col <COL>` | `2` | Size-encoding column |
-| `--color-col <COL>` | `3` | Color-encoding column |
-| `--colormap <NAME>` | `viridis` | Color map |
-| `--max-radius <PX>` | `12.0` | Maximum dot radius |
-| `--size-legend <LABEL>` | — | Show size legend with this label |
-| `--colorbar <LABEL>` | — | Show color bar with this label |
-
-```bash
-kuva dot dot.tsv \
-    --x-col pathway --y-col cell_type \
-    --size-col pct_expressed --color-col mean_expr
-
-kuva dot dot.tsv \
-    --x-col pathway --y-col cell_type \
-    --size-col pct_expressed --color-col mean_expr \
-    --size-legend "% expressed" --colorbar "mean expr"
-```
-
----
-
-## upset
-
-UpSet plot for set-intersection analysis.
-
-**Input:** binary (0/1) matrix — one column per set, one row per element. Column headers become set names.
-
-```
-GWAS_hit  eQTL  Splicing_QTL  Methylation_QTL  Conservation  ClinVar
-1         0     0             1                1             1
-0         0     1             1                1             0
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--sort <MODE>` | `frequency` | Sort intersections: `frequency`, `degree`, `natural` |
-| `--max-visible <N>` | — | Show only the top N intersections |
-
-```bash
-kuva upset upset.tsv
-
-kuva upset upset.tsv --sort degree --max-visible 15
-```
-
-> **Terminal output:** not yet supported. `kuva upset --terminal` prints a message and exits cleanly; use `-o file.svg` instead.
-
----
-
-## chord
-
-Chord diagram for pairwise flow data.
-
-**Input:** square N×N matrix — first column is the row label (ignored for layout), header row supplies node names.
-
-```
-region        Cortex  Hippocampus  Amygdala …
-Cortex        0       320          13       …
-Hippocampus   320     0            210      …
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--gap <DEG>` | `2.0` | Gap between arcs in degrees |
-| `--opacity <F>` | `0.7` | Ribbon opacity |
-| `--legend <LABEL>` | — | Show legend |
-
-```bash
-kuva chord chord.tsv
-
-kuva chord chord.tsv --gap 3.0 --opacity 0.5 --legend "connectivity"
-```
-
----
-
-## sankey
-
-Sankey / alluvial flow diagram.
-
-**Input:** three columns — source node, target node, flow value.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--source-col <COL>` | `0` | Source node column |
-| `--target-col <COL>` | `1` | Target node column |
-| `--value-col <COL>` | `2` | Flow value column |
-| `--link-gradient` | off | Fill each link with a gradient from source node colour to target node colour |
-| `--opacity <F>` | `0.5` | Link opacity |
-| `--legend <LABEL>` | — | Show legend |
-
-```bash
-kuva sankey sankey.tsv \
-    --source-col source --target-col target --value-col value
-
-kuva sankey sankey.tsv \
-    --source-col source --target-col target --value-col value \
-    --link-gradient --legend "read flow"
-```
-
----
-
-## phylo
-
-Phylogenetic tree from a Newick string or edge-list TSV.
-
-**Input (default):** edge-list TSV with parent, child, and branch-length columns.
-
-**Input (alternative):** pass `--newick` with a Newick string; the file argument is not used.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--newick <STR>` | — | Newick string (overrides file input) |
-| `--parent-col <COL>` | `0` | Parent node column |
-| `--child-col <COL>` | `1` | Child node column |
-| `--length-col <COL>` | `2` | Branch length column |
-| `--orientation <DIR>` | `left` | `left`, `right`, `top`, `bottom` |
-| `--branch-style <STYLE>` | `rectangular` | `rectangular`, `slanted`, `circular` |
-| `--phylogram` | off | Scale branches by length |
-| `--legend <LABEL>` | — | Show legend |
-
-```bash
-# from edge-list TSV
-kuva phylo phylo.tsv \
-    --parent-col parent --child-col child --length-col length
-
-# from Newick string
-kuva phylo --newick "((A:0.1,B:0.2):0.3,C:0.4);" --branch-style circular
-
-# phylogram, top orientation
-kuva phylo phylo.tsv \
-    --parent-col parent --child-col child --length-col length \
-    --phylogram --orientation top
-```
-
----
-
-## synteny
-
-Synteny / genomic alignment ribbon plot.
-
-**Input:** two files:
-- **Sequences file** *(positional)*: TSV with sequence name and length columns.
-- **Blocks file** (`--blocks-file`): TSV with columns `seq1, start1, end1, seq2, start2, end2, strand`.
-
-```
-# sequences.tsv
-name    length
-Chr1A   2800000
-Chr1B   2650000
-
-# blocks.tsv
-seq1   start1  end1    seq2   start2  end2    strand
-Chr1A  56000   137237  Chr1B  63958   143705  +
-Chr1A  150674  271188  Chr1B  165366  303075  -
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--blocks-file <FILE>` | *(required)* | Blocks TSV file |
-| `--bar-height <PX>` | `18.0` | Sequence bar height in pixels |
-| `--opacity <F>` | `0.65` | Block ribbon opacity |
-| `--proportional` | off | Scale bar widths proportionally to sequence length |
-| `--legend <LABEL>` | — | Show legend |
-
-```bash
-kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv
-
-kuva synteny synteny_seqs.tsv --blocks-file synteny_blocks.tsv \
-    --proportional --legend "synteny blocks"
-```
-
----
-
-## polar
-
-Polar coordinate scatter/line plot. Compass convention by default (θ=0 at north, increasing clockwise).
-
-**Input:** TSV/CSV with columns for radial value `r` and angle `theta` (degrees).
-
-| Flag | Default | Description |
-|---|---|---|
-| `--r <COL>` | `0` | Column containing radial values |
-| `--theta <COL>` | `1` | Column containing angle values (degrees) |
-| `--color-by <COL>` | — | Group by column — one series per unique value |
-| `--mode <MODE>` | `scatter` | Plot mode: `scatter` or `line` |
-| `--r-max <F>` | auto | Maximum radial extent |
-| `--theta-divisions <N>` | `12` | Angular spoke divisions (12 = every 30°) |
-| `--theta-start <DEG>` | `0.0` | Where θ=0 appears, degrees CW from north |
-| `--legend` | off | Show legend |
-
-```bash
-kuva polar polar.tsv --r r --theta theta --title "Polar Plot"
-
-kuva polar polar.tsv --r r --theta theta --color-by group --mode line \
-    --title "Wind Rose"
-```
-
----
-
-## ternary
-
-Ternary (simplex) scatter plot with barycentric coordinate system.
-
-**Input:** TSV/CSV with three columns for the A, B, C components of each point.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--a <COL>` | `0` | Column for the top-vertex (A) component |
-| `--b <COL>` | `1` | Column for the bottom-left (B) component |
-| `--c <COL>` | `2` | Column for the bottom-right (C) component |
-| `--color-by <COL>` | — | Group by column for colored series |
-| `--a-label <S>` | `A` | Label for the top (A) vertex |
-| `--b-label <S>` | `B` | Label for the bottom-left (B) vertex |
-| `--c-label <S>` | `C` | Label for the bottom-right (C) vertex |
-| `--normalize` | off | Normalize each row so a+b+c=1 |
-| `--grid-lines <N>` | `5` | Grid lines per axis |
-| `--legend` | off | Show legend |
-
-```bash
-kuva ternary ternary.tsv --a a --b b --c c --title "Ternary Plot"
-
-kuva ternary ternary.tsv --a a --b b --c c --color-by group \
-    --a-label "Silicon" --b-label "Oxygen" --c-label "Carbon" \
-    --title "Mineral Composition"
-```
+| Subcommand | Description |
+|---|---|
+| [scatter](./scatter.md) | Scatter plot of (x, y) point pairs |
+| [line](./line.md) | Line plot |
+| [bar](./bar.md) | Bar chart from label/value pairs |
+| [histogram](./histogram.md) | Frequency histogram from a single numeric column |
+| [density](./density.md) | Kernel density estimate curve |
+| [ridgeline](./ridgeline.md) | Stacked KDE density curves, one per group |
+| [box](./box.md) | Box-and-whisker plot |
+| [violin](./violin.md) | Kernel-density violin plot |
+| [pie](./pie.md) | Pie or donut chart |
+| [forest](./forest.md) | Forest plot — point estimates with confidence intervals |
+| [strip](./strip.md) | Strip / jitter plot |
+| [waterfall](./waterfall.md) | Waterfall / bridge chart |
+| [stacked-area](./stacked_area.md) | Stacked area chart |
+| [volcano](./volcano.md) | Volcano plot for differential expression |
+| [manhattan](./manhattan.md) | Manhattan plot for GWAS results |
+| [candlestick](./candlestick.md) | OHLC candlestick chart |
+| [heatmap](./heatmap.md) | Color-encoded matrix heatmap |
+| [hist2d](./hist2d.md) | Two-dimensional histogram |
+| [contour](./contour.md) | Contour plot from scattered (x, y, z) triplets |
+| [dot](./dot.md) | Dot plot (size + color at categorical positions) |
+| [upset](./upset.md) | UpSet plot for set-intersection analysis |
+| [chord](./chord.md) | Chord diagram for pairwise flow data |
+| [sankey](./sankey.md) | Sankey / alluvial flow diagram |
+| [phylo](./phylo.md) | Phylogenetic tree |
+| [synteny](./synteny.md) | Synteny / genomic alignment ribbon plot |
+| [polar](./polar.md) | Polar coordinate scatter/line plot |
+| [ternary](./ternary.md) | Ternary (simplex) scatter plot |
 
 ---
 

@@ -37,7 +37,9 @@ std::fs::write("density.svg", svg).unwrap();
 
 <img src="../assets/density/basic.svg" alt="Basic density plot" width="560">
 
-The y-axis is a proper probability density: each curve integrates to approximately 1 over the visible range.
+The y-axis is a proper probability density: each curve integrates to approximately 1 over the displayed range.
+
+> **Tail behaviour.** By default, the KDE is evaluated from `data_min − 3×bandwidth` to `data_max + 3×bandwidth` so the Gaussian tails taper smoothly to zero beyond the data. The x-axis auto-scales to include those tails. This matches ggplot2's default `cut = 3` behaviour and is statistically correct — the tails reflect that a distribution does not hard-stop at the outermost data point. If your data is physically bounded (see below) you should set explicit bounds to prevent the curve from extending into impossible values.
 
 ---
 
@@ -108,6 +110,64 @@ std::fs::write("density_groups.svg", svg).unwrap();
 <img src="../assets/density/multigroup.svg" alt="Density plot with multiple groups" width="560">
 
 Overlapping filled curves distinguish naturally by color. Increase `.with_opacity()` toward `0.4` if groups are well separated, or keep it low (`0.15`–`0.2`) when they overlap heavily.
+
+---
+
+## Bounded data — identity scores, β-values, frequencies
+
+For data that is physically constrained to a fixed interval — identity scores `[0, 1]`, methylation β-values `[0, 1]`, allele frequencies `[0, 1]`, percentages `[0, 100]` — the default KDE will extend past those limits, producing a curve that bleeds into impossible negative values or past the upper ceiling.
+
+<table>
+<tr>
+<td><img src="../assets/density/bounded_unbounded.svg" alt="KDE bleeding past boundaries" width="370"></td>
+<td><img src="../assets/density/bounded_reflected.svg" alt="KDE with boundary reflection" width="370"></td>
+</tr>
+<tr>
+<td align="center">Default — tails bleed past 0 and 1</td>
+<td align="center"><code>with_x_range(0, 1)</code> — smooth taper at boundaries</td>
+</tr>
+</table>
+
+Use `.with_x_range(lo, hi)` to enforce both limits simultaneously:
+
+```rust,no_run
+# use kuva::plot::DensityPlot;
+# let data = vec![0.1_f64; 10];
+// Identity scores: scores cannot be negative or exceed 1.0
+let density = DensityPlot::new()
+    .with_data(data)
+    .with_x_range(0.0, 1.0);
+```
+
+**Boundary reflection.** Simply truncating the evaluation range would cause the curve to cut off abruptly mid-peak wherever data is dense near a boundary. kuva instead uses the *reflection method* (the same approach as ggplot2 `geom_density(bounds = ...)` since 3.4.0): for each data point within `3×bandwidth` of an active boundary a ghost point is mirrored across that boundary. The KDE is then evaluated only within `[lo, hi]` using the augmented dataset. The result tapers smoothly to zero at the boundary even when data is concentrated right at the edge.
+
+**One-sided bounds.** If only one side is physically constrained, set just that bound:
+
+```rust,no_run
+# use kuva::plot::DensityPlot;
+# let data = vec![0.1_f64; 10];
+// Scores cannot be negative but have no known upper cap
+let density = DensityPlot::new()
+    .with_data(data)
+    .with_x_lo(0.0); // left boundary reflected; right tail still free
+
+// Percentages cannot exceed 100 but have no known lower cap
+let density = DensityPlot::new()
+    .with_data(data)
+    .with_x_hi(100.0); // right boundary reflected; left tail still free
+```
+
+When only one bound is set the other tail extends `3×bandwidth` past the data extreme as normal. This means a curve with only `x_lo = 0` set can still extend past `1.0` on the right if the data range allows — use `with_x_range(0.0, 1.0)` when both sides are constrained.
+
+**In the CLI**, pass `--x-min` and `--x-max` independently — either flag alone is sufficient:
+
+```bash
+# Both sides bounded — identity scores
+kuva density scores.tsv --value score --x-min 0 --x-max 1
+
+# Left side only — counts that cannot be negative
+kuva density counts.tsv --value count --x-min 0
+```
 
 ---
 
@@ -192,3 +252,6 @@ let density = DensityPlot::from_curve(x, y)
 | `.with_stroke_width(px)` | Outline stroke width (default `1.5`) |
 | `.with_line_dash(s)` | SVG stroke-dasharray, e.g. `"4 2"` for dashed |
 | `.with_legend(s)` | Attach a legend label |
+| `.with_x_range(lo, hi)` | Clamp KDE evaluation to `[lo, hi]` with boundary reflection at both ends |
+| `.with_x_lo(lo)` | Set lower bound only; boundary reflection at `lo`, right tail still free |
+| `.with_x_hi(hi)` | Set upper bound only; boundary reflection at `hi`, left tail still free |

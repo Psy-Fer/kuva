@@ -69,6 +69,8 @@ pub use crate::plot::{
     TernaryPoint,
     DicePlot,
     DicePoint,
+    ForestPlot,
+    ForestRow,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -93,6 +95,7 @@ pub use crate::render::render::{
     render_sankey,
     render_phylo_tree,
     render_synteny,
+    render_forest,
 };
 
 // ── Figure (multi-plot grid) ─────────────────────────────────────────────────

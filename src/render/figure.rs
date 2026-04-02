@@ -1,6 +1,6 @@
 use crate::render::layout::{Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
-use crate::render::render::{Primitive, Scene, TextAnchor, render_multiple, collect_legend_entries, render_legend_at};
+use crate::render::render::{Primitive, Scene, TextAnchor, render_multiple, render_twin_y, collect_legend_entries, render_legend_at};
 use crate::plot::legend::{LegendEntry, LegendGroup};
 
 #[derive(Debug, Clone)]
@@ -87,6 +87,8 @@ pub struct Figure {
     shared_legend: Option<FigureLegendPosition>,
     shared_legend_entries: Option<Vec<LegendEntry>>,
     keep_panel_legends: bool,
+    /// Sparse list of twin-Y cells: (cell_index, primary_plots, secondary_plots).
+    twin_y_plots: Vec<(usize, Vec<Plot>, Vec<Plot>)>,
 }
 
 impl Figure {
@@ -112,6 +114,7 @@ impl Figure {
             shared_legend: None,
             shared_legend_entries: None,
             keep_panel_legends: false,
+            twin_y_plots: Vec::new(),
         }
     }
 
@@ -267,6 +270,22 @@ impl Figure {
         self
     }
 
+    /// Place a twin-Y plot in a specific cell slot.
+    ///
+    /// `cell_index` is the zero-based flat cell index (row * cols + col).
+    /// Primary plots are drawn against the left Y axis; secondary plots against the right.
+    /// If no matching `Layout` is provided via `with_layouts`, the layout is auto-computed
+    /// from both plot sets via `Layout::auto_from_twin_y_plots`.
+    pub fn with_twin_y_plots(
+        mut self,
+        cell_index: usize,
+        primary: Vec<Plot>,
+        secondary: Vec<Plot>,
+    ) -> Self {
+        self.twin_y_plots.push((cell_index, primary, secondary));
+        self
+    }
+
     pub fn render(self) -> Scene {
         let Figure {
             rows, cols, structure, mut plots, layouts: user_layouts,
@@ -274,7 +293,12 @@ impl Figure {
             spacing, padding, mut cell_width, mut cell_height,
             figure_width, figure_height,
             shared_legend, shared_legend_entries, keep_panel_legends,
+            twin_y_plots,
         } = self;
+
+        // Build a lookup from cell_index → (primary, secondary) for twin-Y cells.
+        let mut twin_y_map: std::collections::HashMap<usize, (Vec<Plot>, Vec<Plot>)> =
+            twin_y_plots.into_iter().map(|(i, p, s)| (i, (p, s))).collect();
 
         validate_structure(&structure, rows, cols);
 
@@ -283,11 +307,20 @@ impl Figure {
             Some(if let Some(manual) = shared_legend_entries {
                 manual
             } else {
-                // Auto-collect from all panels, deduplicate by label
+                // Auto-collect from all panels (regular + twin-Y), deduplicate by label
                 let mut all_entries = Vec::new();
                 let mut seen_labels = std::collections::HashSet::new();
                 for panel_plots in &plots {
                     for entry in collect_legend_entries(panel_plots) {
+                        if seen_labels.insert(entry.label.clone()) {
+                            all_entries.push(entry);
+                        }
+                    }
+                }
+                for (primary, secondary) in twin_y_map.values() {
+                    for entry in collect_legend_entries(primary).into_iter()
+                        .chain(collect_legend_entries(secondary))
+                    {
                         if seen_labels.insert(entry.label.clone()) {
                             all_entries.push(entry);
                         }
@@ -374,6 +407,8 @@ impl Figure {
         for i in 0..structure.len() {
             let layout = if i < user_layouts.len() {
                 clone_layout(&user_layouts[i])
+            } else if let Some((primary, secondary)) = twin_y_map.get(&i) {
+                Layout::auto_from_twin_y_plots(primary, secondary)
             } else if i < plots.len() && !plots[i].is_empty() {
                 Layout::auto_from_plots(&plots[i])
             } else {
@@ -409,18 +444,28 @@ impl Figure {
 
             let slot_plots = std::mem::take(&mut plots[i]);
 
-            if !slot_plots.is_empty() {
+            let cell_scene_opt = if let Some((primary, secondary)) = twin_y_map.remove(&i) {
                 let mut layout = clone_layout(&layouts[i]);
                 layout.width = Some(cell_w);
                 layout.height = Some(cell_h);
+                Some(render_twin_y(primary, secondary, layout))
+            } else if !slot_plots.is_empty() {
+                let mut layout = clone_layout(&layouts[i]);
+                layout.width = Some(cell_w);
+                layout.height = Some(cell_h);
+                Some(render_multiple(slot_plots, layout))
+            } else {
+                None
+            };
 
-                let cell_scene = render_multiple(slot_plots, layout);
-
+            if let Some(cell_scene) = cell_scene_opt {
                 for def in cell_scene.defs {
                     master.defs.push(def);
                 }
                 master.add(Primitive::GroupStart {
                     transform: Some(format!("translate({cell_x},{cell_y})")),
+                    title: None,
+                    extra_attrs: None,
                 });
                 for elem in cell_scene.elements {
                     master.add(elem);
@@ -504,6 +549,9 @@ fn clone_layout(l: &Layout) -> Layout {
     new.legend_height = l.legend_height;
     new.log_x = l.log_x;
     new.log_y = l.log_y;
+    new.annotations = l.annotations.clone();
+    new.reference_lines = l.reference_lines.clone();
+    new.shaded_regions = l.shaded_regions.clone();
     new.suppress_x_ticks = l.suppress_x_ticks;
     new.suppress_y_ticks = l.suppress_y_ticks;
     new.font_family = l.font_family.clone();
@@ -511,23 +559,43 @@ fn clone_layout(l: &Layout) -> Layout {
     new.label_size = l.label_size;
     new.tick_size = l.tick_size;
     new.body_size = l.body_size;
+    new.axis_line_width = l.axis_line_width;
+    new.tick_width = l.tick_width;
+    new.tick_length = l.tick_length;
+    new.grid_line_width = l.grid_line_width;
     new.theme = l.theme.clone();
     new.palette = None; // Palette is consumed at render_multiple level, not cloned per-cell
     new.x_tick_format = l.x_tick_format.clone();
     new.y_tick_format = l.y_tick_format.clone();
+    new.colorbar_tick_format = l.colorbar_tick_format.clone();
     new.y2_range = l.y2_range;
     new.data_y2_range = l.data_y2_range;
     new.y2_label = l.y2_label.clone();
     new.log_y2 = l.log_y2;
     new.y2_tick_format = l.y2_tick_format.clone();
     new.suppress_y2_ticks = l.suppress_y2_ticks;
+    new.x_axis_min = l.x_axis_min;
+    new.x_axis_max = l.x_axis_max;
+    new.y_axis_min = l.y_axis_min;
+    new.y_axis_max = l.y_axis_max;
     new.x_datetime = l.x_datetime.clone();
     new.y_datetime = l.y_datetime.clone();
     new.x_tick_rotate = l.x_tick_rotate;
+    new.clamp_axis = l.clamp_axis;
+    new.clamp_y_axis = l.clamp_y_axis;
+    new.x_bin_width = l.x_bin_width;
+    new.term_rows = l.term_rows;
+    new.x_tick_step = l.x_tick_step;
+    new.y_tick_step = l.y_tick_step;
+    new.minor_ticks = l.minor_ticks;
+    new.show_minor_grid = l.show_minor_grid;
     new.x_label_offset = l.x_label_offset;
     new.y_label_offset = l.y_label_offset;
     new.y2_label_offset = l.y2_label_offset;
     new.scale = l.scale;
+    new.polar_r_label_angle = l.polar_r_label_angle;
+    new.interactive = l.interactive;
+    new.equal_aspect = l.equal_aspect;
     new
 }
 
