@@ -152,6 +152,69 @@ let heatmap = Heatmap::new()
 
 ---
 
+## Row reordering — phylogenetic alignment
+
+When composing a heatmap alongside a `PhyloTree`, use `with_labels` + `with_y_categories` to reorder the heatmap rows so they match the tree's leaf order top-to-bottom.
+
+**Key points:**
+- `with_y_categories(order)` treats `order` as **top-to-bottom** — the first label ends up at the top of the rendered heatmap.
+- After the call, `heatmap.row_labels` is stored in **bottom-to-top** order (matching the y-axis convention). Pass it directly to `Layout::with_y_categories`.
+- Use `Figure::new(1, 2)` to place the tree and heatmap side by side.
+
+```rust,no_run
+use kuva::plot::{Heatmap, PhyloTree};
+use kuva::render::figure::Figure;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::backend::svg::SvgBackend;
+
+let labels_str = ["Wolf", "Cat", "Whale", "Human"];
+let labels: Vec<String> = labels_str.iter().map(|s| s.to_string()).collect();
+
+// Distance matrix — rows correspond to labels_str in order
+let dist = vec![
+    vec![0.0, 0.5, 0.9, 0.8],  // Wolf
+    vec![0.5, 0.0, 0.9, 0.8],  // Cat
+    vec![0.9, 0.9, 0.0, 0.7],  // Whale
+    vec![0.8, 0.8, 0.7, 0.0],  // Human
+];
+
+let tree = PhyloTree::from_distance_matrix(&labels_str, &dist).with_phylogram();
+
+// leaf_labels_top_to_bottom() returns the leaf render order, top-to-bottom
+let leaf_order = tree.leaf_labels_top_to_bottom();
+
+let heatmap = Heatmap::new()
+    .with_data(dist)
+    .with_labels(labels, vec![])     // associate rows with names
+    .with_y_categories(leaf_order);  // first leaf → top of heatmap
+
+// row_labels is now stored bottom-to-top — pass directly to Layout
+let layout_cats = heatmap.row_labels.clone().unwrap();
+
+let tree_plots = vec![Plot::PhyloTree(tree)];
+let heatmap_plots = vec![Plot::Heatmap(heatmap)];
+
+let tree_layout = Layout::auto_from_plots(&tree_plots).with_title("UPGMA Tree");
+let heatmap_layout = Layout::auto_from_plots(&heatmap_plots)
+    .with_title("Distance Matrix")
+    .with_y_categories(layout_cats);
+
+// 1 row × 2 columns: tree on left, heatmap on right
+let figure = Figure::new(1, 2)
+    .with_plots(vec![tree_plots, heatmap_plots])
+    .with_layouts(vec![tree_layout, heatmap_layout]);
+
+let svg = SvgBackend.render_scene(&figure.render());
+std::fs::write("phylo_heatmap.svg", svg).unwrap();
+```
+
+> **Note:** `Layout::with_y_categories()` alone only changes the axis tick *labels* — it does not reorder the data matrix. Always call `Heatmap::with_y_categories()` first to permute the rows, then pass `row_labels` to the layout.
+
+Column reordering works the same way via `with_x_categories`. Unlike `with_y_categories`, column order is not reversed internally — pass the desired left-to-right order directly to both `Heatmap::with_x_categories` and `Layout::with_x_categories`.
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -160,12 +223,14 @@ let heatmap = Heatmap::new()
 | `.with_data(rows)` | Set grid data; accepts any numeric iterable of iterables |
 | `.with_color_map(map)` | Color encoding: `Viridis`, `Inferno`, `Grayscale`, or `Custom` (default `Viridis`) |
 | `.with_values()` | Print each cell's value as text inside the cell |
-| `.with_labels(rows, cols)` | Store label strings in the struct (pass to `Layout` to render them) |
+| `.with_labels(rows, cols)` | Associate rows and columns with label strings; required before calling `with_y_categories` / `with_x_categories` |
+| `.with_y_categories(order)` | Reorder rows so `order[0]` is at the top; stores `row_labels` bottom-to-top for `Layout::with_y_categories` |
+| `.with_x_categories(order)` | Reorder columns to match `order` (left-to-right); stores `col_labels` in the same order |
 | `.with_legend(s)` | Attach a legend label |
 
 **Layout methods used with heatmaps:**
 
 | Method | Description |
 |--------|-------------|
-| `Layout::with_x_categories(labels)` | Column labels on the x-axis |
-| `Layout::with_y_categories(labels)` | Row labels on the y-axis |
+| `Layout::with_x_categories(labels)` | Column labels on the x-axis (left-to-right) |
+| `Layout::with_y_categories(labels)` | Row labels on the y-axis (bottom-to-top; pass `heatmap.row_labels` directly after `with_y_categories`) |

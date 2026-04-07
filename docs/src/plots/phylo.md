@@ -229,18 +229,57 @@ let slanted = PhyloTree::from_newick("((A:1,B:2):1,C:3);")
 
 ## Heatmap alignment
 
-`leaf_labels_top_to_bottom()` returns leaf labels in the exact top-to-bottom render order. Pass the result to `Heatmap::with_y_categories()` to align heatmap rows with tree leaves when composing both plots side by side.
+`leaf_labels_top_to_bottom()` returns leaf labels in the exact top-to-bottom render order. Use this to align a paired heatmap's rows with the tree leaves.
+
+The key steps are:
+
+1. Call `Heatmap::with_labels(row_labels, col_labels)` to record which label belongs to each row of the data matrix.
+2. Call `Heatmap::with_y_categories(leaf_order)` with the **top-to-bottom** leaf order. This reorders the data rows so that the first leaf appears at the top of the heatmap. Internally, `row_labels` is stored in **bottom-to-top** order to match the y-axis convention.
+3. Pass `heatmap.row_labels.clone().unwrap()` to `Layout::with_y_categories()` to display the axis tick labels in the matching order.
 
 ```rust,no_run
-use kuva::plot::{PhyloTree, Heatmap};
+use kuva::plot::{Heatmap, PhyloTree};
+use kuva::prelude::*;
 
-let tree = PhyloTree::from_newick("((A:1,B:2):1,C:3);");
-let leaf_order = tree.leaf_labels_top_to_bottom();  // ["A", "B", "C"]
+let labels_str = ["Wolf", "Cat", "Whale", "Human"];
+let labels: Vec<String> = labels_str.iter().map(|s| s.to_string()).collect();
 
-// Use leaf_order as the y-axis category order for a paired heatmap
+let dist = vec![
+    vec![0.0, 0.5, 0.9, 0.8],  // Wolf
+    vec![0.5, 0.0, 0.9, 0.8],  // Cat
+    vec![0.9, 0.9, 0.0, 0.7],  // Whale
+    vec![0.8, 0.8, 0.7, 0.0],  // Human
+];
+
+let tree = PhyloTree::from_distance_matrix(&labels_str, &dist).with_phylogram();
+let leaf_order = tree.leaf_labels_top_to_bottom(); // top-to-bottom tree order
+
 let heatmap = Heatmap::new()
-    .with_y_categories(leaf_order);
+    .with_data(dist)
+    .with_labels(labels, vec![])     // record original row order
+    .with_y_categories(leaf_order);  // first leaf → top of heatmap
+
+// row_labels is stored bottom-to-top — pass directly to Layout
+let layout_cats = heatmap.row_labels.clone().unwrap();
+
+let tree_plots = vec![Plot::PhyloTree(tree)];
+let heatmap_plots = vec![Plot::Heatmap(heatmap)];
+
+let tree_layout = Layout::auto_from_plots(&tree_plots).with_title("UPGMA Tree");
+let heatmap_layout = Layout::auto_from_plots(&heatmap_plots)
+    .with_title("Distance Matrix")
+    .with_y_categories(layout_cats);
+
+// Use Figure for side-by-side layout (1 row × 2 columns)
+let figure = Figure::new(1, 2)
+    .with_plots(vec![tree_plots, heatmap_plots])
+    .with_layouts(vec![tree_layout, heatmap_layout]);
+
+let svg = SvgBackend.render_scene(&figure.render());
+std::fs::write("phylo_heatmap.svg", svg).unwrap();
 ```
+
+> **Note:** `Layout::with_y_categories()` on its own only changes the *axis tick labels* — it does **not** reorder the heatmap data rows. Always use `Heatmap::with_y_categories()` to permute the data matrix itself, and use `Figure` for side-by-side layout.
 
 ---
 
@@ -272,7 +311,7 @@ let heatmap = Heatmap::new()
 
 | Method | Description |
 |--------|-------------|
-| `.leaf_labels_top_to_bottom()` | Leaf labels in render order — use to align a `Heatmap` |
+| `.leaf_labels_top_to_bottom()` | Leaf labels in render order — pass to `Heatmap::with_y_categories()` and `Layout::with_y_categories()` to align a paired heatmap |
 
 ### `TreeOrientation` variants
 
