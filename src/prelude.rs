@@ -74,6 +74,9 @@ pub use crate::plot::{
     Clustermap,
     ClustermapNorm,
     AnnotationTrack,
+    JointPlot,
+    JointGroup,
+    MarginalType,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -99,6 +102,7 @@ pub use crate::render::render::{
     render_phylo_tree,
     render_synteny,
     render_forest,
+    render_jointplot,
 };
 
 // ── Figure (multi-plot grid) ─────────────────────────────────────────────────

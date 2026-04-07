@@ -21,6 +21,7 @@
 - [Pie Chart](./plots/pie.md)
 - [Heatmap](./plots/heatmap.md)
 - [Clustermap](./plots/clustermap.md)
+- [Joint Plot](./plots/jointplot.md)
 - [Strip Plot](./plots/strip.md)
 - [Waterfall Chart](./plots/waterfall.md)
 - [Dot Plot](./plots/dotplot.md)

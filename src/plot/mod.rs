@@ -30,6 +30,7 @@ pub mod ternary;
 pub mod diceplot;
 pub mod forest;
 pub mod clustermap;
+pub mod jointplot;
 
 pub mod legend;
 
@@ -67,5 +68,6 @@ pub use ternary::{TernaryPlot, TernaryPoint};
 pub use diceplot::{DicePlot, DicePoint};
 pub use forest::{ForestPlot, ForestRow};
 pub use clustermap::{Clustermap, ClustermapNorm, AnnotationTrack};
+pub use jointplot::{JointPlot, JointGroup, MarginalType};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

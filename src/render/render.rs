@@ -7798,3 +7798,414 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
 }
 
+// ── JointPlot ─────────────────────────────────────────────────────────────
+
+/// Compute histogram bin counts for `data` over the range `[lo, hi]` with `n_bins` bins.
+/// Returns `(bin_start, bin_end, count)` for every bin.
+fn joint_histogram_bins(data: &[f64], lo: f64, hi: f64, n_bins: usize) -> Vec<(f64, f64, usize)> {
+    let n = n_bins.max(1);
+    let span = hi - lo;
+    let bw = if span > 1e-12 { span / n as f64 } else { 1.0 };
+    let mut counts = vec![0usize; n];
+    for &v in data {
+        if v < lo || v > hi { continue; }
+        let idx = ((v - lo) / bw).floor() as usize;
+        counts[idx.min(n - 1)] += 1;
+    }
+    (0..n).map(|i| (lo + i as f64 * bw, lo + (i + 1) as f64 * bw, counts[i])).collect()
+}
+
+/// Draw a top marginal (histogram or density) for a `JointPlot`.
+/// `panel_bottom` is the y-coordinate (master scene) of the bottom of the top panel.
+/// `panel_h` is the pixel height of the top panel.
+/// `scatter_computed` provides the x coordinate mapping.
+fn joint_draw_top_marginal(
+    jp: &crate::plot::jointplot::JointPlot,
+    scatter_computed: &ComputedLayout,
+    panel_bottom: f64,
+    panel_h: f64,
+    scene: &mut Scene,
+) {
+    use crate::plot::jointplot::MarginalType;
+    use render_utils::{silverman_bandwidth, simple_kde};
+    use crate::render::palette::Palette;
+
+    let (x_lo, x_hi) = scatter_computed.x_range;
+    let usable_h = panel_h * 0.90;
+
+    for (gi, group) in jp.groups.iter().enumerate() {
+        let color_str = if group.scatter.color == "black" {
+            Palette::category10()[gi % 10].to_string()
+        } else {
+            group.scatter.color.clone()
+        };
+        let xs = group.x_values();
+
+        match &jp.marginal_type {
+            MarginalType::Histogram => {
+                let bins = joint_histogram_bins(&xs, x_lo, x_hi, jp.bins);
+                let max_c = bins.iter().map(|b| b.2).max().unwrap_or(1).max(1) as f64;
+                for (b0, b1, count) in &bins {
+                    if *count == 0 { continue; }
+                    let px0 = scatter_computed.map_x(*b0);
+                    let px1 = scatter_computed.map_x(*b1);
+                    let bar_h = (*count as f64 / max_c) * usable_h;
+                    scene.add(Primitive::Rect {
+                        x: px0 + 0.5,
+                        y: panel_bottom - bar_h,
+                        width: (px1 - px0 - 1.0).max(1.0),
+                        height: bar_h,
+                        fill: Color::from(&*color_str),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: Some(jp.marginal_alpha),
+                    });
+                }
+            }
+            MarginalType::Density => {
+                if xs.is_empty() { continue; }
+                let bw = jp.bandwidth.unwrap_or_else(|| silverman_bandwidth(&xs));
+                let pts = simple_kde(&xs, bw, 200);
+                // Clip pts to [x_lo, x_hi] and scale density to panel height
+                let in_range: Vec<_> = pts.iter()
+                    .filter(|(x, _)| *x >= x_lo && *x <= x_hi)
+                    .collect();
+                if in_range.len() < 2 { continue; }
+                let max_d = in_range.iter().map(|(_, d)| *d).fold(0.0_f64, f64::max);
+                if max_d < 1e-12 { continue; }
+                // Build filled polygon path: bottom-left → polyline top → bottom-right → close
+                let first_x = scatter_computed.map_x(in_range[0].0);
+                let last_x = scatter_computed.map_x(in_range[in_range.len() - 1].0);
+                let mut path = format!("M {first_x:.1} {panel_bottom:.1}");
+                for (x, d) in &in_range {
+                    let px = scatter_computed.map_x(*x);
+                    let py = panel_bottom - (d / max_d) * usable_h;
+                    path.push_str(&format!(" L {px:.1} {py:.1}"));
+                }
+                path.push_str(&format!(" L {last_x:.1} {panel_bottom:.1} Z"));
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d: path,
+                    fill: Some(Color::from(&*color_str)),
+                    stroke: Color::from(&*color_str),
+                    stroke_width: 1.5,
+                    opacity: Some(jp.marginal_alpha),
+                    stroke_dasharray: None,
+                })));
+            }
+        }
+    }
+
+    // Separator line at bottom of top panel
+    let x_lo_px = scatter_computed.map_x(x_lo);
+    let x_hi_px = scatter_computed.map_x(x_hi);
+    scene.add(Primitive::Line {
+        x1: x_lo_px, y1: panel_bottom,
+        x2: x_hi_px, y2: panel_bottom,
+        stroke: Color::from("#cccccc"),
+        stroke_width: 1.0,
+        stroke_dasharray: None,
+    });
+}
+
+/// Draw a right marginal (horizontal histogram or density) for a `JointPlot`.
+/// `panel_left` is the x-coordinate (master scene) of the left edge of the right panel.
+/// `panel_w` is the pixel width of the right panel.
+/// `scatter_offset_y` is the vertical offset of the scatter sub-scene in master coords.
+/// `scatter_computed` provides the y coordinate mapping.
+fn joint_draw_right_marginal(
+    jp: &crate::plot::jointplot::JointPlot,
+    scatter_computed: &ComputedLayout,
+    scatter_offset_y: f64,
+    panel_left: f64,
+    panel_w: f64,
+    scene: &mut Scene,
+) {
+    use crate::plot::jointplot::MarginalType;
+    use render_utils::{silverman_bandwidth, simple_kde};
+    use crate::render::palette::Palette;
+
+    let (y_lo, y_hi) = scatter_computed.y_range;
+    let usable_w = panel_w * 0.90;
+
+    for (gi, group) in jp.groups.iter().enumerate() {
+        let color_str = if group.scatter.color == "black" {
+            Palette::category10()[gi % 10].to_string()
+        } else {
+            group.scatter.color.clone()
+        };
+        let ys = group.y_values();
+
+        match &jp.marginal_type {
+            MarginalType::Histogram => {
+                let bins = joint_histogram_bins(&ys, y_lo, y_hi, jp.bins);
+                let max_c = bins.iter().map(|b| b.2).max().unwrap_or(1).max(1) as f64;
+                for (b0, b1, count) in &bins {
+                    if *count == 0 { continue; }
+                    // map_y inverts: higher y → smaller pixel y (higher on screen)
+                    let py_bottom = scatter_offset_y + scatter_computed.map_y(*b0);
+                    let py_top    = scatter_offset_y + scatter_computed.map_y(*b1);
+                    let bar_w = (*count as f64 / max_c) * usable_w;
+                    let bar_h = (py_bottom - py_top - 1.0).max(1.0);
+                    scene.add(Primitive::Rect {
+                        x: panel_left,
+                        y: py_top + 0.5,
+                        width: bar_w,
+                        height: bar_h,
+                        fill: Color::from(&*color_str),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: Some(jp.marginal_alpha),
+                    });
+                }
+            }
+            MarginalType::Density => {
+                if ys.is_empty() { continue; }
+                let bw = jp.bandwidth.unwrap_or_else(|| silverman_bandwidth(&ys));
+                let pts = simple_kde(&ys, bw, 200);
+                let in_range: Vec<_> = pts.iter()
+                    .filter(|(y, _)| *y >= y_lo && *y <= y_hi)
+                    .collect();
+                if in_range.len() < 2 { continue; }
+                let max_d = in_range.iter().map(|(_, d)| *d).fold(0.0_f64, f64::max);
+                if max_d < 1e-12 { continue; }
+                // Horizontal density: y-axis is data axis, x-axis is density
+                let first_py = scatter_offset_y + scatter_computed.map_y(in_range[0].0);
+                let last_py  = scatter_offset_y + scatter_computed.map_y(in_range[in_range.len() - 1].0);
+                let mut path = format!("M {panel_left:.1} {first_py:.1}");
+                for (y, d) in &in_range {
+                    let py = scatter_offset_y + scatter_computed.map_y(*y);
+                    let px = panel_left + (d / max_d) * usable_w;
+                    path.push_str(&format!(" L {px:.1} {py:.1}"));
+                }
+                path.push_str(&format!(" L {panel_left:.1} {last_py:.1} Z"));
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d: path,
+                    fill: Some(Color::from(&*color_str)),
+                    stroke: Color::from(&*color_str),
+                    stroke_width: 1.5,
+                    opacity: Some(jp.marginal_alpha),
+                    stroke_dasharray: None,
+                })));
+            }
+        }
+    }
+
+    // Separator line at left edge of right panel
+    let y_lo_px = scatter_offset_y + scatter_computed.map_y(y_lo);
+    let y_hi_px = scatter_offset_y + scatter_computed.map_y(y_hi);
+    scene.add(Primitive::Line {
+        x1: panel_left, y1: y_hi_px,
+        x2: panel_left, y2: y_lo_px,
+        stroke: Color::from("#cccccc"),
+        stroke_width: 1.0,
+        stroke_dasharray: None,
+    });
+}
+
+/// Render a scatter plot with marginal distribution panels on the top and/or right edges.
+///
+/// # Example
+/// ```rust,no_run
+/// use kuva::prelude::*;
+/// let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+/// let y = vec![2.0, 3.5, 2.5, 4.0, 3.0];
+/// let joint = JointPlot::new()
+///     .with_xy(x, y)
+///     .with_x_label("Feature A")
+///     .with_y_label("Feature B");
+/// let layout = Layout::new((0.5, 5.5), (1.5, 4.5)).with_title("Joint Plot");
+/// let scene = render_jointplot(joint, layout);
+/// ```
+pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -> Scene {
+    use crate::render::palette::Palette;
+
+    let width  = layout.width.unwrap_or(500.0);
+    let height = layout.height.unwrap_or(500.0);
+    let title_h = if layout.title.is_some() { 35.0_f64 } else { 0.0 };
+
+    let top_h     = if jp.show_top   { jp.marginal_size } else { 0.0 };
+    let right_w   = if jp.show_right { jp.marginal_size } else { 0.0 };
+    let top_gap   = if jp.show_top   { jp.marginal_gap  } else { 0.0 };
+    let right_gap = if jp.show_right { jp.marginal_gap  } else { 0.0 };
+
+    // Scatter panel occupies bottom-left of available space.
+    // The right marginal panel is placed at the right edge of the scatter data area
+    // (not the scatter sub-canvas edge) so the scatter margin_right never creates
+    // white space between the plot and the marginal.
+    let scatter_canvas_w = width  - right_w - right_gap;
+    let scatter_canvas_h = height - title_h - top_h - top_gap;
+    let scatter_offset_y = title_h + top_h + top_gap;
+
+    // Compute data ranges
+    let (x_min, x_max) = jp.x_range();
+    let (y_min, y_max) = jp.y_range();
+
+    // Build scatter sub-plots directly from each group's ScatterPlot.
+    // Apply a palette-derived default color to any group that has none set.
+    let has_legend = jp.groups.iter().any(|g| g.scatter.legend_label.is_some());
+
+    // When there is a right marginal AND a legend, the legend must appear to the right
+    // of the marginal panel (not inside the scatter sub-scene's margin_right, which
+    // would put it between the data area and the panel).  We suppress the legend from
+    // the scatter sub-layout and draw it manually in the master scene after the panel.
+    // In that case the total scene width is expanded to accommodate the legend.
+    let legend_in_scatter = (layout.show_legend || has_legend) && !jp.show_right;
+    let legend_after_right = has_legend && jp.show_right;
+    let legend_extra_w = if legend_after_right {
+        layout.legend_width + 20.0
+    } else {
+        0.0
+    };
+    let scene_width = width + legend_extra_w;
+
+    let scatter_plots: Vec<Plot> = jp.groups.iter().enumerate().map(|(gi, g)| {
+        let mut sp = g.scatter.clone();
+        if sp.color == "black" && g.scatter.colors.is_none() {
+            sp.color = Palette::category10()[gi % 10].to_string();
+        }
+        Plot::Scatter(sp)
+    }).collect();
+
+    // Helper closure to build the scatter sub-layout (Layout is not Clone,
+    // so we build it twice: once to compute pixel geometry, once for render_multiple).
+    let build_scatter_layout = || {
+        let mut sl = Layout::new((x_min, x_max), (y_min, y_max))
+            .with_width(scatter_canvas_w)
+            .with_height(scatter_canvas_h)
+            .with_theme(layout.theme.clone());
+        if let Some(ref xl) = jp.x_label { sl = sl.with_x_label(xl.clone()); }
+        if let Some(ref yl) = jp.y_label { sl = sl.with_y_label(yl.clone()); }
+        // Legend lives in the scatter sub-scene only when there is no right marginal.
+        if legend_in_scatter { sl.show_legend = true; }
+        sl.legend_position = layout.legend_position;
+        // Propagate log axes
+        if layout.log_x { sl = sl.with_log_x(); }
+        if layout.log_y { sl = sl.with_log_y(); }
+        // Propagate explicit axis bounds
+        if let Some(v) = layout.x_axis_min { sl = sl.with_x_axis_min(v); }
+        if let Some(v) = layout.x_axis_max { sl = sl.with_x_axis_max(v); }
+        if let Some(v) = layout.y_axis_min { sl = sl.with_y_axis_min(v); }
+        if let Some(v) = layout.y_axis_max { sl = sl.with_y_axis_max(v); }
+        // Propagate interactivity
+        if layout.interactive { sl = sl.with_interactive(); }
+        // Propagate annotations / reference lines / shaded regions
+        for ann in &layout.annotations { sl = sl.with_annotation(ann.clone()); }
+        for rl in &layout.reference_lines { sl = sl.with_reference_line(rl.clone()); }
+        for sr in &layout.shaded_regions { sl = sl.with_shaded_region(sr.clone()); }
+        sl
+    };
+
+    let scatter_computed = ComputedLayout::from_layout(&build_scatter_layout());
+    let scatter_scene = render_multiple(scatter_plots, build_scatter_layout());
+
+    // Right edge of scatter data area in master-scene x-coords (scatter_offset_x = 0).
+    let data_right = scatter_computed.margin_left + scatter_computed.plot_width();
+
+    // Build master scene (potentially wider than `width` when legend follows the panel).
+    let mut scene = Scene::new(scene_width, height);
+    if let Some(ref font) = layout.font_family {
+        scene.font_family = Some(font.clone());
+    }
+    scene.background_color = Some(layout.theme.background.clone());
+    scene.text_color = Some(layout.theme.text_color.clone());
+
+    // Title
+    if let Some(ref t) = layout.title {
+        scene.add(Primitive::Text {
+            x: scene_width / 2.0,
+            y: title_h * 0.7,
+            content: t.clone(),
+            size: layout.title_size,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+            bold: false,
+        });
+    }
+
+    // Insert scatter sub-scene via SVG translate group
+    scene.add(Primitive::GroupStart {
+        transform: Some(format!("translate(0,{scatter_offset_y:.1})")),
+        title: None,
+        extra_attrs: None,
+    });
+    for elem in scatter_scene.elements {
+        scene.elements.push(elem);
+    }
+    // Copy defs from scatter sub-scene (tooltips etc)
+    for def in scatter_scene.defs {
+        scene.defs.push(def);
+    }
+    scene.add(Primitive::GroupEnd);
+
+    // Top marginal panel
+    if jp.show_top {
+        let panel_bottom = scatter_offset_y; // bottom of top panel = top of scatter
+        joint_draw_top_marginal(&jp, &scatter_computed, panel_bottom, top_h, &mut scene);
+    }
+
+    // Right marginal panel: starts immediately after the scatter data area's right edge.
+    // Using data_right (not scatter_canvas_w) eliminates the gap caused by the scatter
+    // sub-scene's margin_right.
+    if jp.show_right {
+        let panel_left = data_right + right_gap;
+        joint_draw_right_marginal(
+            &jp, &scatter_computed, scatter_offset_y, panel_left, right_w, &mut scene,
+        );
+
+        // Draw the legend to the right of the marginal panel when it was suppressed
+        // from the scatter sub-scene.
+        if legend_after_right {
+            let legend_x = panel_left + right_w + 10.0;
+            let line_h   = scatter_computed.legend_line_height;
+            let pad      = scatter_computed.legend_padding;
+            let bs       = scatter_computed.body_size as f64;
+            let mut cur_y = scatter_offset_y + scatter_computed.margin_top + 10.0;
+
+            let entries: Vec<(String, String)> = jp.groups.iter().enumerate()
+                .filter_map(|(gi, g)| {
+                    g.scatter.legend_label.as_ref().map(|lbl| {
+                        let col = if g.scatter.color == "black" && g.scatter.colors.is_none() {
+                            Palette::category10()[gi % 10].to_string()
+                        } else {
+                            g.scatter.color.clone()
+                        };
+                        (lbl.clone(), col)
+                    })
+                })
+                .collect();
+
+            if !entries.is_empty() {
+                let box_h = entries.len() as f64 * line_h + pad * 2.0;
+                scene.add(Primitive::Rect {
+                    x: legend_x - pad + 5.0, y: cur_y - pad,
+                    width: layout.legend_width, height: box_h,
+                    fill: Color::from(&*layout.theme.legend_bg),
+                    stroke: None, stroke_width: None, opacity: None,
+                });
+                scene.add(Primitive::Rect {
+                    x: legend_x - pad + 5.0, y: cur_y - pad,
+                    width: layout.legend_width, height: box_h,
+                    fill: "none".into(),
+                    stroke: Some(Color::from(&*layout.theme.legend_border)),
+                    stroke_width: Some(1.0), opacity: None,
+                });
+                for (lbl, col) in entries {
+                    scene.add(Primitive::Circle {
+                        cx: legend_x + 5.0, cy: cur_y + line_h / 2.0 - 2.0,
+                        r: 5.0, fill: Color::from(&*col),
+                        fill_opacity: None, stroke: None, stroke_width: None,
+                    });
+                    scene.add(Primitive::Text {
+                        x: legend_x + 18.0, y: cur_y + bs * 0.8,
+                        content: lbl, size: scatter_computed.body_size,
+                        anchor: TextAnchor::Start, rotate: None, bold: false,
+                    });
+                    cur_y += line_h;
+                }
+            }
+        }
+    }
+
+    scene
+}
+

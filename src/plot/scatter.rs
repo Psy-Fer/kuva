@@ -90,6 +90,7 @@ use crate::plot::band::BandPlot;
 /// let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 /// std::fs::write("scatter.svg", svg).unwrap();
 /// ```
+#[derive(Clone, Debug)]
 pub struct ScatterPlot {
     pub data: Vec<ScatterPoint>,
     pub color: String,
