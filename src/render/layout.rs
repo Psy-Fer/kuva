@@ -151,6 +151,15 @@ pub struct Layout {
     /// Override the computed legend height. When `None`, height is auto-computed from
     /// the number of entries/groups. Set explicitly via `with_legend_height(px)`.
     pub legend_height: Option<f64>,
+    // Stats box
+    /// Pre-formatted text lines to display in a stats box (e.g. "R² = 0.847").
+    pub stats_entries: Vec<String>,
+    /// Optional bold title rendered above stats entries.
+    pub stats_title: Option<String>,
+    /// Position of the stats box on the canvas. Default: `InsideTopLeft`.
+    pub stats_position: LegendPosition,
+    /// Draw background + border rects around the stats box. Default: true.
+    pub stats_box: bool,
     pub log_x: bool,
     pub log_y: bool,
     pub annotations: Vec<TextAnnotation>,
@@ -274,6 +283,10 @@ impl Layout {
             legend_groups: None,
             legend_box: true,
             legend_height: None,
+            stats_entries: Vec::new(),
+            stats_title: None,
+            stats_position: LegendPosition::InsideTopLeft,
+            stats_box: true,
             log_x: false,
             log_y: false,
             annotations: Vec::new(),
@@ -599,6 +612,16 @@ impl Layout {
                     has_legend = true;
                     for g in &sp.groups {
                         max_label_len = max_label_len.max(g.label.len());
+                    }
+                }
+            }
+
+            if let Plot::Roc(roc) = plot {
+                if roc.legend_label.is_some() {
+                    has_legend = true;
+                    for g in &roc.groups {
+                        // Label + "  (AUC = 0.xxx)" suffix = 16 chars
+                        max_label_len = max_label_len.max(g.label.len() + 16);
                     }
                 }
             }
@@ -939,6 +962,39 @@ impl Layout {
         self
     }
 
+    /// Add multiple pre-formatted lines to the stats box (e.g. `"R² = 0.847"`).
+    ///
+    /// Replaces any previously set entries.  Position defaults to `InsideTopLeft`.
+    pub fn with_stats_box(mut self, entries: Vec<impl Into<String>>) -> Self {
+        self.stats_entries = entries.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
+    /// Append a single line to the stats box.
+    pub fn with_stats_entry(mut self, entry: impl Into<String>) -> Self {
+        self.stats_entries.push(entry.into());
+        self
+    }
+
+    /// Set the stats box position and entries in one call.
+    pub fn with_stats_box_at(mut self, position: LegendPosition, entries: Vec<impl Into<String>>) -> Self {
+        self.stats_position = position;
+        self.stats_entries = entries.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
+    /// Add a bold title rendered above the stats box entries.
+    pub fn with_stats_title(mut self, title: impl Into<String>) -> Self {
+        self.stats_title = Some(title.into());
+        self
+    }
+
+    /// Show or hide the background + border box around the stats entries. Default: `true`.
+    pub fn with_stats_box_border(mut self, show: bool) -> Self {
+        self.stats_box = show;
+        self
+    }
+
     /// Set a uniform scale factor for all plot chrome.
     ///
     /// Multiplies font sizes, margins, tick mark lengths, legend padding and swatch
@@ -1264,6 +1320,7 @@ pub struct ComputedLayout {
     pub x_ticks: usize,
     pub y_ticks: usize,
     pub legend_position: LegendPosition,
+    pub stats_position: LegendPosition,
     pub legend_width: f64,
     /// Optional explicit legend height override from `Layout::with_legend_height`.
     pub legend_height_override: Option<f64>,
@@ -1511,6 +1568,17 @@ impl ComputedLayout {
         if layout.show_colorbar {
             margin_right += 90.0 * s; // 20px label-gap + 20px bar + 5px tick-mark + 30px tick labels + 15px gap
         }
+
+        // If the user fixed the canvas width, ensure the legend doesn't crush the plot.
+        // Guarantee at least 150 px of plot area (or 30% of canvas, whichever is larger).
+        if let Some(fixed_w) = layout.width {
+            let min_plot_px = (fixed_w * 0.30).max(150.0);
+            let max_margin_right = (fixed_w - margin_left - min_plot_px).max(0.0);
+            if margin_right > max_margin_right {
+                margin_right = max_margin_right;
+            }
+        }
+
         let plot_width = 600.0;
         let plot_height = 450.0;
 
@@ -1595,6 +1663,7 @@ impl ComputedLayout {
             x_ticks,
             y_ticks,
             legend_position: layout.legend_position,
+            stats_position: layout.stats_position,
             legend_width: layout.legend_width * s,
             legend_height_override: layout.legend_height.map(|h| h * s),
             y_tick_label_px,

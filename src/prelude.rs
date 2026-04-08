@@ -84,6 +84,8 @@ pub use crate::plot::{
     LollipopDomain,
     SurvivalPlot,
     KMGroup,
+    RocPlot,
+    RocGroup,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -111,6 +113,7 @@ pub use crate::render::render::{
     render_forest,
     render_lollipop,
     render_survival,
+    render_roc,
     render_jointplot,
 };
 

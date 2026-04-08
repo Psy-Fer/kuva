@@ -45,6 +45,7 @@ EXAMPLES=(
     polar
     raincloud
     ternary
+    roc
     twin_y
     all_plots_simple
     all_plots_complex

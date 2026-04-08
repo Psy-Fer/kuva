@@ -66,6 +66,7 @@ use crate::plot::diceplot::DicePlot;
 use crate::plot::forest::ForestPlot;
 use crate::plot::clustermap::{Clustermap, ClustermapNorm};
 use crate::plot::raincloud::RaincloudPlot;
+use crate::plot::roc::RocPlot;
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -2148,6 +2149,116 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     scene
 }
 
+// ── RocPlot ───────────────────────────────────────────────────────────────────
+
+fn add_roc(roc: &RocPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::plot::roc::{compute_group, RocPoint};
+    use crate::render::palette::Palette;
+
+    // Draw diagonal reference line
+    if roc.show_diagonal {
+        scene.add(Primitive::Line {
+            x1: computed.map_x(0.0),
+            y1: computed.map_y(0.0),
+            x2: computed.map_x(1.0),
+            y2: computed.map_y(1.0),
+            stroke: Color::from(&roc.diagonal_color),
+            stroke_width: computed.axis_stroke_width,
+            stroke_dasharray: Some(roc.diagonal_dasharray.clone()),
+        });
+    }
+
+    let cat10 = Palette::category10();
+    let n_groups = roc.groups.len();
+
+    for (i, group) in roc.groups.iter().enumerate() {
+        let color_str: &str = group.color.as_deref().unwrap_or_else(|| {
+            if n_groups == 1 { &roc.color } else { &cat10[i % cat10.len()] }
+        });
+        let color = Color::from(color_str);
+
+        let rc = compute_group(group);
+        if rc.points.is_empty() { continue; }
+
+        // ── CI band (approximate: shift the whole curve up/down by CI delta) ─
+        if group.show_ci && rc.ci_lo.is_finite() && rc.ci_hi.is_finite() {
+            let delta_up = rc.ci_hi - rc.auc;
+            let delta_dn = rc.auc - rc.ci_lo;
+
+            let map_upper = |pt: &RocPoint| -> (f64, f64) {
+                (computed.map_x(pt.fpr), computed.map_y((pt.tpr + delta_up).min(1.0)))
+            };
+            let map_lower = |pt: &RocPoint| -> (f64, f64) {
+                (computed.map_x(pt.fpr), computed.map_y((pt.tpr - delta_dn).max(0.0)))
+            };
+
+            let upper: Vec<(f64, f64)> = rc.points.iter().map(map_upper).collect();
+            let lower: Vec<(f64, f64)> = rc.points.iter().map(map_lower).collect();
+
+            let mut d = format!("M {},{}", round2(upper[0].0), round2(upper[0].1));
+            for &(x, y) in upper.iter().skip(1) {
+                d.push_str(&format!(" L {},{}", round2(x), round2(y)));
+            }
+            for &(x, y) in lower.iter().rev() {
+                d.push_str(&format!(" L {},{}", round2(x), round2(y)));
+            }
+            d.push_str(" Z");
+
+            scene.add(Primitive::Path(Box::new(PathData {
+                d,
+                fill: Some(color.clone()),
+                stroke: color.clone(),
+                stroke_width: 0.0,
+                opacity: Some(group.ci_alpha),
+                stroke_dasharray: None,
+            })));
+        }
+
+        // ── ROC curve path ────────────────────────────────────────────────────
+        let pts: Vec<(f64, f64)> = rc.points.iter().map(|pt| {
+            (computed.map_x(pt.fpr), computed.map_y(pt.tpr))
+        }).collect();
+
+        if !pts.is_empty() {
+            let mut d = format!("M {},{}", round2(pts[0].0), round2(pts[0].1));
+            for &(x, y) in pts.iter().skip(1) {
+                d.push_str(&format!(" L {},{}", round2(x), round2(y)));
+            }
+            scene.add(Primitive::Path(Box::new(PathData {
+                d,
+                fill: None,
+                stroke: color.clone(),
+                stroke_width: group.line_width,
+                opacity: None,
+                stroke_dasharray: group.dasharray.clone(),
+            })));
+        }
+
+        // ── Optimal point marker ──────────────────────────────────────────────
+        if let Some(opt_idx) = rc.optimal_idx {
+            if let Some(opt_pt) = rc.points.get(opt_idx) {
+                let cx = computed.map_x(opt_pt.fpr);
+                let cy = computed.map_y(opt_pt.tpr);
+                scene.add(Primitive::Circle {
+                    cx,
+                    cy,
+                    r: 5.0 * computed.axis_stroke_width,
+                    fill: color.clone(),
+                    fill_opacity: None,
+                    stroke: Some(Color::from("white")),
+                    stroke_width: Some(computed.axis_stroke_width),
+                });
+            }
+        }
+    }
+}
+
+/// Render a single ROC plot.
+pub fn render_roc(roc: RocPlot, layout: Layout) -> Scene {
+    let plots = vec![crate::render::plots::Plot::Roc(roc)];
+    render_multiple(plots, layout)
+}
+
 // ── RaincloudPlot ─────────────────────────────────────────────────────────────
 
 fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -3108,6 +3219,121 @@ fn render_legend_entry(entry: &LegendEntry, scene: &mut Scene, legend_x: f64, cu
     }
 }
 
+/// Draw the stats box (pre-formatted text lines) at the position specified in `layout`.
+///
+/// Returns `Some((x, y, height))` of the rendered box, or `None` when no entries
+/// are set (so the caller can detect whether space was consumed).
+fn add_stats_box(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) -> Option<(f64, f64, f64)> {
+    if layout.stats_entries.is_empty() && layout.stats_title.is_none() {
+        return None;
+    }
+
+    let theme = &computed.theme;
+    let line_height = computed.legend_line_height;
+    let padding = computed.legend_padding;
+    let body_size = computed.body_size;
+    let s = computed.axis_stroke_width; // scale factor
+
+    // Compute box dimensions from content
+    let title_rows = if layout.stats_title.is_some() { 1 } else { 0 };
+    let n_rows = title_rows + layout.stats_entries.len();
+    let box_height = n_rows as f64 * line_height + padding * 2.0;
+
+    let max_chars = layout.stats_entries.iter()
+        .map(|e| e.len())
+        .chain(layout.stats_title.iter().map(|t| t.len()))
+        .max()
+        .unwrap_or(8) as f64;
+    let box_width = (max_chars * body_size as f64 * 0.6 + 20.0 * s).max(80.0 * s);
+
+    let plot_left   = computed.margin_left;
+    let plot_right  = computed.width - computed.margin_right;
+    let plot_top    = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+    let plot_cx     = (plot_left + plot_right) / 2.0;
+    let right_x     = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
+    let left_x      = plot_left - box_width;
+    let inset       = computed.legend_inset;
+
+    let (box_x, box_y) = match computed.stats_position {
+        LegendPosition::InsideTopRight     => (plot_right - inset - box_width + 5.0, plot_top + inset + padding),
+        LegendPosition::InsideTopLeft      => (plot_left  + inset + 5.0,             plot_top + inset + padding),
+        LegendPosition::InsideBottomRight  => (plot_right - inset - box_width + 5.0, plot_bottom - inset - box_height + padding),
+        LegendPosition::InsideBottomLeft   => (plot_left  + inset + 5.0,             plot_bottom - inset - box_height + padding),
+        LegendPosition::InsideTopCenter    => (plot_cx - box_width / 2.0 + 5.0,      plot_top + inset + padding),
+        LegendPosition::InsideBottomCenter => (plot_cx - box_width / 2.0 + 5.0,      plot_bottom - inset - box_height + padding),
+        LegendPosition::OutsideRightTop    => (right_x, plot_top),
+        LegendPosition::OutsideRightMiddle => (right_x, (plot_top + plot_bottom) / 2.0 - box_height / 2.0),
+        LegendPosition::OutsideRightBottom => (right_x, plot_bottom - box_height),
+        LegendPosition::OutsideLeftTop     => (left_x, plot_top),
+        LegendPosition::OutsideLeftMiddle  => (left_x, (plot_top + plot_bottom) / 2.0 - box_height / 2.0),
+        LegendPosition::OutsideLeftBottom  => (left_x, plot_bottom - box_height),
+        LegendPosition::OutsideTopLeft     => (plot_left, padding + 10.0),
+        LegendPosition::OutsideTopCenter   => (plot_cx - box_width / 2.0, padding + 10.0),
+        LegendPosition::OutsideTopRight    => (plot_right - box_width, padding + 10.0),
+        LegendPosition::OutsideBottomLeft   => (plot_left, computed.height - computed.margin_bottom + padding + 10.0),
+        LegendPosition::OutsideBottomCenter => (plot_cx - box_width / 2.0, computed.height - computed.margin_bottom + padding + 10.0),
+        LegendPosition::OutsideBottomRight  => (plot_right - box_width, computed.height - computed.margin_bottom + padding + 10.0),
+        LegendPosition::Custom(x, y)        => (x, y),
+        LegendPosition::DataCoords(x, y)    => (computed.map_x(x), computed.map_y(y)),
+    };
+
+    if layout.stats_box {
+        // Background
+        scene.add(Primitive::Rect {
+            x: box_x - padding + 5.0,
+            y: box_y - padding,
+            width: box_width,
+            height: box_height,
+            fill: Color::from(&theme.legend_bg),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+        // Border
+        scene.add(Primitive::Rect {
+            x: box_x - padding + 5.0,
+            y: box_y - padding,
+            width: box_width,
+            height: box_height,
+            fill: "none".into(),
+            stroke: Some(Color::from(&theme.legend_border)),
+            stroke_width: Some(computed.axis_stroke_width),
+            opacity: None,
+        });
+    }
+
+    let mut cur_y = box_y;
+
+    if let Some(ref title) = layout.stats_title {
+        scene.add(Primitive::Text {
+            x: box_x + box_width / 2.0,
+            y: cur_y + 5.0,
+            content: title.clone(),
+            anchor: TextAnchor::Middle,
+            size: body_size,
+            rotate: None,
+            bold: true,
+        });
+        cur_y += line_height;
+    }
+
+    for entry in &layout.stats_entries {
+        scene.add(Primitive::Text {
+            x: box_x + 5.0 * s,
+            y: cur_y + body_size as f64 * 0.8,
+            content: entry.clone(),
+            anchor: TextAnchor::Start,
+            size: body_size,
+            rotate: None,
+            bold: false,
+        });
+        cur_y += line_height;
+    }
+
+    Some((box_x, box_y, box_height))
+}
+
 /// Like [`add_legend`] but places the legend box at an explicit y coordinate
 /// for stacking multiple legend sections vertically (used by DicePlot).
 fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, y_start: f64) {
@@ -3165,7 +3391,7 @@ fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, 
     }
 }
 
-fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
+fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, y_offset: f64) {
     let theme = &computed.theme;
 
     let legend_width = computed.legend_width;
@@ -3234,6 +3460,7 @@ fn add_legend(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout) {
         // DataCoords — mapped through ComputedLayout
         LegendPosition::DataCoords(x, y)    => (computed.map_x(x), computed.map_y(y)),
     };
+    let legend_y = legend_y + y_offset;
 
     if legend.show_box {
         scene.add(Primitive::Rect {
@@ -5380,6 +5607,32 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     });
                 }
             }
+            Plot::Roc(roc) => {
+                if roc.legend_label.is_some() {
+                    let cat10 = crate::render::palette::Palette::category10();
+                    for (i, group) in roc.groups.iter().enumerate() {
+                        let color = group.color.clone().unwrap_or_else(|| {
+                            if roc.groups.len() == 1 {
+                                roc.color.clone()
+                            } else {
+                                cat10[i % cat10.len()].to_string()
+                            }
+                        });
+                        let computed_g = crate::plot::roc::compute_group(group);
+                        let auc_str = if group.show_auc_label {
+                            format!("  (AUC = {:.3})", computed_g.auc)
+                        } else {
+                            String::new()
+                        };
+                        entries.push(LegendEntry {
+                            label: format!("{}{}", group.label, auc_str),
+                            color,
+                            shape: LegendShape::Line,
+                            dasharray: group.dasharray.clone(),
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -7108,6 +7361,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Survival(sp) => {
                 add_survival(sp, &mut scene, &computed);
             }
+            Plot::Roc(r) => {
+                add_roc(r, &mut scene, &computed);
+            }
         }
     }
 
@@ -7185,7 +7441,12 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     .unwrap_or_else(|| collect_legend_entries(&plots));
                 (e, None)
             };
-            if layout.show_legend && (!entries.is_empty() || groups.is_some()) {
+            let has_legend = layout.show_legend && (!entries.is_empty() || groups.is_some());
+
+            // Draw stats box first; capture its height for collision avoidance.
+            let stats_result = add_stats_box(&layout, &mut scene, &computed);
+
+            if has_legend {
                 let legend = Legend {
                     title: layout.legend_title.clone(),
                     entries,
@@ -7193,7 +7454,16 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     position: layout.legend_position,
                     show_box: layout.legend_box,
                 };
-                add_legend(&legend, &mut scene, &computed);
+                // Collision avoidance: if stats box was rendered at the same position,
+                // shift the legend downward so it sits below the stats box.
+                let y_offset = if let Some((_, _stats_y, stats_h)) = stats_result {
+                    let positions_match = std::mem::discriminant(&layout.stats_position)
+                        == std::mem::discriminant(&layout.legend_position);
+                    if positions_match { stats_h + 8.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+                add_legend_with_offset(&legend, &mut scene, &computed, y_offset);
             }
         }
 
@@ -7316,6 +7586,9 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             .unwrap_or_else(|| collect_legend_entries(&all_plots_for_legend));
         (e, None)
     };
+
+    let stats_result = add_stats_box(&layout, &mut scene, &computed);
+
     if layout.show_legend && (!entries.is_empty() || groups.is_some()) {
         let legend = Legend {
             title: layout.legend_title.clone(),
@@ -7324,7 +7597,14 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             position: layout.legend_position,
             show_box: layout.legend_box,
         };
-        add_legend(&legend, &mut scene, &computed);
+        let y_offset = if let Some((_, _stats_y, stats_h)) = stats_result {
+            let positions_match = std::mem::discriminant(&layout.stats_position)
+                == std::mem::discriminant(&layout.legend_position);
+            if positions_match { stats_h + 8.0 } else { 0.0 }
+        } else {
+            0.0
+        };
+        add_legend_with_offset(&legend, &mut scene, &computed, y_offset);
     }
 
     scene

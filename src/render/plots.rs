@@ -33,6 +33,7 @@ use crate::plot::clustermap::Clustermap;
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::lollipop::LollipopPlot;
 use crate::plot::survival::SurvivalPlot;
+use crate::plot::roc::RocPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -73,6 +74,7 @@ pub enum Plot {
     Raincloud(RaincloudPlot),
     Lollipop(LollipopPlot),
     Survival(SurvivalPlot),
+    Roc(RocPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -110,6 +112,7 @@ impl From<Clustermap>   for Plot { fn from(p: Clustermap)   -> Self { Plot::Clus
 impl From<RaincloudPlot> for Plot { fn from(p: RaincloudPlot) -> Self { Plot::Raincloud(p) } }
 impl From<LollipopPlot>  for Plot { fn from(p: LollipopPlot)  -> Self { Plot::Lollipop(p) } }
 impl From<SurvivalPlot>  for Plot { fn from(p: SurvivalPlot)  -> Self { Plot::Survival(p) } }
+impl From<RocPlot>       for Plot { fn from(p: RocPlot)       -> Self { Plot::Roc(p) } }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
@@ -163,6 +166,7 @@ impl Plot {
             Plot::Raincloud(r) => r.color = color.into(),
             Plot::Lollipop(l) => l.color = color.into(),
             Plot::Survival(s) => s.color = color.into(),
+            Plot::Roc(r) => r.color = color.into(),
             _ => {}
         }
     }
@@ -682,6 +686,7 @@ impl Plot {
                 if !x_min.is_finite() { return None; }
                 Some(((x_min, x_max), (y_min, y_max)))
             }
+            Plot::Roc(_) => Some(((0.0, 1.0), (0.0, 1.0))),
         }
     }
 
@@ -721,6 +726,9 @@ impl Plot {
             }
             Plot::Survival(sp) => sp.groups.iter().map(|g| g.times.len() * 3 + 20).sum(),
             Plot::Lollipop(lp) => lp.points.len() * 2 + lp.domains.len() * 2 + 5,
+            Plot::Roc(r) => r.groups.iter().map(|g| {
+                g.raw_predictions.as_ref().map(|p| p.len()).unwrap_or(100) * 2 + 50
+            }).sum::<usize>() + 10,
             _ => 100,
         }
     }
