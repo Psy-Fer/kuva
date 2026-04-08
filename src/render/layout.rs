@@ -375,6 +375,15 @@ impl Layout {
                 x_labels = Some(labels);
             }
 
+            if let Plot::Raincloud(rp) = plot {
+                let labels = rp.groups.iter().map(|g| g.label.clone()).collect::<Vec<_>>();
+                x_labels = Some(labels);
+                if let Some(ref label) = rp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
             if let Plot::Waterfall(wp) = plot {
                 let labels = wp.bars.iter().map(|b| b.label.clone()).collect::<Vec<_>>();
                 x_labels = Some(labels);

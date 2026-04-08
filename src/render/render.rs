@@ -65,6 +65,7 @@ use crate::plot::ternary::TernaryPlot;
 use crate::plot::diceplot::DicePlot;
 use crate::plot::forest::ForestPlot;
 use crate::plot::clustermap::{Clustermap, ClustermapNorm};
+use crate::plot::raincloud::RaincloudPlot;
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -1878,6 +1879,202 @@ pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
+}
+
+// ── RaincloudPlot ─────────────────────────────────────────────────────────────
+
+fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    let n = rp.groups.len();
+    if n == 0 { return; }
+
+    let cat10 = Palette::category10();
+
+    for (i, group) in rp.groups.iter().enumerate() {
+        if group.values.is_empty() { continue; }
+
+        let color = rp.group_colors.as_ref()
+            .and_then(|c| c.get(i).map(|s| s.as_str()))
+            .unwrap_or_else(|| {
+                if rp.groups.len() > 1 {
+                    // Per-group palette colours for multi-group plots
+                    &cat10[i]
+                } else {
+                    &rp.color
+                }
+            });
+
+        // Sign convention: cloud_sign > 0 → cloud extends to the right of center
+        let cloud_sign: f64 = if rp.flip { -1.0 } else { 1.0 };
+        let rain_sign: f64 = -cloud_sign;
+
+        let group_x = (i + 1) as f64;
+        let cloud_cx = group_x + cloud_sign * rp.cloud_offset;
+        let rain_cx  = group_x + rain_sign  * rp.rain_offset;
+
+        // ── CLOUD (half-violin) ───────────────────────────────────────────────
+        if rp.show_cloud {
+            let h = rp.bandwidth
+                .unwrap_or_else(|| render_utils::silverman_bandwidth(&group.values) * rp.bandwidth_scale);
+            let all_kde = render_utils::simple_kde(&group.values, h, rp.kde_samples);
+            let data_min = group.values.iter().cloned().fold(f64::INFINITY, f64::min);
+            let data_max = group.values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let kde: Vec<(f64, f64)> = all_kde.into_iter()
+                .filter(|(y, _)| *y >= data_min && *y <= data_max)
+                .collect();
+            if !kde.is_empty() {
+                let max_density = kde.iter().map(|(_, d)| *d).fold(f64::NEG_INFINITY, f64::max);
+                if max_density > 0.0 {
+                    let scale = rp.cloud_width / max_density;
+                    let spine_px = computed.map_x(cloud_cx);
+
+                    // Build the half-violin path:
+                    // go from bottom to top along the KDE outline (spine + width),
+                    // then back down along the spine.
+                    let mut path_data = String::with_capacity(kde.len() * 32);
+                    {
+                        let mut rb = ryu::Buffer::new();
+                        // Trace outer edge (spine + density offset in cloud_sign direction)
+                        for (j, (y_val, density)) in kde.iter().enumerate() {
+                            let py = computed.map_y(*y_val);
+                            let px = spine_px + cloud_sign * density * scale;
+                            path_data.push(if j == 0 { 'M' } else { 'L' });
+                            path_data.push(' ');
+                            path_data.push_str(rb.format(round2(px)));
+                            path_data.push(' ');
+                            path_data.push_str(rb.format(round2(py)));
+                            path_data.push(' ');
+                        }
+                        // Return along the spine (density = 0, same x = spine_px)
+                        for (y_val, _) in kde.iter().rev() {
+                            let py = computed.map_y(*y_val);
+                            path_data.push_str("L ");
+                            path_data.push_str(rb.format(round2(spine_px)));
+                            path_data.push(' ');
+                            path_data.push_str(rb.format(round2(py)));
+                            path_data.push(' ');
+                        }
+                    }
+                    path_data.push('Z');
+
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d: path_data,
+                        fill: Some(Color::from(color)),
+                        stroke: Color::from(color),
+                        stroke_width: 0.5,
+                        opacity: Some(rp.cloud_alpha),
+                        stroke_dasharray: None,
+                    })));
+                }
+            }
+        }
+
+        // ── BOX-AND-WHISKER ───────────────────────────────────────────────────
+        if rp.show_box {
+            let mut sorted = group.values.clone();
+            sorted.sort_by(|a, b| a.total_cmp(b));
+
+            let q1  = percentile(&sorted, 25.0);
+            let q2  = percentile(&sorted, 50.0);
+            let q3  = percentile(&sorted, 75.0);
+            let iqr = q3 - q1;
+            let lower_w = sorted.iter().cloned()
+                .filter(|v| *v >= q1 - 1.5 * iqr)
+                .fold(f64::INFINITY, f64::min);
+            let upper_w = sorted.iter().cloned()
+                .filter(|v| *v <= q3 + 1.5 * iqr)
+                .fold(f64::NEG_INFINITY, f64::max);
+
+            // Box half-width in pixels
+            let box_half_px = computed.plot_width()
+                / n as f64
+                * rp.box_width
+                / 2.0;
+
+            let xmid  = computed.map_x(group_x);
+            let x0    = xmid - box_half_px;
+            let x1    = xmid + box_half_px;
+            let yq1   = computed.map_y(q1);
+            let yq3   = computed.map_y(q3);
+            let ymed  = computed.map_y(q2);
+            let ylow  = computed.map_y(lower_w);
+            let yhigh = computed.map_y(upper_w);
+
+            // IQR box
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: yq3.min(yq1),
+                width: (x1 - x0).abs(),
+                height: (yq1 - yq3).abs(),
+                fill: Color::from(color),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+
+            // Median line (white so it stands out on the coloured box)
+            scene.add(Primitive::Line {
+                x1: x0, y1: ymed,
+                x2: x1, y2: ymed,
+                stroke: Color::from(&computed.theme.box_median),
+                stroke_width: 1.5,
+                stroke_dasharray: None,
+            });
+
+            // Lower whisker
+            scene.add(Primitive::Line {
+                x1: xmid, y1: ylow,
+                x2: xmid, y2: yq1,
+                stroke: Color::from(color),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+            // Upper whisker
+            scene.add(Primitive::Line {
+                x1: xmid, y1: yq3,
+                x2: xmid, y2: yhigh,
+                stroke: Color::from(color),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+
+            // Whisker caps
+            let cap_half = box_half_px * 0.5;
+            for &y in &[ylow, yhigh] {
+                scene.add(Primitive::Line {
+                    x1: xmid - cap_half, y1: y,
+                    x2: xmid + cap_half, y2: y,
+                    stroke: Color::from(color),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
+        }
+
+        // ── RAIN (jittered points) ────────────────────────────────────────────
+        if rp.show_rain {
+            let style = StripStyle::Strip { jitter: rp.rain_jitter };
+            add_strip_points(
+                &group.values,
+                rain_cx,
+                &style,
+                color,
+                None,
+                rp.rain_size,
+                rp.seed.wrapping_add(i as u64 * 1000),
+                Some(rp.rain_alpha),
+                None,
+                false,
+                None,
+                &group.label,
+                0,
+                scene,
+                computed,
+            );
+        }
+    }
+
 }
 
 // ── Clustermap ────────────────────────────────────────────────────────────────
@@ -4569,6 +4766,29 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Raincloud(rp) => {
+                if rp.legend_label.is_some() {
+                    use crate::render::palette::Palette;
+                    let cat10 = Palette::category10();
+                    for (i, group) in rp.groups.iter().enumerate() {
+                        let color = rp.group_colors.as_ref()
+                            .and_then(|c| c.get(i).cloned())
+                            .unwrap_or_else(|| {
+                                if rp.groups.len() > 1 {
+                                    cat10[i].to_string()
+                                } else {
+                                    rp.color.clone()
+                                }
+                            });
+                        entries.push(LegendEntry {
+                            label: group.label.clone(),
+                            color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             Plot::Heatmap(heatmap) => {
                 if let Some(label) = &heatmap.legend_label {
                     entries.push(LegendEntry {
@@ -6255,7 +6475,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
                 Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) |
-                Plot::Forest(_) => {
+                Plot::Forest(_) | Plot::Raincloud(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -6546,6 +6766,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Clustermap(c) => {
                 add_clustermap(c, &mut scene, &computed);
             }
+            Plot::Raincloud(r) => {
+                add_raincloud(r, &mut scene, &computed);
+            }
         }
     }
 
@@ -6712,6 +6935,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed),
             Plot::Waterfall(w)   => add_waterfall(w, &mut scene, &computed),
             Plot::Candlestick(c) => add_candlestick(c, &mut scene, &computed),
+            Plot::Raincloud(r)   => add_raincloud(r, &mut scene, &computed),
             _ => {}
         }
     }
@@ -6730,6 +6954,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed_y2),
             Plot::Waterfall(w)   => add_waterfall(w, &mut scene, &computed_y2),
             Plot::Candlestick(c) => add_candlestick(c, &mut scene, &computed_y2),
+            Plot::Raincloud(r)   => add_raincloud(r, &mut scene, &computed_y2),
             _ => {}
         }
     }

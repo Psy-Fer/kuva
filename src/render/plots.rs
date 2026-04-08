@@ -30,6 +30,7 @@ use crate::plot::ternary::TernaryPlot;
 use crate::plot::diceplot::DicePlot;
 use crate::plot::forest::ForestPlot;
 use crate::plot::clustermap::Clustermap;
+use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -67,6 +68,7 @@ pub enum Plot {
     DicePlot(DicePlot),
     Forest(ForestPlot),
     Clustermap(Clustermap),
+    Raincloud(RaincloudPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -101,6 +103,7 @@ impl From<TernaryPlot>   for Plot { fn from(p: TernaryPlot)   -> Self { Plot::Te
 impl From<DicePlot>      for Plot { fn from(p: DicePlot)      -> Self { Plot::DicePlot(p) } }
 impl From<ForestPlot>    for Plot { fn from(p: ForestPlot)    -> Self { Plot::Forest(p) } }
 impl From<Clustermap>   for Plot { fn from(p: Clustermap)   -> Self { Plot::Clustermap(p) } }
+impl From<RaincloudPlot> for Plot { fn from(p: RaincloudPlot) -> Self { Plot::Raincloud(p) } }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
@@ -151,6 +154,7 @@ impl Plot {
             Plot::Strip(s) => s.color = color.into(),
             Plot::Density(d) => d.color = color.into(),
             Plot::Forest(f) => f.color = color.into(),
+            Plot::Raincloud(r) => r.color = color.into(),
             _ => {}
         }
     }
@@ -627,6 +631,18 @@ impl Plot {
             }
             // Pixel-space plot — returns dummy bounds so Layout gets a valid range.
             Plot::Clustermap(_) => Some(((0.0, 1.0), (0.0, 1.0))),
+            Plot::Raincloud(r) => {
+                let n = r.groups.len();
+                if n == 0 { return None; }
+                let all_vals: Vec<f64> = r.groups.iter()
+                    .flat_map(|g| g.values.iter().copied())
+                    .collect();
+                if all_vals.is_empty() { return None; }
+                let y_min = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
+                let y_max = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let pad = (y_max - y_min) * 0.05 + 0.5;
+                Some(((0.5, n as f64 + 0.5), (y_min - pad, y_max + pad)))
+            }
         }
     }
 
@@ -659,6 +675,10 @@ impl Plot {
             Plot::Clustermap(c) => {
                 let cells: usize = c.data.iter().map(|r| r.len()).sum();
                 cells + 500
+            }
+            Plot::Raincloud(r) => {
+                let total_pts: usize = r.groups.iter().map(|g| g.values.len()).sum();
+                r.groups.len() * 30 + total_pts + 10
             }
             _ => 100,
         }

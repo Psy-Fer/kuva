@@ -31,6 +31,7 @@ pub mod diceplot;
 pub mod forest;
 pub mod clustermap;
 pub mod jointplot;
+pub mod raincloud;
 
 pub mod legend;
 
@@ -69,5 +70,6 @@ pub use diceplot::{DicePlot, DicePoint};
 pub use forest::{ForestPlot, ForestRow};
 pub use clustermap::{Clustermap, ClustermapNorm, AnnotationTrack};
 pub use jointplot::{JointPlot, JointGroup, MarginalType};
+pub use raincloud::{RaincloudPlot, RaincloudGroup};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

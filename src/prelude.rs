@@ -77,6 +77,8 @@ pub use crate::plot::{
     JointPlot,
     JointGroup,
     MarginalType,
+    RaincloudPlot,
+    RaincloudGroup,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
