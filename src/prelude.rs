@@ -94,6 +94,8 @@ pub use crate::plot::{
     VennOverlap,
     ParallelPlot,
     ParallelRow,
+    MosaicPlot,
+    MosaicCell,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -126,6 +128,7 @@ pub use crate::render::render::{
     render_slope,
     render_venn,
     render_parallel,
+    render_mosaic,
 };
 
 // ── Figure (multi-plot grid) ─────────────────────────────────────────────────

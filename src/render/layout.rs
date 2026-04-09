@@ -704,6 +704,15 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Mosaic(mp) = plot {
+                if mp.legend_label.is_some() {
+                    has_legend = true;
+                    for row in mp.effective_row_order() {
+                        max_label_len = max_label_len.max(row.len());
+                    }
+                }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

@@ -70,6 +70,7 @@ use crate::plot::roc::RocPlot;
 use crate::plot::slope::SlopePlot;
 use crate::plot::venn::VennPlot;
 use crate::plot::parallel::{ParallelPlot, ParallelRow};
+use crate::plot::mosaic::MosaicPlot;
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -7104,6 +7105,19 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Mosaic(mp) => {
+                if mp.legend_label.is_some() {
+                    let rows = mp.effective_row_order();
+                    for (i, row) in rows.iter().enumerate() {
+                        entries.push(LegendEntry {
+                            label: row.clone(),
+                            color: mp.color_for_row_idx(i),
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -8627,7 +8641,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         let skip_axes_for_meta = plots.iter().all(|p| matches!(p,
             Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
             | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)
-            | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)));
+            | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)
+            | Plot::Mosaic(_)));
         if !skip_axes_for_meta {
             scene.axis_meta = Some(AxisMeta {
                 x_min: computed.x_range.0,
@@ -8644,7 +8659,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -8859,6 +8874,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Parallel(p) => {
                 add_parallel(p, &mut scene, &computed);
+            }
+            Plot::Mosaic(mp) => {
+                add_mosaic(mp, &mut scene, &computed);
             }
         }
     }
@@ -10558,5 +10576,196 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     add_jointplot(&jp, &mut scene, &computed, title_h, layout.legend_width, layout.show_legend);
 
     scene
+}
+
+// ── MosaicPlot ────────────────────────────────────────────────────────────────
+
+/// Render a mosaic (Marimekko) chart with the given layout.
+pub fn render_mosaic(mp: MosaicPlot, layout: Layout) -> Scene {
+    let plots = vec![crate::render::plots::Plot::Mosaic(mp)];
+    render_multiple(plots, layout)
+}
+
+fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if mp.cells.is_empty() { return; }
+
+    let col_order = mp.effective_col_order();
+    let row_order = mp.effective_row_order();
+    let n_cols = col_order.len();
+    let n_rows = row_order.len();
+    if n_cols == 0 || n_rows == 0 { return; }
+
+    let gap = mp.gap;
+    let body_size = computed.body_size;
+    let label_size = (body_size as f64 * 0.85).round() as u32;
+
+    // Reserve space for the custom y-axis drawn to the left of margin_left.
+    let y_axis_w = body_size as f64 * 3.8;
+    // Reserve space for column name labels below the plot area.
+    let x_label_h = body_size as f64 * 2.2;
+
+    let area_left = computed.margin_left + y_axis_w;
+    let area_right = computed.width - computed.margin_right;
+    let area_top = computed.margin_top;
+    let area_bottom = computed.height - computed.margin_bottom - x_label_h;
+
+    let pw = (area_right - area_left).max(1.0);
+    let ph = (area_bottom - area_top).max(1.0);
+
+    // ── Compute column totals and grand total ──────────────────────────────
+    let col_totals: Vec<f64> = col_order.iter().map(|c| mp.col_total(c)).collect();
+    let grand_total: f64 = col_totals.iter().sum();
+    if grand_total <= 0.0 { return; }
+
+    // ── Column widths and x-start positions ────────────────────────────────
+    let usable_w = pw - (n_cols as f64 - 1.0) * gap;
+    let col_widths: Vec<f64> = col_totals.iter()
+        .map(|&ct| (ct / grand_total) * usable_w)
+        .collect();
+    let mut col_x_starts = Vec::with_capacity(n_cols);
+    let mut cur_x = area_left;
+    for &w in &col_widths {
+        col_x_starts.push(cur_x);
+        cur_x += w + gap;
+    }
+
+    let theme = &computed.theme;
+    let axis_color: Color = Color::from(&theme.text_color);
+
+    // ── Draw columns ────────────────────────────────────────────────────────
+    for (ci, col_name) in col_order.iter().enumerate() {
+        let col_total = col_totals[ci];
+        if col_total <= 0.0 { continue; }
+        let col_w = col_widths[ci];
+        let col_x = col_x_starts[ci];
+
+        // For normalize=true, column always fills ph.
+        // For normalize=false, column height is proportional to col_total/grand_total.
+        let col_h = if mp.normalize {
+            ph
+        } else {
+            (col_total / grand_total) * ph
+        };
+        let usable_col_h = col_h - (n_rows as f64 - 1.0) * gap;
+
+        // Segments are stacked from area_bottom upward.
+        let col_y_bottom = area_bottom;
+
+        let mut seg_y = col_y_bottom;
+        for (ri, row_name) in row_order.iter().enumerate().rev() {
+            let val = mp.cell_value(col_name, row_name);
+            let seg_h = if col_total > 0.0 {
+                (val / col_total) * usable_col_h
+            } else {
+                0.0
+            };
+            if seg_h <= 0.0 {
+                // Still move y up by zero gap to keep separation correct
+                if ri + 1 < n_rows {
+                    seg_y -= gap;
+                }
+                continue;
+            }
+            let seg_top = seg_y - seg_h;
+            let color = mp.color_for_row_idx(ri);
+
+            scene.add(Primitive::Rect {
+                x: col_x,
+                y: seg_top,
+                width: col_w,
+                height: seg_h,
+                fill: Color::from(color.as_str()),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+
+            // Label inside cell
+            let show_label = mp.show_percents || mp.show_values;
+            if show_label && seg_h >= mp.min_label_height && col_w >= mp.min_label_width {
+                let label = if mp.show_percents && mp.show_values {
+                    format!("{:.1}%\n{}", val / col_total * 100.0, val)
+                } else if mp.show_percents {
+                    let pct = val / col_total * 100.0;
+                    format!("{:.1}%", pct)
+                } else {
+                    format!("{}", val)
+                };
+                // Only show if text fits width
+                if label.len() as f64 * label_size as f64 * 0.62 < col_w * 0.9 {
+                    let cx = col_x + col_w / 2.0;
+                    let cy = seg_top + seg_h / 2.0 + label_size as f64 * 0.35;
+                    scene.add(Primitive::Text {
+                        x: cx,
+                        y: cy,
+                        content: label,
+                        size: label_size,
+                        anchor: TextAnchor::Middle,
+                        rotate: None,
+                        bold: false,
+                        color: Some(Color::from("white")),
+                    });
+                }
+            }
+
+            // Move up past this segment + gap (gap between segments)
+            seg_y = seg_top;
+            if ri > 0 {
+                seg_y -= gap;
+            }
+        }
+
+        // Column name label below plot area, centered on column
+        let cx = col_x + col_w / 2.0;
+        let label_y = area_bottom + body_size as f64 * 1.5;
+        scene.add(Primitive::Text {
+            x: cx,
+            y: label_y,
+            content: col_name.clone(),
+            size: body_size,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
+    }
+
+    // ── Y-axis ────────────────────────────────────────────────────────────
+    // Vertical line at area_left, covering the full plot height.
+    let axis_x = area_left;
+    scene.add(Primitive::Line {
+        x1: axis_x, y1: area_top,
+        x2: axis_x, y2: area_bottom,
+        stroke: axis_color.clone(),
+        stroke_width: computed.axis_line_width,
+        stroke_dasharray: None,
+    });
+
+    // 5 ticks at 0%, 25%, 50%, 75%, 100%
+    let tick_fracs = [0.0, 0.25, 0.50, 0.75, 1.0];
+    let tick_len = computed.tick_mark_major;
+    for &frac in &tick_fracs {
+        let ty = area_bottom - frac * ph;
+        // Tick mark going left
+        scene.add(Primitive::Line {
+            x1: axis_x, y1: ty,
+            x2: axis_x - tick_len, y2: ty,
+            stroke: axis_color.clone(),
+            stroke_width: computed.tick_stroke_width,
+            stroke_dasharray: None,
+        });
+        // Tick label
+        let pct_label = format!("{}%", (frac * 100.0) as u32);
+        scene.add(Primitive::Text {
+            x: axis_x - tick_len - computed.tick_label_margin,
+            y: ty + computed.tick_size as f64 * 0.35,
+            content: pct_label,
+            size: computed.tick_size,
+            anchor: TextAnchor::End,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
+    }
 }
 

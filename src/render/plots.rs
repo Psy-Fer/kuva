@@ -38,6 +38,7 @@ use crate::plot::roc::RocPlot;
 use crate::plot::slope::SlopePlot;
 use crate::plot::venn::VennPlot;
 use crate::plot::parallel::ParallelPlot;
+use crate::plot::mosaic::MosaicPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -83,6 +84,7 @@ pub enum Plot {
     Slope(SlopePlot),
     Venn(VennPlot),
     Parallel(ParallelPlot),
+    Mosaic(MosaicPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -125,6 +127,7 @@ impl From<RocPlot>       for Plot { fn from(p: RocPlot)       -> Self { Plot::Ro
 impl From<SlopePlot>     for Plot { fn from(p: SlopePlot)     -> Self { Plot::Slope(p) } }
 impl From<VennPlot>        for Plot { fn from(p: VennPlot)        -> Self { Plot::Venn(p) } }
 impl From<ParallelPlot>    for Plot { fn from(p: ParallelPlot)    -> Self { Plot::Parallel(p) } }
+impl From<MosaicPlot>      for Plot { fn from(p: MosaicPlot)      -> Self { Plot::Mosaic(p) } }
 
 fn bounds_from_2d<I>(points: I) -> Option<((f64, f64), (f64, f64))>
     where
@@ -720,6 +723,8 @@ impl Plot {
             Plot::Venn(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
             // Pixel-space plot — dummy bounds so auto_from_plots sees it
             Plot::Parallel(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
+            // Pixel-space plot — no axis bounds needed
+            Plot::Mosaic(_) => None,
         }
     }
 
@@ -768,6 +773,11 @@ impl Plot {
             Plot::Slope(s) => s.points.len() * 5 + 10,
             Plot::Venn(v) => v.sets.len() * 10 + 50,
             Plot::Parallel(p) => p.rows.len() + p.axis_names.len() * 10 + 50,
+            Plot::Mosaic(mp) => {
+                let nc = mp.effective_col_order().len();
+                let nr = mp.effective_row_order().len();
+                nc * nr * 2 + nc + nr + 30
+            }
             _ => 100,
         }
     }

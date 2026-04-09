@@ -38,6 +38,7 @@ pub mod roc;
 pub mod slope;
 pub mod venn;
 pub mod parallel;
+pub mod mosaic;
 
 pub mod legend;
 
@@ -83,5 +84,6 @@ pub use roc::{RocPlot, RocGroup};
 pub use slope::{SlopePlot, SlopePoint, SlopeValueFormat};
 pub use venn::{VennPlot, VennSet, VennOverlap};
 pub use parallel::{ParallelPlot, ParallelRow};
+pub use mosaic::{MosaicPlot, MosaicCell};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};
