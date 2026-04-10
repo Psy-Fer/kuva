@@ -43,6 +43,8 @@
 - [Venn Diagram](./plots/venn.md)
 - [Polar Plot](./plots/polar.md)
 - [Ternary Plot](./plots/ternary.md)
+- [3D Scatter Plot](./plots/scatter3d.md)
+- [3D Surface Plot](./plots/surface3d.md)
 - [Twin-Y Plot](./plots/twin_y.md)
 
 # CLI

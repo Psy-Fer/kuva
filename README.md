@@ -6,7 +6,7 @@
 [![docs.rs](https://docs.rs/kuva/badge.svg)](https://docs.rs/kuva)
 [![Downloads](https://img.shields.io/crates/d/kuva.svg)](https://crates.io/crates/kuva)
 
-A scientific plotting library in Rust. 30 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
+A scientific plotting library in Rust. 32 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
 ![All 30 plot types](docs/src/assets/overview/all_plots_complex.svg)
 

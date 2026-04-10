@@ -665,6 +665,67 @@ fn test_forest_has_lines_and_circles() {
     assert!(stdout.contains("stroke-dasharray"), "SVG should contain dashed null line");
 }
 
+// ── scatter3d ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_scatter3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter3d", &data("scatter3d.tsv"),
+        "--x", "x", "--y", "y", "--z", "z",
+        "--title", "3D Scatter", "--x-label", "X", "--y-label", "Y", "--z-label", "Z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_scatter3d_has_circles_and_lines() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter3d", &data("scatter3d.tsv"),
+        "--x", "x", "--y", "y", "--z", "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<circle"), "SVG should contain circle markers");
+    assert!(stdout.contains("<line"), "SVG should contain line elements (box edges)");
+}
+
+#[test]
+fn test_scatter3d_color_by() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter3d", &data("scatter3d.tsv"),
+        "--x", "x", "--y", "y", "--z", "z", "--color-by", "group",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    assert!(stdout.contains("<circle"), "SVG should contain circle markers");
+}
+
+// ── surface3d ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_surface3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "surface3d", &data("surface3d.tsv"),
+        "--x", "x", "--y", "y", "--z", "z",
+        "--z-color", "viridis",
+        "--title", "3D Surface",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
+fn test_surface3d_has_paths() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "surface3d", &data("surface3d.tsv"),
+        "--x", "x", "--y", "y", "--z", "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<path"), "SVG should contain path elements (surface faces)");
+}
+
+// ── misc ─────────────────────────────────────────────────────────────────────
+
 #[test]
 fn test_unknown_subcommand() {
     let (_, _, code) = run_with_file(&["notaplot"]);

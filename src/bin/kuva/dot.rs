@@ -1,6 +1,6 @@
 use clap::Args;
 
-use kuva::plot::{DotPlot, ColorMap};
+use kuva::plot::DotPlot;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
@@ -53,13 +53,7 @@ pub struct DotArgs {
     pub axis: AxisArgs,
 }
 
-fn parse_colormap(name: &str) -> ColorMap {
-    match name {
-        "inferno" => ColorMap::Inferno,
-        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
-        _ => ColorMap::Viridis,
-    }
-}
+use crate::data::parse_colormap;
 
 pub fn run(args: DotArgs) -> Result<(), String> {
     let table = DataTable::parse(

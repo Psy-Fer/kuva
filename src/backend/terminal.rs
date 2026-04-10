@@ -549,10 +549,8 @@ impl Canvas {
                     return;
                 }
 
-                // Fill-only paths (Sankey bands, chord ribbons, pie slices, etc.)
-                // are scanline-filled in the braille dot grid, giving them a solid
-                // shaded interior rather than just their outline edges.
-                if has_fill && !has_stroke {
+                // Scanline-fill the interior when a fill color is present.
+                if has_fill {
                     let rgb = fill_rgb.unwrap();
                     let mut poly: Vec<(f64, f64)> = Vec::new();
                     let mut cur = (tx, ty);
@@ -595,10 +593,10 @@ impl Canvas {
                     if poly.len() >= 3 {
                         self.fill_braille_polygon(&poly, rgb);
                     }
-                    return;
+                    if !has_stroke { return; }
                 }
 
-                // Stroked paths — draw outline with Bresenham as before.
+                // Stroked paths — draw outline with Bresenham on top of fill.
                 let rgb = if has_stroke {
                     css_to_rgb(&pd.stroke.to_svg_string())
                 } else {
@@ -735,15 +733,16 @@ impl Canvas {
                 let abs_angle = angle.abs() % 180.0;
 
                 if abs_angle > 45.0 && abs_angle < 135.0 {
-                    // ~90°: sideways (y-axis label). Cannot rotate in terminal —
-                    // render vertically (one character per row, stacked) at column 0,
-                    // centered on the original row position.
+                    // ~90°: sideways text. Cannot rotate in terminal —
+                    // render vertically (one character per row, stacked)
+                    // at the text's x position, centered on the original row.
+                    let col = self.to_cx(x_s);
                     let half = len / 2;
                     let start_row = row - half;
                     for (i, ch) in chars.iter().enumerate() {
                         let r = start_row + i as isize;
                         if r >= 0 && (r as usize) < self.rows {
-                            self.set_char(0, r, *ch, rgb);
+                            self.set_char(col, r, *ch, rgb);
                         }
                     }
                 } else {

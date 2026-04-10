@@ -51,7 +51,7 @@ fn greyscale(value: f64) -> String {
 /// | `Custom` | User-defined | Full control over color encoding |
 #[derive(Clone)]
 pub enum ColorMap {
-    /// Perceptually uniform blue-green-yellow scale (default).
+    /// Black-to-white linear scale; print-friendly.
     Grayscale,
     /// Perceptually uniform blue-green-yellow scale.
     Viridis,
@@ -74,6 +74,17 @@ pub enum ColorMap {
     Custom(Arc<dyn Fn(f64) -> String + Send + Sync>),
 }
 
+impl std::fmt::Debug for ColorMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColorMap::Viridis    => write!(f, "ColorMap::Viridis"),
+            ColorMap::Inferno    => write!(f, "ColorMap::Inferno"),
+            ColorMap::Grayscale  => write!(f, "ColorMap::Grayscale"),
+            ColorMap::Custom(_)  => write!(f, "ColorMap::Custom(<fn>)"),
+        }
+    }
+}
+
 impl ColorMap {
     /// Map a normalized value in `[0.0, 1.0]` to a CSS color string.
     pub fn map(&self, value: f64) -> String {
@@ -83,6 +94,19 @@ impl ColorMap {
             ColorMap::Inferno => inferno(value),
             ColorMap::Custom(f) => f(value),
         }
+    }
+
+    /// Map a normalized value to `(r, g, b)` bytes, avoiding string allocation.
+    /// Returns `None` for `Custom` colormaps (which must go through `map()`).
+    pub fn map_rgb(&self, value: f64) -> Option<(u8, u8, u8)> {
+        let v = value.clamp(0.0, 1.0);
+        let rgb = match self {
+            ColorMap::Viridis => VIRIDIS.eval_continuous(v),
+            ColorMap::Inferno => INFERNO.eval_continuous(v),
+            ColorMap::Grayscale => GREYS.eval_continuous(v),
+            ColorMap::Custom(_) => return None,
+        };
+        Some((rgb.r, rgb.g, rgb.b))
     }
 }
 

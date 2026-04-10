@@ -514,6 +514,26 @@ check "ternary legend" \
         --legend \
         --title "Ternary Legend"
 
+# ── scatter3d ─────────────────────────────────────────────────────────────────
+check "scatter3d basic" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z \
+        --title "3D Scatter" --x-label "X" --y-label "Y" --z-label "Z"
+
+check "scatter3d color-by" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z --color-by group \
+        --title "3D Scatter Grouped"
+
+# ── surface3d ─────────────────────────────────────────────────────────────────
+check "surface3d basic" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --z-color viridis \
+        --title "3D Surface" --x-label "X" --y-label "Y" --z-label "Z"
+
+check "surface3d high-res" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --z-color inferno --resolution 20 \
+        --title "3D Surface (Upsampled)"
+
 # ── interactive ───────────────────────────────────────────────────────────────
 check "scatter interactive" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \

@@ -230,6 +230,75 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | [synteny](./synteny.md) | Synteny / genomic alignment ribbon plot |
 | [polar](./polar.md) | Polar coordinate scatter/line plot |
 | [ternary](./ternary.md) | Ternary (simplex) scatter plot |
+| [scatter3d](./scatter3d.md) | 3D scatter plot with orthographic projection |
+| [surface3d](./surface3d.md) | 3D surface mesh with depth-sorted rendering |
+
+---
+
+## scatter3d
+
+3D scatter plot with orthographic projection and depth-sorted rendering.
+
+**Input:** TSV/CSV with three numeric columns for X, Y, Z coordinates, plus an optional group column.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--x <COL>` | `0` | X coordinate column |
+| `--y <COL>` | `1` | Y coordinate column |
+| `--z <COL>` | `2` | Z coordinate column |
+| `--color-by <COL>` | — | Group by column for per-group colors |
+| `--color <CSS>` | `steelblue` | Point color |
+| `--size <PX>` | `3.0` | Point radius in pixels |
+| `--azimuth <DEG>` | `-60` | Azimuth viewing angle |
+| `--elevation <DEG>` | `30` | Elevation viewing angle |
+| `--z-color <MAP>` | — | Color by Z: viridis, inferno, grayscale |
+| `--depth-shade` | off | Fade distant points for depth cue |
+| `--z-axis-left` | off | Place Z-axis on the left side |
+| `--no-grid` | off | Hide grid lines on back walls |
+| `--no-box` | off | Hide wireframe bounding box |
+| `--grid-lines <N>` | `5` | Grid/tick divisions per axis |
+
+```bash
+kuva scatter3d data.tsv --x x --y y --z z \
+    --title "3D Scatter" --x-label "X" --y-label "Y" --z-label "Z"
+
+kuva scatter3d data.tsv --x x --y y --z z --color-by group \
+    --z-color viridis --depth-shade
+```
+
+---
+
+## surface3d
+
+3D surface mesh with depth-sorted filled quadrilaterals.
+
+**Input:** Either XYZ columns (long format, auto-pivoted to grid) or `--matrix` mode where each row is a grid row of Z values.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--x <COL>` | `0` | X coordinate column (long format) |
+| `--y <COL>` | `1` | Y coordinate column (long format) |
+| `--z <COL>` | `2` | Z coordinate column (long format) |
+| `--matrix` | off | Read as Z-value matrix (one row per grid row) |
+| `--z-color <MAP>` | — | Color by Z: viridis, inferno, grayscale |
+| `--color <CSS>` | `steelblue` | Uniform surface color (when no colormap) |
+| `--alpha <F>` | `1.0` | Surface opacity (0.0–1.0) |
+| `--no-wireframe` | off | Disable wireframe edges on mesh |
+| `--resolution <N>` | — | Upsample grid to NxN via bilinear interpolation (max 1000) |
+| `--azimuth <DEG>` | `-60` | Azimuth viewing angle |
+| `--elevation <DEG>` | `30` | Elevation viewing angle |
+| `--z-axis-left` | off | Place Z-axis on the left side |
+| `--no-grid` | off | Hide grid lines on back walls |
+| `--no-box` | off | Hide wireframe bounding box |
+| `--grid-lines <N>` | `5` | Grid/tick divisions per axis |
+
+```bash
+kuva surface3d data.tsv --x x --y y --z z --z-color viridis \
+    --title "3D Surface"
+
+kuva surface3d matrix.tsv --matrix --z-color inferno \
+    --resolution 50 --alpha 0.9
+```
 
 ---
 

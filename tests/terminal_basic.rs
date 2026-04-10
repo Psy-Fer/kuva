@@ -82,16 +82,17 @@ fn ylabel_renders_vertically() {
         s
     };
 
-    // Each character of "Count" should appear on a separate line at column 0.
-    // Collect the first non-space character of each line to find vertical text.
+    // Each character of "Count" should appear on a separate line near the left
+    // edge. Collect the first alphabetic character from the left margin (first
+    // few columns) of each line to find vertical text.
     let first_chars: Vec<char> = stripped
         .lines()
-        .filter_map(|line| line.chars().next().filter(|c| c.is_alphabetic()))
+        .filter_map(|line| line.chars().take(5).find(|c| c.is_alphabetic()))
         .collect();
     let label_str: String = first_chars.iter().collect();
     assert!(
         label_str.contains("Count"),
-        "expected 'Count' stacked vertically in first column, got: {label_str:?}"
+        "expected 'Count' stacked vertically near left edge, got: {label_str:?}"
     );
 }
 

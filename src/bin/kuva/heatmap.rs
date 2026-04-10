@@ -1,6 +1,6 @@
 use clap::Args;
 
-use kuva::plot::{Heatmap, ColorMap};
+use kuva::plot::Heatmap;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
@@ -52,13 +52,7 @@ pub struct HeatmapArgs {
 }
 
 /// Parse colormap name → ColorMap enum.
-fn parse_colormap(name: &str) -> ColorMap {
-    match name {
-        "inferno" => ColorMap::Inferno,
-        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
-        _ => ColorMap::Viridis,
-    }
-}
+use crate::data::parse_colormap;
 
 pub fn run(args: HeatmapArgs) -> Result<(), String> {
     let table = DataTable::parse(

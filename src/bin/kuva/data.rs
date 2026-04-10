@@ -183,3 +183,18 @@ fn sniff_delim(content: &str) -> char {
 fn split_line(line: &str, delim: char) -> Vec<String> {
     line.split(delim).map(|s| s.trim().to_string()).collect()
 }
+
+/// Parse a colormap name string into a `ColorMap` enum.
+/// Unrecognized names default to Viridis with a warning on stderr.
+pub fn parse_colormap(name: &str) -> kuva::plot::heatmap::ColorMap {
+    use kuva::plot::heatmap::ColorMap;
+    match name {
+        "viridis" => ColorMap::Viridis,
+        "inferno" => ColorMap::Inferno,
+        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
+        _ => {
+            eprintln!("warning: unknown colormap '{name}', using viridis");
+            ColorMap::Viridis
+        }
+    }
+}

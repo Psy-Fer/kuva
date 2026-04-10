@@ -2,7 +2,7 @@ use crate::render::render_utils::{self, percentile, linear_regression, pearson_c
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::render::layout::{Layout, ComputedLayout};
+use crate::render::layout::{Layout, ComputedLayout, TickFormat};
 use crate::render::plots::Plot;
 use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
 use crate::render::annotations::{add_shaded_regions, add_reference_lines, add_text_annotations};
@@ -64,6 +64,8 @@ use crate::plot::polar::{PolarPlot, PolarMode};
 use crate::plot::ternary::TernaryPlot;
 use crate::plot::diceplot::DicePlot;
 use crate::plot::forest::ForestPlot;
+use crate::plot::scatter3d::Scatter3DPlot;
+use crate::plot::surface3d::Surface3DPlot;
 use crate::plot::clustermap::{Clustermap, ClustermapNorm};
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::roc::RocPlot;
@@ -1776,6 +1778,511 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             computed,
         );
         label_offset += group.values.len();
+    }
+}
+
+// ── Shared 3D box / grid / axes infrastructure ─────────────────────────────
+// Used by both Scatter3D and Surface3D.
+
+use crate::render::projection::Projection3D;
+use crate::plot::plot3d::{DataRanges3D, Box3DConfig};
+
+/// Draw the 3D open-box wireframe, back-pane fills, grid lines, tick marks,
+/// and axis labels. Returns the `Projection3D` so the caller can project
+/// its data consistently.
+fn draw_3d_box(
+    ranges: DataRanges3D,
+    cfg: &Box3DConfig,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+) -> Projection3D {
+    let (x_min, x_max) = ranges.x;
+    let (y_min, y_max) = ranges.y;
+    let (z_min, z_max) = ranges.z;
+
+    let plot_w = computed.plot_width();
+    let plot_h = computed.plot_height();
+    let plot_size = plot_w.min(plot_h);
+    let plot_cx = computed.margin_left + plot_w / 2.0;
+    let plot_cy = computed.margin_top + plot_h / 2.0;
+
+    // Find the front corner using only the rotation matrix (no full projection needed)
+    let (fc_x, fc_y) = cfg.view.front_bottom_corner();
+
+    // Flip axis ranges so data-min is always at the open front corner
+    let x_range = if fc_x > 0.0 { (x_max, x_min) } else { (x_min, x_max) };
+    let y_range = if fc_y < 0.0 { (y_max, y_min) } else { (y_min, y_max) };
+
+    let proj = Projection3D::new(
+        cfg.view, x_range, y_range, (z_min, z_max),
+        plot_cx, plot_cy, plot_size,
+    );
+
+    let view_dir = proj.view_direction();
+    let grid_n = cfg.grid_lines;
+
+    // ── Box edges ──────────────────────────────────────────────────────
+    #[derive(Clone, Copy)]
+    struct Edge {
+        a: [f64; 3],
+        b: [f64; 3],
+    }
+
+    let corners: [[f64; 3]; 8] = [
+        [-0.5, -0.5, -0.5], [ 0.5, -0.5, -0.5],
+        [ 0.5,  0.5, -0.5], [-0.5,  0.5, -0.5],
+        [-0.5, -0.5,  0.5], [ 0.5, -0.5,  0.5],
+        [ 0.5,  0.5,  0.5], [-0.5,  0.5,  0.5],
+    ];
+
+    let edge_indices: [(usize, usize); 12] = [
+        (0,1),(1,2),(2,3),(3,0),
+        (4,5),(5,6),(6,7),(7,4),
+        (0,4),(1,5),(2,6),(3,7),
+    ];
+
+    let face_normals: [[f64; 3]; 6] = [
+        [0.0, 0.0, -1.0], [0.0, 0.0, 1.0],
+        [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0], [0.0, 1.0, 0.0],
+    ];
+    let face_edges: [&[usize]; 6] = [
+        &[0,1,2,3], &[4,5,6,7], &[3,7,8,11], &[1,5,9,10], &[0,4,8,9], &[2,6,10,11],
+    ];
+
+    let face_front: [bool; 6] = std::array::from_fn(|i| {
+        let n = &face_normals[i];
+        n[0]*view_dir[0] + n[1]*view_dir[1] + n[2]*view_dir[2] > 0.0
+    });
+
+    let edges: [Edge; 12] = std::array::from_fn(|i| {
+        let (a, b) = edge_indices[i];
+        Edge { a: corners[a], b: corners[b] }
+    });
+
+    // Open-box style (like matplotlib): only draw edges bordering at least
+    // one back-facing face. The "open corner" (all-front faces) is hidden.
+    let mut edge_has_back = [false; 12];
+    let mut edge_has_front = [false; 12];
+    for (fi, fe) in face_edges.iter().enumerate() {
+        for &ei in *fe {
+            if face_front[fi] { edge_has_front[ei] = true; }
+            else { edge_has_back[ei] = true; }
+        }
+    }
+
+    let theme = &computed.theme;
+    let silhouette_color = Color::from(theme.axis_color.as_str());
+    let back_edge_color = Color::from(theme.grid_color.as_str());
+
+    if cfg.show_box {
+        for (i, edge) in edges.iter().enumerate() {
+            if !edge_has_back[i] { continue; }
+            let (x1, y1, _) = proj.project_normalized(edge.a[0], edge.a[1], edge.a[2]);
+            let (x2, y2, _) = proj.project_normalized(edge.b[0], edge.b[1], edge.b[2]);
+            let is_silhouette = edge_has_front[i];
+            scene.add(Primitive::Line {
+                x1: round2(x1), y1: round2(y1),
+                x2: round2(x2), y2: round2(y2),
+                stroke: if is_silhouette { silhouette_color.clone() } else { back_edge_color.clone() },
+                stroke_width: if is_silhouette { 1.0 } else { 0.5 },
+                stroke_dasharray: None,
+            });
+        }
+    }
+
+    // ── Back-pane fills ─────────────────────────────────────────────────
+    let face_corners: [[usize; 4]; 6] = [
+        [0,1,2,3], [4,5,6,7], [0,3,7,4], [1,2,6,5], [0,1,5,4], [3,2,6,7],
+    ];
+    // Derive a subtle pane fill from the grid color with low opacity
+    let pane_fill = Color::from(theme.grid_color.as_str());
+    for (fi, fc) in face_corners.iter().enumerate() {
+        if face_front[fi] { continue; }
+        let pts: Vec<(f64, f64)> = fc.iter().map(|&ci| {
+            let (sx, sy, _) = proj.project_normalized(corners[ci][0], corners[ci][1], corners[ci][2]);
+            (sx, sy)
+        }).collect();
+        let mut d = build_path(&pts);
+        d.push('Z');
+        scene.add(Primitive::Path(Box::new(PathData {
+            d, fill: Some(pane_fill.clone()), stroke: Color::None,
+            stroke_width: 0.0, opacity: Some(0.15), stroke_dasharray: None,
+        })));
+    }
+
+    // ── Grid lines on back-facing walls ────────────────────────────────
+    if cfg.show_grid && grid_n > 0 {
+        let grid_color = Color::from(theme.grid_color.as_str());
+        // Top face (+z, index 1) is omitted — always front-facing at positive elevation.
+        type EndpointFn = fn(f64) -> ([f64; 3], [f64; 3]);
+        let grid_faces: [(usize, EndpointFn, EndpointFn); 5] = [
+            (0, |t| ([-0.5, t, -0.5], [0.5, t, -0.5]), |t| ([t, -0.5, -0.5], [t, 0.5, -0.5])),
+            (2, |t| ([-0.5, t, -0.5], [-0.5, t, 0.5]), |t| ([-0.5, -0.5, t], [-0.5, 0.5, t])),
+            (3, |t| ([0.5, t, -0.5], [0.5, t, 0.5]), |t| ([0.5, -0.5, t], [0.5, 0.5, t])),
+            (4, |t| ([t, -0.5, -0.5], [t, -0.5, 0.5]), |t| ([-0.5, -0.5, t], [0.5, -0.5, t])),
+            (5, |t| ([t, 0.5, -0.5], [t, 0.5, 0.5]), |t| ([-0.5, 0.5, t], [0.5, 0.5, t])),
+        ];
+        for i in 0..=grid_n {
+            let t = i as f64 / grid_n as f64 - 0.5;
+            for &(fi, line_a, line_b) in &grid_faces {
+                if face_front[fi] { continue; }
+                for line_fn in [line_a, line_b] {
+                    let (a, b) = line_fn(t);
+                    let (x1, y1, _) = proj.project_normalized(a[0], a[1], a[2]);
+                    let (x2, y2, _) = proj.project_normalized(b[0], b[1], b[2]);
+                    scene.add(Primitive::Line {
+                        x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2),
+                        stroke: grid_color.clone(), stroke_width: 0.5, stroke_dasharray: None,
+                    });
+                }
+            }
+        }
+    }
+
+    // ── Tick marks and labels ──────────────────────────────────────────
+    let tick_color = Color::from(theme.tick_color.as_str());
+    let body_size = computed.body_size;
+    let tick_size = body_size.saturating_sub(2).max(8);
+
+    let screen_dir = |ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64| -> (f64, f64) {
+        let (sx1, sy1, _) = proj.project_normalized(ax, ay, az);
+        let (sx2, sy2, _) = proj.project_normalized(bx, by, bz);
+        let dx = sx2 - sx1; let dy = sy2 - sy1;
+        let len = (dx * dx + dy * dy).sqrt().max(1e-9);
+        (dx / len, dy / len)
+    };
+    let perp_vec = |ax: f64, ay: f64, az: f64, px: f64, py: f64, pz: f64| -> (f64, f64) {
+        let (sx, sy, _) = proj.project_normalized(ax, ay, az);
+        let (ox, oy, _) = proj.project_normalized(ax + px, ay + py, az + pz);
+        let rdx = ox - sx; let rdy = oy - sy;
+        let len = (rdx * rdx + rdy * rdy).sqrt().max(1e-9);
+        (rdx / len, rdy / len)
+    };
+    let anchor_for = |dx: f64| -> TextAnchor {
+        if dx < -0.3 { TextAnchor::End } else if dx > 0.3 { TextAnchor::Start } else { TextAnchor::Middle }
+    };
+    let angle_deg = |dx: f64, dy: f64| -> f64 {
+        let a = dy.atan2(dx).to_degrees();
+        if a > 90.0 { a - 180.0 } else if a < -90.0 { a + 180.0 } else { a }
+    };
+
+    let tick_len = 6.0_f64;
+    let label_gap = 10.0_f64;
+    let axis_label_gap = 42.0_f64;
+
+    // X-axis ticks
+    let x_ticks = render_utils::generate_ticks(x_min, x_max, grid_n.max(3));
+    {
+        let perp_sign = if fc_y < 0.0 { -0.1 } else { 0.1 };
+        let (ndx, ndy) = perp_vec(0.0, fc_y, -0.5, 0.0, perp_sign, 0.0);
+        let (edx, edy) = screen_dir(-0.5, fc_y, -0.5, 0.5, fc_y, -0.5);
+        for &tick_val in &x_ticks {
+            let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
+            if t.abs() > 0.501 { continue; }
+            let (sx, sy, _) = proj.project_normalized(t, fc_y, -0.5);
+            scene.add(Primitive::Line {
+                x1: round2(sx), y1: round2(sy),
+                x2: round2(sx + ndx * tick_len), y2: round2(sy + ndy * tick_len),
+                stroke: tick_color.clone(), stroke_width: 0.8, stroke_dasharray: None,
+            });
+            let lx = sx + ndx * (tick_len + label_gap);
+            let ly = sy + ndy * (tick_len + label_gap);
+            scene.add(Primitive::Text {
+                x: round2(lx), y: round2(ly + 3.0),
+                content: TickFormat::Auto.format(tick_val),
+                size: tick_size, anchor: TextAnchor::Middle,
+                rotate: Some(angle_deg(edx, edy)), bold: false,
+                color: None,
+            });
+        }
+        if let Some(ref label) = cfg.x_label {
+            let (mx, my, _) = proj.project_normalized(0.0, fc_y, -0.5);
+            scene.add(Primitive::Text {
+                x: round2(mx + ndx * axis_label_gap), y: round2(my + ndy * axis_label_gap + 4.0),
+                content: label.to_string(), size: body_size, anchor: TextAnchor::Middle,
+                rotate: Some(angle_deg(edx, edy)), bold: true,
+                color: None,
+            });
+        }
+    }
+
+    // Y-axis ticks
+    let y_ticks = render_utils::generate_ticks(y_min, y_max, grid_n.max(3));
+    {
+        let perp_sign = if fc_x < 0.0 { -0.1 } else { 0.1 };
+        let (ndx, ndy) = perp_vec(fc_x, 0.0, -0.5, perp_sign, 0.0, 0.0);
+        let (edx, edy) = screen_dir(fc_x, -0.5, -0.5, fc_x, 0.5, -0.5);
+        for &tick_val in &y_ticks {
+            let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
+            if t.abs() > 0.501 { continue; }
+            let (sx, sy, _) = proj.project_normalized(fc_x, t, -0.5);
+            scene.add(Primitive::Line {
+                x1: round2(sx), y1: round2(sy),
+                x2: round2(sx + ndx * tick_len), y2: round2(sy + ndy * tick_len),
+                stroke: tick_color.clone(), stroke_width: 0.8, stroke_dasharray: None,
+            });
+            let lx = sx + ndx * (tick_len + label_gap);
+            let ly = sy + ndy * (tick_len + label_gap);
+            scene.add(Primitive::Text {
+                x: round2(lx), y: round2(ly + 3.0),
+                content: TickFormat::Auto.format(tick_val),
+                size: tick_size, anchor: TextAnchor::Middle,
+                rotate: Some(angle_deg(edx, edy)), bold: false,
+                color: None,
+            });
+        }
+        if let Some(ref label) = cfg.y_label {
+            let (mx, my, _) = proj.project_normalized(fc_x, 0.0, -0.5);
+            scene.add(Primitive::Text {
+                x: round2(mx + ndx * axis_label_gap), y: round2(my + ndy * axis_label_gap + 4.0),
+                content: label.to_string(), size: body_size, anchor: TextAnchor::Middle,
+                rotate: Some(angle_deg(edx, edy)), bold: true,
+                color: None,
+            });
+        }
+    }
+
+    // Z-axis ticks
+    let z_ticks = render_utils::generate_ticks(z_min, z_max, grid_n.max(3));
+    {
+        let vert_edges: [(usize, usize, usize); 4] = [
+            (0, 4, 8), (1, 5, 9), (2, 6, 10), (3, 7, 11),
+        ];
+        let mut best_edge = (0usize, 4usize);
+        let mut best_sx = if cfg.z_axis_right { f64::NEG_INFINITY } else { f64::INFINITY };
+        for &(a, b, ei) in &vert_edges {
+            if !edge_has_back[ei] { continue; }
+            let mid_x = (corners[a][0] + corners[b][0]) / 2.0;
+            let mid_y = (corners[a][1] + corners[b][1]) / 2.0;
+            let mid_z = (corners[a][2] + corners[b][2]) / 2.0;
+            let (sx, _, _) = proj.project_normalized(mid_x, mid_y, mid_z);
+            let better = if cfg.z_axis_right { sx > best_sx } else { sx < best_sx };
+            if better { best_sx = sx; best_edge = (a, b); }
+        }
+        let edge_x = corners[best_edge.0][0];
+        let edge_y = corners[best_edge.0][1];
+        let perp_x = if edge_x < 0.0 { -0.1 } else { 0.1 };
+        let perp_y = if edge_y < 0.0 { -0.1 } else { 0.1 };
+        let (ndx, ndy) = perp_vec(edge_x, edge_y, 0.0, perp_x, perp_y, 0.0);
+        let (zdx, zdy) = screen_dir(edge_x, edge_y, -0.5, edge_x, edge_y, 0.5);
+        for &tick_val in &z_ticks {
+            let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
+            if t.abs() > 0.501 { continue; }
+            let (sx, sy, _) = proj.project_normalized(edge_x, edge_y, t);
+            scene.add(Primitive::Line {
+                x1: round2(sx), y1: round2(sy),
+                x2: round2(sx + ndx * tick_len), y2: round2(sy + ndy * tick_len),
+                stroke: tick_color.clone(), stroke_width: 0.8, stroke_dasharray: None,
+            });
+            scene.add(Primitive::Text {
+                x: round2(sx + ndx * (tick_len + label_gap)),
+                y: round2(sy + ndy * (tick_len + label_gap) + 3.0),
+                content: TickFormat::Auto.format(tick_val),
+                size: tick_size, anchor: anchor_for(ndx),
+                rotate: Some(angle_deg(zdx, zdy)), bold: false,
+                color: None,
+            });
+        }
+        if let Some(ref label) = cfg.z_label {
+            let (mx, my, _) = proj.project_normalized(edge_x, edge_y, 0.0);
+            scene.add(Primitive::Text {
+                x: round2(mx + ndx * (axis_label_gap + 6.0)),
+                y: round2(my + ndy * (axis_label_gap + 6.0) + 4.0),
+                content: label.to_string(), size: body_size,
+                anchor: TextAnchor::Middle, rotate: Some(angle_deg(zdx, zdy)), bold: true,
+                color: None,
+            });
+        }
+    }
+
+    proj
+}
+
+fn add_scatter3d(s: &Scatter3DPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let ranges = match s.data_ranges() {
+        Some(r) => r,
+        None => return,
+    };
+    let (z_min, z_max) = ranges.z;
+
+    let proj = draw_3d_box(ranges, &s.box3d, scene, computed);
+
+    // ── Data points (depth-sorted, back to front) ──────────────────────
+    let z_span = (z_max - z_min).max(f64::EPSILON);
+    let has_z_cmap = s.z_colormap.is_some();
+
+    struct ProjectedPoint {
+        sx: f64,
+        sy: f64,
+        depth: f64,
+        idx: usize,
+    }
+
+    let mut projected: Vec<ProjectedPoint> = s.data.iter().enumerate().map(|(i, p)| {
+        let (sx, sy, depth) = proj.project(p.x, p.y, p.z);
+        ProjectedPoint { sx, sy, depth, idx: i }
+    }).collect();
+
+    // Sort back-to-front (largest depth first)
+    projected.sort_by(|a, b| b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Compute depth range for shading
+    let (depth_min, depth_max) = if s.depth_shade {
+        let dmin = projected.iter().map(|p| p.depth).fold(f64::INFINITY, f64::min);
+        let dmax = projected.iter().map(|p| p.depth).fold(f64::NEG_INFINITY, f64::max);
+        (dmin, dmax)
+    } else {
+        (0.0, 1.0)
+    };
+    let depth_span = (depth_max - depth_min).max(1e-12);
+
+    // Hoist loop-invariant values
+    let stroke_color = s.marker_stroke_width.map(|_| Color::from("#333333"));
+    let base_opacity = s.marker_opacity.unwrap_or(1.0);
+
+    for pp in &projected {
+        let i = pp.idx;
+        let pt = &s.data[i];
+        if !pt.x.is_finite() || !pt.y.is_finite() || !pt.z.is_finite() { continue; }
+        let point_size = s.sizes.as_ref().and_then(|v| v.get(i).copied()).unwrap_or(s.size);
+
+        // Use map_rgb fast path when available, fall back to string for Custom colormaps
+        let owned_color: String;
+        let rgb_buf: [u8; 7]; // "#rrggbb"
+        let fill_ref: &str = if has_z_cmap {
+            let norm = (s.data[i].z - z_min) / z_span;
+            let cmap = s.z_colormap.as_ref().unwrap();
+            if let Some((r, g, b)) = cmap.map_rgb(norm) {
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                rgb_buf = [b'#', HEX[(r>>4) as usize], HEX[(r&0xf) as usize],
+                    HEX[(g>>4) as usize], HEX[(g&0xf) as usize],
+                    HEX[(b>>4) as usize], HEX[(b&0xf) as usize]];
+                std::str::from_utf8(&rgb_buf).unwrap()
+            } else {
+                owned_color = cmap.map(norm);
+                &owned_color
+            }
+        } else if let Some(ref colors) = s.colors {
+            colors.get(i).map(|c| c.as_str()).unwrap_or(&s.color)
+        } else {
+            &s.color
+        };
+
+        let opacity = if s.depth_shade {
+            let t = (pp.depth - depth_min) / depth_span;
+            Some(base_opacity * (1.0 - t * 0.7))
+        } else {
+            s.marker_opacity
+        };
+
+        draw_marker(
+            scene,
+            s.marker,
+            round2(pp.sx),
+            round2(pp.sy),
+            point_size,
+            fill_ref,
+            opacity,
+            stroke_color.clone(),
+            s.marker_stroke_width,
+        );
+    }
+
+}
+
+
+fn add_surface3d(s: &Surface3DPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let ranges = match s.data_ranges() {
+        Some(r) => r,
+        None => return,
+    };
+    let (z_min, z_max) = ranges.z;
+
+    let proj = draw_3d_box(ranges, &s.box3d, scene, computed);
+
+    let nrows = s.nrows();
+    let ncols = s.ncols();
+    let z_span = (z_max - z_min).max(f64::EPSILON);
+    let has_cmap = s.z_colormap.is_some();
+
+    // Build quad faces from grid, project, and compute depth + color
+    struct Face {
+        pts: [(f64, f64); 4], // screen coords
+        depth: f64,
+        avg_z: f64,
+    }
+
+    let mut faces: Vec<Face> = Vec::with_capacity((nrows - 1) * (ncols - 1));
+
+    for i in 0..nrows - 1 {
+        for j in 0..ncols - 1 {
+            let corners_data = [
+                (s.x_at(j),   s.y_at(i),   s.z_data[i][j]),
+                (s.x_at(j+1), s.y_at(i),   s.z_data[i][j+1]),
+                (s.x_at(j+1), s.y_at(i+1), s.z_data[i+1][j+1]),
+                (s.x_at(j),   s.y_at(i+1), s.z_data[i+1][j]),
+            ];
+
+            // Skip faces with any NaN coordinate
+            if corners_data.iter().any(|c| !c.0.is_finite() || !c.1.is_finite() || !c.2.is_finite()) { continue; }
+
+            let mut total_depth = 0.0;
+            let mut total_z = 0.0;
+            let mut pts = [(0.0, 0.0); 4];
+            for (k, &(x, y, z)) in corners_data.iter().enumerate() {
+                let (sx, sy, d) = proj.project(x, y, z);
+                pts[k] = (round2(sx), round2(sy));
+                total_depth += d;
+                total_z += z;
+            }
+
+            faces.push(Face {
+                pts,
+                depth: total_depth / 4.0,
+                avg_z: total_z / 4.0,
+            });
+        }
+    }
+
+    // Sort back-to-front (painter's algorithm)
+    faces.sort_by(|a, b| b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Pre-compute wireframe stroke
+    let wire_stroke = if s.show_wireframe {
+        Color::from(s.wireframe_color.as_str())
+    } else {
+        Color::None
+    };
+    let wire_width = if s.show_wireframe { s.wireframe_width } else { 0.0 };
+    let opacity = if s.alpha < 1.0 { Some(s.alpha) } else { None };
+    // Hoist uniform fill color for the no-cmap path
+    let base_fill = if !has_cmap { Some(Color::from(s.color.as_str())) } else { None };
+
+    for face in &faces {
+        let fill = if has_cmap {
+            let norm = (face.avg_z - z_min) / z_span;
+            let cmap = s.z_colormap.as_ref().unwrap();
+            if let Some((r, g, b)) = cmap.map_rgb(norm) {
+                Color::Rgb(r, g, b)
+            } else {
+                Color::from(cmap.map(norm).as_str())
+            }
+        } else {
+            base_fill.clone().unwrap()
+        };
+
+        let mut d = build_path(&face.pts);
+        d.push('Z');
+
+        scene.add(Primitive::Path(Box::new(PathData {
+            d,
+            fill: Some(fill),
+            stroke: wire_stroke.clone(),
+            stroke_width: wire_width,
+            opacity,
+            stroke_dasharray: None,
+        })));
     }
 }
 
@@ -7013,6 +7520,26 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Scatter3D(s) => {
+                if let Some(ref label) = s.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: s.color.clone(),
+                        shape: LegendShape::Marker(s.marker),
+                        dasharray: None,
+                    });
+                }
+            }
+            Plot::Surface3D(s) => {
+                if let Some(ref label) = s.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: s.color.clone(),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
             Plot::DicePlot(dp) => {
                 for (label, color) in &dp.dot_legend {
                     entries.push(LegendEntry {
@@ -8558,7 +9085,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) |
                 Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) |
-                Plot::Forest(_) | Plot::Raincloud(_) | Plot::Lollipop(_) | Plot::Survival(_) |
+                Plot::Forest(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) |
+                Plot::Raincloud(_) | Plot::Lollipop(_) | Plot::Survival(_) |
                 Plot::Slope(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
@@ -8641,7 +9169,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         let skip_axes_for_meta = plots.iter().all(|p| matches!(p,
             Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
             | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)
-            | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)
+            | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)
             | Plot::Mosaic(_)));
         if !skip_axes_for_meta {
             scene.axis_meta = Some(AxisMeta {
@@ -8659,7 +9187,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -8847,6 +9375,12 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Forest(f) => {
                 add_forest(f, &mut scene, &computed);
+            }
+            Plot::Scatter3D(s) => {
+                add_scatter3d(s, &mut scene, &computed);
+            }
+            Plot::Surface3D(s) => {
+                add_surface3d(s, &mut scene, &computed);
             }
             Plot::Clustermap(c) => {
                 add_clustermap(c, &mut scene, &computed);

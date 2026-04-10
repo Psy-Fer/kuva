@@ -713,6 +713,18 @@ impl Layout {
                     }
                 }
             }
+
+            // 3D plot types: check for legend label and z-colormap
+            let (legend_3d, cmap_3d) = match plot {
+                Plot::Scatter3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
+                Plot::Surface3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
+                _ => (None, false),
+            };
+            if let Some(label) = legend_3d {
+                has_legend = true;
+                max_label_len = max_label_len.max(label.len());
+            }
+            if cmap_3d { has_colorbar = true; }
         }
 
         // Save raw data range before padding (log scale needs it)
