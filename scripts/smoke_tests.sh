@@ -601,6 +601,27 @@ check "surface3d alternate view" \
         --z-color viridis --azimuth 45 --elevation 45 \
         --title "3D Surface Alt View"
 
+# ── qq ───────────────────────────────────────────────────────────────────────
+check "qq normal basic" \
+    "$BIN" qq "$DATA/samples.tsv" \
+        --value value \
+        --title "Normal Q-Q"
+
+check "qq normal multigroup" \
+    "$BIN" qq "$DATA/samples.tsv" \
+        --value value --color-by group \
+        --title "Multi-group Normal Q-Q"
+
+check "qq genomic basic" \
+    "$BIN" qq "$DATA/gene_stats.tsv" \
+        --value pvalue --genomic \
+        --title "Genomic Q-Q"
+
+check "qq genomic with ci band and lambda" \
+    "$BIN" qq "$DATA/gene_stats.tsv" \
+        --value pvalue --genomic --ci-band --lambda \
+        --title "Genomic Q-Q with CI and lambda"
+
 # ── interactive ───────────────────────────────────────────────────────────────
 check "scatter interactive" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \

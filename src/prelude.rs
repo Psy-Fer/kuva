@@ -103,6 +103,9 @@ pub use crate::plot::{
     ParallelRow,
     MosaicPlot,
     MosaicCell,
+    QQPlot,
+    QQGroup,
+    QQMode,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,

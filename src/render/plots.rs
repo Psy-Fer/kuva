@@ -42,6 +42,7 @@ use crate::plot::slope::SlopePlot;
 use crate::plot::venn::VennPlot;
 use crate::plot::parallel::ParallelPlot;
 use crate::plot::mosaic::MosaicPlot;
+use crate::plot::qq::QQPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -91,6 +92,7 @@ pub enum Plot {
     Parallel(ParallelPlot),
     Mosaic(MosaicPlot),
     Ecdf(EcdfPlot),
+    QQ(QQPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -137,6 +139,7 @@ impl From<VennPlot>        for Plot { fn from(p: VennPlot)        -> Self { Plot
 impl From<ParallelPlot>    for Plot { fn from(p: ParallelPlot)    -> Self { Plot::Parallel(p) } }
 impl From<MosaicPlot>      for Plot { fn from(p: MosaicPlot)      -> Self { Plot::Mosaic(p) } }
 impl From<EcdfPlot>        for Plot { fn from(p: EcdfPlot)        -> Self { Plot::Ecdf(p) } }
+impl From<QQPlot>          for Plot { fn from(p: QQPlot)          -> Self { Plot::QQ(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
 use crate::plot::heatmap::ColorMap;
@@ -215,6 +218,7 @@ impl Plot {
             Plot::Slope(s) => s.color = color.into(),
             Plot::Parallel(p) => p.color = color.into(),
             Plot::Ecdf(e) => e.color = color.into(),
+            Plot::QQ(q) => q.color = color.into(),
             _ => {}
         }
     }
@@ -773,6 +777,43 @@ impl Plot {
                 // y is always [0, 1] for ECDF / CCDF
                 Some(((x_min, x_max), (0.0, 1.0)))
             }
+            Plot::QQ(qp) => {
+                use crate::plot::qq::QQMode;
+                use crate::render::render_utils::probit;
+                if qp.groups.is_empty() { return None; }
+                match qp.mode {
+                    QQMode::Normal => {
+                        let n_max = qp.groups.iter().map(|g| g.data.len()).max().unwrap_or(0);
+                        if n_max == 0 { return None; }
+                        let th_min = probit(0.5 / n_max as f64);
+                        let th_max = probit(1.0 - 0.5 / n_max as f64);
+                        let mut y_min = f64::INFINITY;
+                        let mut y_max = f64::NEG_INFINITY;
+                        for g in &qp.groups {
+                            for &v in &g.data {
+                                y_min = y_min.min(v);
+                                y_max = y_max.max(v);
+                            }
+                        }
+                        if !y_min.is_finite() { return None; }
+                        Some(((th_min, th_max), (y_min, y_max)))
+                    }
+                    QQMode::Genomic => {
+                        let n_max = qp.groups.iter().map(|g| g.data.len()).max().unwrap_or(0);
+                        if n_max == 0 { return None; }
+                        let x_max = (2.0 * n_max as f64).log10();
+                        let mut y_max: f64 = 0.0;
+                        for g in &qp.groups {
+                            for &p in &g.data {
+                                if p > 0.0 && p <= 1.0 {
+                                    y_max = y_max.max(-p.log10());
+                                }
+                            }
+                        }
+                        Some(((0.0, x_max), (0.0, y_max)))
+                    }
+                }
+            }
         }
     }
 
@@ -836,6 +877,11 @@ impl Plot {
                 let band = if ep.show_confidence_band { n * 4 } else { 0 };
                 let rug = if ep.show_rug { n } else { 0 };
                 ep.groups.len() * 2 + n * 2 + band + rug + 20
+            }
+            Plot::QQ(qp) => {
+                let n: usize = qp.groups.iter().map(|g| g.data.len()).sum();
+                let band = if qp.show_ci_band { n * 4 } else { 0 };
+                qp.groups.len() * 2 + n + band + 20
             }
             _ => 100,
         }

@@ -43,6 +43,7 @@ pub mod slope;
 pub mod venn;
 pub mod parallel;
 pub mod mosaic;
+pub mod qq;
 
 pub mod legend;
 
@@ -93,5 +94,6 @@ pub use slope::{SlopePlot, SlopePoint, SlopeValueFormat};
 pub use venn::{VennPlot, VennSet, VennOverlap};
 pub use parallel::{ParallelPlot, ParallelRow};
 pub use mosaic::{MosaicPlot, MosaicCell};
+pub use qq::{QQPlot, QQGroup, QQMode};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

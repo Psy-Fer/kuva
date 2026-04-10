@@ -6433,6 +6433,225 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
 }
 
 
+fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &mut Scene) {
+    use crate::plot::qq::QQMode;
+    use crate::render::render_utils::{probit, percentile};
+    use crate::render::palette::Palette;
+
+    if qp.groups.is_empty() { return; }
+
+    let cat10 = Palette::category10();
+
+    // Helper: resolve per-group color
+    let resolve_color = |group: &crate::plot::qq::QQGroup, idx: usize| -> Color {
+        let s = group.color.clone().unwrap_or_else(|| {
+            if qp.groups.len() == 1 { qp.color.clone() }
+            else { cat10[idx % cat10.len()].to_string() }
+        });
+        Color::from(s.as_str())
+    };
+
+    match &qp.mode {
+        QQMode::Normal => {
+            for (gi, group) in qp.groups.iter().enumerate() {
+                let color = resolve_color(group, gi);
+                let mut sorted = group.data.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let n = sorted.len();
+                if n == 0 { continue; }
+
+                // Theoretical quantiles via Hazen plotting positions
+                let theoretical: Vec<f64> = (1..=n)
+                    .map(|k| probit((k as f64 - 0.5) / n as f64))
+                    .collect();
+
+                // Reference line: robust Q1-Q3 line (same as R's qqline)
+                if qp.show_reference_line {
+                    let q1_th = probit(0.25_f64);
+                    let q3_th = probit(0.75_f64);
+                    let q1_s = percentile(&sorted, 25.0);
+                    let q3_s = percentile(&sorted, 75.0);
+                    if (q3_th - q1_th).abs() > 1e-12 {
+                        let slope = (q3_s - q1_s) / (q3_th - q1_th);
+                        let intercept = q1_s - slope * q1_th;
+                        let x0 = theoretical[0];
+                        let x1 = *theoretical.last().unwrap();
+                        let ref_color = Color::from("#999999");
+                        scene.add(Primitive::Line {
+                            x1: computed.map_x(x0),
+                            y1: computed.map_y(slope * x0 + intercept),
+                            x2: computed.map_x(x1),
+                            y2: computed.map_y(slope * x1 + intercept),
+                            stroke: ref_color,
+                            stroke_width: qp.stroke_width,
+                            stroke_dasharray: Some("5,3".into()),
+                        });
+                    }
+                }
+
+                // Scatter points
+                let fill_op = qp.fill_opacity;
+                for k in 0..n {
+                    scene.add(Primitive::Circle {
+                        cx: computed.map_x(theoretical[k]),
+                        cy: computed.map_y(sorted[k]),
+                        r: qp.marker_size,
+                        fill: color.clone(),
+                        fill_opacity: fill_op,
+                        stroke: None,
+                        stroke_width: None,
+                    });
+                }
+            }
+        }
+
+        QQMode::Genomic => {
+            // Collect all valid p-values across all groups for CI band sizing
+            let first_n = qp.groups.first()
+                .map(|g| g.data.iter().filter(|&&p| p > 0.0 && p <= 1.0).count())
+                .unwrap_or(0);
+
+            // CI band around y=x diagonal (using first group's n)
+            if qp.show_ci_band && first_n > 1 {
+                let n = first_n;
+                // Downsample for SVG efficiency: max 500 points
+                let step = (n / 500).max(1);
+                let mut upper_pts: Vec<(f64, f64)> = Vec::new();
+                let mut lower_pts: Vec<(f64, f64)> = Vec::new();
+
+                for idx in (0..n).step_by(step) {
+                    let i = idx + 1; // 1-indexed rank
+                    let expected_p = (i as f64 - 0.5) / n as f64;
+                    let x_val = -expected_p.log10();
+
+                    let mean = i as f64 / (n as f64 + 1.0);
+                    let var = (i as f64 * (n - i + 1) as f64)
+                        / ((n as f64 + 1.0).powi(2) * (n as f64 + 2.0));
+                    let se = var.sqrt();
+
+                    let lower_p = (mean - 1.96 * se).max(1e-300);
+                    let upper_p = (mean + 1.96 * se).min(1.0 - 1e-10);
+                    // -log10 flips direction: smaller p → larger -log10
+                    let y_upper = -lower_p.log10();
+                    let y_lower = -upper_p.log10();
+
+                    upper_pts.push((computed.map_x(x_val), computed.map_y(y_upper)));
+                    lower_pts.push((computed.map_x(x_val), computed.map_y(y_lower)));
+                }
+
+                if upper_pts.len() >= 2 {
+                    let mut d = format!("M {},{}", round2(upper_pts[0].0), round2(upper_pts[0].1));
+                    for &(x, y) in upper_pts.iter().skip(1) {
+                        d.push_str(&format!(" L {},{}", round2(x), round2(y)));
+                    }
+                    for &(x, y) in lower_pts.iter().rev() {
+                        d.push_str(&format!(" L {},{}", round2(x), round2(y)));
+                    }
+                    d.push_str(" Z");
+
+                    // Use first group's color for the band, or gray if multi-group
+                    let band_color = if qp.groups.len() == 1 {
+                        resolve_color(&qp.groups[0], 0)
+                    } else {
+                        Color::from("#aaaaaa")
+                    };
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: Some(band_color),
+                        stroke: Color::from("none"),
+                        stroke_width: 0.0,
+                        opacity: Some(qp.ci_alpha),
+                        stroke_dasharray: None,
+                    })));
+                }
+            }
+
+            // Reference diagonal y = x
+            if qp.show_reference_line {
+                let max_x = qp.groups.iter()
+                    .flat_map(|g| g.data.iter())
+                    .filter(|&&p| p > 0.0 && p <= 1.0)
+                    .map(|&p| -p.log10())
+                    .fold(0.0_f64, f64::max);
+                let max_n = qp.groups.iter()
+                    .map(|g| g.data.iter().filter(|&&p| p > 0.0 && p <= 1.0).count())
+                    .max()
+                    .unwrap_or(1);
+                let max_exp = if max_n > 0 { -(0.5 / max_n as f64).log10() } else { 1.0 };
+                let diag_max = max_x.max(max_exp);
+                scene.add(Primitive::Line {
+                    x1: computed.map_x(0.0), y1: computed.map_y(0.0),
+                    x2: computed.map_x(diag_max), y2: computed.map_y(diag_max),
+                    stroke: Color::from("#999999"),
+                    stroke_width: qp.stroke_width,
+                    stroke_dasharray: Some("5,3".into()),
+                });
+            }
+
+            for (gi, group) in qp.groups.iter().enumerate() {
+                let color = resolve_color(group, gi);
+
+                // Filter and sort p-values ascending
+                let mut pvals: Vec<f64> = group.data.iter()
+                    .copied()
+                    .filter(|&p| p > 0.0 && p <= 1.0)
+                    .collect();
+                pvals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let n = pvals.len();
+                if n == 0 { continue; }
+
+                // Scatter points
+                let fill_op = qp.fill_opacity;
+                for (k, &pval) in pvals.iter().enumerate() {
+                    let expected_p = (k as f64 + 0.5) / n as f64;
+                    let x_val = -expected_p.log10();
+                    let y_val = -pval.log10();
+                    scene.add(Primitive::Circle {
+                        cx: computed.map_x(x_val),
+                        cy: computed.map_y(y_val),
+                        r: qp.marker_size,
+                        fill: color.clone(),
+                        fill_opacity: fill_op,
+                        stroke: None,
+                        stroke_width: None,
+                    });
+                }
+
+                // Genomic inflation factor λ
+                if qp.show_lambda && !pvals.is_empty() {
+                    // λ = median(χ²₁ observed) / 0.4549  where χ²₁ from p-val = probit(1-p/2)²
+                    let mut chi2: Vec<f64> = pvals.iter().map(|&p| {
+                        let z = probit(1.0 - (p / 2.0).min(1.0 - 1e-15));
+                        z * z
+                    }).collect();
+                    chi2.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let lambda = percentile(&chi2, 50.0) / 0.4549;
+
+                    let label_x = computed.margin_left + computed.plot_width() * 0.05;
+                    let body_px = computed.body_size as f64;
+                    let label_y = computed.margin_top + body_px * 1.5
+                        + gi as f64 * (body_px + 4.0);
+                    let lambda_label = if qp.groups.len() > 1 {
+                        format!("{} λ = {:.3}", group.label, lambda)
+                    } else {
+                        format!("λ = {:.3}", lambda)
+                    };
+                    scene.add(Primitive::Text {
+                        x: label_x,
+                        y: label_y,
+                        content: lambda_label,
+                        size: computed.body_size,
+                        color: Some(color.clone()),
+                        anchor: TextAnchor::Start,
+                        bold: false,
+                        rotate: None,
+                    });
+                }
+            }
+        }
+    }
+}
+
 fn add_ridgeline(rp: &RidgelinePlot, computed: &ComputedLayout, scene: &mut Scene) {
     use render_utils::{silverman_bandwidth, simple_kde};
     use crate::render::palette::Palette;
@@ -7865,6 +8084,23 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             color,
                             shape: LegendShape::Line,
                             dasharray: ep.line_dash.clone(),
+                        });
+                    }
+                }
+            }
+            Plot::QQ(qp) => {
+                if qp.legend_label.is_some() {
+                    let cat10 = crate::render::palette::Palette::category10();
+                    for (i, group) in qp.groups.iter().enumerate() {
+                        let color = group.color.clone().unwrap_or_else(|| {
+                            if qp.groups.len() == 1 { qp.color.clone() }
+                            else { cat10[i % cat10.len()].to_string() }
+                        });
+                        entries.push(LegendEntry {
+                            label: group.label.clone(),
+                            color,
+                            shape: LegendShape::Circle,
+                            dasharray: None,
                         });
                     }
                 }
@@ -9311,7 +9547,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 Plot::Band(_) | Plot::Strip(_) | Plot::Density(_) |
                 Plot::Forest(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) |
                 Plot::Raincloud(_) | Plot::Lollipop(_) | Plot::Survival(_) |
-                Plot::Slope(_) | Plot::Ecdf(_) => {
+                Plot::Slope(_) | Plot::Ecdf(_) | Plot::QQ(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -9639,6 +9875,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Ecdf(ep) => {
                 add_ecdf(ep, &computed, &mut scene);
             }
+            Plot::QQ(qp) => {
+                add_qqplot(qp, &computed, &mut scene);
+            }
         }
     }
 
@@ -9766,7 +10005,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             match plot {
                 Plot::Scatter(_) | Plot::Line(_) | Plot::Series(_) |
                 Plot::Histogram(_) | Plot::Box(_) | Plot::Violin(_) | Plot::Band(_) |
-                Plot::Strip(_) | Plot::Density(_) | Plot::Ecdf(_) => {
+                Plot::Strip(_) | Plot::Density(_) | Plot::Ecdf(_) | Plot::QQ(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -9824,6 +10063,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::Lollipop(lp)   => add_lollipop(lp, &mut scene, &computed),
             Plot::Survival(sp)   => add_survival(sp, &mut scene, &computed),
             Plot::Ecdf(ep)       => add_ecdf(ep, &computed, &mut scene),
+            Plot::QQ(qp)         => add_qqplot(qp, &computed, &mut scene),
             _ => {}
         }
     }
@@ -9846,6 +10086,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             Plot::Lollipop(lp)   => add_lollipop(lp, &mut scene, &computed_y2),
             Plot::Survival(sp)   => add_survival(sp, &mut scene, &computed_y2),
             Plot::Ecdf(ep)       => add_ecdf(ep, &computed_y2, &mut scene),
+            Plot::QQ(qp)         => add_qqplot(qp, &computed_y2, &mut scene),
             _ => {}
         }
     }

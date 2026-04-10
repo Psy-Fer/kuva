@@ -723,6 +723,15 @@ impl Layout {
                 }
             }
 
+            if let Plot::QQ(qp) = plot {
+                if qp.legend_label.is_some() {
+                    has_legend = true;
+                    for g in &qp.groups {
+                        max_label_len = max_label_len.max(g.label.len());
+                    }
+                }
+            }
+
             // 3D plot types: check for legend label and z-colormap
             let (legend_3d, cmap_3d) = match plot {
                 Plot::Scatter3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
