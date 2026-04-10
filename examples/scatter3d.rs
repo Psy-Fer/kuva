@@ -80,7 +80,7 @@ fn main() {
         .with_color("crimson")
         .with_azimuth(-120.0)
         .with_elevation(20.0)
-        .with_depth_shade(true)
+        .with_depth_shade()
         .with_x_label("X")
         .with_y_label("Y")
         .with_z_label("Z");

@@ -2049,15 +2049,16 @@ fn draw_3d_box(
         let vert_edges: [(usize, usize, usize); 4] = [
             (0, 4, 8), (1, 5, 9), (2, 6, 10), (3, 7, 11),
         ];
+        let z_right = cfg.z_axis_right.unwrap_or_else(|| cfg.view.auto_z_axis_right());
         let mut best_edge = (0usize, 4usize);
-        let mut best_sx = if cfg.z_axis_right { f64::NEG_INFINITY } else { f64::INFINITY };
+        let mut best_sx = if z_right { f64::NEG_INFINITY } else { f64::INFINITY };
         for &(a, b, ei) in &vert_edges {
             if !edge_has_back[ei] { continue; }
             let mid_x = (corners[a][0] + corners[b][0]) / 2.0;
             let mid_y = (corners[a][1] + corners[b][1]) / 2.0;
             let mid_z = (corners[a][2] + corners[b][2]) / 2.0;
             let (sx, _, _) = proj.project_normalized(mid_x, mid_y, mid_z);
-            let better = if cfg.z_axis_right { sx > best_sx } else { sx < best_sx };
+            let better = if z_right { sx > best_sx } else { sx < best_sx };
             if better { best_sx = sx; best_edge = (a, b); }
         }
         let edge_x = corners[best_edge.0][0];

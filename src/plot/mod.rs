@@ -78,7 +78,7 @@ pub use polar::{PolarPlot, PolarSeries, PolarMode};
 pub use ternary::{TernaryPlot, TernaryPoint};
 pub use diceplot::{DicePlot, DicePoint};
 pub use forest::{ForestPlot, ForestRow};
-pub use plot3d::{DataRanges3D, Box3DConfig};
+pub use plot3d::{DataRanges3D, Box3DConfig, View3D};
 pub use scatter3d::{Scatter3DPlot, Scatter3DPoint};
 pub use surface3d::Surface3DPlot;
 pub use clustermap::{Clustermap, ClustermapNorm, AnnotationTrack};

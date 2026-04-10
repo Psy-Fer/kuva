@@ -523,6 +523,26 @@ check "scatter3d color-by" \
     "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z --color-by group \
         --title "3D Scatter Grouped"
 
+check "scatter3d z-colormap" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z \
+        --z-color viridis \
+        --title "3D Scatter Z-Color"
+
+check "scatter3d depth-shade" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z \
+        --depth-shade \
+        --title "3D Scatter Depth Shade"
+
+check "scatter3d no-grid no-box" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z \
+        --no-grid --no-box \
+        --title "3D Scatter No Grid"
+
+check "scatter3d alternate view" \
+    "$BIN" scatter3d "$DATA/scatter3d.tsv" --x x --y y --z z \
+        --azimuth -120 --elevation 20 \
+        --title "3D Scatter Alt View"
+
 # ── surface3d ─────────────────────────────────────────────────────────────────
 check "surface3d basic" \
     "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
@@ -533,6 +553,26 @@ check "surface3d high-res" \
     "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
         --z-color inferno --resolution 20 \
         --title "3D Surface (Upsampled)"
+
+check "surface3d no-wireframe" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --z-color viridis --no-wireframe \
+        --title "3D Surface No Wireframe"
+
+check "surface3d alpha" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --alpha 0.7 --color steelblue \
+        --title "3D Surface Alpha"
+
+check "surface3d no-grid no-box" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --z-color viridis --no-grid --no-box \
+        --title "3D Surface No Grid"
+
+check "surface3d alternate view" \
+    "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
+        --z-color viridis --azimuth 45 --elevation 45 \
+        --title "3D Surface Alt View"
 
 # ── interactive ───────────────────────────────────────────────────────────────
 check "scatter interactive" \

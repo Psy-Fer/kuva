@@ -74,6 +74,8 @@ pub use crate::plot::{
     Scatter3DPlot,
     Scatter3DPoint,
     Surface3DPlot,
+    View3D,
+    Box3DConfig,
     Clustermap,
     ClustermapNorm,
     AnnotationTrack,

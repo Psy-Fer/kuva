@@ -1,7 +1,6 @@
 use crate::plot::heatmap::ColorMap;
 use crate::plot::scatter::MarkerShape;
-use crate::plot::plot3d::{DataRanges3D, Box3DConfig};
-use crate::render::projection::View3D;
+use crate::plot::plot3d::{DataRanges3D, Box3DConfig, View3D};
 
 /// A single 3D data point.
 #[derive(Debug, Clone, Copy)]
@@ -126,7 +125,7 @@ impl Scatter3DPlot {
     }
     pub fn with_marker_opacity(mut self, opacity: f64) -> Self { self.marker_opacity = Some(opacity); self }
     pub fn with_marker_stroke_width(mut self, width: f64) -> Self { self.marker_stroke_width = Some(width); self }
-    pub fn with_depth_shade(mut self, enable: bool) -> Self { self.depth_shade = enable; self }
+    pub fn with_depth_shade(mut self) -> Self { self.depth_shade = true; self }
     pub fn with_z_colormap(mut self, cmap: ColorMap) -> Self { self.z_colormap = Some(cmap); self }
 
     // Delegate 3D box/axes config through Box3DConfig methods
@@ -136,8 +135,9 @@ impl Scatter3DPlot {
     pub fn with_x_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_x_label(l); self }
     pub fn with_y_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_y_label(l); self }
     pub fn with_z_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_z_label(l); self }
-    pub fn with_show_grid(mut self, s: bool) -> Self { self.box3d = self.box3d.with_show_grid(s); self }
-    pub fn with_show_box(mut self, s: bool) -> Self { self.box3d = self.box3d.with_show_box(s); self }
+    pub fn with_no_grid(mut self) -> Self { self.box3d = self.box3d.with_no_grid(); self }
+    pub fn with_no_box(mut self) -> Self { self.box3d = self.box3d.with_no_box(); self }
     pub fn with_grid_lines(mut self, n: usize) -> Self { self.box3d = self.box3d.with_grid_lines(n); self }
     pub fn with_z_axis_right(mut self, r: bool) -> Self { self.box3d = self.box3d.with_z_axis_right(r); self }
+    pub fn with_z_axis_auto(mut self) -> Self { self.box3d = self.box3d.with_z_axis_auto(); self }
 }

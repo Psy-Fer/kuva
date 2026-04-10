@@ -1,6 +1,5 @@
 use crate::plot::heatmap::ColorMap;
-use crate::plot::plot3d::{DataRanges3D, Box3DConfig};
-use crate::render::projection::View3D;
+use crate::plot::plot3d::{DataRanges3D, Box3DConfig, View3D};
 
 /// A 3D surface plot rendered as a depth-sorted quadrilateral mesh.
 ///
@@ -160,7 +159,7 @@ impl Surface3DPlot {
     pub fn with_y_coords(mut self, yc: Vec<f64>) -> Self { self.y_coords = Some(yc); self }
     pub fn with_color<S: Into<String>>(mut self, c: S) -> Self { self.color = c.into(); self }
     pub fn with_z_colormap(mut self, cm: ColorMap) -> Self { self.z_colormap = Some(cm); self }
-    pub fn with_show_wireframe(mut self, show: bool) -> Self { self.show_wireframe = show; self }
+    pub fn with_no_wireframe(mut self) -> Self { self.show_wireframe = false; self }
     pub fn with_wireframe_color<S: Into<String>>(mut self, c: S) -> Self { self.wireframe_color = c.into(); self }
     pub fn with_wireframe_width(mut self, w: f64) -> Self { self.wireframe_width = w; self }
     pub fn with_alpha(mut self, a: f64) -> Self { self.alpha = a; self }
@@ -173,8 +172,9 @@ impl Surface3DPlot {
     pub fn with_x_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_x_label(l); self }
     pub fn with_y_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_y_label(l); self }
     pub fn with_z_label<S: Into<String>>(mut self, l: S) -> Self { self.box3d = self.box3d.with_z_label(l); self }
-    pub fn with_show_grid(mut self, s: bool) -> Self { self.box3d = self.box3d.with_show_grid(s); self }
-    pub fn with_show_box(mut self, s: bool) -> Self { self.box3d = self.box3d.with_show_box(s); self }
+    pub fn with_no_grid(mut self) -> Self { self.box3d = self.box3d.with_no_grid(); self }
+    pub fn with_no_box(mut self) -> Self { self.box3d = self.box3d.with_no_box(); self }
     pub fn with_grid_lines(mut self, n: usize) -> Self { self.box3d = self.box3d.with_grid_lines(n); self }
     pub fn with_z_axis_right(mut self, r: bool) -> Self { self.box3d = self.box3d.with_z_axis_right(r); self }
+    pub fn with_z_axis_auto(mut self) -> Self { self.box3d = self.box3d.with_z_axis_auto(); self }
 }

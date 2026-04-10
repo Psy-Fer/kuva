@@ -7,56 +7,7 @@
 //! 4. Scale uniformly to fit the plot area
 //! 5. Translate to center in the pixel bounding box
 
-/// Viewing angles for 3D projection.
-#[derive(Debug, Clone, Copy)]
-pub struct View3D {
-    /// Azimuth angle in degrees (rotation around Z-axis). Default: -60.
-    pub azimuth: f64,
-    /// Elevation angle in degrees (rotation from XY-plane). Default: 30.
-    pub elevation: f64,
-}
-
-impl Default for View3D {
-    fn default() -> Self {
-        Self { azimuth: -60.0, elevation: 30.0 }
-    }
-}
-
-impl View3D {
-    /// Compute the rotation matrix row 1 (depth axis) for these view angles.
-    /// This duplicates `rot[1]` from `Projection3D::new()` — kept in sync manually
-    /// because we need depth before building a full projection.
-    fn depth_row(&self) -> [f64; 3] {
-        let az = self.azimuth.to_radians();
-        let el = self.elevation.to_radians();
-        [az.sin() * el.cos(), az.cos() * el.cos(), -el.sin()]
-    }
-
-    /// Find the floor-face corner closest to the viewer (smallest depth).
-    /// Returns the normalized (x, y) signs of that corner, e.g. (0.5, -0.5).
-    /// This is the "open front corner" where axes originate.
-    ///
-    /// For positive elevation the floor is z=-0.5; for negative elevation
-    /// (viewing from below) the floor is z=+0.5.
-    pub fn front_bottom_corner(&self) -> (f64, f64) {
-        let row1 = self.depth_row();
-        let floor_z = if self.elevation >= 0.0 { -0.5 } else { 0.5 };
-        let mut best_x = -0.5_f64;
-        let mut best_y = -0.5_f64;
-        let mut best_d = f64::INFINITY;
-        for &nx in &[-0.5_f64, 0.5] {
-            for &ny in &[-0.5_f64, 0.5] {
-                let d = row1[0] * nx + row1[1] * ny + row1[2] * floor_z;
-                if d < best_d {
-                    best_d = d;
-                    best_x = nx;
-                    best_y = ny;
-                }
-            }
-        }
-        (best_x, best_y)
-    }
-}
+pub use crate::plot::plot3d::View3D;
 
 /// Pre-computed 3D→2D orthographic projection.
 ///

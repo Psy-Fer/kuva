@@ -112,8 +112,8 @@ fn apply_options(mut plot: Scatter3DPlot, args: &Scatter3DArgs, z_cmap: &Option<
     if let Some(ref cm) = z_cmap {
         plot = plot.with_z_colormap(cm.clone());
     }
-    if args.no_grid { plot = plot.with_show_grid(false); }
-    if args.no_box { plot = plot.with_show_box(false); }
+    if args.no_grid { plot = plot.with_no_grid(); }
+    if args.no_box { plot = plot.with_no_box(); }
     if let Some(n) = args.grid_lines { plot = plot.with_grid_lines(n); }
     plot
 }
@@ -152,9 +152,9 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
             .with_data(all_data)
             .with_colors(all_colors)
             .with_azimuth(args.azimuth)
-            .with_elevation(args.elevation)
-            .with_depth_shade(args.depth_shade)
-            .with_z_axis_right(!args.z_axis_left);
+            .with_elevation(args.elevation);
+        if args.z_axis_left { plot = plot.with_z_axis_right(false); }
+        if args.depth_shade { plot = plot.with_depth_shade(); }
         plot = apply_options(plot, &args, &z_cmap);
 
         let plots = vec![Plot::Scatter3D(plot)];
@@ -190,12 +190,12 @@ pub fn run(args: Scatter3DArgs) -> Result<(), String> {
             .map(|((x, y), z)| (x, y, z))
             .collect();
 
-        let plot = Scatter3DPlot::new()
+        let mut plot = Scatter3DPlot::new()
             .with_data(data)
             .with_azimuth(args.azimuth)
-            .with_elevation(args.elevation)
-            .with_depth_shade(args.depth_shade)
-            .with_z_axis_right(!args.z_axis_left);
+            .with_elevation(args.elevation);
+        if args.z_axis_left { plot = plot.with_z_axis_right(false); }
+        if args.depth_shade { plot = plot.with_depth_shade(); }
 
         let plots = vec![Plot::Scatter3D(apply_options(plot, &args, &z_cmap))];
         let layout = Layout::auto_from_plots(&plots);

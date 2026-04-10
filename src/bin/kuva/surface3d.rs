@@ -192,9 +192,9 @@ pub fn run(args: Surface3DArgs) -> Result<(), String> {
 
     plot = plot
         .with_azimuth(args.azimuth)
-        .with_elevation(args.elevation)
-        .with_show_wireframe(!args.no_wireframe)
-        .with_z_axis_right(!args.z_axis_left);
+        .with_elevation(args.elevation);
+    if args.z_axis_left { plot = plot.with_z_axis_right(false); }
+    if args.no_wireframe { plot = plot.with_no_wireframe(); }
 
     if let Some(ref c) = args.color { plot = plot.with_color(c.clone()); }
     if let Some(a) = args.alpha { plot = plot.with_alpha(a); }
@@ -202,8 +202,8 @@ pub fn run(args: Surface3DArgs) -> Result<(), String> {
     if let Some(ref yl) = args.y_label { plot = plot.with_y_label(yl.clone()); }
     if let Some(ref zl) = args.z_label { plot = plot.with_z_label(zl.clone()); }
     if let Some(ref name) = args.z_color { plot = plot.with_z_colormap(parse_colormap(name)); }
-    if args.no_grid { plot = plot.with_show_grid(false); }
-    if args.no_box { plot = plot.with_show_box(false); }
+    if args.no_grid { plot = plot.with_no_grid(); }
+    if args.no_box { plot = plot.with_no_box(); }
     if let Some(n) = args.grid_lines { plot = plot.with_grid_lines(n); }
 
     let plots = vec![Plot::Surface3D(plot)];

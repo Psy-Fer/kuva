@@ -36,8 +36,7 @@ fn test_scatter3d_basic() {
 fn test_scatter3d_wireframe() {
     let data = vec![(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)];
     let plot = Scatter3DPlot::new()
-        .with_data(data)
-        .with_show_box(true);
+        .with_data(data);
 
     let plots = vec![Plot::Scatter3D(plot)];
     let layout = Layout::auto_from_plots(&plots);
@@ -102,7 +101,7 @@ fn test_scatter3d_depth_shade() {
 
     let plot = Scatter3DPlot::new()
         .with_data(data)
-        .with_depth_shade(true);
+        .with_depth_shade();
 
     let plots = vec![Plot::Scatter3D(plot)];
     let layout = Layout::auto_from_plots(&plots);
@@ -184,8 +183,8 @@ fn test_scatter3d_no_grid_no_box() {
     let data = vec![(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)];
     let plot = Scatter3DPlot::new()
         .with_data(data)
-        .with_show_grid(false)
-        .with_show_box(false);
+        .with_no_grid()
+        .with_no_box();
 
     let plots = vec![Plot::Scatter3D(plot)];
     let layout = Layout::auto_from_plots(&plots);
@@ -194,4 +193,45 @@ fn test_scatter3d_no_grid_no_box() {
     std::fs::write("test_outputs/scatter3d_no_grid_box.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"), "should still have data points");
+}
+
+#[test]
+fn test_scatter3d_auto_z_axis() {
+    let data = vec![(0.0, 0.0, 0.0), (10.0, 10.0, 10.0)];
+
+    // Default view (azimuth=-60°): auto should place Z on the right.
+    // Mirrored view (azimuth=+60°): auto should flip Z to the left.
+    // Both should render without panicking and produce valid SVG.
+    let default_plot = Scatter3DPlot::new()
+        .with_data(data.clone())
+        .with_x_label("X").with_y_label("Y").with_z_label("Z");
+
+    let plots = vec![Plot::Scatter3D(default_plot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg_default = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/scatter3d_auto_z_default.svg", svg_default.clone()).unwrap();
+    assert!(svg_default.contains("Z"), "Z axis label should be present");
+
+    let mirrored_plot = Scatter3DPlot::new()
+        .with_data(data.clone())
+        .with_azimuth(60.0)
+        .with_x_label("X").with_y_label("Y").with_z_label("Z");
+
+    let plots = vec![Plot::Scatter3D(mirrored_plot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg_mirrored = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/scatter3d_auto_z_mirrored.svg", svg_mirrored.clone()).unwrap();
+    assert!(svg_mirrored.contains("Z"), "Z axis label should be present");
+
+    // Explicit override: force left even at default azimuth
+    let forced_left = Scatter3DPlot::new()
+        .with_data(data)
+        .with_z_axis_right(false)
+        .with_z_label("Z");
+
+    let plots = vec![Plot::Scatter3D(forced_left)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg_left = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/scatter3d_z_axis_left.svg", svg_left.clone()).unwrap();
+    assert!(svg_left.contains("Z"));
 }

@@ -48,7 +48,7 @@ fn test_surface3d_colormap() {
 #[test]
 fn test_surface3d_no_wireframe() {
     let surface = Surface3DPlot::new(paraboloid_grid(10))
-        .with_show_wireframe(false)
+        .with_no_wireframe()
         .with_z_colormap(ColorMap::Inferno);
 
     let plots = vec![Plot::Surface3D(surface)];
