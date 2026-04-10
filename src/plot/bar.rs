@@ -148,6 +148,59 @@ impl BarPlot {
         self
     }
 
+    /// Add a single bar with an explicit color (simple mode).
+    ///
+    /// Use this when each bar should have its own color — for example when
+    /// bars represent distinct categories such as nucleotide variants.
+    /// Unlike [`.with_bar()`](Self::with_bar) + [`.with_color()`](Self::with_color),
+    /// this sets only that bar's color without touching the others.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BarPlot;
+    /// let plot = BarPlot::new()
+    ///     .with_colored_bar("A2C", 42.0, "steelblue")
+    ///     .with_colored_bar("A2G", 58.0, "seagreen")
+    ///     .with_colored_bar("A2T", 31.0, "tomato");
+    /// ```
+    pub fn with_colored_bar<T, S>(mut self, label: T, value: f64, color: S) -> Self
+    where T: Into<String>, S: Into<String> {
+        self.groups.push(BarGroup {
+            label: label.into(),
+            bars: vec![BarValue { value, color: color.into() }],
+        });
+        self
+    }
+
+    /// Add multiple bars with per-bar colors at once (simple mode).
+    ///
+    /// Each item is a `(label, value, color)` triple. Equivalent to calling
+    /// [`.with_colored_bar()`](Self::with_colored_bar) for each item.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BarPlot;
+    /// let variants = vec![
+    ///     ("A2C", 42.0, "steelblue"),
+    ///     ("A2G", 58.0, "seagreen"),
+    ///     ("A2T", 31.0, "tomato"),
+    ///     ("C2A", 25.0, "gold"),
+    /// ];
+    /// let plot = BarPlot::new().with_colored_bars(variants);
+    /// ```
+    pub fn with_colored_bars<I, T, S>(mut self, data: I) -> Self
+    where
+        I: IntoIterator<Item = (T, f64, S)>,
+        T: Into<String>,
+        S: Into<String>,
+    {
+        for (label, value, color) in data {
+            self.groups.push(BarGroup {
+                label: label.into(),
+                bars: vec![BarValue { value, color: color.into() }],
+            });
+        }
+        self
+    }
+
     /// Add multiple bars at once (simple mode).
     ///
     /// Equivalent to calling [`.with_bar()`](Self::with_bar) for each item.

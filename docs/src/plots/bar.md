@@ -54,6 +54,48 @@ let plot = BarPlot::new()
 
 ---
 
+## Per-bar colors
+
+Use `.with_colored_bar()` or `.with_colored_bars()` to give each bar its own color — useful when bars represent distinct categories such as nucleotide variants or mutation types.
+
+```rust,no_run
+use kuva::plot::BarPlot;
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let plot = BarPlot::new()
+    .with_colored_bar("A2C", 42.0, "steelblue")
+    .with_colored_bar("A2G", 58.0, "seagreen")
+    .with_colored_bar("A2T", 31.0, "tomato")
+    .with_colored_bar("C2A", 25.0, "gold");
+
+let plots = vec![Plot::Bar(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Mutation Counts")
+    .with_y_label("Count");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+To add many colored bars at once, pass an iterator of `(label, value, color)` triples to `.with_colored_bars()`:
+
+```rust,no_run
+# use kuva::plot::BarPlot;
+let variants = vec![
+    ("A2C", 42.0, "steelblue"),
+    ("A2G", 58.0, "seagreen"),
+    ("A2T", 31.0, "tomato"),
+    ("C2A", 25.0, "gold"),
+    ("C2G", 18.0, "orchid"),
+    ("C2T", 63.0, "darkorange"),
+];
+let plot = BarPlot::new().with_colored_bars(variants);
+```
+
+---
+
 ## Grouped bar chart
 
 Use `.with_group(label, values)` to add a category with multiple side-by-side bars. Each item in `values` is a `(value, color)` pair — one per series. Call `.with_legend()` to label each series.
@@ -136,6 +178,8 @@ let plot = BarPlot::new()
 | `BarPlot::new()` | Create a bar plot with defaults |
 | `.with_bar(label, value)` | Add a single bar (simple mode) |
 | `.with_bars(vec)` | Add multiple bars at once (simple mode) |
+| `.with_colored_bar(label, value, color)` | Add a single bar with an explicit color (simple mode) |
+| `.with_colored_bars(iter)` | Add multiple bars with per-bar colors; each item is `(label, value, color)` |
 | `.with_color(s)` | Set a uniform color across all existing bars |
 | `.with_group(label, values)` | Add a category with one bar per series (grouped / stacked mode) |
 | `.with_legend(vec)` | Set series labels; one label per bar within a group |
@@ -147,5 +191,6 @@ let plot = BarPlot::new()
 | Goal | Methods to use |
 |------|---------------|
 | One color, one bar per category | `.with_bars()` + `.with_color()` |
+| Different color per bar | `.with_colored_bar()` × N  or  `.with_colored_bars()` |
 | Multiple series, side-by-side | `.with_group()` × N + `.with_legend()` |
 | Multiple series, stacked | `.with_group()` × N + `.with_legend()` + `.with_stacked()` |
