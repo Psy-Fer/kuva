@@ -1,5 +1,17 @@
 use std::collections::HashMap;
 
+/// Controls horizontal alignment of brick rows.
+///
+/// Used with [`BrickPlot::with_anchor`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrickAnchor {
+    /// Rows are left-aligned (default): each row starts at its offset.
+    #[default]
+    Left,
+    /// Rows are right-aligned: trailing edges of all rows line up on the right.
+    Right,
+}
+
 /// Allows `with_x_offsets` to accept plain `f64` values (auto-wrapped as `Some`)
 /// as well as explicit `Option<f64>` values (for `None` fallback entries).
 pub trait IntoRowOffset {
@@ -169,6 +181,22 @@ pub struct BrickPlot {
     /// built-in 20-color default. Colors are assigned in global-letter order
     /// (most-frequent motif first) and cycle if there are more motifs than colors.
     pub strigar_palette: Option<Vec<String>>,
+    /// Horizontal alignment of rows. Default: `BrickAnchor::Left`.
+    pub anchor: BrickAnchor,
+    /// Per-row left flanking DNA sequences (set by [`with_flanked_strigars`](Self::with_flanked_strigars)).
+    pub left_flanks: Option<Vec<String>>,
+    /// Per-row right flanking DNA sequences (set by [`with_flanked_strigars`](Self::with_flanked_strigars)).
+    pub right_flanks: Option<Vec<String>>,
+    /// Append `*` to the legend label for the primary (most-frequent) motif (global letter A).
+    pub mark_primary: bool,
+    /// Row index whose motif rotations seed the global display labels.
+    /// Set this **before** calling [`with_strigars`](Self::with_strigars) or
+    /// [`with_flanked_strigars`](Self::with_flanked_strigars).
+    pub consensus_row: Option<usize>,
+    /// Pre-computed human-readable notation strings, one per row.
+    /// `None` entries render nothing above that row.
+    /// E.g. `Some("(CAG)12(GAA)1".to_string())`.
+    pub notations: Option<Vec<Option<String>>>,
 }
 
 impl Default for BrickPlot {
@@ -191,6 +219,12 @@ impl BrickPlot {
             x_origin: 0.0,
             show_values: false,
             strigar_palette: None,
+            anchor: BrickAnchor::Left,
+            left_flanks: None,
+            right_flanks: None,
+            mark_primary: false,
+            consensus_row: None,
+            notations: None,
         }
     }
 
@@ -347,15 +381,60 @@ impl BrickPlot {
                             .starts_with("@:");
                     if is_small_gap { motif_idx += 1; }
                 } else {
-                    // Candidate segment: collect kmers from its motif block
+                    // Candidate segment: parse the STRIGAR tokens ("2A1B2A...") to get
+                    // actual brick counts per letter, then map to canonical kmers.
+                    // This counts bricks, not read presence, so a kmer appearing 14
+                    // times across reads scores 14 rather than the same as a kmer that
+                    // appears once in every read's motif string.
                     if motif_idx < motif_segs.len() {
-                        for (_, kmer) in parse_motif_seg(motif_segs[motif_idx]) {
-                            let canon = canonical_rotation(&kmer);
-                            *canonical_freq.entry(canon.clone()).or_insert(0) += 1;
-                            *rotation_freq.entry(canon).or_default()
-                                .entry(kmer).or_insert(0) += 1;
-                        }
+                        let local_map = parse_motif_seg(motif_segs[motif_idx]);
                         motif_idx += 1;
+
+                        let mut chars = strigar_seg.chars().peekable();
+                        while chars.peek().is_some() {
+                            let mut num_str = String::new();
+                            while let Some(&c) = chars.peek() {
+                                if c.is_ascii_digit() { num_str.push(chars.next().expect("peeked")); }
+                                else { break; }
+                            }
+                            if let Some(letter_char) = chars.next() {
+                                let count: usize = num_str.parse().unwrap_or(1);
+                                if let Some(kmer) = local_map.get(&letter_char) {
+                                    let canon = canonical_rotation(kmer);
+                                    *canonical_freq.entry(canon.clone()).or_insert(0) += count;
+                                    *rotation_freq.entry(canon).or_default()
+                                        .entry(kmer.clone()).or_insert(0) += count;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phase B.5: If consensus_row is set, extract that row's motif rotations so
+        // Phase C can lock the display label to what the consensus sequence uses.
+        let mut consensus_rotations: HashMap<String, String> = HashMap::new();
+        if let Some(cons_row) = self.consensus_row {
+            if let Some((motif_str, strigar_str)) = strigars_ref.get(cons_row) {
+                let motif_segs: Vec<&str> = motif_str.split('|').map(str::trim)
+                    .filter(|s| !s.is_empty()).collect();
+                let strigar_segs: Vec<&str> = strigar_str.split('|').map(str::trim)
+                    .filter(|s| !s.is_empty()).collect();
+                let mut midx = 0usize;
+                for strigar_seg in &strigar_segs {
+                    if parse_gap(strigar_seg).is_some() {
+                        let is_small_gap = midx < motif_segs.len()
+                            && motif_segs[midx].starts_with("@:");
+                        if is_small_gap { midx += 1; }
+                    } else if midx < motif_segs.len() {
+                        let local_map = parse_motif_seg(motif_segs[midx]);
+                        midx += 1;
+                        for kmer in local_map.values() {
+                            let canon = canonical_rotation(kmer);
+                            // First occurrence per canonical wins; entry() guarantees determinism.
+                            consensus_rotations.entry(canon).or_insert_with(|| kmer.clone());
+                        }
                     }
                 }
             }
@@ -373,13 +452,17 @@ impl BrickPlot {
             let global_letter = (b'A' + idx as u8) as char;
             canonical_to_global.insert(canon.clone(), global_letter);
 
-            // Pick the most-frequent original rotation as the display label.
-            // Tiebreak ascending so the result is deterministic regardless of HashMap order.
+            // Pick the display rotation: consensus row's rotation takes priority;
+            // fall back to most-frequent rotation (tiebreak: prefer lexicographically larger).
             let rotations = rotation_freq.get(canon).expect("canon derived from rotation_freq keys");
-            let display = rotations.iter()
-                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
-                .expect("rotation_freq entry is non-empty")
-                .0.clone();
+            let display = if let Some(cons_rot) = consensus_rotations.get(canon) {
+                cons_rot.clone()
+            } else {
+                rotations.iter()
+                    .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                    .expect("rotation_freq entry is non-empty")
+                    .0.clone()
+            };
             global_to_display.insert(global_letter, display.clone());
             global_to_length.insert(global_letter, display.len());
         }
@@ -614,6 +697,127 @@ impl BrickPlot {
     /// ```
     pub fn with_x_origin(mut self, origin: f64) -> Self {
         self.x_origin = origin;
+        self
+    }
+
+    /// Load flanked strigar data: left flank DNA, STR motif/strigar, right flank DNA.
+    ///
+    /// Each item is a `(left_seq, motif_string, strigar_string, right_seq)` tuple.
+    /// The left and right sequences are raw DNA strings (one character = 1 nucleotide
+    /// = 1 unit of axis space). The STR region is decoded the same way as
+    /// [`with_strigars`](Self::with_strigars).
+    ///
+    /// The rendered layout per row is:
+    /// `[left_flank] [STR bricks] [right_flank]`
+    ///
+    /// Flanks are drawn using the standard DNA colour template
+    /// (A = green, C = blue, G = orange/gold, T = red).
+    ///
+    /// Set [`with_consensus_row`](Self::with_consensus_row) **before** calling this
+    /// method if you want consensus-anchored rotation labels.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_names(vec!["consensus", "read_1"])
+    ///     .with_consensus_row(0)
+    ///     .with_flanked_strigars(vec![
+    ///         ("ACGTACGT", "CAG:A",  "12A", "TGCATGCA"),
+    ///         ("ACGTACGT", "CAG:A",  "10A", "TGCATGCA"),
+    ///     ]);
+    /// ```
+    pub fn with_flanked_strigars<L, M, S, R, I>(mut self, flanked: I) -> Self
+    where
+        I: IntoIterator<Item = (L, M, S, R)>,
+        L: Into<String>,
+        M: Into<String>,
+        S: Into<String>,
+        R: Into<String>,
+    {
+        let mut lefts = Vec::new();
+        let mut strigars = Vec::new();
+        let mut rights = Vec::new();
+        for (left, motif, strigar, right) in flanked {
+            lefts.push(left.into());
+            strigars.push((motif.into(), strigar.into()));
+            rights.push(right.into());
+        }
+        self.left_flanks = Some(lefts);
+        self.right_flanks = Some(rights);
+        self.with_strigars(strigars)
+    }
+
+    /// Set horizontal alignment for all rows.
+    ///
+    /// `BrickAnchor::Left` (default) — rows start at their offset.
+    /// `BrickAnchor::Right` — trailing edges of all rows align on the right.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// # use kuva::plot::brick::BrickAnchor;
+    /// let plot = BrickPlot::new()
+    ///     .with_anchor(BrickAnchor::Right);
+    /// ```
+    pub fn with_anchor(mut self, anchor: BrickAnchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    /// Append `*` to the legend label of the primary (most-frequent) motif.
+    ///
+    /// In strigar mode the most-frequent motif is always assigned global letter A.
+    /// Calling this method marks it in the legend as, e.g. `"CAG*"`.
+    pub fn with_mark_primary(mut self) -> Self {
+        self.mark_primary = true;
+        self
+    }
+
+    /// Lock display rotations to the rotations used by a specific row (the consensus).
+    ///
+    /// When set, `with_strigars` / `with_flanked_strigars` seed the global display
+    /// labels from this row's motif strings, so every read shows the same rotation as
+    /// the consensus rather than the most-frequent rotation across all reads.
+    ///
+    /// **Must be called before** [`with_strigars`](Self::with_strigars) or
+    /// [`with_flanked_strigars`](Self::with_flanked_strigars).
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_names(vec!["consensus", "read_1", "read_2"])
+    ///     .with_consensus_row(0)          // row 0 is the consensus
+    ///     .with_strigars(vec![
+    ///         ("CAG:A".to_string(), "12A".to_string()),
+    ///         ("AGC:A".to_string(), "10A".to_string()), // same kmer, different rotation
+    ///         ("GCA:A".to_string(),  "9A".to_string()),
+    ///     ]);
+    /// ```
+    pub fn with_consensus_row(mut self, row: usize) -> Self {
+        self.consensus_row = Some(row);
+        self
+    }
+
+    /// Set pre-computed human-readable notation strings, one per row.
+    ///
+    /// Each element is `Some(text)` to render a centred label above that row,
+    /// or `None` to draw nothing. Typically the consensus row has a notation
+    /// and reads may or may not.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new()
+    ///     .with_names(vec!["consensus", "read_1"])
+    ///     .with_notations(vec![
+    ///         Some("(CAG)12".to_string()),
+    ///         None,
+    ///     ]);
+    /// ```
+    pub fn with_notations<I, T>(mut self, notations: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Option<String>>,
+    {
+        self.notations = Some(notations.into_iter().map(|n| n.into()).collect());
         self
     }
 

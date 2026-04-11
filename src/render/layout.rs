@@ -256,6 +256,10 @@ pub struct Layout {
     /// rendered with equal aspect look circular; without it they look like
     /// ellipses whenever the x and y data ranges differ.
     pub equal_aspect: bool,
+    /// Number of vertical stagger tiers reserved above a BrickPlot notation track.
+    /// Set automatically by `auto_from_plots` when a `BrickPlot` with `notations`
+    /// is present.  `0` = no extra space.
+    pub brick_notation_tiers: usize,
 }
 
 impl Layout {
@@ -336,6 +340,7 @@ impl Layout {
             polar_r_label_angle: None,
             interactive: false,
             equal_aspect: false,
+            brick_notation_tiers: 0,
         }
     }
 
@@ -360,6 +365,7 @@ impl Layout {
         let mut has_manhattan: bool = false;
         let mut has_polar: bool = false;
         let mut max_label_len: usize = 0;
+        let mut brick_has_notations: bool = false;
 
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
@@ -434,13 +440,20 @@ impl Layout {
                 }
             }
             if let Plot::Brick(bp) = plot {
-                let labels = bp.names.to_vec();
+                // Reverse labels so that names[0] appears at the TOP of the plot.
+                // map_y maps larger y-data values to the top; row 0 is rendered at
+                // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
+                let labels: Vec<String> = bp.names.iter().rev().cloned().collect();
                 y_labels = Some(labels);
                 has_legend = true;
                 if let Some(ref motifs) = bp.motifs {
                     for v in motifs.values() {
                         max_label_len = max_label_len.max(v.len());
                     }
+                }
+                // Reserve vertical space for per-block notation labels when enabled.
+                if bp.notations.as_ref().is_some_and(|n| n.iter().any(|o| o.is_some())) {
+                    brick_has_notations = true;
                 }
             }
 
@@ -800,6 +813,9 @@ impl Layout {
         let mut layout = Self::new((x_min, x_max), (y_min, y_max));
         layout.data_x_range = Some(raw_x);
         layout.data_y_range = Some(raw_y);
+        if brick_has_notations {
+            layout.brick_notation_tiers = 4; // matches N_TIERS in add_brickplot
+        }
         if let Some(labels) = x_labels {
             layout = layout.with_x_categories(labels);
         }
@@ -1503,6 +1519,12 @@ impl ComputedLayout {
         } else {
             10.0 * s
         };
+        // BrickPlot per-block notation labels are drawn above the top row.
+        // Reserve N_TIERS * line_height extra pixels so labels are never clipped.
+        if layout.brick_notation_tiers > 0 {
+            let body = layout.body_size as f64 * s;
+            margin_top += layout.brick_notation_tiers as f64 * body * 1.1 + 4.0 * s;
+        }
         // Bottom: tick_mark + gap(5) + tick_label + gap(5) + axis_label + padding(10)
         // When ticks are suppressed AND no rotation is requested (e.g. pure numeric axes),
         // keep only minimal space. When rotation IS set (e.g. Manhattan chromosome labels drawn

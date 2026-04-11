@@ -60,7 +60,7 @@ pub use violin::{ViolinPlot, ViolinGroup};
 pub use pie::{PiePlot, PieSlice, PieLabelPosition};
 pub use series::{SeriesPlot, SeriesStyle};
 pub use heatmap::{Heatmap, ColorMap};
-pub use brick::BrickPlot;
+pub use brick::{BrickPlot, BrickAnchor};
 pub use band::BandPlot;
 pub use waterfall::{WaterfallPlot, WaterfallBar, WaterfallKind};
 pub use strip::{StripPlot, StripGroup, StripStyle};
