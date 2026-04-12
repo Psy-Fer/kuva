@@ -47,6 +47,7 @@ use crate::plot::network::NetworkPlot;
 use crate::plot::streamgraph::StreamgraphPlot;
 use crate::plot::radar::RadarPlot;
 use crate::plot::hexbin::HexbinPlot;
+use crate::plot::treemap::TreemapPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -101,6 +102,7 @@ pub enum Plot {
     Streamgraph(StreamgraphPlot),
     Radar(RadarPlot),
     Hexbin(HexbinPlot),
+    Treemap(TreemapPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -152,6 +154,7 @@ impl From<NetworkPlot>     for Plot { fn from(p: NetworkPlot)     -> Self { Plot
 impl From<StreamgraphPlot> for Plot { fn from(p: StreamgraphPlot) -> Self { Plot::Streamgraph(p) } }
 impl From<RadarPlot>       for Plot { fn from(p: RadarPlot)       -> Self { Plot::Radar(p) } }
 impl From<HexbinPlot>      for Plot { fn from(p: HexbinPlot)      -> Self { Plot::Hexbin(p) } }
+impl From<TreemapPlot>     for Plot { fn from(p: TreemapPlot)     -> Self { Plot::Treemap(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
 use crate::plot::heatmap::ColorMap;
@@ -850,6 +853,8 @@ impl Plot {
                 let y1 = hb.y_range.map(|(_, hi)| hi).unwrap_or_else(|| hb.y.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
                 Some(((x0, x1), (y0, y1)))
             }
+            // Pixel-space plot — dummy bounds so auto_from_plots sees it
+            Plot::Treemap(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
             // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
             Plot::Network(_) => Some(((0.0, 1.0), (0.0, 1.0))),
             Plot::Radar(_) => Some(((0.0, 1.0), (0.0, 1.0))),
@@ -938,6 +943,7 @@ impl Plot {
                 sg.series.len() * (sg.x.len() * 3 + 2) + 20
             }
             Plot::Hexbin(hb) => hb.n_bins * hb.n_bins / 2,
+            Plot::Treemap(tm) => tm.node_count() * 3 + 10,
             _ => 100,
         }
     }

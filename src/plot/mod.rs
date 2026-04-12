@@ -48,6 +48,7 @@ pub mod network;
 pub mod streamgraph;
 pub mod radar;
 pub mod hexbin;
+pub mod treemap;
 
 pub mod legend;
 
@@ -103,5 +104,6 @@ pub use network::{NetworkPlot, NetworkNode, NetworkEdge, NetworkLayout, NodeShap
 pub use streamgraph::{StreamgraphPlot, StreamBaseline, StreamOrder};
 pub use radar::{RadarPlot, RadarReference, RadarSeries};
 pub use hexbin::{HexbinPlot, ZReduce};
+pub use treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

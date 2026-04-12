@@ -36,6 +36,7 @@ mod surface3d;
 mod network;
 mod radar;
 mod hexbin;
+mod treemap;
 #[cfg(feature = "doom")]
 mod doom;
 
@@ -96,6 +97,7 @@ enum Commands {
     Network(network::NetworkArgs),
     Radar(radar::RadarArgs),
     Hexbin(hexbin::HexbinArgs),
+    Treemap(treemap::TreemapArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -148,6 +150,7 @@ fn main() {
         Commands::Network(args) => network::run(args),
         Commands::Radar(args) => radar::run(args),
         Commands::Hexbin(args) => hexbin::run(args),
+        Commands::Treemap(args) => treemap::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

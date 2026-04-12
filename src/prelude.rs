@@ -119,6 +119,10 @@ pub use crate::plot::{
     RadarReference,
     HexbinPlot,
     ZReduce,
+    TreemapPlot,
+    TreemapNode,
+    TreemapColorMode,
+    TreemapLayout,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -152,6 +156,7 @@ pub use crate::render::render::{
     render_venn,
     render_parallel,
     render_mosaic,
+    render_treemap,
 };
 
 // ── Figure (multi-plot grid) ─────────────────────────────────────────────────

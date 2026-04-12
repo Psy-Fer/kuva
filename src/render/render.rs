@@ -75,6 +75,7 @@ use crate::plot::parallel::{ParallelPlot, ParallelRow};
 use crate::plot::mosaic::MosaicPlot;
 use crate::plot::network::{NetworkPlot, NodeShape};
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
+use crate::plot::treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout};
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -10248,7 +10249,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
             | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)
             | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)
-            | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_)));
+            | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_)));
         if !skip_axes_for_meta {
             scene.axis_meta = Some(AxisMeta {
                 x_min: computed.x_range.0,
@@ -10265,7 +10266,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -10508,6 +10509,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Hexbin(hb) => {
                 add_hexbin(hb, &mut scene, &computed);
             }
+            Plot::Treemap(tm) => {
+                add_treemap(tm, &mut scene, &computed);
+            }
         }
     }
 
@@ -10620,16 +10624,26 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
 
         if layout.show_colorbar && !dice_colorbar_drawn {
-            // Hexbin colorbar must be drawn after ClipEnd (colorbar_info returns None for it)
-            let mut hexbin_cb_drawn = false;
+            // Hexbin and Treemap colorbars must be drawn after ClipEnd
+            // (colorbar_info returns None for them)
+            let mut special_cb_drawn = false;
             for plot in plots.iter() {
                 if let Plot::Hexbin(hb) = plot {
                     add_hexbin_colorbar(hb, &mut scene, &computed);
-                    hexbin_cb_drawn = true;
+                    special_cb_drawn = true;
                     break;
                 }
             }
-            if !hexbin_cb_drawn {
+            if !special_cb_drawn {
+                for plot in plots.iter() {
+                    if let Plot::Treemap(tm) = plot {
+                        add_treemap_colorbar(tm, &mut scene, &computed);
+                        special_cb_drawn = true;
+                        break;
+                    }
+                }
+            }
+            if !special_cb_drawn {
                 for plot in plots.iter() {
                     if let Some(info) = plot.colorbar_info() {
                         add_colorbar(&info, &mut scene, &computed);
@@ -13575,5 +13589,554 @@ fn add_hexbin(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLayout) {
         })));
     }
     // Colorbar is drawn after ClipEnd by add_hexbin_colorbar in render_multiple.
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TreemapPlot rendering
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Axis-aligned rectangle used internally by the treemap layout algorithms.
+#[derive(Clone, Copy, Debug)]
+struct TmRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+impl TmRect {
+    #[inline]
+    fn area(self) -> f64 { self.w * self.h }
+}
+
+/// A single resolved tile ready for rendering.
+struct Tile {
+    label: String,
+    value: f64,
+    /// Color value from `color_values` (leaf depth-first index).  `None` for inner nodes.
+    color_value: Option<f64>,
+    /// Color inherited from the nearest root ancestor (for `ByParent` mode).
+    inherited_color: Option<String>,
+    /// Explicit CSS color from `TreemapNode::color` (for `Explicit` mode).
+    explicit_color: Option<String>,
+    rect: TmRect,
+    depth: usize,
+    /// Breadcrumb path used for the SVG tooltip.
+    path: String,
+    /// `true` if this tile has no children (or `max_depth` was reached).
+    is_leaf: bool,
+}
+
+/// Squarify worst-aspect-ratio metric (Bruls et al. 2000).
+/// `row` contains pixel-area values; `w` is the strip width (shorter side).
+#[inline]
+fn worst_ratio(row: &[f64], w: f64) -> f64 {
+    let s: f64 = row.iter().sum();
+    if s <= f64::EPSILON || w <= f64::EPSILON { return f64::MAX; }
+    let max_v = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_v = row.iter().cloned().fold(f64::INFINITY,     f64::min);
+    if min_v <= f64::EPSILON { return f64::MAX; }
+    ((w * w * max_v) / (s * s)).max((s * s) / (w * w * min_v))
+}
+
+/// Padding at `depth`, halving at each level (floor at 1 px).
+#[inline]
+fn tm_effective_padding(base: f64, depth: usize) -> f64 {
+    (base / (1u64 << depth.min(10)) as f64).max(1.0)
+}
+
+/// Layout via the squarified algorithm.
+/// Returns `(original_index, TmRect)` pairs for all items with positive area.
+fn run_squarify(pixel_areas: &[f64], rect: TmRect) -> Vec<(usize, TmRect)> {
+    if rect.w <= 0.0 || rect.h <= 0.0 { return vec![]; }
+    // Sort descending, keeping original indices
+    let mut order: Vec<usize> = (0..pixel_areas.len())
+        .filter(|&i| pixel_areas[i] > f64::EPSILON)
+        .collect();
+    order.sort_by(|&a, &b| pixel_areas[b].partial_cmp(&pixel_areas[a]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut result = vec![TmRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }; pixel_areas.len()];
+    squarify_recursive(&order, pixel_areas, rect, &mut result);
+    order.iter().map(|&i| (i, result[i])).collect()
+}
+
+fn squarify_recursive(order: &[usize], areas: &[f64], rect: TmRect, result: &mut Vec<TmRect>) {
+    if order.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 { return; }
+    if order.len() == 1 {
+        result[order[0]] = rect;
+        return;
+    }
+
+    let w = rect.w.min(rect.h); // shorter side → strip dimension
+
+    // Build current row by greedily adding items while aspect ratio improves
+    let mut row_len = 1;
+    let mut row_vals: Vec<f64> = vec![areas[order[0]]];
+    let mut prev_ratio = worst_ratio(&row_vals, w);
+
+    for k in 1..order.len() {
+        let mut candidate = row_vals.clone();
+        candidate.push(areas[order[k]]);
+        let new_ratio = worst_ratio(&candidate, w);
+        if new_ratio <= prev_ratio {
+            row_vals = candidate;
+            row_len += 1;
+            prev_ratio = new_ratio;
+        } else {
+            break;
+        }
+    }
+
+    // Lay out the row as a strip
+    let row_sum: f64 = row_vals.iter().sum();
+    let strip_size = if rect.w >= rect.h {
+        row_sum / rect.w
+    } else {
+        row_sum / rect.h
+    };
+    let strip_size = strip_size.max(0.0);
+
+    let mut offset = 0.0_f64;
+    for &idx in order[..row_len].iter() {
+        let frac = if row_sum > f64::EPSILON { areas[idx] / row_sum } else { 1.0 / row_len as f64 };
+        result[idx] = if rect.w >= rect.h {
+            let rw = (frac * rect.w).max(0.0);
+            let r = TmRect { x: rect.x + offset, y: rect.y, w: rw, h: strip_size };
+            offset += rw;
+            r
+        } else {
+            let rh = (frac * rect.h).max(0.0);
+            let r = TmRect { x: rect.x, y: rect.y + offset, w: strip_size, h: rh };
+            offset += rh;
+            r
+        };
+    }
+
+    // Remaining rectangle after the strip
+    let remaining = if rect.w >= rect.h {
+        TmRect { x: rect.x, y: rect.y + strip_size, w: rect.w, h: (rect.h - strip_size).max(0.0) }
+    } else {
+        TmRect { x: rect.x + strip_size, y: rect.y, w: (rect.w - strip_size).max(0.0), h: rect.h }
+    };
+
+    squarify_recursive(&order[row_len..], areas, remaining, result);
+}
+
+/// Layout via alternating horizontal/vertical slice-and-dice.
+fn run_slicedice(pixel_areas: &[f64], rect: TmRect, depth: usize) -> Vec<(usize, TmRect)> {
+    if rect.w <= 0.0 || rect.h <= 0.0 { return vec![]; }
+    let total: f64 = pixel_areas.iter().sum();
+    if total <= f64::EPSILON { return vec![]; }
+
+    let horizontal = depth.is_multiple_of(2);
+    let mut offset = 0.0_f64;
+
+    pixel_areas.iter().enumerate()
+        .filter(|(_, &a)| a > f64::EPSILON)
+        .map(|(i, &a)| {
+            let frac = a / total;
+            let r = if horizontal {
+                let w = (frac * rect.w).max(0.0);
+                let r = TmRect { x: rect.x + offset, y: rect.y, w, h: rect.h };
+                offset += w;
+                r
+            } else {
+                let h = (frac * rect.h).max(0.0);
+                let r = TmRect { x: rect.x, y: rect.y + offset, w: rect.w, h };
+                offset += h;
+                r
+            };
+            (i, r)
+        })
+        .collect()
+}
+
+/// Layout via balanced binary splits.
+fn run_binary(pixel_areas: &[f64], rect: TmRect, depth: usize) -> Vec<(usize, TmRect)> {
+    if rect.w <= 0.0 || rect.h <= 0.0 { return vec![]; }
+    let mut order: Vec<usize> = (0..pixel_areas.len())
+        .filter(|&i| pixel_areas[i] > f64::EPSILON)
+        .collect();
+    if order.is_empty() { return vec![]; }
+    order.sort_by(|&a, &b| pixel_areas[b].partial_cmp(&pixel_areas[a]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut result = vec![TmRect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }; pixel_areas.len()];
+    binary_recursive(&order, pixel_areas, rect, depth, &mut result);
+    order.iter().map(|&i| (i, result[i])).collect()
+}
+
+fn binary_recursive(order: &[usize], areas: &[f64], rect: TmRect, depth: usize, result: &mut Vec<TmRect>) {
+    if order.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 { return; }
+    if order.len() == 1 {
+        result[order[0]] = rect;
+        return;
+    }
+
+    let total: f64 = order.iter().map(|&i| areas[i]).sum();
+    // Find split minimising |left_sum - right_sum|
+    let mut best_diff = f64::MAX;
+    let mut split = 1;
+    let mut cum = 0.0_f64;
+    for k in 0..order.len() - 1 {
+        cum += areas[order[k]];
+        let diff = (cum - (total - cum)).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            split = k + 1;
+        }
+    }
+
+    let left_sum: f64 = order[..split].iter().map(|&i| areas[i]).sum();
+    let horizontal = depth.is_multiple_of(2);
+    let (left_rect, right_rect) = if horizontal {
+        let lw = (left_sum / total * rect.w).max(0.0);
+        (
+            TmRect { x: rect.x,       y: rect.y, w: lw,                   h: rect.h },
+            TmRect { x: rect.x + lw,  y: rect.y, w: (rect.w - lw).max(0.0), h: rect.h },
+        )
+    } else {
+        let lh = (left_sum / total * rect.h).max(0.0);
+        (
+            TmRect { x: rect.x, y: rect.y,      w: rect.w, h: lh },
+            TmRect { x: rect.x, y: rect.y + lh, w: rect.w, h: (rect.h - lh).max(0.0) },
+        )
+    };
+
+    binary_recursive(&order[..split],   areas, left_rect,  depth + 1, result);
+    binary_recursive(&order[split..],   areas, right_rect, depth + 1, result);
+}
+
+/// Dispatch to the chosen layout algorithm.
+fn tm_layout(pixel_areas: &[f64], rect: TmRect, depth: usize, algo: &TreemapLayout) -> Vec<(usize, TmRect)> {
+    match algo {
+        TreemapLayout::Squarify  => run_squarify(pixel_areas, rect),
+        TreemapLayout::SliceDice => run_slicedice(pixel_areas, rect, depth),
+        TreemapLayout::Binary    => run_binary(pixel_areas, rect, depth),
+    }
+}
+
+/// Recursively collect tiles for `nodes` into `tiles`, tracking `leaf_idx` for `color_values`.
+#[allow(clippy::too_many_arguments)]
+fn collect_treemap_tiles(
+    nodes: &[TreemapNode],
+    rect: TmRect,
+    depth: usize,
+    tm: &TreemapPlot,
+    inherited_color: Option<&str>,
+    path_prefix: &str,
+    leaf_idx: &mut usize,
+    tiles: &mut Vec<Tile>,
+) {
+    let font_size = 12.0_f64;
+
+    let active: Vec<&TreemapNode> = nodes.iter()
+        .filter(|n| n.resolved_value() > f64::EPSILON)
+        .collect();
+    if active.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 { return; }
+
+    let total: f64 = active.iter().map(|n| n.resolved_value()).sum();
+    let pixel_areas: Vec<f64> = active.iter()
+        .map(|n| n.resolved_value() / total * rect.area())
+        .collect();
+
+    let rects = tm_layout(&pixel_areas, rect, depth, &tm.layout_algo);
+
+    for (i, tile_rect) in rects {
+        let node = active[i];
+        let max_depth_reached = tm.max_depth.map(|md| depth >= md).unwrap_or(false);
+        let is_leaf = node.children.is_empty() || max_depth_reached;
+
+        let color_value = if node.children.is_empty() {
+            let cv = tm.color_values.as_ref().and_then(|cv| cv.get(*leaf_idx).copied());
+            *leaf_idx += 1;
+            cv
+        } else {
+            None
+        };
+
+        let path = if path_prefix.is_empty() {
+            node.label.clone()
+        } else {
+            format!("{} > {}", path_prefix, node.label)
+        };
+
+        tiles.push(Tile {
+            label: node.label.clone(),
+            value: node.resolved_value(),
+            color_value,
+            inherited_color: inherited_color.map(|s| s.to_string()),
+            explicit_color: node.color.clone(),
+            rect: tile_rect,
+            depth,
+            path: path.clone(),
+            is_leaf,
+        });
+
+        if !node.children.is_empty() && !max_depth_reached {
+            let pad = tm_effective_padding(tm.padding, depth);
+            let label_reserve = if tm.show_parent_labels { font_size * 1.4 } else { 0.0 };
+            let child_rect = TmRect {
+                x: tile_rect.x + pad,
+                y: tile_rect.y + pad + label_reserve,
+                w: (tile_rect.w - 2.0 * pad).max(0.0),
+                h: (tile_rect.h - 2.0 * pad - label_reserve).max(0.0),
+            };
+            if child_rect.w > 0.0 && child_rect.h > 0.0 {
+                collect_treemap_tiles(
+                    &node.children,
+                    child_rect,
+                    depth + 1,
+                    tm,
+                    inherited_color,
+                    &path,
+                    leaf_idx,
+                    tiles,
+                );
+            }
+        }
+    }
+}
+
+/// Collect all leaf node values (depth-first) for colorbar range computation.
+fn treemap_leaf_values(roots: &[TreemapNode]) -> Vec<f64> {
+    fn recurse(nodes: &[TreemapNode], out: &mut Vec<f64>) {
+        for n in nodes {
+            if n.children.is_empty() {
+                out.push(n.resolved_value());
+            } else {
+                recurse(&n.children, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    recurse(roots, &mut out);
+    out
+}
+
+fn compute_treemap_value_range(tm: &TreemapPlot) -> (f64, f64) {
+    if let Some(range) = tm.color_range {
+        return range;
+    }
+    let vals = if let Some(ref cv) = tm.color_values {
+        cv.clone()
+    } else {
+        treemap_leaf_values(&tm.roots)
+    };
+    if vals.is_empty() { return (0.0, 1.0); }
+    let lo = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+    let hi = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    (lo, hi)
+}
+
+/// Render a [`TreemapPlot`].  Must be added to `skip_axes` so no axes are drawn.
+fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use crate::render::palette::Palette;
+
+    let plot_rect = TmRect {
+        x: computed.margin_left,
+        y: computed.margin_top,
+        w: (computed.width  - computed.margin_left - computed.margin_right).max(0.0),
+        h: (computed.height - computed.margin_top  - computed.margin_bottom).max(0.0),
+    };
+    if plot_rect.w <= 0.0 || plot_rect.h <= 0.0 { return; }
+
+    let cat10 = Palette::category10();
+
+    // ── Build all tiles ───────────────────────────────────────────────────────
+    let active_roots: Vec<&TreemapNode> = tm.roots.iter()
+        .filter(|n| n.resolved_value() > f64::EPSILON)
+        .collect();
+    if active_roots.is_empty() { return; }
+
+    let total_root: f64 = active_roots.iter().map(|n| n.resolved_value()).sum();
+    let root_areas: Vec<f64> = active_roots.iter()
+        .map(|n| n.resolved_value() / total_root * plot_rect.area())
+        .collect();
+
+    let root_rects = tm_layout(&root_areas, plot_rect, 0, &tm.layout_algo);
+
+    let mut tiles: Vec<Tile> = Vec::new();
+    let mut leaf_idx = 0usize;
+
+    for (i, root_rect) in root_rects {
+        let node = active_roots[i];
+        let root_color = cat10[i % cat10.len()].to_string();
+        let max_depth_reached = tm.max_depth.map(|md| md == 0).unwrap_or(false);
+        let is_leaf = node.children.is_empty() || max_depth_reached;
+
+        let color_value = if node.children.is_empty() {
+            let cv = tm.color_values.as_ref().and_then(|cv| cv.get(leaf_idx).copied());
+            leaf_idx += 1;
+            cv
+        } else {
+            None
+        };
+
+        let path = node.label.clone();
+        tiles.push(Tile {
+            label: node.label.clone(),
+            value: node.resolved_value(),
+            color_value,
+            inherited_color: Some(root_color.clone()),
+            explicit_color: node.color.clone(),
+            rect: root_rect,
+            depth: 0,
+            path: path.clone(),
+            is_leaf,
+        });
+
+        if !node.children.is_empty() && !max_depth_reached {
+            let pad = tm_effective_padding(tm.padding, 0);
+            let label_reserve = if tm.show_parent_labels { 12.0 * 1.4 } else { 0.0 };
+            let child_rect = TmRect {
+                x: root_rect.x + pad,
+                y: root_rect.y + pad + label_reserve,
+                w: (root_rect.w - 2.0 * pad).max(0.0),
+                h: (root_rect.h - 2.0 * pad - label_reserve).max(0.0),
+            };
+            if child_rect.w > 0.0 && child_rect.h > 0.0 {
+                collect_treemap_tiles(
+                    &node.children,
+                    child_rect,
+                    1,
+                    tm,
+                    Some(&root_color),
+                    &path,
+                    &mut leaf_idx,
+                    &mut tiles,
+                );
+            }
+        }
+    }
+
+    // ── Colour range for ByValue mode ─────────────────────────────────────────
+    let (v_min, v_max) = if matches!(tm.color_mode, TreemapColorMode::ByValue(_)) {
+        compute_treemap_value_range(tm)
+    } else {
+        (0.0, 1.0)
+    };
+    let v_span = (v_max - v_min).max(f64::EPSILON);
+
+    // ── Render tiles ──────────────────────────────────────────────────────────
+    let font_size = 12u32;
+    for tile in &tiles {
+        let fill_color = match &tm.color_mode {
+            TreemapColorMode::ByParent => {
+                tile.inherited_color.as_deref().unwrap_or("#888888").to_string()
+            }
+            TreemapColorMode::ByValue(cmap) => {
+                if tile.is_leaf {
+                    let raw = tile.color_value.unwrap_or(tile.value);
+                    let norm = ((raw - v_min) / v_span).clamp(0.0, 1.0);
+                    cmap.map(norm)
+                } else {
+                    "#e0e0e0".to_string()
+                }
+            }
+            TreemapColorMode::Explicit => {
+                tile.explicit_color.as_deref().unwrap_or("#888888").to_string()
+            }
+        };
+
+        let stroke_w = if tile.depth == 0 { tm.root_border_width } else { tm.border_width };
+
+        if tm.show_tooltips {
+            let tooltip_text = format!("{}\n{:.4}", tile.path, tile.value);
+            scene.add(Primitive::GroupStart {
+                transform: None,
+                title: Some(tooltip_text),
+                extra_attrs: None,
+            });
+        }
+
+        scene.add(Primitive::Rect {
+            x: round2(tile.rect.x),
+            y: round2(tile.rect.y),
+            width:  round2(tile.rect.w.max(0.0)),
+            height: round2(tile.rect.h.max(0.0)),
+            fill: Color::from(fill_color.as_str()),
+            stroke: Some(Color::from("#ffffff")),
+            stroke_width: Some(stroke_w),
+            opacity: None,
+        });
+
+        // ── Label ─────────────────────────────────────────────────────────────
+        let area = tile.rect.area();
+        if area >= tm.min_label_area && tile.rect.w.min(tile.rect.h) >= font_size as f64 * 1.5 {
+            let is_parent_label = !tile.is_leaf;
+            let show_lbl = if is_parent_label { tm.show_parent_labels } else { tm.show_labels };
+
+            if show_lbl {
+                let char_w_est = font_size as f64 * 0.55;
+                let max_chars = ((tile.rect.w * 0.88) / char_w_est).floor() as usize;
+                let label = if max_chars > 2 && tile.label.chars().count() > max_chars {
+                    let truncated: String = tile.label.chars().take(max_chars.saturating_sub(1)).collect();
+                    format!("{}…", truncated)
+                } else {
+                    tile.label.clone()
+                };
+
+                let (lx, ly, anchor, bold) = if is_parent_label {
+                    (tile.rect.x + 4.0, tile.rect.y + font_size as f64 + 2.0, TextAnchor::Start, true)
+                } else {
+                    (
+                        tile.rect.x + tile.rect.w * 0.5,
+                        tile.rect.y + tile.rect.h * 0.5 + font_size as f64 * 0.35,
+                        TextAnchor::Middle,
+                        false,
+                    )
+                };
+
+                scene.add(Primitive::Text {
+                    x: round2(lx),
+                    y: round2(ly),
+                    content: label,
+                    size: font_size,
+                    anchor,
+                    rotate: None,
+                    bold,
+                    color: Some(Color::from("#ffffff")),
+                });
+            }
+        }
+
+        if tm.show_tooltips {
+            scene.add(Primitive::GroupEnd);
+        }
+    }
+    // Colorbar drawn after ClipEnd by add_treemap_colorbar in render_multiple.
+}
+
+/// Draw the treemap colorbar.  Must be called AFTER `ClipEnd`.
+fn add_treemap_colorbar(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use std::sync::Arc;
+    use crate::plot::legend::ColorBarInfo;
+
+    let cmap = match &tm.color_mode {
+        TreemapColorMode::ByValue(cmap) => cmap.clone(),
+        _ => return,
+    };
+    if !tm.show_colorbar { return; }
+
+    let (v_min, v_max) = compute_treemap_value_range(tm);
+    let span = (v_max - v_min).max(f64::EPSILON);
+    let cmin = v_min;
+
+    let label = tm.colorbar_label.clone().unwrap_or_else(|| "Value".to_string());
+
+    let cb_info = ColorBarInfo {
+        map_fn: Arc::new(move |t: f64| cmap.map(((t - cmin) / span).clamp(0.0, 1.0))),
+        min_value: v_min,
+        max_value: v_max,
+        label: Some(label),
+        tick_labels: None,
+    };
+    add_colorbar(&cb_info, scene, computed);
+}
+
+/// Render a single [`TreemapPlot`] to a [`Scene`].
+pub fn render_treemap(tm: TreemapPlot, layout: Layout) -> Scene {
+    let plots = vec![Plot::Treemap(tm)];
+    render_multiple(plots, layout)
 }
 
