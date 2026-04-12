@@ -125,6 +125,10 @@ pub use crate::plot::{
     TreemapLayout,
     SunburstPlot,
     SunburstColorMode,
+    BumpPlot,
+    BumpSeries,
+    CurveStyle as BumpCurveStyle,
+    BumpTieBreak,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,
@@ -160,6 +164,7 @@ pub use crate::render::render::{
     render_mosaic,
     render_treemap,
     render_sunburst,
+    render_bump,
 };
 
 // ── Figure (multi-plot grid) ─────────────────────────────────────────────────

@@ -77,6 +77,7 @@ use crate::plot::network::{NetworkPlot, NodeShape};
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
 use crate::plot::treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout};
 use crate::plot::sunburst::{SunburstPlot, SunburstColorMode};
+use crate::plot::bump::{BumpPlot, CurveStyle};
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -8444,6 +8445,22 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Bump(bp) => {
+                if bp.legend {
+                    use crate::render::palette::Palette;
+                    let cat10 = Palette::category10();
+                    let series = bp.resolved_series();
+                    for (i, s) in series.iter().enumerate() {
+                        let color = s.color.clone().unwrap_or_else(|| cat10[i].to_string());
+                        entries.push(LegendEntry {
+                            label: s.name.clone(),
+                            color,
+                            shape: LegendShape::Line,
+                            dasharray: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -10515,6 +10532,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Sunburst(sb) => {
                 add_sunburst(sb, &mut scene, &computed);
+            }
+            Plot::Bump(bp) => {
+                add_bump(bp, &mut scene, &computed, &layout);
             }
         }
     }
@@ -14540,6 +14560,206 @@ fn add_sunburst_colorbar(sb: &SunburstPlot, scene: &mut Scene, computed: &Comput
 /// Render a single [`SunburstPlot`] to a [`Scene`].
 pub fn render_sunburst(sb: SunburstPlot, layout: Layout) -> Scene {
     let plots = vec![Plot::Sunburst(sb)];
+    render_multiple(plots, layout)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bump chart rendering
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Separate overlapping endpoint labels with a spring-relaxation pass.
+fn nudge_bump_labels(positions: &mut [(usize, f64)], min_gap: f64) {
+    let n = positions.len();
+    for _ in 0..20 {
+        let mut changed = false;
+        for i in 1..n {
+            let gap = positions[i].1 - positions[i - 1].1;
+            if gap < min_gap {
+                let push = (min_gap - gap) / 2.0;
+                positions[i - 1].1 -= push;
+                positions[i].1 += push;
+                changed = true;
+            }
+        }
+        if !changed { break; }
+    }
+}
+
+fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
+    use crate::render::palette::Palette;
+
+    let series = bp.resolved_series();
+    let n = series.len();
+    let n_time = bp.n_time_points();
+    if n == 0 || n_time == 0 { return; }
+
+    let cat10 = Palette::category10();
+    let highlight = bp.highlight.as_deref();
+    let _ = layout; // reserved for future use
+
+    // Resolve colors for every series
+    let colors: Vec<String> = series.iter().enumerate()
+        .map(|(i, s)| s.color.clone().unwrap_or_else(|| cat10[i].to_string()))
+        .collect();
+
+    // Draw order: non-highlighted behind, highlighted on top
+    let mut draw_order: Vec<usize> = (0..n).collect();
+    if let Some(hl) = highlight {
+        draw_order.sort_by_key(|&i| if series[i].name == hl { 1 } else { 0 });
+    }
+
+    for &si in &draw_order {
+        let s = &series[si];
+        let color = &colors[si];
+        let is_highlighted = highlight.is_none_or(|hl| s.name == hl);
+        let opacity = if highlight.is_some() && !is_highlighted { 0.2 } else { 1.0 };
+        let sw = if is_highlighted && highlight.is_some() {
+            bp.stroke_width * 1.6
+        } else {
+            bp.stroke_width
+        };
+
+        // ── Connecting curves ─────────────────────────────────────────────
+        let mut prev: Option<(f64, f64)> = None;
+        for t in 0..n_time {
+            let rank_opt = s.ranks.get(t).and_then(|r| *r);
+            let x_data = (t + 1) as f64;
+            if let Some(r) = rank_opt {
+                let y_data = n as f64 + 1.0 - r;
+                let px = computed.map_x(x_data);
+                let py = computed.map_y(y_data);
+                if let Some((ppx, ppy)) = prev {
+                    let path_d = match bp.curve_style {
+                        CurveStyle::Sigmoid => {
+                            let mx = (ppx + px) / 2.0;
+                            format!("M {ppx:.2},{ppy:.2} C {mx:.2},{ppy:.2} {mx:.2},{py:.2} {px:.2},{py:.2}")
+                        }
+                        CurveStyle::Straight => {
+                            format!("M {ppx:.2},{ppy:.2} L {px:.2},{py:.2}")
+                        }
+                    };
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d: path_d,
+                        fill: None,
+                        stroke: Color::from(color.as_str()),
+                        stroke_width: sw,
+                        opacity: Some(opacity),
+                        stroke_dasharray: None,
+                    })));
+                }
+                prev = Some((px, py));
+            } else {
+                prev = None; // gap in series
+            }
+        }
+
+        // ── Dots ─────────────────────────────────────────────────────────
+        for t in 0..n_time {
+            let rank_opt = s.ranks.get(t).and_then(|r| *r);
+            let x_data = (t + 1) as f64;
+            if let Some(r) = rank_opt {
+                let y_data = n as f64 + 1.0 - r;
+                let px = computed.map_x(x_data);
+                let py = computed.map_y(y_data);
+                scene.add(Primitive::Circle {
+                    cx: px, cy: py, r: bp.dot_radius,
+                    fill: Color::from(color.as_str()),
+                    fill_opacity: Some(opacity),
+                    stroke: Some(Color::from("#ffffff")),
+                    stroke_width: Some(bp.stroke_width * 0.5),
+                });
+                if bp.show_rank_labels {
+                    let label = if (r - r.round()).abs() < f64::EPSILON * 10.0 {
+                        format!("{}", r as i64)
+                    } else {
+                        format!("{:.1}", r)
+                    };
+                    let font_sz = ((bp.dot_radius * 1.1) as u32).max(7).min(computed.body_size);
+                    scene.add(Primitive::Text {
+                        x: px,
+                        y: py + font_sz as f64 * 0.35,
+                        content: label,
+                        size: font_sz,
+                        anchor: TextAnchor::Middle,
+                        rotate: None,
+                        bold: false,
+                        color: Some(Color::from("#ffffff")),
+                    });
+                }
+            }
+        }
+    }
+
+    // ── Endpoint labels ────────────────────────────────────────────────────
+    if bp.show_series_labels {
+        let label_gap = bp.dot_radius + 5.0;
+        let font_h = computed.body_size as f64;
+
+        // Helper: build (series_idx, pixel_y) for a specific time index
+        let positions_at = |t: usize| -> Vec<(usize, f64)> {
+            let mut pos: Vec<(usize, f64)> = series.iter().enumerate()
+                .filter_map(|(si, s)| {
+                    let r = s.ranks.get(t).and_then(|r| *r)?;
+                    let y_data = n as f64 + 1.0 - r;
+                    let py = computed.map_y(y_data);
+                    Some((si, py))
+                })
+                .collect();
+            pos.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            nudge_bump_labels(&mut pos, font_h * 1.1);
+            pos
+        };
+
+        // Left labels (time point 0)
+        let left_px = computed.map_x(1.0);
+        for (si, py) in positions_at(0) {
+            let s = &series[si];
+            let is_highlighted = highlight.is_none_or(|hl| s.name == hl);
+            let color = if highlight.is_some() && !is_highlighted {
+                "#bbbbbb".to_string()
+            } else {
+                colors[si].clone()
+            };
+            scene.add(Primitive::Text {
+                x: left_px - label_gap,
+                y: py + font_h * 0.35,
+                content: s.name.clone(),
+                size: computed.body_size,
+                anchor: TextAnchor::End,
+                rotate: None,
+                bold: is_highlighted && highlight.is_some(),
+                color: Some(Color::from(color.as_str())),
+            });
+        }
+
+        // Right labels (last time point)
+        let last_t = n_time.saturating_sub(1);
+        let right_px = computed.map_x(n_time as f64);
+        for (si, py) in positions_at(last_t) {
+            let s = &series[si];
+            let is_highlighted = highlight.is_none_or(|hl| s.name == hl);
+            let color = if highlight.is_some() && !is_highlighted {
+                "#bbbbbb".to_string()
+            } else {
+                colors[si].clone()
+            };
+            scene.add(Primitive::Text {
+                x: right_px + label_gap,
+                y: py + font_h * 0.35,
+                content: s.name.clone(),
+                size: computed.body_size,
+                anchor: TextAnchor::Start,
+                rotate: None,
+                bold: is_highlighted && highlight.is_some(),
+                color: Some(Color::from(color.as_str())),
+            });
+        }
+    }
+}
+
+/// Render a single [`BumpPlot`] to a [`Scene`].
+pub fn render_bump(bp: BumpPlot, layout: Layout) -> Scene {
+    let plots = vec![Plot::Bump(bp)];
     render_multiple(plots, layout)
 }
 

@@ -49,6 +49,7 @@ use crate::plot::radar::RadarPlot;
 use crate::plot::hexbin::HexbinPlot;
 use crate::plot::treemap::TreemapPlot;
 use crate::plot::sunburst::SunburstPlot;
+use crate::plot::bump::BumpPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -105,6 +106,7 @@ pub enum Plot {
     Hexbin(HexbinPlot),
     Treemap(TreemapPlot),
     Sunburst(SunburstPlot),
+    Bump(BumpPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -158,6 +160,7 @@ impl From<RadarPlot>       for Plot { fn from(p: RadarPlot)       -> Self { Plot
 impl From<HexbinPlot>      for Plot { fn from(p: HexbinPlot)      -> Self { Plot::Hexbin(p) } }
 impl From<TreemapPlot>     for Plot { fn from(p: TreemapPlot)     -> Self { Plot::Treemap(p) } }
 impl From<SunburstPlot>    for Plot { fn from(p: SunburstPlot)    -> Self { Plot::Sunburst(p) } }
+impl From<BumpPlot>        for Plot { fn from(p: BumpPlot)        -> Self { Plot::Bump(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
 use crate::plot::heatmap::ColorMap;
@@ -859,6 +862,15 @@ impl Plot {
             // Pixel-space plots — dummy bounds so auto_from_plots sees them
             Plot::Treemap(_)  => Some(((-1.0, 1.0), (-1.0, 1.0))),
             Plot::Sunburst(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
+            Plot::Bump(bp) => {
+                let n = bp.total_series_count();
+                let n_time = bp.n_time_points();
+                if n == 0 || n_time == 0 {
+                    Some(((0.5, 1.5), (0.5, 1.5)))
+                } else {
+                    Some(((0.5, n_time as f64 + 0.5), (0.5, n as f64 + 0.5)))
+                }
+            }
             // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
             Plot::Network(_) => Some(((0.0, 1.0), (0.0, 1.0))),
             Plot::Radar(_) => Some(((0.0, 1.0), (0.0, 1.0))),
@@ -949,6 +961,7 @@ impl Plot {
             Plot::Hexbin(hb) => hb.n_bins * hb.n_bins / 2,
             Plot::Treemap(tm) => tm.node_count() * 3 + 10,
             Plot::Sunburst(sb) => sb.node_count() * 2 + 10,
+            Plot::Bump(bp) => bp.total_series_count() * bp.n_time_points() * 3 + 20,
             _ => 100,
         }
     }

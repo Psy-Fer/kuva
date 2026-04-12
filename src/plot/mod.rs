@@ -50,6 +50,7 @@ pub mod radar;
 pub mod hexbin;
 pub mod treemap;
 pub mod sunburst;
+pub mod bump;
 
 pub mod legend;
 
@@ -107,5 +108,6 @@ pub use radar::{RadarPlot, RadarReference, RadarSeries};
 pub use hexbin::{HexbinPlot, ZReduce};
 pub use treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout};
 pub use sunburst::{SunburstPlot, SunburstColorMode};
+pub use bump::{BumpPlot, BumpSeries, CurveStyle, BumpTieBreak};
 
 pub use legend::{Legend, LegendEntry, LegendShape, LegendPosition, LegendGroup};

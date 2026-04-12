@@ -731,6 +731,29 @@ impl Layout {
                 }
             }
 
+            if let Plot::Bump(bp) = plot {
+                let n = bp.total_series_count();
+                let n_time = bp.n_time_points();
+                // x_categories: one per time point (labels or "1", "2", ...)
+                let x_cats: Vec<String> = if !bp.x_labels.is_empty() {
+                    bp.x_labels.clone()
+                } else {
+                    (1..=n_time).map(|i| i.to_string()).collect()
+                };
+                x_labels = Some(x_cats);
+                // y_categories: rank labels with rank-1 at top.
+                // axis.rs draws y_categories[i] at y_val=i+1; rank r is plotted at y_data=n+1-r.
+                // So y_categories[i] at y_val=i+1 corresponds to rank n-i → label "n-i".
+                y_labels = Some((1..=n).rev().map(|r| r.to_string()).collect());
+                if bp.legend {
+                    has_legend = true;
+                    let series = bp.resolved_series();
+                    for s in &series {
+                        max_label_len = max_label_len.max(s.name.len());
+                    }
+                }
+            }
+
             if let Plot::Polar(pp) = plot {
                 has_polar = true;
                 if pp.show_legend {
