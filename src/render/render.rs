@@ -74,6 +74,7 @@ use crate::plot::venn::VennPlot;
 use crate::plot::parallel::{ParallelPlot, ParallelRow};
 use crate::plot::mosaic::MosaicPlot;
 use crate::plot::network::{NetworkPlot, NodeShape};
+use crate::plot::hexbin::{HexbinPlot, ZReduce};
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -10504,6 +10505,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Radar(rp) => {
                 add_radar(rp, &mut scene, &computed);
             }
+            Plot::Hexbin(hb) => {
+                add_hexbin(hb, &mut scene, &computed);
+            }
         }
     }
 
@@ -10616,10 +10620,21 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
 
         if layout.show_colorbar && !dice_colorbar_drawn {
+            // Hexbin colorbar must be drawn after ClipEnd (colorbar_info returns None for it)
+            let mut hexbin_cb_drawn = false;
             for plot in plots.iter() {
-                if let Some(info) = plot.colorbar_info() {
-                    add_colorbar(&info, &mut scene, &computed);
-                    break; // one colorbar per figure
+                if let Plot::Hexbin(hb) = plot {
+                    add_hexbin_colorbar(hb, &mut scene, &computed);
+                    hexbin_cb_drawn = true;
+                    break;
+                }
+            }
+            if !hexbin_cb_drawn {
+                for plot in plots.iter() {
+                    if let Some(info) = plot.colorbar_info() {
+                        add_colorbar(&info, &mut scene, &computed);
+                        break; // one colorbar per figure
+                    }
                 }
             }
         }
@@ -13299,5 +13314,265 @@ fn radar_band_path(outer: &[(f64, f64)], inner: &[(f64, f64)]) -> String {
     }
     d.push_str(" Z");
     d
+}
+
+// ── Hexbin renderer ───────────────────────────────────────────────────────────
+
+/// Cube-coordinate rounding for axial hex coordinates.
+fn hexbin_cube_round(fq: f64, fr: f64) -> (i32, i32) {
+    let fs = -fq - fr;
+    let q = fq.round();
+    let r = fr.round();
+    let s = fs.round();
+    let dq = (q - fq).abs();
+    let dr = (r - fr).abs();
+    let ds = (s - fs).abs();
+    if dq > dr && dq > ds {
+        ((-r - s) as i32, r as i32)
+    } else if dr > ds {
+        (q as i32, (-q - s) as i32)
+    } else {
+        (q as i32, r as i32)
+    }
+}
+
+/// Build an SVG path string for a regular hexagon centred at `(cx, cy)` with
+/// circumradius `s`.  `flat_top = true` produces flat-top orientation; `false`
+/// produces pointy-top.
+fn hexbin_hex_path(cx: f64, cy: f64, s: f64, flat_top: bool) -> String {
+    use std::f64::consts::PI;
+    let start = if flat_top { 0.0_f64 } else { PI / 6.0 };
+    let mut pts = [(0.0_f64, 0.0_f64); 6];
+    for (i, pt) in pts.iter_mut().enumerate() {
+        let a = start + i as f64 * PI / 3.0;
+        *pt = (round2(cx + s * a.cos()), round2(cy + s * a.sin()));
+    }
+    let mut d = format!("M {} {}", pts[0].0, pts[0].1);
+    for &(x, y) in &pts[1..] {
+        d.push_str(&format!(" L {} {}", x, y));
+    }
+    d.push_str(" Z");
+    d
+}
+
+/// Bin and aggregate hexbin data in pixel space, returning `(q,r) → aggregated_value` pairs.
+/// Used by both `add_hexbin` (for drawing) and `add_hexbin_colorbar` (for the colorbar).
+fn hexbin_bin_values(
+    hb: &HexbinPlot,
+    computed: &ComputedLayout,
+) -> Vec<((i32, i32), f64)> {
+    use std::collections::HashMap;
+
+    let plot_left   = computed.margin_left;
+    let plot_right  = computed.width - computed.margin_right;
+    let plot_top    = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+    let plot_w = plot_right - plot_left;
+    let plot_h = plot_bottom - plot_top;
+    if plot_w <= 0.0 || plot_h <= 0.0 { return vec![]; }
+
+    let n_x = hb.n_bins.max(2) as f64;
+    let s_px = hb.bin_size.unwrap_or(
+        if hb.flat_top { plot_w / (n_x * 1.5) }
+        else           { plot_w / (n_x * 3_f64.sqrt()) }
+    );
+    if s_px <= 0.0 { return vec![]; }
+
+    let mut bins: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    for (idx, (&xi, &yi)) in hb.x.iter().zip(hb.y.iter()).enumerate() {
+        if let Some((lo, hi)) = hb.x_range { if xi < lo || xi > hi { continue; } }
+        if let Some((lo, hi)) = hb.y_range { if yi < lo || yi > hi { continue; } }
+        let px = computed.map_x(xi);
+        let py = computed.map_y(yi);
+        if px < plot_left - s_px || px > plot_right  + s_px { continue; }
+        if py < plot_top  - s_px || py > plot_bottom + s_px { continue; }
+        let hx = (px - plot_left) / s_px;
+        let hy = (py - plot_top)  / s_px;
+        let (q, r) = if hb.flat_top {
+            hexbin_cube_round(2.0/3.0 * hx, -1.0/3.0 * hx + 3_f64.sqrt()/3.0 * hy)
+        } else {
+            hexbin_cube_round(3_f64.sqrt()/3.0 * hx - 1.0/3.0 * hy, 2.0/3.0 * hy)
+        };
+        bins.entry((q, r)).or_default().push(idx);
+    }
+    if bins.is_empty() { return vec![]; }
+
+    let total_pts = hb.x.len() as f64;
+    let min_count = hb.min_count.max(1);
+    bins.iter()
+        .filter(|(_, pts)| pts.len() >= min_count)
+        .map(|(&key, pts)| {
+            let val = match &hb.z_reduce {
+                ZReduce::Count => {
+                    if hb.normalize { pts.len() as f64 / total_pts }
+                    else { pts.len() as f64 }
+                }
+                ZReduce::Mean => hb.z.as_ref().map(|z|
+                    pts.iter().map(|&i| z[i]).sum::<f64>() / pts.len() as f64
+                ).unwrap_or(pts.len() as f64),
+                ZReduce::Sum => hb.z.as_ref().map(|z|
+                    pts.iter().map(|&i| z[i]).sum::<f64>()
+                ).unwrap_or(pts.len() as f64),
+                ZReduce::Min => hb.z.as_ref().map(|z|
+                    pts.iter().map(|&i| z[i]).fold(f64::INFINITY, f64::min)
+                ).unwrap_or(pts.len() as f64),
+                ZReduce::Max => hb.z.as_ref().map(|z|
+                    pts.iter().map(|&i| z[i]).fold(f64::NEG_INFINITY, f64::max)
+                ).unwrap_or(pts.len() as f64),
+                ZReduce::Median => hb.z.as_ref().map(|z| {
+                    let mut vals: Vec<f64> = pts.iter().map(|&i| z[i]).collect();
+                    vals.sort_by(|a, b| a.total_cmp(b));
+                    let mid = vals.len() / 2;
+                    if vals.len().is_multiple_of(2) { (vals[mid-1] + vals[mid]) / 2.0 }
+                    else { vals[mid] }
+                }).unwrap_or(pts.len() as f64),
+            };
+            (key, val)
+        })
+        .collect()
+}
+
+/// Draw the hexbin colorbar.  Must be called AFTER `ClipEnd`.
+fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    use std::sync::Arc;
+    use crate::plot::legend::ColorBarInfo;
+
+    if !hb.show_colorbar { return; }
+
+    let bin_vals = hexbin_bin_values(hb, computed);
+    if bin_vals.is_empty() { return; }
+
+    let (v_min_raw, v_max_raw) = bin_vals.iter().fold(
+        (f64::INFINITY, f64::NEG_INFINITY),
+        |(lo, hi), (_, v)| (lo.min(*v), hi.max(*v)),
+    );
+    let (v_min, v_max) = hb.color_range.unwrap_or((v_min_raw, v_max_raw));
+    let cmap = hb.color_map.clone();
+
+    let cb_label = hb.colorbar_label.clone().unwrap_or_else(|| match hb.z_reduce {
+        ZReduce::Count if hb.normalize => "Density".to_string(),
+        ZReduce::Count                 => "Count".to_string(),
+        ZReduce::Mean                  => "Mean".to_string(),
+        ZReduce::Sum                   => "Sum".to_string(),
+        ZReduce::Median                => "Median".to_string(),
+        ZReduce::Min                   => "Min".to_string(),
+        ZReduce::Max                   => "Max".to_string(),
+    });
+
+    type MapFn = Arc<dyn Fn(f64) -> String + Send + Sync>;
+    let (map_min, map_max, cb_map_fn, tick_labels): (f64, f64, MapFn, Option<Vec<(f64, String)>>) =
+        if hb.log_color {
+            let log_max = (v_max - v_min + 1.0).max(1.0).log10().max(f64::EPSILON);
+            let mut ticks = vec![(0.0_f64, "0".to_string())];
+            let mut k = 0u32;
+            loop {
+                let count = 10_f64.powi(k as i32);
+                if count > v_max - v_min { break; }
+                ticks.push(((count + 1.0).log10(), format!("{}", count as u64)));
+                k += 1;
+            }
+            ticks.push((log_max, format!("{}", (v_max - v_min) as u64)));
+            ticks.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
+            let lmax = log_max;
+            (0.0, lmax, Arc::new(move |t: f64| cmap.map((t / lmax).clamp(0.0, 1.0))), Some(ticks))
+        } else {
+            let span = (v_max - v_min).max(f64::EPSILON);
+            let cmin = v_min;
+            (v_min, v_max, Arc::new(move |t: f64| cmap.map(((t - cmin) / span).clamp(0.0, 1.0))), None)
+        };
+
+    let cb_info = ColorBarInfo {
+        map_fn: cb_map_fn,
+        min_value: map_min,
+        max_value: map_max,
+        label: Some(cb_label),
+        tick_labels,
+    };
+    add_colorbar(&cb_info, scene, computed);
+}
+
+fn add_hexbin(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if hb.x.is_empty() { return; }
+
+    let plot_left   = computed.margin_left;
+    let plot_right  = computed.width - computed.margin_right;
+    let plot_top    = computed.margin_top;
+    let plot_bottom = computed.height - computed.margin_bottom;
+    let plot_w = plot_right  - plot_left;
+    let plot_h = plot_bottom - plot_top;
+    if plot_w <= 0.0 || plot_h <= 0.0 { return; }
+
+    // ── Hex circumradius in pixels ────────────────────────────────────────────
+    let n_x = hb.n_bins.max(2) as f64;
+    let s_px = hb.bin_size.unwrap_or(
+        if hb.flat_top {
+            plot_w / (n_x * 1.5)
+        } else {
+            plot_w / (n_x * 3_f64.sqrt())
+        }
+    );
+    if s_px <= 0.0 { return; }
+
+    let bin_vals = hexbin_bin_values(hb, computed);
+
+    if bin_vals.is_empty() { return; }
+
+    if bin_vals.is_empty() { return; }
+
+    // ── Colour scale ──────────────────────────────────────────────────────────
+    let (v_min_raw, v_max_raw) = bin_vals.iter().fold(
+        (f64::INFINITY, f64::NEG_INFINITY),
+        |(lo, hi), (_, v)| (lo.min(*v), hi.max(*v)),
+    );
+    let (v_min, v_max) = hb.color_range.unwrap_or((v_min_raw, v_max_raw));
+    let v_span = (v_max - v_min).max(f64::EPSILON);
+    let log_max = if hb.log_color {
+        (v_max - v_min + 1.0).max(1.0).log10().max(f64::EPSILON)
+    } else {
+        1.0
+    };
+    let color_for = |v: f64| -> String {
+        let norm = if hb.log_color {
+            ((v - v_min + 1.0).max(1.0).log10() / log_max).clamp(0.0, 1.0)
+        } else {
+            ((v - v_min) / v_span).clamp(0.0, 1.0)
+        };
+        hb.color_map.map(norm)
+    };
+
+    // ── Draw hexagons ─────────────────────────────────────────────────────────
+    for &((q, r), val) in &bin_vals {
+        let (cx, cy) = if hb.flat_top {
+            (
+                plot_left + s_px * (1.5 * q as f64),
+                plot_top  + s_px * (3_f64.sqrt() / 2.0 * q as f64 + 3_f64.sqrt() * r as f64),
+            )
+        } else {
+            (
+                plot_left + s_px * (3_f64.sqrt() * q as f64 + 3_f64.sqrt() / 2.0 * r as f64),
+                plot_top  + s_px * (1.5 * r as f64),
+            )
+        };
+
+        if cx < plot_left - 2.0 * s_px || cx > plot_right  + 2.0 * s_px { continue; }
+        if cy < plot_top  - 2.0 * s_px || cy > plot_bottom + 2.0 * s_px { continue; }
+
+        let fill_color = color_for(val);
+        let (stroke_color, stroke_w) = if let Some(ref sc) = hb.stroke_color {
+            (sc.as_str().to_string(), hb.stroke_width)
+        } else {
+            (fill_color.clone(), 0.0)
+        };
+
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: hexbin_hex_path(cx, cy, s_px, hb.flat_top),
+            fill: Some(Color::from(fill_color.as_str())),
+            stroke: Color::from(stroke_color.as_str()),
+            stroke_width: stroke_w,
+            opacity: None,
+            stroke_dasharray: None,
+        })));
+    }
+    // Colorbar is drawn after ClipEnd by add_hexbin_colorbar in render_multiple.
 }
 

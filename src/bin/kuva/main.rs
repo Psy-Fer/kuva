@@ -35,6 +35,7 @@ mod scatter3d;
 mod surface3d;
 mod network;
 mod radar;
+mod hexbin;
 #[cfg(feature = "doom")]
 mod doom;
 
@@ -94,6 +95,7 @@ enum Commands {
     Surface3D(surface3d::Surface3DArgs),
     Network(network::NetworkArgs),
     Radar(radar::RadarArgs),
+    Hexbin(hexbin::HexbinArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -145,6 +147,7 @@ fn main() {
         Commands::Surface3D(args) => surface3d::run(args),
         Commands::Network(args) => network::run(args),
         Commands::Radar(args) => radar::run(args),
+        Commands::Hexbin(args) => hexbin::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

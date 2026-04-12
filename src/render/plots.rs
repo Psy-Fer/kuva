@@ -46,6 +46,7 @@ use crate::plot::qq::QQPlot;
 use crate::plot::network::NetworkPlot;
 use crate::plot::streamgraph::StreamgraphPlot;
 use crate::plot::radar::RadarPlot;
+use crate::plot::hexbin::HexbinPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -99,6 +100,7 @@ pub enum Plot {
     Network(NetworkPlot),
     Streamgraph(StreamgraphPlot),
     Radar(RadarPlot),
+    Hexbin(HexbinPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -149,6 +151,7 @@ impl From<QQPlot>          for Plot { fn from(p: QQPlot)          -> Self { Plot
 impl From<NetworkPlot>     for Plot { fn from(p: NetworkPlot)     -> Self { Plot::Network(p) } }
 impl From<StreamgraphPlot> for Plot { fn from(p: StreamgraphPlot) -> Self { Plot::Streamgraph(p) } }
 impl From<RadarPlot>       for Plot { fn from(p: RadarPlot)       -> Self { Plot::Radar(p) } }
+impl From<HexbinPlot>      for Plot { fn from(p: HexbinPlot)      -> Self { Plot::Hexbin(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
 use crate::plot::heatmap::ColorMap;
@@ -839,6 +842,14 @@ impl Plot {
                     }
                 }
             }
+            Plot::Hexbin(hb) => {
+                if hb.x.is_empty() { return None; }
+                let x0 = hb.x_range.map(|(lo, _)| lo).unwrap_or_else(|| hb.x.iter().cloned().fold(f64::INFINITY, f64::min));
+                let x1 = hb.x_range.map(|(_, hi)| hi).unwrap_or_else(|| hb.x.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+                let y0 = hb.y_range.map(|(lo, _)| lo).unwrap_or_else(|| hb.y.iter().cloned().fold(f64::INFINITY, f64::min));
+                let y1 = hb.y_range.map(|(_, hi)| hi).unwrap_or_else(|| hb.y.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+                Some(((x0, x1), (y0, y1)))
+            }
             // Rendered in pixel space; dummy bounds satisfy Layout::auto_from_plots.
             Plot::Network(_) => Some(((0.0, 1.0), (0.0, 1.0))),
             Plot::Radar(_) => Some(((0.0, 1.0), (0.0, 1.0))),
@@ -926,6 +937,7 @@ impl Plot {
             Plot::Streamgraph(sg) => {
                 sg.series.len() * (sg.x.len() * 3 + 2) + 20
             }
+            Plot::Hexbin(hb) => hb.n_bins * hb.n_bins / 2,
             _ => 100,
         }
     }
@@ -1059,6 +1071,10 @@ impl Plot {
             }
             Plot::Surface3D(s) => colorbar_from_z(s.z_colormap.as_ref()?, s.data_ranges()?, s.box3d.z_label.clone()),
             Plot::Scatter3D(s) => colorbar_from_z(s.z_colormap.as_ref()?, s.data_ranges()?, s.box3d.z_label.clone()),
+            // Hexbin draws its own colorbar inside add_hexbin (values are only known
+            // after binning).  Return None here so the generic colorbar loop in
+            // render_multiple does not attempt to draw a second, placeholder bar.
+            // The layout margin is set via the explicit has_colorbar check in layout.rs.
             _ => None,
         }
     }

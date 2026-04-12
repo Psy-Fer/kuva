@@ -361,6 +361,21 @@ check "hist2d colorbar sci format" \
     "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y --bins-x 20 --bins-y 20 \
         --colorbar-tick-format sci --title "hist2d sci colorbar" --x-label "X" --y-label "Y"
 
+# ── hexbin ────────────────────────────────────────────────────────────────────
+check "hexbin basic" \
+    "$BIN" hexbin "$DATA/hexbin.tsv" --x x --y y \
+        --title "Hexbin Plot" --x-label "X" --y-label "Y"
+
+check "hexbin n-bins and colormap" \
+    "$BIN" hexbin "$DATA/hexbin.tsv" --x x --y y \
+        --n-bins 15 --colormap inferno \
+        --title "Hexbin Inferno" --x-label "X" --y-label "Y"
+
+check "hexbin z-mean flat-top" \
+    "$BIN" hexbin "$DATA/hexbin.tsv" --x x --y y --z z --reduce mean \
+        --flat-top --stroke "#444444" \
+        --title "Hexbin Z Mean" --x-label "X" --y-label "Y"
+
 # ── contour ───────────────────────────────────────────────────────────────────
 check "contour basic" \
     "$BIN" contour "$DATA/contour.tsv" --x x --y y --z density \

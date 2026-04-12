@@ -117,6 +117,8 @@ pub use crate::plot::{
     RadarPlot,
     RadarSeries,
     RadarReference,
+    HexbinPlot,
+    ZReduce,
     // Style / config types used when building plots
     MarkerShape,
     LineStyle,

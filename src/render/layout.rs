@@ -475,7 +475,7 @@ impl Layout {
                 }
             }
 
-            if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) {
+            if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_)) || matches!(plot, Plot::Hexbin(hb) if hb.show_colorbar) {
                 has_colorbar = true;
             }
 
