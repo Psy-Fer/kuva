@@ -1,3 +1,4 @@
+pub mod colormap;
 pub mod scatter;
 pub mod line;
 pub mod bar;
@@ -68,7 +69,8 @@ pub use boxplot::{BoxPlot, BoxGroup};
 pub use violin::{ViolinPlot, ViolinGroup};
 pub use pie::{PiePlot, PieSlice, PieLabelPosition};
 pub use series::{SeriesPlot, SeriesStyle};
-pub use heatmap::{Heatmap, ColorMap};
+pub use colormap::ColorMap;
+pub use heatmap::Heatmap;
 pub use brick::{BrickPlot, BrickAnchor};
 pub use band::BandPlot;
 pub use waterfall::{WaterfallPlot, WaterfallBar, WaterfallKind};

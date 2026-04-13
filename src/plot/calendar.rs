@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 use crate::plot::legend::ColorBarInfo;
 
 /// Aggregation function for multiple values on the same day.

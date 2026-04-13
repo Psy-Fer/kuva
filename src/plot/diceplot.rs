@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 
 /// Dice face positions (1-indexed in a 3×3 grid) for 1–6 dots.
 ///

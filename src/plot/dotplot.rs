@@ -1,4 +1,4 @@
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 
 /// A single point in a dot plot grid.
 pub struct DotPoint {

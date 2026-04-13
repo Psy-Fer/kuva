@@ -1,4 +1,4 @@
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 use crate::plot::scatter::MarkerShape;
 use crate::plot::plot3d::{DataRanges3D, Box3DConfig, View3D};
 

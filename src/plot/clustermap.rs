@@ -1,4 +1,4 @@
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 use crate::plot::phylo::PhyloTree;
 
 /// Normalization applied to the data matrix before color mapping.

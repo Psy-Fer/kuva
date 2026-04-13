@@ -1,4 +1,4 @@
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 
 /// Builder for a contour plot.
 ///

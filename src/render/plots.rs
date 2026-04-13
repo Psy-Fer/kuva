@@ -172,7 +172,7 @@ impl From<RosePlot>        for Plot { fn from(p: RosePlot)        -> Self { Plot
 impl From<CalendarPlot>    for Plot { fn from(p: CalendarPlot)    -> Self { Plot::Calendar(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
-use crate::plot::heatmap::ColorMap;
+use crate::plot::colormap::ColorMap;
 
 fn colorbar_from_z(cmap: &ColorMap, ranges: DataRanges3D, label: Option<String>) -> Option<ColorBarInfo> {
     let (z_min, z_max) = ranges.z;
