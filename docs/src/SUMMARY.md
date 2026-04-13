@@ -57,6 +57,7 @@
 - [Twin-Y Plot](./plots/twin_y.md)
 - [Funnel Chart](./plots/funnel.md)
 - [Nightingale Rose](./plots/rose.md)
+- [Calendar Heatmap](./plots/calendar.md)
 
 # CLI
 
