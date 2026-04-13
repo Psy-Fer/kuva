@@ -15508,12 +15508,14 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 for i in 0..n {
                     let (a1, a2) = rose_sector_angles(i, n, rp.start_angle, rp.clockwise, rp.gap);
                     let mut cum = 0.0_f64;
+                    let mut last_r_inn = base_r;
                     for (j, series) in rp.series.iter().enumerate() {
                         let val = series.values.get(i).copied().unwrap_or(0.0).max(0.0);
                         let r_inn = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
                         cum += val;
                         let r_out = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
                         if r_out <= r_inn + 0.5 { continue; }
+                        last_r_inn = r_inn;
                         let color = series.color.clone()
                             .unwrap_or_else(|| cat10[j % 10].to_string());
                         let d = rose_wedge(cx, cy, r_inn, r_out, a1, a2, rp.clockwise);
@@ -15526,9 +15528,8 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                     }
                     if rp.show_values && cum > f64::EPSILON {
                         let r_out_tip = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
-                        let r_inn_tip = rose_r(cum - rp.series.iter().map(|s| s.values.get(i).copied().unwrap_or(0.0).max(0.0)).last().unwrap_or(0.0), max_total, max_r, base_r, &rp.encoding);
                         let ac = rose_center_angle(i, n, rp.start_angle, rp.clockwise);
-                        let (lx, ly) = if rp.show_labels && r_out_tip - r_inn_tip > 16.0 {
+                        let (lx, ly) = if rp.show_labels && r_out_tip - last_r_inn > 16.0 {
                             // Place inside the wedge tip to avoid colliding with sector labels
                             compass_xy(cx, cy, r_out_tip - 8.0, ac)
                         } else {
