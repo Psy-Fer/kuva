@@ -52,6 +52,7 @@ use crate::plot::sunburst::SunburstPlot;
 use crate::plot::bump::BumpPlot;
 use crate::plot::funnel::FunnelPlot;
 use crate::plot::rose::RosePlot;
+use crate::plot::calendar::CalendarPlot;
 use crate::plot::legend::ColorBarInfo;
 use crate::render::render_utils;
 
@@ -111,6 +112,7 @@ pub enum Plot {
     Bump(BumpPlot),
     Funnel(FunnelPlot),
     Rose(RosePlot),
+    Calendar(CalendarPlot),
 }
 
 impl From<ScatterPlot>    for Plot { fn from(p: ScatterPlot)    -> Self { Plot::Scatter(p) } }
@@ -167,6 +169,7 @@ impl From<SunburstPlot>    for Plot { fn from(p: SunburstPlot)    -> Self { Plot
 impl From<BumpPlot>        for Plot { fn from(p: BumpPlot)        -> Self { Plot::Bump(p) } }
 impl From<FunnelPlot>      for Plot { fn from(p: FunnelPlot)      -> Self { Plot::Funnel(p) } }
 impl From<RosePlot>        for Plot { fn from(p: RosePlot)        -> Self { Plot::Rose(p) } }
+impl From<CalendarPlot>    for Plot { fn from(p: CalendarPlot)    -> Self { Plot::Calendar(p) } }
 
 use crate::plot::plot3d::DataRanges3D;
 use crate::plot::heatmap::ColorMap;
@@ -870,6 +873,7 @@ impl Plot {
             Plot::Sunburst(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
             Plot::Funnel(_)   => Some(((-1.0, 1.0), (-1.0, 1.0))),
             Plot::Rose(_)     => Some(((-1.0, 1.0), (-1.0, 1.0))),
+            Plot::Calendar(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
             Plot::Bump(bp) => {
                 let n = bp.total_series_count();
                 let n_time = bp.n_time_points();
@@ -972,6 +976,7 @@ impl Plot {
             Plot::Bump(bp) => bp.total_series_count() * bp.n_time_points() * 3 + 20,
             Plot::Funnel(fp) => fp.stage_count() * 6 + 20,
             Plot::Rose(rp) => rp.n_sectors() * rp.series.len().max(1) * 2 + rp.grid_lines * 2 + rp.n_sectors() + 20,
+            Plot::Calendar(cp) => cp.data.len() + 100,
             _ => 100,
         }
     }

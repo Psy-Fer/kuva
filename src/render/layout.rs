@@ -849,6 +849,10 @@ impl Layout {
                     }
                 }
             }
+
+            if let Plot::Calendar(cp) = plot {
+                if cp.show_legend { has_legend = true; }
+            }
         }
 
         // Save raw data range before padding (log scale needs it)

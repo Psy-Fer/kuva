@@ -80,6 +80,10 @@ use crate::plot::sunburst::{SunburstPlot, SunburstColorMode};
 use crate::plot::bump::{BumpPlot, CurveStyle};
 use crate::plot::funnel::{FunnelPlot, FunnelStage, FunnelColorMode, FunnelOrientation};
 use crate::plot::rose::{RosePlot, RoseEncoding, RoseMode};
+use crate::plot::calendar::{
+    CalendarPlot, CalendarAgg, WeekStart,
+    to_jd, from_jd, period_grid_pos, period_max_cols, dow_mon0,
+};
 
 use crate::plot::Legend;
 use crate::plot::legend::{ColorBarInfo, LegendEntry, LegendGroup, LegendPosition, LegendShape};
@@ -230,6 +234,9 @@ pub struct Scene {
     /// Axis metadata for the interactive JS coordinate readout.
     /// `None` for pixel-space plots (Pie, Chord, etc.) or when not interactive.
     pub axis_meta: Option<AxisMeta>,
+    /// Raw `<script>` blocks to emit just before `</svg>`.
+    /// Used by pixel-space interactive plots (e.g. CalendarPlot).
+    pub scripts: Vec<String>,
 }
 
 impl Scene {
@@ -243,7 +250,8 @@ impl Scene {
                defs: Vec::new(),
                has_tooltips: false,
                interactive: false,
-               axis_meta: None }
+               axis_meta: None,
+               scripts: Vec::new() }
     }
 
     /// Create a scene with a pre-allocated element buffer.
@@ -258,7 +266,8 @@ impl Scene {
                defs: Vec::new(),
                has_tooltips: false,
                interactive: false,
-               axis_meta: None }
+               axis_meta: None,
+               scripts: Vec::new() }
     }
 
     pub fn with_background(mut self, color: Option<&str>) -> Self {
@@ -10315,7 +10324,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_)
             | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_)
             | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_)
-            | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_) | Plot::Sunburst(_) | Plot::Funnel(_) | Plot::Rose(_)));
+            | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_) | Plot::Sunburst(_) | Plot::Funnel(_) | Plot::Rose(_) | Plot::Calendar(_)));
         if !skip_axes_for_meta {
             scene.axis_meta = Some(AxisMeta {
                 x_min: computed.x_range.0,
@@ -10332,7 +10341,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_) | Plot::Sunburst(_) | Plot::Funnel(_) | Plot::Rose(_)));
+    let skip_axes = plots.iter().all(|p| matches!(p, Plot::Pie(_) | Plot::UpSet(_) | Plot::Chord(_) | Plot::Sankey(_) | Plot::PhyloTree(_) | Plot::Synteny(_) | Plot::Polar(_) | Plot::Ternary(_) | Plot::DicePlot(_) | Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Clustermap(_) | Plot::Joint(_) | Plot::Venn(_) | Plot::Parallel(_) | Plot::Mosaic(_) | Plot::Network(_) | Plot::Radar(_) | Plot::Treemap(_) | Plot::Sunburst(_) | Plot::Funnel(_) | Plot::Rose(_) | Plot::Calendar(_)));
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
     }
@@ -10589,6 +10598,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Rose(rp) => {
                 add_rose(rp, &mut scene, &computed);
+            }
+            Plot::Calendar(cp) => {
+                add_calendar(cp, &mut scene, &computed);
             }
         }
     }
@@ -15637,6 +15649,345 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
 /// Render a single [`RosePlot`] to a [`Scene`].
 pub fn render_rose(rp: RosePlot, layout: Layout) -> Scene {
     let plots = vec![Plot::Rose(rp)];
+    render_multiple(plots, layout)
+}
+
+// ── CalendarPlot renderer ─────────────────────────────────────────────────────
+
+const CALENDAR_TIP_JS: &str = r#"(function(){
+  var svg=document.currentScript?document.currentScript.closest('svg'):document.querySelector('svg');
+  if(!svg)return;
+  var tip=document.createElementNS('http://www.w3.org/2000/svg','g');
+  tip.setAttribute('id','cal-tip');
+  tip.setAttribute('pointer-events','none');
+  tip.setAttribute('style','display:none');
+  var bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('rx','4');
+  bg.setAttribute('fill','#1a1a1a');
+  bg.setAttribute('fill-opacity','0.88');
+  tip.appendChild(bg);
+  var lines=[];
+  for(var i=0;i<3;i++){
+    var t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('fill','white');
+    t.setAttribute('font-size','11');
+    t.setAttribute('font-family','sans-serif');
+    tip.appendChild(t);
+    lines.push(t);
+  }
+  svg.appendChild(tip);
+  function showTip(e,el){
+    var date=el.getAttribute('data-date')||'';
+    var val=el.getAttribute('data-val')||'';
+    var agg=el.getAttribute('data-agg')||'';
+    var svgRect=svg.getBoundingClientRect();
+    var vbw=svg.viewBox&&svg.viewBox.baseVal.width?svg.viewBox.baseVal.width:svgRect.width;
+    var vbh=svg.viewBox&&svg.viewBox.baseVal.height?svg.viewBox.baseVal.height:svgRect.height;
+    var sx=vbw/svgRect.width;
+    var sy=vbh/svgRect.height;
+    var px=(e.clientX-svgRect.left)*sx+12;
+    var py=(e.clientY-svgRect.top)*sy-8;
+    var ls=[date,val];
+    if(agg)ls.push(agg);
+    var maxLen=0;
+    ls.forEach(function(l){if(l.length>maxLen)maxLen=l.length;});
+    var lh=16,pad=8;
+    var w=Math.max(maxLen*6.3+pad*2,80);
+    var h=ls.length*lh+pad*2;
+    if(px+w>vbw-5)px=px-w-24;
+    if(py-h<5)py=py+h+10;
+    bg.setAttribute('x',px);bg.setAttribute('y',py-h);
+    bg.setAttribute('width',w);bg.setAttribute('height',h);
+    ls.forEach(function(line,i){
+      var t=lines[i];
+      t.setAttribute('x',px+pad);
+      t.setAttribute('y',py-h+pad+lh*(i+0.75));
+      t.textContent=line;
+      t.setAttribute('font-weight',i===0?'600':'normal');
+      t.setAttribute('style','');
+    });
+    for(var i=ls.length;i<lines.length;i++){lines[i].textContent='';}
+    tip.setAttribute('style','display:block');
+  }
+  function hideTip(){tip.setAttribute('style','display:none');}
+  var days=svg.querySelectorAll('.cal-day');
+  days.forEach(function(el){
+    el.addEventListener('mouseover',function(e){showTip(e,el);});
+    el.addEventListener('mousemove',function(e){showTip(e,el);});
+    el.addEventListener('mouseout',hideTip);
+  });
+})();"#;
+
+fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let agg_data = cp.aggregate();
+    let periods = cp.detect_periods();
+    if periods.is_empty() { return; }
+
+    let sunday_start = matches!(cp.week_start, WeekStart::Sunday);
+    let pitch = cp.cell_size + cp.cell_gap;
+    // Reserve left margin wide enough for the longest period label (or day-of-week labels).
+    let max_label_len = periods.iter().map(|(l, _, _)| l.chars().count()).max().unwrap_or(4);
+    let day_label_w: f64 = if cp.show_day_labels {
+        (max_label_len as f64 * 7.5).ceil().max(28.0)
+    } else {
+        (max_label_len as f64 * 7.5).ceil().max(32.0)
+    };
+    let month_label_h: f64 = if cp.show_month_labels { 16.0 } else { 0.0 };
+    let period_label_h: f64 = 16.0;
+    let grid_h = 7.0 * pitch;
+    let period_gap = 14.0;
+
+    // Maximum columns across all periods (so all rows have the same width)
+    let max_cols: u32 = periods.iter().map(|(_, start, end)| {
+        let sdow = if sunday_start {
+            (dow_mon0(start.0, start.1, start.2) + 1) % 7  // sun0 from mon0
+        } else {
+            dow_mon0(start.0, start.1, start.2)
+        };
+        period_max_cols(*start, *end, sdow)
+    }).max().unwrap_or(53).max(1);
+
+    // Compute value range for color mapping.
+    // Always floor at 0: calendar values are non-negative activity counts, and
+    // 0 already has a distinct color (missing_color / zero_color).  Flooring at
+    // the data minimum would suppress any value below it (e.g. a count of 1
+    // when the data minimum is 2 would clamp to the same color as 2).
+    // Users can override with `with_value_range()`.
+    let (v_min, v_max) = if let Some(r) = cp.value_range {
+        r
+    } else {
+        let mut mx = f64::NEG_INFINITY;
+        for &v in agg_data.values() { mx = mx.max(v); }
+        if !mx.is_finite() { mx = 1.0; }
+        (0.0, mx)
+    };
+    let v_range = (v_max - v_min).max(f64::EPSILON);
+
+    let grid_w = max_cols as f64 * pitch;
+    let np = periods.len() as f64;
+    let legend_h = if cp.show_legend { 50.0 } else { 0.0 };
+    let total_content_w = day_label_w + grid_w;
+    let total_content_h = np * (period_label_h + month_label_h + grid_h)
+        + (np - 1.0) * period_gap + legend_h;
+
+    // Centre within the canvas
+    let ox = ((computed.width  - total_content_w) / 2.0).max(8.0);
+    let oy = ((computed.height - total_content_h) / 2.0).max(8.0);
+    let grid_x = ox + day_label_w;  // pixel x of column 0
+
+    let month_abbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    let dow_labels_mon = ["Mon","","Wed","","Fri","","Sun"];
+    let dow_labels_sun = ["Sun","","Tue","","Thu","","Sat"];
+    let dow_labels: &[&str] = if sunday_start { &dow_labels_sun } else { &dow_labels_mon };
+    let text_color = computed.theme.text_color.as_str();
+    let sep_color  = "#c0c0c0";
+
+    for (pi, (label, period_start, period_end)) in periods.iter().enumerate() {
+        let period_top = oy + pi as f64 * (period_label_h + month_label_h + grid_h + period_gap);
+        let grid_y = period_top + period_label_h + month_label_h;
+
+        // day-of-week of the period's first day (row index in the chosen coordinate system)
+        let start_dow: u32 = if sunday_start {
+            // sun0: 0=Sun..6=Sat; reuse mon0 and convert
+            (dow_mon0(period_start.0, period_start.1, period_start.2) + 1) % 7
+        } else {
+            dow_mon0(period_start.0, period_start.1, period_start.2)
+        };
+
+        // ── Period label (year / "FY2023/24" / …) ────────────────────────────
+        scene.add(Primitive::Text {
+            x: grid_x - 4.0,
+            y: period_top + period_label_h * 0.78,
+            content: label.clone(),
+            size: 11,
+            anchor: TextAnchor::End,
+            rotate: None,
+            bold: true,
+            color: None,
+        });
+
+        // ── Day-of-week labels ────────────────────────────────────────────────
+        if cp.show_day_labels {
+            for (ri, &lbl) in dow_labels.iter().enumerate() {
+                if lbl.is_empty() { continue; }
+                scene.add(Primitive::Text {
+                    x: grid_x - 4.0,
+                    y: grid_y + ri as f64 * pitch + pitch * 0.75,
+                    content: lbl.to_string(),
+                    size: 9,
+                    anchor: TextAnchor::End,
+                    rotate: None,
+                    bold: false,
+                    color: Some(Color::from(text_color)),
+                });
+            }
+        }
+
+        // ── Iterate every day in the period ───────────────────────────────────
+        // (month_label, col, row) for the first occurrence of each "YYYY-MM"
+        let mut month_entries: Vec<(String, u32, u32)> = Vec::new();
+        let mut seen_months: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let start_jd = to_jd(period_start.0, period_start.1, period_start.2);
+        let end_jd   = to_jd(period_end.0,   period_end.1,   period_end.2);
+
+        for jd in start_jd..=end_jd {
+            let (y, m, d) = from_jd(jd);
+            let date_triple = (y, m, d);
+            let (col, row) = period_grid_pos(date_triple, *period_start, start_dow);
+            if col >= max_cols { continue; }  // safety cap
+
+            // Track first occurrence of each month (for labels + separators)
+            let month_key = format!("{y}-{m:02}");
+            if seen_months.insert(month_key) {
+                month_entries.push((month_abbr[(m - 1) as usize].to_string(), col, row));
+            }
+
+            let date_str = format!("{y}-{m:02}-{d:02}");
+            let px = grid_x + col as f64 * pitch;
+            let py = grid_y + row as f64 * pitch;
+
+            let (fill_color, tip_val) = if let Some(&v) = agg_data.get(&date_str) {
+                let fill = if v == 0.0 {
+                    cp.zero_color.as_deref().unwrap_or(&cp.missing_color).to_string()
+                } else {
+                    let norm = ((v - v_min) / v_range).clamp(0.0, 1.0);
+                    cp.color_map.map(norm)
+                };
+                (fill, format_val(v, &cp.aggregation))
+            } else {
+                (cp.missing_color.clone(), "no data".to_string())
+            };
+
+            let extra = format!(r#"class="cal-day" data-date="{date_str}" data-val="{tip_val}""#);
+            scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(extra) });
+            scene.add(Primitive::Rect {
+                x: px, y: py,
+                width: cp.cell_size, height: cp.cell_size,
+                fill: Color::from(fill_color),
+                stroke: None, stroke_width: None, opacity: None,
+            });
+            scene.add(Primitive::GroupEnd);
+        }
+
+        // ── Month labels ──────────────────────────────────────────────────────
+        if cp.show_month_labels {
+            for (abbr, col, _) in &month_entries {
+                scene.add(Primitive::Text {
+                    x: grid_x + *col as f64 * pitch,
+                    y: grid_y - 4.0,
+                    content: abbr.clone(),
+                    size: 9,
+                    anchor: TextAnchor::Start,
+                    rotate: None, bold: false,
+                    color: Some(Color::from(text_color)),
+                });
+            }
+        }
+
+        // ── Month separator stepped paths (skip the first month) ──────────────
+        for (_, col, row) in month_entries.iter().skip(1) {
+            let col = *col;
+            let row = *row;
+            // sep_near = left edge of new month's first column
+            // sep_far  = right edge of new month's first column
+            // When row > 0 the new month starts mid-column: the previous month's
+            // last day (e.g. Nov 30) occupies rows 0..row-1 of this column, so
+            // the boundary traces right→down→left→down (step goes LEFT).
+            let sep_near = grid_x + col as f64 * pitch;
+            let sep_far  = sep_near + pitch;
+            let top_y = grid_y;
+            let mid_y = grid_y + row as f64 * pitch;
+            let bot_y = grid_y + 7.0 * pitch;
+            let d = if row == 0 {
+                // Starts on the first weekday of the column → straight vertical line
+                format!("M {sep_near} {top_y} L {sep_near} {bot_y}")
+            } else {
+                // Step goes RIGHT→DOWN→LEFT→DOWN:
+                // top section at sep_far (right edge, bordering prev-month's last day)
+                // bottom section at sep_near (left edge, bordering full prev-month columns)
+                format!("M {sep_far} {top_y} L {sep_far} {mid_y} L {sep_near} {mid_y} L {sep_near} {bot_y}")
+            };
+            scene.add(Primitive::Path(Box::new(PathData {
+                d, fill: None,
+                stroke: Color::from(sep_color), stroke_width: 1.0,
+                opacity: None, stroke_dasharray: None,
+            })));
+        }
+    }
+
+    // ── Inline color legend ───────────────────────────────────────────────────
+    if cp.show_legend {
+        let legend_y = oy + np * (period_label_h + month_label_h + grid_h)
+            + (np - 1.0) * period_gap + 10.0;
+        let bar_w = grid_w.min(160.0);
+        let bar_h = 10.0;
+        let bar_x = grid_x + (grid_w - bar_w) / 2.0;
+        let n_stops = 40usize;
+        let rw = bar_w / n_stops as f64;
+        for i in 0..n_stops {
+            let t = i as f64 / (n_stops - 1) as f64;
+            let color = cp.color_map.map(t);
+            let rx = bar_x + (i as f64 * rw).floor();
+            scene.add(Primitive::Rect {
+                x: rx, y: legend_y,
+                width: rw.ceil(),
+                height: bar_h,
+                fill: Color::from(color),
+                stroke: None, stroke_width: None, opacity: None,
+            });
+        }
+        scene.add(Primitive::Text {
+            x: bar_x, y: legend_y + bar_h + 11.0,
+            content: format_val_short(v_min), size: 9,
+            anchor: TextAnchor::Start, rotate: None, bold: false, color: None,
+        });
+        scene.add(Primitive::Text {
+            x: bar_x + bar_w, y: legend_y + bar_h + 11.0,
+            content: format_val_short(v_max), size: 9,
+            anchor: TextAnchor::End, rotate: None, bold: false, color: None,
+        });
+        if let Some(ref lbl) = cp.legend_label {
+            scene.add(Primitive::Text {
+                x: bar_x + bar_w / 2.0, y: legend_y + bar_h + 24.0,
+                content: lbl.clone(), size: 10,
+                anchor: TextAnchor::Middle, rotate: None, bold: false, color: None,
+            });
+        }
+    }
+
+    if !scene.scripts.iter().any(|s| s.contains("cal-tip")) {
+        scene.scripts.push(CALENDAR_TIP_JS.to_string());
+    }
+}
+
+fn format_val(v: f64, agg: &CalendarAgg) -> String {
+    match agg {
+        CalendarAgg::Count => format!("{} event{}", v as u64, if v as u64 == 1 { "" } else { "s" }),
+        _ => format_val_short(v),
+    }
+}
+
+fn format_val_short(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e9 {
+        format!("{}", v as i64)
+    } else if v.abs() < 0.01 || v.abs() >= 1e5 {
+        format!("{:.2e}", v)
+    } else {
+        format!("{:.2}", v)
+    }
+}
+
+/// Render a single [`CalendarPlot`] to a [`Scene`].
+pub fn render_calendar(cp: CalendarPlot, layout: Layout) -> Scene {
+    let periods = cp.detect_periods();
+    let (nat_w, nat_h) = cp.natural_size_for_periods(&periods);
+    let layout = if layout.width.is_none() && layout.height.is_none() {
+        layout.with_width(nat_w).with_height(nat_h)
+    } else {
+        layout
+    };
+    let plots = vec![Plot::Calendar(cp)];
     render_multiple(plots, layout)
 }
 

@@ -417,6 +417,15 @@ impl SvgBackend {
             }
         }
 
+        // Emit script blocks (e.g. CalendarPlot tooltip JS).
+        for script in &scene.scripts {
+            write_indent(&mut svg, 1, p);
+            svg.push_str("<script type=\"text/javascript\"><![CDATA[");
+            svg.push_str(script);
+            svg.push_str("]]></script>");
+            write_newline(&mut svg, p);
+        }
+
         // Interactive UI + JavaScript just before </svg> so UI renders on top of the plot.
         if scene.interactive {
             // Position the UI strip inside the plot at the top-right corner to avoid

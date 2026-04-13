@@ -57,6 +57,7 @@ pub use render::render::render_twin_y;
 pub use render::render::render_sankey;
 pub use render::render::render_phylo_tree;
 pub use render::render::render_synteny;
+pub use render::render::render_calendar;
 pub use render::datetime::{DateTimeAxis, DateUnit, ymd, ymd_hms};
 
 /// Render a collection of plots to an SVG string in one call.
