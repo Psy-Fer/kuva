@@ -284,3 +284,25 @@ fn test_funnel_conversion_rate_with_large_gap() {
     std::fs::write("test_outputs/funnel_conversion.svg", &svg).unwrap();
     assert!(svg.contains('%'), "conversion rates show % signs");
 }
+
+#[test]
+fn test_funnel_dramatic_connectors() {
+    // Very large gap (60px) + steep attrition so connectors are wide trapezoids
+    let fp = FunnelPlot::new()
+        .with_stage("Candidates",   5000)
+        .with_stage("Screened",     2800)
+        .with_stage("Eligible",     1200)
+        .with_stage("Enrolled",      400)
+        .with_stage("Completed",     120)
+        .with_stage_gap(60.0)
+        .with_connector_opacity(0.65)
+        .with_show_percents(true)
+        .with_show_conversion(true)
+        .with_color_mode(FunnelColorMode::Gradient);
+    let svg = render_size(fp, "Dramatic Connectors", 700.0, 600.0);
+    std::fs::write("test_outputs/funnel_dramatic_connectors.svg", &svg).unwrap();
+    assert!(svg.contains('<'), "should produce SVG content");
+    // With steep attrition (5000 → 120) the connectors taper dramatically
+    // Check connector paths are present
+    assert!(svg.contains("<path"), "should have connector path elements");
+}
