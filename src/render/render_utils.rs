@@ -602,3 +602,214 @@ pub fn linkage_to_nodes(
     let root = nodes.len() - 1;
     (nodes, root)
 }
+
+// ── Text utilities ───────────────────────────────────────────────────────────
+
+/// Estimate the rendered pixel width of `text` at the given `font_size`.
+///
+/// Uses a fixed character-width-to-font-size ratio of 0.6, which is the
+/// standard heuristic used throughout the layout and rendering code.
+pub fn estimate_text_width(text: &str, font_size: f64) -> f64 {
+    text.chars().count() as f64 * font_size * 0.6
+}
+
+/// Wrap `text` if `max_chars` is `Some`, otherwise return the text as a single-element vec.
+///
+/// Convenience wrapper around [`wrap_text`] for call sites that hold an
+/// `Option<usize>` wrap setting.
+pub fn wrap_or_single(text: &str, max_chars: Option<usize>) -> Vec<String> {
+    match max_chars {
+        Some(mc) => wrap_text(text, mc),
+        None => vec![text.to_string()],
+    }
+}
+
+/// Word-wrap `text` so that no line exceeds `max_chars` characters.
+///
+/// - Splits on existing `\n` first (preserving intentional line breaks).
+/// - Within each segment, breaks at whitespace boundaries.
+/// - A single word longer than `max_chars` is hard-broken at the limit.
+/// - Returns `vec![text.to_string()]` when wrapping is unnecessary or disabled
+///   (`max_chars == 0`).
+pub fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
+    if max_chars == 0 || (text.chars().count() <= max_chars && !text.contains('\n')) {
+        return vec![text.to_string()];
+    }
+
+    let mut result = Vec::new();
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let words: Vec<&str> = paragraph.split_whitespace().collect();
+        if words.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let mut line = String::new();
+        let mut line_chars: usize = 0;
+        for word in words {
+            let word_chars = word.chars().count();
+            if word_chars > max_chars {
+                // Flush current line if non-empty.
+                if !line.is_empty() {
+                    result.push(std::mem::take(&mut line));
+                }
+                // Hard-break the long word.
+                let mut chunk = String::new();
+                let mut chunk_len = 0;
+                for c in word.chars() {
+                    chunk.push(c);
+                    chunk_len += 1;
+                    if chunk_len == max_chars {
+                        result.push(chunk);
+                        chunk = String::new();
+                        chunk_len = 0;
+                    }
+                }
+                // Leftover becomes the start of the next line.
+                line = chunk;
+                line_chars = chunk_len;
+            } else if line.is_empty() {
+                line = word.to_string();
+                line_chars = word_chars;
+            } else if line_chars + 1 + word_chars <= max_chars {
+                line.push(' ');
+                line.push_str(word);
+                line_chars += 1 + word_chars;
+            } else {
+                result.push(line);
+                line = word.to_string();
+                line_chars = word_chars;
+            }
+        }
+        if !line.is_empty() {
+            result.push(line);
+        }
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── estimate_text_width ──────────────────────────────────────────────
+
+    #[test]
+    fn text_width_ascii() {
+        let w = estimate_text_width("Hello", 10.0);
+        assert!((w - 30.0).abs() < 1e-9); // 5 chars * 10 * 0.6
+    }
+
+    #[test]
+    fn text_width_empty() {
+        assert!((estimate_text_width("", 14.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn text_width_unicode() {
+        // 4 characters (c, a, f, é), each counted once regardless of byte length
+        let w = estimate_text_width("café", 10.0);
+        assert!((w - 24.0).abs() < 1e-9);
+    }
+
+    // ── wrap_text ────────────────────────────────────────────────────────
+
+    #[test]
+    fn wrap_no_op_when_short() {
+        assert_eq!(wrap_text("short", 20), vec!["short"]);
+    }
+
+    #[test]
+    fn wrap_disabled_when_zero() {
+        assert_eq!(wrap_text("hello world", 0), vec!["hello world"]);
+    }
+
+    #[test]
+    fn wrap_empty_string() {
+        assert_eq!(wrap_text("", 10), vec![""]);
+    }
+
+    #[test]
+    fn wrap_basic_word_boundary() {
+        assert_eq!(
+            wrap_text("hello world foo", 11),
+            vec!["hello world", "foo"]
+        );
+    }
+
+    #[test]
+    fn wrap_multiple_lines() {
+        assert_eq!(
+            wrap_text("one two three four five", 10),
+            vec!["one two", "three four", "five"]
+        );
+    }
+
+    #[test]
+    fn wrap_exact_fit() {
+        // "hello" is exactly 5 chars with max_chars=5 → no wrap
+        assert_eq!(wrap_text("hello", 5), vec!["hello"]);
+    }
+
+    #[test]
+    fn wrap_one_char_over() {
+        assert_eq!(
+            wrap_text("hello world", 10),
+            vec!["hello", "world"]
+        );
+    }
+
+    #[test]
+    fn wrap_long_word_hard_break() {
+        assert_eq!(
+            wrap_text("abcdefghij", 4),
+            vec!["abcd", "efgh", "ij"]
+        );
+    }
+
+    #[test]
+    fn wrap_long_word_mixed() {
+        assert_eq!(
+            wrap_text("hi abcdefghij bye", 5),
+            vec!["hi", "abcde", "fghij", "bye"]
+        );
+    }
+
+    #[test]
+    fn wrap_preserves_newlines() {
+        assert_eq!(
+            wrap_text("line one\nline two", 20),
+            vec!["line one", "line two"]
+        );
+    }
+
+    #[test]
+    fn wrap_newline_plus_wrapping() {
+        assert_eq!(
+            wrap_text("hello world\nfoo bar baz", 8),
+            vec!["hello", "world", "foo bar", "baz"]
+        );
+    }
+
+    #[test]
+    fn wrap_max_chars_one() {
+        assert_eq!(
+            wrap_text("ab cd", 1),
+            vec!["a", "b", "c", "d"]
+        );
+    }
+
+    #[test]
+    fn wrap_consecutive_newlines() {
+        assert_eq!(
+            wrap_text("a\n\nb", 10),
+            vec!["a", "", "b"]
+        );
+    }
+}

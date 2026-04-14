@@ -201,4 +201,23 @@ run ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
     --title "Ternary Plot" \
     --terminal $W $H
 
+# ── text wrapping ─────────────────────────────────────────────────────────────
+header "wrap title"
+run scatter "$DATA/scatter.tsv" --x x --y y \
+    --title "This is a deliberately long title that should wrap onto multiple lines" \
+    --wrap 30 \
+    --terminal $W $H
+
+header "wrap legend"
+run scatter "$DATA/scatter.tsv" --x x --y y --color-by group --legend \
+    --legend-wrap 10 \
+    --title "Legend Wrap" \
+    --terminal $W $H
+
+header "wrap y-label"
+run scatter "$DATA/scatter.tsv" --x x --y y \
+    --y-label "A very long y-axis label that wraps into multiple rotated lines" \
+    --y-label-wrap 20 \
+    --terminal $W $H
+
 echo

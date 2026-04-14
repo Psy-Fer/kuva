@@ -521,6 +521,38 @@ check "scatter interactive" \
         --interactive \
         --title "Interactive Scatter"
 
+# ── text wrapping ─────────────────────────────────────────────────────────────
+check "wrap title" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title "This is a deliberately long title that should definitely wrap onto multiple lines when wrap is set" \
+        --wrap 30
+
+check "wrap legend" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --color-by group --legend \
+        --legend-wrap 15 \
+        --title "Legend Wrap"
+
+check "wrap x-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label "A very long x-axis label that would normally make the bottom margin huge" \
+        --x-label-wrap 25
+
+check "wrap y-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-label "A very long y-axis label that wraps into multiple rotated lines" \
+        --y-label-wrap 20
+
+check "wrap dark theme" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title "Long dark theme title that should wrap nicely" \
+        --wrap 25 --theme dark
+
+check "wrap with scale" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --color-by group --legend \
+        --title "Scaled wrapped plot" \
+        --wrap 20 --scale 1.5
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

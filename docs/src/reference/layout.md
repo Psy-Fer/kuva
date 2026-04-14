@@ -492,6 +492,63 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 
 ---
 
+## Text wrapping
+
+Long titles, axis labels, and legend entries can be word-wrapped at a character limit instead of forcing the canvas to expand. Wrapping is opt-in — nothing wraps unless you set a character width.
+
+### Global wrap
+
+Set all text elements at once. Per-element overrides take precedence when called after `with_wrap`:
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("A very long title that would normally make the top margin huge")
+    .with_wrap(30);  // wrap everything at ~30 characters
+```
+
+### Per-element wrap
+
+Override the character width for individual elements:
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("A very long title")
+    .with_x_label("A very long x-axis label")
+    .with_wrap(30)            // global default
+    .with_title_wrap(50)      // title gets more room
+    .with_legend_wrap(20);    // legend is narrower
+```
+
+### CLI flags
+
+| Flag | Description |
+|------|-------------|
+| `--wrap <N>` | Wrap all text at N characters |
+| `--title-wrap <N>` | Wrap title only |
+| `--x-label-wrap <N>` | Wrap x-axis label only |
+| `--y-label-wrap <N>` | Wrap y-axis label only |
+| `--y2-label-wrap <N>` | Wrap secondary y-axis label only |
+| `--legend-wrap <N>` | Wrap legend labels and titles only |
+
+### What happens when wrapping is enabled
+
+- **Title** wraps into centred lines; `margin_top` grows to fit.
+- **X label** wraps into centred lines; `margin_bottom` grows.
+- **Y label** wraps into multiple rotated lines stacked horizontally; `margin_left` grows.
+- **Y2 label** same as y-label but on the right side.
+- **Legend labels** wrap into continuation lines (swatch stays on the first line). The legend box grows taller and the width is capped at `N * 7.2 + 35` pixels, preventing the right margin from expanding.
+- **Legend titles and group titles** wrap the same way.
+
+Wrapping splits at whitespace boundaries. A single word longer than the limit is hard-broken.
+
+---
+
 ## Quick reference
 
 ### Layout constructors
@@ -556,6 +613,18 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 | `.with_legend_group(title, entries)` | Add a labelled group of entries; multiple calls stack |
 | `.with_legend_width(px)` | Override the auto-computed legend box width |
 | `.with_legend_height(px)` | Override the auto-computed legend box height |
+| `.with_legend_wrap(n)` | Word-wrap legend labels/titles at `n` characters |
+
+### Text wrapping
+
+| Method | Description |
+|--------|-------------|
+| `.with_wrap(n)` | Wrap all text elements at `n` characters (title, labels, legend). Call before per-element overrides. |
+| `.with_title_wrap(n)` | Wrap title at `n` characters |
+| `.with_x_label_wrap(n)` | Wrap x-axis label at `n` characters |
+| `.with_y_label_wrap(n)` | Wrap y-axis label at `n` characters |
+| `.with_y2_label_wrap(n)` | Wrap secondary y-axis label at `n` characters |
+| `.with_legend_wrap(n)` | Wrap legend labels and titles at `n` characters |
 
 `LegendPosition` variants (grouped by placement zone):
 

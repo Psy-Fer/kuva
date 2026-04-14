@@ -464,72 +464,97 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     }
 
     if let Some(ref label) = layout.y2_label {
+        let lines = render_utils::wrap_or_single(label, computed.y2_label_wrap);
+        let ls = computed.label_size as f64;
         let (dx, dy) = layout.y2_label_offset;
-        scene.add(Primitive::Text {
-            x: axis_x + computed.y2_axis_width - computed.label_size as f64 * 0.5 + dx,
-            y: computed.height / 2.0 + dy,
-            content: label.clone(),
-            size: computed.label_size,
-            anchor: TextAnchor::Middle,
-            rotate: Some(90.0),
-            bold: false,
-            color: None,
-        });
+        // Base x for the rightmost (first) line; additional lines shift left.
+        let base_x = axis_x + computed.y2_axis_width - ls * 0.5 + dx;
+        let base_y = computed.height / 2.0 + dy;
+        for (i, line) in lines.iter().enumerate() {
+            scene.add(Primitive::Text {
+                x: base_x - i as f64 * ls,
+                y: base_y,
+                content: line.clone(),
+                size: computed.label_size,
+                anchor: TextAnchor::Middle,
+                rotate: Some(90.0),
+                bold: false,
+                color: None,
+            });
+        }
     }
 }
 
 pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
+    let ls = computed.label_size as f64;
+
     // X Axis Label
     if !layout.suppress_x_ticks {
         if let Some(label) = &layout.x_label {
+            let lines = render_utils::wrap_or_single(label, computed.x_label_wrap);
             let (dx, dy) = layout.x_label_offset;
             let default_x = computed.margin_left + computed.plot_width() / 2.0;
-            let default_y = computed.height - computed.label_size as f64 * 0.5;
+            // Position the first line so the whole block ends at the expected bottom.
+            let default_y = computed.height - ls * 0.5 - (lines.len() as f64 - 1.0) * ls;
             let (lx, ly) = computed.dice_x_label_pos.unwrap_or((default_x, default_y));
+            for (i, line) in lines.iter().enumerate() {
+                scene.add(Primitive::Text {
+                    x: lx + dx, y: ly + dy + i as f64 * ls,
+                    content: line.clone(),
+                    size: computed.label_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+    }
+
+    // Y Axis Label (rotated -90°; wrapped lines stack horizontally in unrotated space)
+    if !layout.suppress_y_ticks {
+        if let Some(label) = &layout.y_label {
+            let lines = render_utils::wrap_or_single(label, computed.y_label_wrap);
+            let (dx, dy) = layout.y_label_offset;
+            // Base x for the leftmost (first) line.
+            let default_x = (computed.margin_left - 8.0 - computed.y_tick_label_px - 5.0
+                - ls * 0.5 - (lines.len() as f64 - 1.0) * ls)
+                .max(ls * 0.5 + 8.0);
+            let default_y = computed.height / 2.0;
+            let (lx, ly) = computed.dice_y_label_pos.unwrap_or((default_x, default_y));
+            for (i, line) in lines.iter().enumerate() {
+                scene.add(Primitive::Text {
+                    x: lx + dx + i as f64 * ls, y: ly + dy,
+                    content: line.clone(),
+                    size: computed.label_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: Some(-90.0),
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+    }
+
+    // Title
+    if let Some(title) = &layout.title {
+        let lines = render_utils::wrap_or_single(title, computed.title_wrap);
+        let ts = computed.title_size as f64;
+        let total_height = lines.len() as f64 * ts;
+        let cx = computed.margin_left + computed.plot_width() / 2.0;
+        // Vertically centre the text block within margin_top/2.
+        let start_y = computed.margin_top / 2.0 - total_height / 2.0 + ts * 0.8;
+        for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
-                x: lx + dx, y: ly + dy,
-                content: label.clone(),
-                size: computed.label_size,
+                x: cx,
+                y: start_y + i as f64 * ts,
+                content: line.clone(),
+                size: computed.title_size,
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
                 color: None,
             });
         }
-    }
-
-    // Y Axis Label
-    if !layout.suppress_y_ticks {
-        if let Some(label) = &layout.y_label {
-            let (dx, dy) = layout.y_label_offset;
-            let default_x = (computed.margin_left - 8.0 - computed.y_tick_label_px - 5.0
-                - computed.label_size as f64 * 0.5)
-                .max(computed.label_size as f64 * 0.5 + 8.0);
-            let default_y = computed.height / 2.0;
-            let (lx, ly) = computed.dice_y_label_pos.unwrap_or((default_x, default_y));
-            scene.add(Primitive::Text {
-                x: lx + dx, y: ly + dy,
-                content: label.clone(),
-                size: computed.label_size,
-                anchor: TextAnchor::Middle,
-                rotate: Some(-90.0),
-                bold: false,
-                color: None,
-            });
-        }
-    }
-
-    // Title
-    if let Some(title) = &layout.title {
-        scene.add(Primitive::Text {
-            x: computed.margin_left + computed.plot_width() / 2.0,
-            y: computed.margin_top / 2.0,
-            content: title.clone(),
-            size: computed.title_size,
-            anchor: TextAnchor::Middle,
-            rotate: None,
-            bold: false,
-            color: None,
-        });
     }
 }

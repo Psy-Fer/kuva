@@ -4691,6 +4691,7 @@ fn add_stats_box(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) 
 
 /// Like [`add_legend`] but places the legend box at an explicit y coordinate
 /// for stacking multiple legend sections vertically (used by DicePlot).
+/// Note: `legend_wrap` is not applied here — DicePlot labels are short categorical values.
 fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, y_start: f64) {
     let theme = &computed.theme;
     let legend_width = computed.legend_width;
@@ -4759,12 +4760,23 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
     // visual separation between groups is larger than between a title and its members.
     let n_groups = legend.groups.as_ref().map_or(0, |g| g.len());
     let group_gap = line_height * 0.5;
-    let entry_rows = if let Some(ref groups) = legend.groups {
-        groups.iter().map(|g| g.entries.len() + 1).sum::<usize>()
-    } else {
-        legend.entries.len()
+    let wrap_lines = |text: &str| -> usize {
+        if let Some(max_chars) = computed.legend_wrap {
+            render_utils::wrap_text(text, max_chars).len()
+        } else {
+            1
+        }
     };
-    let title_rows = if legend.title.is_some() { 1 } else { 0 };
+    let entry_rows = if let Some(ref groups) = legend.groups {
+        groups.iter().map(|g| {
+            let title_lines = wrap_lines(&g.title);
+            let entry_lines: usize = g.entries.iter().map(|e| wrap_lines(&e.label)).sum();
+            title_lines + entry_lines
+        }).sum::<usize>()
+    } else {
+        legend.entries.iter().map(|e| wrap_lines(&e.label)).sum::<usize>()
+    };
+    let title_rows = if let Some(ref t) = legend.title { wrap_lines(t) } else { 0 };
     let inter_group_extra = if n_groups > 1 { (n_groups - 1) as f64 * group_gap } else { 0.0 };
     let computed_height = (entry_rows + title_rows) as f64 * line_height + inter_group_extra + legend_padding * 2.0;
     let legend_height = computed.legend_height_override.unwrap_or(computed_height);
@@ -4807,10 +4819,10 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
         LegendPosition::OutsideTopLeft     => (plot_left, legend_padding + 10.0),
         LegendPosition::OutsideTopCenter   => (plot_cx - legend_width / 2.0, legend_padding + 10.0),
         LegendPosition::OutsideTopRight    => (plot_right - legend_width, legend_padding + 10.0),
-        // Outside Bottom — legend_y places box top 10px below the plot-area bottom edge.
-        LegendPosition::OutsideBottomLeft   => (plot_left, computed.height - computed.margin_bottom + legend_padding + 10.0),
-        LegendPosition::OutsideBottomCenter => (plot_cx - legend_width / 2.0, computed.height - computed.margin_bottom + legend_padding + 10.0),
-        LegendPosition::OutsideBottomRight  => (plot_right - legend_width, computed.height - computed.margin_bottom + legend_padding + 10.0),
+        // Outside Bottom — anchor legend box to canvas bottom, above the axis content.
+        LegendPosition::OutsideBottomLeft   => (plot_left, computed.height - legend_height + legend_padding),
+        LegendPosition::OutsideBottomCenter => (plot_cx - legend_width / 2.0, computed.height - legend_height + legend_padding),
+        LegendPosition::OutsideBottomRight  => (plot_right - legend_width, computed.height - legend_height + legend_padding),
         // Custom — absolute canvas pixel coordinates
         LegendPosition::Custom(x, y)        => (x, y),
         // DataCoords — mapped through ComputedLayout
@@ -4842,57 +4854,81 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
     }
 
     let mut cur_y = legend_y;
+    let wrap_max = computed.legend_wrap;
+    let text_baseline_offset = computed.legend_swatch_size / 2.0 - 1.0 + computed.body_size as f64 * 0.35;
 
     // Optional top title
     if let Some(ref title) = legend.title {
-        scene.add(Primitive::Text {
-            x: legend_x + legend_width / 2.0,
-            y: cur_y + 5.0,
-            content: title.clone(),
-            anchor: TextAnchor::Middle,
-            size: computed.body_size,
-            rotate: None,
-            bold: true,
-            color: None,
-        });
-        cur_y += line_height;
-    }
-
-    if let Some(ref groups) = legend.groups {
-        for (i, group) in groups.iter().enumerate() {
-            if i > 0 {
-                cur_y += group_gap;
-            }
+        let lines = render_utils::wrap_or_single(title, wrap_max);
+        for line in &lines {
             scene.add(Primitive::Text {
-                x: legend_x + 5.0,
+                x: legend_x + legend_width / 2.0,
                 y: cur_y + 5.0,
-                content: group.title.clone(),
-                anchor: TextAnchor::Start,
+                content: line.clone(),
+                anchor: TextAnchor::Middle,
                 size: computed.body_size,
                 rotate: None,
                 bold: true,
                 color: None,
             });
             cur_y += line_height;
-            for entry in &group.entries {
-                if computed.interactive {
-                    let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
-                    scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
-                }
-                render_legend_entry(entry, scene, legend_x, cur_y, computed);
-                if computed.interactive { scene.add(Primitive::GroupEnd); }
+        }
+    }
+
+    // Render a single legend entry with optional label wrapping.
+    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64| {
+        if computed.interactive {
+            let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
+            scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
+        }
+        let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
+        let mut first = entry.clone();
+        first.label = lines[0].clone();
+        render_legend_entry(&first, scene, legend_x, *cur_y, computed);
+        *cur_y += line_height;
+        for line in &lines[1..] {
+            scene.add(Primitive::Text {
+                x: legend_x + computed.legend_text_x,
+                y: *cur_y + text_baseline_offset,
+                content: line.clone(),
+                anchor: TextAnchor::Start,
+                size: computed.body_size,
+                rotate: None,
+                bold: false,
+                color: None,
+            });
+            *cur_y += line_height;
+        }
+        if computed.interactive { scene.add(Primitive::GroupEnd); }
+    };
+
+    if let Some(ref groups) = legend.groups {
+        for (i, group) in groups.iter().enumerate() {
+            if i > 0 {
+                cur_y += group_gap;
+            }
+            // Group title (bold, start-anchored)
+            let title_lines = render_utils::wrap_or_single(&group.title, wrap_max);
+            for line in &title_lines {
+                scene.add(Primitive::Text {
+                    x: legend_x + 5.0,
+                    y: cur_y + 5.0,
+                    content: line.clone(),
+                    anchor: TextAnchor::Start,
+                    size: computed.body_size,
+                    rotate: None,
+                    bold: true,
+                    color: None,
+                });
                 cur_y += line_height;
+            }
+            for entry in &group.entries {
+                render_entry(entry, scene, &mut cur_y);
             }
         }
     } else {
         for entry in &legend.entries {
-            if computed.interactive {
-                let grp_attr = format!(r#"class="legend-entry" data-group="{lbl}""#, lbl = entry.label);
-                scene.add(Primitive::GroupStart { transform: None, title: None, extra_attrs: Some(grp_attr) });
-            }
-            render_legend_entry(entry, scene, legend_x, cur_y, computed);
-            if computed.interactive { scene.add(Primitive::GroupEnd); }
-            cur_y += line_height;
+            render_entry(entry, scene, &mut cur_y);
         }
     }
 }
@@ -7128,6 +7164,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
 ///
 /// `groups` takes priority over `entries` when `Some`. `title` adds a bold header row.
 /// `show_box` controls whether the background and border rects are drawn.
+/// Note: `legend_wrap` is not applied here — Figure shared legends are typically short.
 #[allow(clippy::too_many_arguments)]
 pub fn render_legend_at(
     entries: &[LegendEntry],

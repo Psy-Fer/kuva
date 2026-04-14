@@ -602,6 +602,11 @@ fn clone_layout(l: &Layout) -> Layout {
     new.polar_r_label_angle = l.polar_r_label_angle;
     new.interactive = l.interactive;
     new.equal_aspect = l.equal_aspect;
+    new.title_wrap = l.title_wrap;
+    new.x_label_wrap = l.x_label_wrap;
+    new.y_label_wrap = l.y_label_wrap;
+    new.y2_label_wrap = l.y2_label_wrap;
+    new.legend_wrap = l.legend_wrap;
     new
 }
 

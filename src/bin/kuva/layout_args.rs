@@ -72,6 +72,31 @@ pub struct BaseArgs {
     /// Enable SVG interactivity: hover highlight, click-to-pin, search, and coordinate readout.
     #[arg(long)]
     pub interactive: bool,
+
+    /// Wrap all text (title, axis labels, legend) at N characters.
+    /// Per-element flags (--title-wrap, etc.) override this when set.
+    #[arg(long, value_name = "CHARS")]
+    pub wrap: Option<usize>,
+
+    /// Wrap the plot title at N characters.
+    #[arg(long, value_name = "CHARS")]
+    pub title_wrap: Option<usize>,
+
+    /// Wrap the x-axis label at N characters.
+    #[arg(long, value_name = "CHARS")]
+    pub x_label_wrap: Option<usize>,
+
+    /// Wrap the y-axis label at N characters.
+    #[arg(long, value_name = "CHARS")]
+    pub y_label_wrap: Option<usize>,
+
+    /// Wrap the secondary y-axis label at N characters.
+    #[arg(long, value_name = "CHARS")]
+    pub y2_label_wrap: Option<usize>,
+
+    /// Wrap legend labels and titles at N characters.
+    #[arg(long, value_name = "CHARS")]
+    pub legend_wrap: Option<usize>,
 }
 
 #[derive(Args, Debug)]
@@ -204,6 +229,13 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if args.interactive {
         layout = layout.with_interactive();
     }
+    // Global wrap first, then per-element overrides.
+    if let Some(n) = args.wrap { layout = layout.with_wrap(n); }
+    if let Some(n) = args.title_wrap { layout = layout.with_title_wrap(n); }
+    if let Some(n) = args.x_label_wrap { layout = layout.with_x_label_wrap(n); }
+    if let Some(n) = args.y_label_wrap { layout = layout.with_y_label_wrap(n); }
+    if let Some(n) = args.y2_label_wrap { layout = layout.with_y2_label_wrap(n); }
+    if let Some(n) = args.legend_wrap { layout = layout.with_legend_wrap(n); }
     layout
 }
 
