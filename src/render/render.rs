@@ -1,3 +1,5 @@
+use crate::render::alluvial_order::optimize_sankey_alluvial_order;
+use crate::render::palette::Palette;
 use crate::render::render_utils::{self, percentile, linear_regression, pearson_corr};
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -55,7 +57,7 @@ use crate::plot::stacked_area::StackedAreaPlot;
 use crate::plot::candlestick::{CandlestickPlot, CandleDataPoint};
 use crate::plot::contour::ContourPlot;
 use crate::plot::chord::ChordPlot;
-use crate::plot::sankey::{SankeyPlot, SankeyLinkColor};
+use crate::plot::sankey::{SankeyLinkColor, SankeyNodeColoring, SankeyNodeOrder, SankeyPlot};
 use crate::plot::phylo::{PhyloTree, TreeBranchStyle, TreeOrientation};
 use crate::plot::synteny::{SyntenyPlot, Strand};
 use crate::plot::density::DensityPlot;
@@ -4876,6 +4878,185 @@ fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
 }
 // Legend for ChordPlot is handled by collect_legend_entries + render_multiple.
 
+fn wompwomp_default_colors() -> Vec<String> {
+    [
+        "#D55E00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#E69F00", "#CC79A7", "#666666",
+        "#AD7700", "#1C91D4", "#007756", "#D5C711", "#005685", "#A04700", "#B14380", "#4D4D4D",
+        "#FFBE2D", "#80C7EF", "#00F6B3", "#F4EB71", "#06A5FF", "#FF8320", "#D99BBD", "#8C8C8C",
+        "#FFCB57", "#9AD2F2", "#2CFFC6", "#F6EF8E", "#38B7FF", "#FF9B4D", "#E0AFCA", "#A3A3A3",
+        "#8A5F00", "#1674A9", "#005F45", "#AA9F0D", "#00446B", "#803800", "#8D3666", "#3D3D3D",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn sankey_palette_colors(sankey: &SankeyPlot) -> Vec<String> {
+    if let Some(colors) = &sankey.palette {
+        return colors.clone();
+    }
+    match sankey.node_coloring {
+        SankeyNodeColoring::Left => wompwomp_default_colors(),
+        SankeyNodeColoring::Label => {
+            let fallback = Palette::category10();
+            fallback.colors().to_vec()
+        }
+    }
+}
+
+fn resolve_label_colors(sankey: &SankeyPlot, palette: &[String]) -> Vec<String> {
+    let mut label_colors: HashMap<&str, String> = HashMap::new();
+    let mut next_color = 0usize;
+    for node in &sankey.nodes {
+        label_colors.entry(&node.label).or_insert_with(|| {
+            node.color.clone().unwrap_or_else(|| {
+                let color = palette[next_color % palette.len()].clone();
+                next_color += 1;
+                color
+            })
+        });
+    }
+    sankey
+        .nodes
+        .iter()
+        .map(|node| {
+            node.color.clone().unwrap_or_else(|| {
+                label_colors
+                    .get(node.label.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| palette[0].clone())
+            })
+        })
+        .collect()
+}
+
+fn display_axes(sankey: &SankeyPlot, nodes_in_col: &[Vec<usize>]) -> Vec<Option<usize>> {
+    nodes_in_col
+        .iter()
+        .map(|members| members.first().and_then(|&idx| sankey.nodes[idx].column))
+        .collect()
+}
+
+fn left_pair_weights(
+    sankey: &SankeyPlot,
+    left_members: &[usize],
+    right_members: &[usize],
+    left_axis: Option<usize>,
+    right_axis: Option<usize>,
+) -> HashMap<(usize, usize), f64> {
+    let mut weights = HashMap::new();
+    if !sankey.alluvia.is_empty() {
+        if let (Some(left_axis), Some(right_axis)) = (left_axis, right_axis) {
+            for alluvium in &sankey.alluvia {
+                if left_axis < alluvium.nodes.len() && right_axis < alluvium.nodes.len() {
+                    let src = alluvium.nodes[left_axis];
+                    let dst = alluvium.nodes[right_axis];
+                    if left_members.contains(&src) && right_members.contains(&dst) {
+                        *weights.entry((src, dst)).or_insert(0.0) += alluvium.value;
+                    }
+                }
+            }
+        }
+        return weights;
+    }
+
+    for link in &sankey.links {
+        if left_members.contains(&link.source) && right_members.contains(&link.target) {
+            *weights.entry((link.source, link.target)).or_insert(0.0) += link.value;
+        }
+    }
+    weights
+}
+
+fn resolve_left_colors(
+    sankey: &SankeyPlot,
+    nodes_in_col: &[Vec<usize>],
+    palette: &[String],
+) -> Vec<String> {
+    let mut colors: Vec<Option<String>> = vec![None; sankey.nodes.len()];
+    for (idx, node) in sankey.nodes.iter().enumerate() {
+        if let Some(color) = &node.color {
+            colors[idx] = Some(color.clone());
+        }
+    }
+    if nodes_in_col.is_empty() {
+        return colors
+            .into_iter()
+            .map(|c| c.unwrap_or_else(|| palette[0].clone()))
+            .collect();
+    }
+
+    let mut next_color_idx = 0usize;
+    for &node_idx in &nodes_in_col[0] {
+        if colors[node_idx].is_none() {
+            colors[node_idx] = Some(palette[next_color_idx % palette.len()].clone());
+            next_color_idx += 1;
+        }
+    }
+
+    let axes = display_axes(sankey, nodes_in_col);
+    for col_idx in 1..nodes_in_col.len() {
+        let pair_weights = left_pair_weights(
+            sankey,
+            &nodes_in_col[col_idx - 1],
+            &nodes_in_col[col_idx],
+            axes[col_idx - 1],
+            axes[col_idx],
+        );
+        for &node_idx in &nodes_in_col[col_idx] {
+            if colors[node_idx].is_some() {
+                continue;
+            }
+            let mut total = 0.0;
+            let mut best_parent = None;
+            let mut best_weight = f64::NEG_INFINITY;
+            for &parent_idx in &nodes_in_col[col_idx - 1] {
+                let weight = pair_weights
+                    .get(&(parent_idx, node_idx))
+                    .copied()
+                    .unwrap_or(0.0);
+                total += weight;
+                if weight > best_weight {
+                    best_weight = weight;
+                    best_parent = Some(parent_idx);
+                }
+            }
+            let share = if total > 0.0 {
+                best_weight / total
+            } else {
+                0.0
+            };
+            if share > sankey.left_color_cutoff {
+                if let Some(parent_idx) = best_parent {
+                    if let Some(parent_color) = &colors[parent_idx] {
+                        colors[node_idx] = Some(parent_color.clone());
+                    }
+                }
+            }
+            if colors[node_idx].is_none() {
+                colors[node_idx] = Some(palette[next_color_idx % palette.len()].clone());
+                next_color_idx += 1;
+            }
+        }
+    }
+
+    colors
+        .into_iter()
+        .map(|c| c.unwrap_or_else(|| palette[0].clone()))
+        .collect()
+}
+
+fn resolve_sankey_node_colors(
+    sankey: &SankeyPlot,
+    nodes_in_col: &[Vec<usize>],
+) -> Vec<String> {
+    let palette = sankey_palette_colors(sankey);
+    match sankey.node_coloring {
+        SankeyNodeColoring::Label => resolve_label_colors(sankey, &palette),
+        SankeyNodeColoring::Left => resolve_left_colors(sankey, nodes_in_col, &palette),
+    }
+}
+
 pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
@@ -4894,16 +5075,9 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
 }
 
 fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout) {
-    use crate::render::palette::Palette;
-
     if sankey.nodes.is_empty() || sankey.links.is_empty() { return; }
 
     let n = sankey.nodes.len();
-    let fallback = Palette::category10();
-    let node_color = |i: usize| -> String {
-        sankey.nodes[i].color.clone()
-            .unwrap_or_else(|| fallback[i % fallback.len()].to_string())
-    };
 
     // ── Step 1: Column assignment ──
     let mut col: Vec<Option<usize>> = sankey.nodes.iter().map(|nd| nd.column).collect();
@@ -4943,7 +5117,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             *c = Some(max_assigned + 1);
         }
     }
-    let col: Vec<usize> = col.into_iter().map(|c| c.expect("all Sankey node columns assigned by BFS")).collect();
+    let mut col: Vec<usize> = col.into_iter().map(|c| c.expect("all Sankey node columns assigned by BFS")).collect();
     let n_cols = col.iter().copied().max().unwrap_or(0) + 1;
 
     // ── Step 2: Node flow totals ──
@@ -4966,6 +5140,38 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
     for i in 0..n {
         nodes_in_col[col[i]].push(i);
     }
+    if sankey.node_order != SankeyNodeOrder::Input {
+        let node_sort_keys: Vec<String> = if let Some(axis_names) = sankey.axis_names.as_ref() {
+            sankey
+                .nodes
+                .iter()
+                .map(|node| {
+                    let axis_name = node
+                        .column
+                        .and_then(|col_idx| axis_names.get(col_idx))
+                        .cloned()
+                        .unwrap_or_else(|| node.id.clone());
+                    format!("{axis_name}~~{}", node.label)
+                })
+                .collect()
+        } else {
+            sankey.nodes.iter().map(|node| node.id.clone()).collect()
+        };
+        let ordered = optimize_sankey_alluvial_order(
+            &col,
+            &nodes_in_col,
+            &sankey.alluvia,
+            &sankey.links,
+            sankey.node_order_seed,
+            Some(&node_sort_keys),
+            sankey.node_order == SankeyNodeOrder::Neighbornet,
+        );
+        col = ordered.col;
+        nodes_in_col = ordered.nodes_in_col;
+    }
+
+    let node_colors = resolve_sankey_node_colors(sankey, &nodes_in_col);
+    let node_color = |i: usize| -> String { node_colors[i].clone() };
 
     let mut node_y = vec![0.0_f64; n];
     let mut node_h = vec![0.0_f64; n];
@@ -6615,4 +6821,3 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
 }
-

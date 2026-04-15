@@ -1,17 +1,22 @@
 use clap::Args;
 
-use kuva::plot::SankeyPlot;
+use kuva::plot::{SankeyNodeColoring, SankeyNodeOrder, SankeyPlot};
 use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
-use crate::layout_args::{BaseArgs, apply_base_args};
+use crate::layout_args::{apply_base_args, palette_from_name, BaseArgs};
 use crate::output::write_output;
 
 /// Sankey flow diagram from source, target, and value columns.
 #[derive(Args, Debug)]
 pub struct SankeyArgs {
+    /// Ordered axis columns for wide alluvium input. Repeat once per axis.
+    /// When provided, Sankey is built from full alluvia rather than source-target edges.
+    #[arg(long = "axis-col")]
+    pub axis_cols: Vec<ColSpec>,
+
     /// Source node column (0-based index or header name; default: 0).
     #[arg(long)]
     pub source_col: Option<ColSpec>,
@@ -35,6 +40,19 @@ pub struct SankeyArgs {
     /// Show a legend with this label.
     #[arg(long)]
     pub legend: Option<String>,
+
+    /// Node ordering within columns: input (default) or crossings
+    /// (wompwomp-style TSP/Fenwick ordering).
+    #[arg(long, default_value = "input")]
+    pub node_order: String,
+
+    /// RNG seed for crossing-reduction ordering (default: 42).
+    #[arg(long, default_value_t = 42)]
+    pub node_order_seed: u64,
+
+    /// Node coloring mode: label (default) or left (wompwomp-style propagation).
+    #[arg(long, default_value = "label")]
+    pub coloring: String,
 
     /// Show the absolute flow value on each ribbon.
     #[arg(long)]
@@ -65,10 +83,31 @@ pub struct SankeyArgs {
 
 fn parse_flow_label_format(name: &str) -> TickFormat {
     match name {
-        "sci"     => TickFormat::Sci,
+        "sci" => TickFormat::Sci,
         "integer" => TickFormat::Integer,
-        "fixed2"  => TickFormat::Fixed(2),
-        _         => TickFormat::Auto,
+        "fixed2" => TickFormat::Fixed(2),
+        _ => TickFormat::Auto,
+    }
+}
+
+fn parse_node_order(name: &str) -> Result<SankeyNodeOrder, String> {
+    match name {
+        "input" => Ok(SankeyNodeOrder::Input),
+        "crossings" | "crossing-reduction" => Ok(SankeyNodeOrder::CrossingReduction),
+        "neighbornet" | "nn" => Ok(SankeyNodeOrder::Neighbornet),
+        other => Err(format!(
+            "invalid node order '{other}'; expected 'input', 'crossings', or 'neighbornet'"
+        )),
+    }
+}
+
+fn parse_node_coloring(name: &str) -> Result<SankeyNodeColoring, String> {
+    match name {
+        "label" => Ok(SankeyNodeColoring::Label),
+        "left" => Ok(SankeyNodeColoring::Left),
+        other => Err(format!(
+            "invalid coloring mode '{other}'; expected 'label' or 'left'"
+        )),
     }
 }
 
@@ -79,15 +118,16 @@ pub fn run(args: SankeyArgs) -> Result<(), String> {
         args.input.delimiter,
     )?;
 
-    let source_col = args.source_col.unwrap_or(ColSpec::Index(0));
-    let target_col = args.target_col.unwrap_or(ColSpec::Index(1));
-    let value_col = args.value_col.unwrap_or(ColSpec::Index(2));
+    let mut plot = SankeyPlot::new()
+        .with_node_order(parse_node_order(&args.node_order)?)
+        .with_node_coloring(parse_node_coloring(&args.coloring)?)
+        .with_node_order_seed(args.node_order_seed);
 
-    let sources = table.col_str(&source_col)?;
-    let targets = table.col_str(&target_col)?;
-    let values = table.col_f64(&value_col)?;
-
-    let mut plot = SankeyPlot::new();
+    if let Some(ref name) = args.base.palette {
+        if let Some(pal) = palette_from_name(name) {
+            plot = plot.with_palette(pal);
+        }
+    }
 
     if args.link_gradient {
         plot = plot.with_gradient_links();
@@ -114,8 +154,64 @@ pub fn run(args: SankeyArgs) -> Result<(), String> {
         plot = plot.with_flow_label_min_height(min_h);
     }
 
-    for ((source, target), value) in sources.iter().zip(targets.iter()).zip(values.iter()) {
-        plot = plot.with_link(source.clone(), target.clone(), *value);
+    if !args.axis_cols.is_empty() {
+        if args.axis_cols.len() < 2 {
+            return Err(
+                "at least two --axis-col values are required for alluvium input".to_string(),
+            );
+        }
+        let axis_indices: Vec<usize> = args
+            .axis_cols
+            .iter()
+            .map(|c| table.resolve(c))
+            .collect::<Result<_, _>>()?;
+        let axis_names: Vec<String> = axis_indices
+            .iter()
+            .map(|&idx| {
+                table
+                    .header
+                    .as_ref()
+                    .and_then(|header| header.get(idx))
+                    .cloned()
+                    .unwrap_or_else(|| format!("axis{}", idx + 1))
+            })
+            .collect();
+        plot = plot.with_axis_names(axis_names);
+        let weight_idx = match &args.value_col {
+            Some(c) => Some(table.resolve(c)?),
+            None => None,
+        };
+        for (row_i, row) in table.rows.iter().enumerate() {
+            let strata: Vec<String> = axis_indices
+                .iter()
+                .map(|&idx| {
+                    row.get(idx)
+                        .cloned()
+                        .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))
+                })
+                .collect::<Result<_, _>>()?;
+            let value = match weight_idx {
+                Some(idx) => row
+                    .get(idx)
+                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?
+                    .parse::<f64>()
+                    .map_err(|_| format!("Row {row_i}: cannot parse '{}' as a number", row[idx]))?,
+                None => 1.0,
+            };
+            plot = plot.with_alluvium(strata, value);
+        }
+    } else {
+        let source_col = args.source_col.unwrap_or(ColSpec::Index(0));
+        let target_col = args.target_col.unwrap_or(ColSpec::Index(1));
+        let value_col = args.value_col.unwrap_or(ColSpec::Index(2));
+
+        let sources = table.col_str(&source_col)?;
+        let targets = table.col_str(&target_col)?;
+        let values = table.col_f64(&value_col)?;
+
+        for ((source, target), value) in sources.iter().zip(targets.iter()).zip(values.iter()) {
+            plot = plot.with_link(source.clone(), target.clone(), *value);
+        }
     }
 
     let plots = vec![Plot::Sankey(plot)];

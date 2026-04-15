@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Native Sankey/alluvial ordering** — `SankeyPlot` now supports ordered alluvium input via `with_alluvium()`, `with_alluvia()`, and `with_axis_names()`, plus optional weighted crossing reduction and neighbornet ordering through `with_crossing_reduction()`, `with_neighbornet()`, `with_node_order()`, and `with_node_order_seed()`. Node coloring can follow per-label or left-propagated alluvial coloring via `with_node_coloring()` / `with_left_coloring()`. CLI: `kuva sankey --axis-col ... --node-order crossings|neighbornet --coloring label|left`.
+
+---
+
 ## [0.1.6] — 2026-04-01
 
 ### Fixed

@@ -161,6 +161,16 @@ feature assignment stages.
 kuva sankey sankey.tsv --source source --target target --value value
 ```
 
+### `sankey_got.tsv` — 488 rows
+Columns: `Name`, `Origin`, `Starting Affiliation`, `End of S1` ... `End of S7`, `Episodes`
+Game of Thrones character affiliations across seasons 1–7. The Sankey/alluvial
+example uses the 9 categorical columns from `Origin` through `End of S7` and
+assigns each character weight 1.
+
+```bash
+cargo run --example sankey_got
+```
+
 ### `phylo.tsv` — 38 rows
 Columns: `parent`, `child`, `length`
 Edge list for a rooted vertebrate species tree (20 leaf taxa, 19 internal

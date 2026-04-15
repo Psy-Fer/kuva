@@ -30,6 +30,8 @@ TODO.md
 *.svg
 *.tsv
 *.csv
+!examples/data/sankey_alluvium.tsv
+!examples/data/sankey_got.tsv
 
 # doom feature asset cache
 /doom-assets/

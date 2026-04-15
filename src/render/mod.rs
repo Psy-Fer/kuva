@@ -1,3 +1,4 @@
+pub mod alluvial_order;
 #[allow(clippy::module_inception)]
 pub mod render;
 pub mod render_utils;

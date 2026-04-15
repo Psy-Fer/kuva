@@ -367,6 +367,12 @@ check "sankey flow-labels-sci" \
     "$BIN" sankey "$DATA/sankey.tsv" --source-col source --target-col target --value-col value \
         --flow-labels --flow-label-format sci --title "Flow Labels Sci"
 
+check "sankey alluvium crossings left-coloring" \
+    "$BIN" sankey "$DATA/sankey_alluvium.tsv" \
+        --axis-col tissue --axis-col cluster --axis-col sex --value-col count \
+        --node-order crossings --node-order-seed 42 --coloring left \
+        --title "Alluvium Crossings"
+
 # ── phylo ─────────────────────────────────────────────────────────────────────
 check "phylo edge-list" \
     "$BIN" phylo "$DATA/phylo.tsv" --parent-col parent --child-col child --length-col length \

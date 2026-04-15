@@ -55,7 +55,10 @@ pub use stacked_area::StackedAreaPlot;
 pub use candlestick::{CandlestickPlot, CandleDataPoint};
 pub use contour::ContourPlot;
 pub use chord::ChordPlot;
-pub use sankey::{SankeyPlot, SankeyNode, SankeyLink, SankeyLinkColor};
+pub use sankey::{
+    SankeyAlluvium, SankeyLink, SankeyLinkColor, SankeyNode, SankeyNodeColoring, SankeyNodeOrder,
+    SankeyPlot,
+};
 pub use phylo::{PhyloTree, PhyloNode, TreeOrientation, TreeBranchStyle};
 pub use synteny::{SyntenyPlot, SyntenyBlock, SyntenySequence, Strand};
 pub use density::DensityPlot;

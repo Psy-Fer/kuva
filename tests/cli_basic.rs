@@ -349,6 +349,42 @@ fn test_sankey_svg() {
 }
 
 #[test]
+fn test_sankey_alluvium_svg() {
+    let tsv = "\
+tissue\tcluster\tsex\tcount
+B CELL\t4\tmale\t9
+BRAIN\t1\tfemale\t1
+BRAIN\t1\tmale\t1
+HEART\t3\tmale\t3
+STOMACH\t2\tfemale\t3
+";
+    let (stdout, stderr, code) = run_with_stdin(
+        &[
+            "sankey",
+            "--axis-col",
+            "tissue",
+            "--axis-col",
+            "cluster",
+            "--axis-col",
+            "sex",
+            "--value-col",
+            "count",
+            "--node-order",
+            "crossings",
+            "--node-order-seed",
+            "42",
+            "--coloring",
+            "left",
+            "--title",
+            "Alluvium",
+        ],
+        tsv,
+    );
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
+
+#[test]
 fn test_phylo_svg() {
     let (stdout, stderr, code) = run_with_file(&[
         "phylo", &data("phylo.tsv"),
@@ -404,6 +440,43 @@ fn test_bar_has_rects_and_labels() {
     assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
     assert!(stdout.contains("<rect"), "bar SVG should contain <rect elements");
     assert!(stdout.contains("DNA repair"), "bar SVG should contain category label 'DNA repair'");
+}
+
+#[test]
+fn test_sankey_alluvium_cli_content() {
+    let tsv = "\
+tissue\tcluster\tsex\tcount
+Wildlings\tCamp\tWildlings\t10
+North\tCastle\tNorth\t8
+Wildlings\tCastle\tNorth\t3
+North\tCamp\tWildlings\t2
+";
+    let (stdout, stderr, code) = run_with_stdin(
+        &[
+            "sankey",
+            "--axis-col",
+            "tissue",
+            "--axis-col",
+            "cluster",
+            "--axis-col",
+            "sex",
+            "--value-col",
+            "count",
+            "--node-order",
+            "crossings",
+            "--coloring",
+            "left",
+            "--title",
+            "Alluvium",
+        ],
+        tsv,
+    );
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.contains("<path"), "alluvium SVG should contain ribbon paths");
+    assert!(
+        stdout.contains("Wildlings") && stdout.contains("Castle"),
+        "alluvium SVG should contain axis labels and node labels"
+    );
 }
 
 #[test]
