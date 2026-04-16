@@ -429,3 +429,70 @@ fn test_strip_shaped_fallback_to_circle() {
     let circle_count = svg.matches("<circle").count();
     assert_eq!(circle_count, 2, "expected exactly 2 circle markers, got {circle_count}");
 }
+
+#[test]
+fn test_strip_group_colors_legend_width() {
+    // Regression: with group_colors, legend entries are the group labels.
+    // Previously, auto_from_plots measured only legend_label.len() for width,
+    // but the renderer uses group.label — causing long labels to overflow the box.
+    let long_label = "A Much Longer Category Label";
+    let strip = StripPlot::new()
+        .with_group("Short",        vec![1.0, 2.0, 3.0])
+        .with_group(long_label,     vec![1.5, 2.5, 3.5])
+        .with_group("Medium Label", vec![2.0, 3.0, 4.0])
+        .with_group_colors(vec!["steelblue", "tomato", "seagreen"])
+        .with_legend("groups");
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/strip_group_legend_width.svg", svg.clone()).unwrap();
+
+    // --- Parse the legend box rect (white fill) ---
+    // Format: <rect x="NNN" ... width="NNN" ... fill="#ffffff" .../>
+    let legend_rect_x = {
+        let mut found = None;
+        for chunk in svg.split("<rect") {
+            if chunk.contains("fill=\"#ffffff\"") {
+                let x: f64 = chunk.split("x=\"").nth(1)
+                    .and_then(|s| s.split('"').next())
+                    .and_then(|s| s.parse().ok())
+                    .expect("legend rect should have numeric x");
+                let w: f64 = chunk.split("width=\"").nth(1)
+                    .and_then(|s| s.split('"').next())
+                    .and_then(|s| s.parse().ok())
+                    .expect("legend rect should have numeric width");
+                found = Some((x, w));
+                break;
+            }
+        }
+        found.expect("legend background rect (fill=#ffffff) not found in SVG")
+    };
+    let (box_x, box_w) = legend_rect_x;
+    let box_right = box_x + box_w;
+
+    // --- Parse legend text entries (text-anchor="start") and check they fit ---
+    // Format: <text x="NNN" ... text-anchor="start">LABEL</text>
+    let px_per_char = 8.0_f64; // same heuristic used by layout width formula
+    for chunk in svg.split("<text") {
+        if !chunk.contains("text-anchor=\"start\"") { continue; }
+        let text_x: f64 = match chunk.split("x=\"").nth(1)
+            .and_then(|s| s.split('"').next())
+            .and_then(|s| s.parse().ok())
+        {
+            Some(v) => v,
+            None => continue,
+        };
+        let label = match chunk.split('>').nth(1).and_then(|s| s.split('<').next()) {
+            Some(l) => l,
+            None => continue,
+        };
+        let estimated_right = text_x + label.len() as f64 * px_per_char;
+        assert!(
+            estimated_right <= box_right + 1.0, // +1 for floating-point rounding
+            "legend label {:?} estimated right edge ({estimated_right:.1}px) \
+             exceeds legend box right edge ({box_right:.1}px)",
+            label,
+        );
+    }
+}

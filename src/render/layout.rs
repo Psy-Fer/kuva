@@ -396,7 +396,14 @@ impl Layout {
                 x_labels = Some(labels);
                 if let Some(ref label) = sp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    if sp.group_colors.is_some() {
+                        // Legend entries are the per-group labels (see collect_legend_entries)
+                        for g in &sp.groups {
+                            max_label_len = max_label_len.max(g.label.len());
+                        }
+                    } else {
+                        max_label_len = max_label_len.max(label.len());
+                    }
                 }
             }
 
@@ -1563,7 +1570,11 @@ impl Layout {
                 Plot::Histogram(p)   => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
                 Plot::Box(p)         => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
                 Plot::Violin(p)      => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
-                Plot::Strip(p)       => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
+                Plot::Strip(p)       => if p.legend_label.is_some() {
+                    if p.group_colors.is_some() {
+                        for g in &p.groups { max_secondary_label = max_secondary_label.max(g.label.len()); }
+                    } else if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
+                }
                 Plot::Waterfall(p)   => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
                 Plot::Candlestick(p) => if let Some(l) = &p.legend_label { max_secondary_label = max_secondary_label.max(l.len()); }
                 Plot::StackedArea(p)  => for l in p.labels.iter().flatten() { max_secondary_label = max_secondary_label.max(l.len()); }
