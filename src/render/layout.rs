@@ -1661,6 +1661,10 @@ pub struct ComputedLayout {
     pub y2_label_wrap: Option<usize>,
     /// Propagated from `Layout::legend_wrap`.
     pub legend_wrap: Option<usize>,
+    /// Extra pixels added to `margin_bottom` for an OutsideBottom legend.
+    /// The x-axis label must be offset upward by this amount so it stays
+    /// above the legend rather than landing inside it.
+    pub legend_bottom_extra: f64,
 }
 
 impl ComputedLayout {
@@ -1688,7 +1692,7 @@ impl ComputedLayout {
         } else {
             10.0 * s
         };
-        let title_y = base_margin_top / 2.0;
+        let mut title_y = base_margin_top / 2.0;
         let mut margin_top = base_margin_top;
         // BrickPlot per-block notation labels are drawn above the top row.
         if layout.brick_notation_tiers > 0 {
@@ -1834,6 +1838,7 @@ impl ComputedLayout {
             layout.legend_width * s
         };
 
+        let mut legend_bottom_extra = 0.0_f64;
         if layout.show_legend {
             // Estimate legend height for OutsideTop/Bottom margin adjustments.
             let legend_line_h = 18.0 * s;
@@ -1870,11 +1875,18 @@ impl ComputedLayout {
                 | LegendPosition::OutsideTopCenter
                 | LegendPosition::OutsideTopRight => {
                     margin_top += legend_h_estimate;
+                    // Push title_y down so the title stays below the legend band.
+                    title_y += legend_h_estimate;
                 }
                 LegendPosition::OutsideBottomLeft
                 | LegendPosition::OutsideBottomCenter
                 | LegendPosition::OutsideBottomRight => {
-                    margin_bottom += legend_h_estimate + 10.0 * s;
+                    let extra = legend_h_estimate + 10.0 * s;
+                    margin_bottom += extra;
+                    // Track how much the bottom margin grew due to the legend so that
+                    // the x-axis label can be positioned relative to the axis area,
+                    // not the canvas bottom.
+                    legend_bottom_extra = extra;
                 }
                 // Inside*, Custom, DataCoords: overlay or user controls — no margin change
                 _ => {}
@@ -2039,6 +2051,7 @@ impl ComputedLayout {
             y_label_wrap: layout.y_label_wrap,
             y2_label_wrap: layout.y2_label_wrap,
             legend_wrap: layout.legend_wrap,
+            legend_bottom_extra,
         };
         s.recompute_transforms();
         s

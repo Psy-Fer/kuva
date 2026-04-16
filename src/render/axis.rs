@@ -494,8 +494,10 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
             let lines = render_utils::wrap_or_single(label, computed.x_label_wrap);
             let (dx, dy) = layout.x_label_offset;
             let default_x = computed.margin_left + computed.plot_width() / 2.0;
-            // Position the first line so the whole block ends at the expected bottom.
-            let default_y = computed.height - ls * 0.5 - (lines.len() as f64 - 1.0) * ls;
+            // Subtract legend_bottom_extra so the x-label stays in the axis area
+            // rather than drifting into the OutsideBottom legend band.
+            let default_y = computed.height - computed.legend_bottom_extra - ls * 0.5
+                - (lines.len() as f64 - 1.0) * ls;
             let (lx, ly) = computed.dice_x_label_pos.unwrap_or((default_x, default_y));
             for (i, line) in lines.iter().enumerate() {
                 scene.add(Primitive::Text {
