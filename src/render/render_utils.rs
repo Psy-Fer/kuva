@@ -609,7 +609,8 @@ pub fn linkage_to_nodes(
 ///
 /// Uses a fixed character-width-to-font-size ratio of 0.6, which is the
 /// standard heuristic used throughout the layout and rendering code.
-pub fn estimate_text_width(text: &str, font_size: f64) -> f64 {
+#[allow(dead_code)]
+pub(crate) fn estimate_text_width(text: &str, font_size: f64) -> f64 {
     text.chars().count() as f64 * font_size * 0.6
 }
 

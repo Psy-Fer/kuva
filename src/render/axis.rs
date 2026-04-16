@@ -516,7 +516,9 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         if let Some(label) = &layout.y_label {
             let lines = render_utils::wrap_or_single(label, computed.y_label_wrap);
             let (dx, dy) = layout.y_label_offset;
-            // Base x for the leftmost (first) line.
+            // Base x for the leftmost (first) line; subsequent lines step right by `ls`.
+            // The .max() floor keeps all lines on-canvas for very narrow plots, but on
+            // plots that are too narrow for many wrapped lines the lines will overlap.
             let default_x = (computed.margin_left - 8.0 - computed.y_tick_label_px - 5.0
                 - ls * 0.5 - (lines.len() as f64 - 1.0) * ls)
                 .max(ls * 0.5 + 8.0);

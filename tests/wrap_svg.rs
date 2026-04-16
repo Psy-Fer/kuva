@@ -190,6 +190,21 @@ fn per_element_overrides_global() {
         "title should stay on one line with per-element override");
 }
 
+#[test]
+fn per_element_set_before_global_still_wins() {
+    // Calling with_title_wrap BEFORE with_wrap — with_wrap must not overwrite it.
+    let plots = scatter_plots();
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("A medium-length title for testing")
+        .with_title_wrap(40)    // per-element first: title gets 40 chars
+        .with_wrap(10);         // global second: must not override title_wrap
+    let out = svg(plots, layout);
+
+    // Title is 32 chars, effective title_wrap should still be 40 → no wrap.
+    assert!(out.contains("A medium-length title for testing"),
+        "title should stay on one line when per-element is set before global");
+}
+
 // ── Edge cases ───────────────────────────────────────────────────────────────
 
 #[test]
@@ -316,4 +331,32 @@ fn outside_bottom_legend_wrap_adjusts_height() {
     let h_no = extract_height(&svg_no_wrap);
     assert!(h_wrap >= h_no,
         "wrapped outside-bottom height ({h_wrap}) should be >= no-wrap ({h_no})");
+}
+
+#[test]
+fn outside_bottom_legend_no_wrap_renders_entries() {
+    // Regression guard for the OutsideBottom positioning fix: verify that a plain
+    // OutsideBottom legend (no wrapping) still renders its entries and doesn't
+    // extend off the bottom of the canvas.
+    use kuva::plot::LegendPosition;
+
+    let plots = scatter_plots();
+    let entries = vec![
+        LegendEntry { label: "Alpha".into(), color: "steelblue".into(), shape: LegendShape::Rect, dasharray: None },
+        LegendEntry { label: "Beta".into(),  color: "tomato".into(),    shape: LegendShape::Rect, dasharray: None },
+    ];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_legend_entries(entries)
+        .with_legend_position(LegendPosition::OutsideBottomCenter);
+    let out = svg(plots, layout);
+    std::fs::write("test_outputs/outside_bottom_no_wrap.svg", &out).unwrap();
+
+    // Both entries must appear.
+    assert!(out.contains(">Alpha<"), "Alpha entry missing from OutsideBottom legend");
+    assert!(out.contains(">Beta<"),  "Beta entry missing from OutsideBottom legend");
+
+    // Canvas must have grown beyond the default plot height to fit the legend.
+    let height = extract_height(&out);
+    assert!(height > 380.0,
+        "canvas height ({height}) should exceed default 380px when OutsideBottom legend is present");
 }

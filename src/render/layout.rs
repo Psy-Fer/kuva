@@ -260,12 +260,15 @@ pub struct Layout {
     /// Set automatically by `auto_from_plots` when a `BrickPlot` with `notations`
     /// is present.  `0` = no extra space.
     pub brick_notation_tiers: usize,
-    // Per-element text wrapping (`None` = no wrapping).  Set via `with_wrap()`
-    // (all at once) or `with_title_wrap()` / `with_legend_wrap()` / etc.
+    /// Word-wrap the plot title at this many characters; `None` disables wrapping.
     pub title_wrap: Option<usize>,
+    /// Word-wrap the x-axis label at this many characters; `None` disables wrapping.
     pub x_label_wrap: Option<usize>,
+    /// Word-wrap the y-axis label at this many characters; `None` disables wrapping.
     pub y_label_wrap: Option<usize>,
+    /// Word-wrap the secondary y-axis label at this many characters; `None` disables wrapping.
     pub y2_label_wrap: Option<usize>,
+    /// Word-wrap legend labels and titles at this many characters; `None` disables wrapping.
     pub legend_wrap: Option<usize>,
 }
 
@@ -1254,15 +1257,15 @@ impl Layout {
     }
 
     /// Word-wrap all text elements (title, axis labels, legend) at `max_chars`
-    /// characters.  Call this before per-element overrides (`with_title_wrap`,
-    /// `with_legend_wrap`, etc.) so they take precedence.
+    /// characters.  Acts as a fallback: per-element overrides (`with_title_wrap`,
+    /// `with_legend_wrap`, etc.) always take precedence regardless of call order.
     pub fn with_wrap(mut self, max_chars: usize) -> Self {
         let v = if max_chars > 0 { Some(max_chars) } else { None };
-        self.title_wrap = v;
-        self.x_label_wrap = v;
-        self.y_label_wrap = v;
-        self.y2_label_wrap = v;
-        self.legend_wrap = v;
+        if self.title_wrap.is_none()    { self.title_wrap = v; }
+        if self.x_label_wrap.is_none()  { self.x_label_wrap = v; }
+        if self.y_label_wrap.is_none()  { self.y_label_wrap = v; }
+        if self.y2_label_wrap.is_none() { self.y2_label_wrap = v; }
+        if self.legend_wrap.is_none()   { self.legend_wrap = v; }
         self
     }
 
@@ -1648,11 +1651,15 @@ pub struct ComputedLayout {
     /// Y position for the plot title, computed from the pre-notation base margin so that
     /// BrickPlot notation tiers don't push the title into the middle of the annotation zone.
     pub title_y: f64,
-    // Per-element text wrapping (propagated from Layout).
+    /// Propagated from `Layout::title_wrap`.
     pub title_wrap: Option<usize>,
+    /// Propagated from `Layout::x_label_wrap`.
     pub x_label_wrap: Option<usize>,
+    /// Propagated from `Layout::y_label_wrap`.
     pub y_label_wrap: Option<usize>,
+    /// Propagated from `Layout::y2_label_wrap`.
     pub y2_label_wrap: Option<usize>,
+    /// Propagated from `Layout::legend_wrap`.
     pub legend_wrap: Option<usize>,
 }
 
