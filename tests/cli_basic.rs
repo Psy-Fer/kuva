@@ -793,6 +793,94 @@ fn test_surface3d_has_paths() {
     assert!(stdout.contains("<path"), "SVG should contain path elements (surface faces)");
 }
 
+// ── colormap string parsing via CLI ──────────────────────────────────────────
+
+/// Diverging colormap names should be accepted by `kuva heatmap --colormap` and
+/// produce valid SVG.  Tests each diverging name plus representative aliases.
+#[test]
+fn test_heatmap_colormap_diverging_names() {
+    // Each entry: (--colormap value, description)
+    let cases: &[&str] = &[
+        "brown-green", "browngreen", "brbg",
+        "pink-green",  "pinkgreen",  "piyg",
+        "purple-green","purplegreen","prgn",
+        "purple-orange","purpleorange","puor",
+        "red-blue",    "redblue",    "rdbu",
+        "red-grey",    "redgrey",    "rdgy",
+        "red-yellow-blue",   "rdylbu",
+        "red-yellow-green",  "rdylgn",
+        "spectral",
+    ];
+
+    // Long-format TSV: (row, col, value) triples; use --long-format
+    let tsv = "row\tcol\tvalue\nA\tX\t-3.0\nA\tY\t0.0\nA\tZ\t3.0\nB\tX\t-1.0\nB\tY\t0.0\nB\tZ\t1.0\n";
+
+    for name in cases {
+        let (stdout, stderr, code) = run_with_stdin(
+            &["heatmap", "--long-format", "--colormap", name],
+            tsv,
+        );
+        assert_eq!(
+            code, 0,
+            "--colormap {name} should exit 0; stderr: {stderr}"
+        );
+        assert!(
+            stdout.starts_with("<svg"),
+            "--colormap {name} output should start with <svg"
+        );
+        // No unknown-colormap warning should appear for recognized names
+        assert!(
+            !stderr.contains("unknown colormap"),
+            "--colormap {name} emitted unknown colormap warning: {stderr}"
+        );
+    }
+}
+
+/// `parse_colormap` aliases: hyphens, no-separator, and d3 abbreviations
+/// should all resolve without an "unknown colormap" warning on stderr.
+#[test]
+fn test_heatmap_colormap_sequential_aliases() {
+    let tsv = "row\tcol\tval\nA\tX\t5\nA\tY\t10\nB\tX\t15\nB\tY\t20\n";
+    let aliases: &[&str] = &[
+        "viridis", "inferno", "magma", "plasma", "cividis",
+        "turbo", "warm", "cool", "cubehelix",
+        "blues", "greens", "grayscale", "grey", "gray",
+        "oranges", "purples", "reds",
+        "blue-green", "bugn", "orange-red", "orrd",
+        "yellow-green", "ylgn", "yellow-orange-red", "ylorrd",
+        "rainbow", "sinebow",
+    ];
+
+    for name in aliases {
+        let (_, stderr, code) = run_with_stdin(
+            &["heatmap", "--long-format", "--colormap", name],
+            tsv,
+        );
+        assert_eq!(code, 0, "--colormap {name} exit code; stderr: {stderr}");
+        assert!(
+            !stderr.contains("unknown colormap"),
+            "--colormap {name} should not warn 'unknown colormap'; stderr: {stderr}"
+        );
+    }
+}
+
+/// An unrecognized colormap name should warn on stderr but still exit 0 and
+/// produce SVG (falls back to Viridis).
+#[test]
+fn test_heatmap_colormap_unknown_warns_but_succeeds() {
+    let tsv = "x\ty\tv\n1\t1\t5\n1\t2\t10\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &["heatmap", "--long-format", "--colormap", "notacolormap"],
+        tsv,
+    );
+    assert_eq!(code, 0, "unknown colormap should still exit 0");
+    assert!(stdout.starts_with("<svg"), "should still produce SVG");
+    assert!(
+        stderr.contains("unknown colormap"),
+        "should warn about unknown colormap; stderr: {stderr}"
+    );
+}
+
 // ── misc ─────────────────────────────────────────────────────────────────────
 
 #[test]

@@ -32,7 +32,7 @@ pub struct ContourArgs {
     #[arg(long)]
     pub filled: bool,
 
-    /// Color map for filled contours: viridis (default), inferno, grayscale.
+    /// Color map for filled contours (default: viridis). Run `kuva contour --help` for accepted names.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 

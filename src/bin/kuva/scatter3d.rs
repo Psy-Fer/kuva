@@ -1,7 +1,7 @@
 use clap::Args;
 
 use kuva::plot::scatter3d::Scatter3DPlot;
-use kuva::plot::heatmap::ColorMap;
+use kuva::plot::ColorMap;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;

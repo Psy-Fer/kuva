@@ -1,11 +1,11 @@
 use clap::Args;
 
-use kuva::plot::treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout, ColorMap};
+use kuva::plot::treemap::{TreemapPlot, TreemapNode, TreemapColorMode, TreemapLayout};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{ColSpec, DataTable, InputArgs, parse_colormap};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
@@ -33,9 +33,9 @@ pub struct TreemapArgs {
     #[arg(long, default_value = "parent", value_enum)]
     pub color_by: CliColorBy,
 
-    /// Color map (used with `--color-by value`): viridis (default), inferno, turbo, grayscale.
-    #[arg(long, value_enum)]
-    pub colormap: Option<CliColorMap>,
+    /// Color map used with `--color-by value` (default: viridis). Run `kuva treemap --help` for accepted names.
+    #[arg(long)]
+    pub colormap: Option<String>,
 
     /// Layout algorithm: squarify (default), slicedice, binary.
     #[arg(long, value_enum)]
@@ -76,27 +76,10 @@ pub enum CliColorBy {
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
-pub enum CliColorMap {
-    Viridis,
-    Inferno,
-    Turbo,
-    Grayscale,
-}
-
-#[derive(clap::ValueEnum, Clone, Debug)]
 pub enum CliLayout {
     Squarify,
     Slicedice,
     Binary,
-}
-
-fn cli_to_color_map(c: Option<&CliColorMap>) -> ColorMap {
-    match c {
-        Some(CliColorMap::Inferno)   => ColorMap::Inferno,
-        Some(CliColorMap::Turbo)     => ColorMap::Turbo,
-        Some(CliColorMap::Grayscale) => ColorMap::Grayscale,
-        _                            => ColorMap::Viridis,
-    }
 }
 
 fn cli_to_layout(c: Option<&CliLayout>) -> TreemapLayout {
@@ -124,7 +107,7 @@ pub fn run(args: TreemapArgs) -> Result<(), String> {
         return Err("treemap: input has no data".into());
     }
 
-    let cmap = cli_to_color_map(args.colormap.as_ref());
+    let cmap = parse_colormap(args.colormap.as_deref().unwrap_or("viridis"));
     let layout_algo = cli_to_layout(args.layout.as_ref());
 
     let mut plot = TreemapPlot::new().with_layout(layout_algo);

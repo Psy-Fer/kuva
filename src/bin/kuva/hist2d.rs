@@ -1,6 +1,6 @@
 use clap::Args;
 
-use kuva::plot::histogram2d::{Histogram2D, ColorMap};
+use kuva::plot::histogram2d::Histogram2D;
 use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
@@ -28,7 +28,7 @@ pub struct Hist2dArgs {
     #[arg(long, default_value_t = 10)]
     pub bins_y: usize,
 
-    /// Color map: viridis (default), inferno, turbo, grayscale.
+    /// Color map (default: viridis). Run `kuva hist2d --help` for accepted names.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 
@@ -68,14 +68,7 @@ fn parse_colorbar_tick_format(name: &str) -> TickFormat {
     }
 }
 
-fn parse_colormap(name: &str) -> ColorMap {
-    match name {
-        "inferno" => ColorMap::Inferno,
-        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
-        "turbo" => ColorMap::Turbo,
-        _ => ColorMap::Viridis,
-    }
-}
+use crate::data::parse_colormap;
 
 pub fn run(args: Hist2dArgs) -> Result<(), String> {
     let table = DataTable::parse(

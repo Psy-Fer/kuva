@@ -1,12 +1,12 @@
 use clap::Args;
 
 use kuva::plot::sunburst::{SunburstPlot, SunburstColorMode};
-use kuva::plot::treemap::{TreemapNode, ColorMap};
+use kuva::plot::treemap::TreemapNode;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{ColSpec, DataTable, InputArgs, parse_colormap};
 use crate::layout_args::{BaseArgs, apply_base_args};
 use crate::output::write_output;
 
@@ -34,9 +34,9 @@ pub struct SunburstArgs {
     #[arg(long, default_value = "parent", value_enum)]
     pub color_by: CliColorBy,
 
-    /// Color map (used with `--color-by value`): viridis (default), inferno, turbo, grayscale.
-    #[arg(long, value_enum)]
-    pub colormap: Option<CliColorMap>,
+    /// Color map used with `--color-by value` (default: viridis). Run `kuva sunburst --help` for accepted names.
+    #[arg(long)]
+    pub colormap: Option<String>,
 
     /// Fractional inner radius for donut-style chart (0.0 = solid disc, e.g. 0.3 = 30% hole).
     #[arg(long)]
@@ -84,22 +84,6 @@ pub enum CliColorBy {
     Explicit,
 }
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub enum CliColorMap {
-    Viridis,
-    Inferno,
-    Turbo,
-    Grayscale,
-}
-
-fn cli_to_color_map(c: Option<&CliColorMap>) -> ColorMap {
-    match c {
-        Some(CliColorMap::Inferno)   => ColorMap::Inferno,
-        Some(CliColorMap::Turbo)     => ColorMap::Turbo,
-        Some(CliColorMap::Grayscale) => ColorMap::Grayscale,
-        _                            => ColorMap::Viridis,
-    }
-}
 
 pub fn run(args: SunburstArgs) -> Result<(), String> {
     let table = DataTable::parse(
@@ -118,7 +102,7 @@ pub fn run(args: SunburstArgs) -> Result<(), String> {
         return Err("sunburst: input has no data".into());
     }
 
-    let cmap = cli_to_color_map(args.colormap.as_ref());
+    let cmap = parse_colormap(args.colormap.as_deref().unwrap_or("viridis"));
 
     let mut plot = SunburstPlot::new();
 

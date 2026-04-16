@@ -186,14 +186,63 @@ fn split_line(line: &str, delim: char) -> Vec<String> {
 
 /// Parse a colormap name string into a `ColorMap` enum.
 /// Unrecognized names default to Viridis with a warning on stderr.
-pub fn parse_colormap(name: &str) -> kuva::plot::heatmap::ColorMap {
-    use kuva::plot::heatmap::ColorMap;
-    match name {
-        "viridis" => ColorMap::Viridis,
-        "inferno" => ColorMap::Inferno,
-        "grayscale" | "grey" | "gray" => ColorMap::Grayscale,
+///
+/// Accepted names (case-insensitive, hyphens or no separator both work):
+/// viridis, inferno, magma, plasma, cividis, turbo, warm, cool, cubehelix,
+/// blue-green, blue-purple, green-blue, orange-red, purple-blue, purple-blue-green,
+/// purple-red, red-purple, yellow-green, yellow-green-blue, yellow-orange-brown,
+/// yellow-orange-red, blues, greens, grayscale (grey/gray), oranges, purples, reds,
+/// brown-green, pink-green, purple-green, purple-orange, red-blue, red-grey,
+/// red-yellow-blue, red-yellow-green, spectral, rainbow, sinebow.
+pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
+    use kuva::plot::ColorMap;
+    match name.to_ascii_lowercase().replace('_', "-").as_str() {
+        // Sequential perceptual
+        "viridis"                              => ColorMap::Viridis,
+        "inferno"                              => ColorMap::Inferno,
+        "magma"                                => ColorMap::Magma,
+        "plasma"                               => ColorMap::Plasma,
+        "cividis"                              => ColorMap::Cividis,
+        "turbo"                                => ColorMap::Turbo,
+        "warm"                                 => ColorMap::Warm,
+        "cool"                                 => ColorMap::Cool,
+        "cubehelix"                            => ColorMap::Cubehelix,
+        // Sequential ColorBrewer
+        "blue-green"  | "bluegreen"  | "bugn" => ColorMap::BlueGreen,
+        "blue-purple" | "bluepurple" | "bupu" => ColorMap::BluePurple,
+        "green-blue"  | "greenblue"  | "gnbu" => ColorMap::GreenBlue,
+        "orange-red"  | "orangered"  | "orrd" => ColorMap::OrangeRed,
+        "purple-blue-green" | "purplebluegre" | "pubugn" => ColorMap::PurpleBlueGreen,
+        "purple-blue" | "purpleblue" | "pubu" => ColorMap::PurpleBlue,
+        "purple-red"  | "purplered"  | "purd" => ColorMap::PurpleRed,
+        "red-purple"  | "redpurple"  | "rdpu" => ColorMap::RedPurple,
+        "yellow-green-blue" | "yellowgreenblue" | "ylgnbu" => ColorMap::YellowGreenBlue,
+        "yellow-green"      | "yellowgreen"     | "ylgn"   => ColorMap::YellowGreen,
+        "yellow-orange-brown" | "yelloworangebrown" | "ylorb" | "ylorbr" => ColorMap::YellowOrangeBrown,
+        "yellow-orange-red"   | "yelloworangered"   | "ylord" | "ylorrd" => ColorMap::YellowOrangeRed,
+        // Sequential single-hue
+        "blues"                                => ColorMap::Blues,
+        "greens"                               => ColorMap::Greens,
+        "grayscale" | "grey" | "gray" | "greys" | "grays" => ColorMap::Grayscale,
+        "oranges"                              => ColorMap::Oranges,
+        "purples"                              => ColorMap::Purples,
+        "reds"                                 => ColorMap::Reds,
+        // Diverging
+        "brown-green"    | "browngreen"    | "brbg"   => ColorMap::BrownGreen,
+        "pink-green"     | "pinkgreen"     | "piyg"   => ColorMap::PinkGreen,
+        "purple-green"   | "purplegreen"   | "prgn"   => ColorMap::PurpleGreen,
+        "purple-orange"  | "purpleorange"  | "puor"   => ColorMap::PurpleOrange,
+        "red-blue"       | "redblue"       | "rdbu"   => ColorMap::RedBlue,
+        "red-grey" | "red-gray" | "redgrey" | "redgray" | "rdgy" => ColorMap::RedGrey,
+        "red-yellow-blue"  | "redyellowblue"  | "rdylbu" => ColorMap::RedYellowBlue,
+        "red-yellow-green" | "redyellowgreen" | "rdylgn" => ColorMap::RedYellowGreen,
+        "spectral"                             => ColorMap::Spectral,
+        // Cyclical
+        "rainbow"                              => ColorMap::Rainbow,
+        "sinebow"                              => ColorMap::Sinebow,
         _ => {
-            eprintln!("warning: unknown colormap '{name}', using viridis");
+            eprintln!("warning: unknown colormap '{name}', using viridis. \
+                Run with --help to see accepted names.");
             ColorMap::Viridis
         }
     }

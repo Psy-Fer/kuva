@@ -14,7 +14,7 @@ use crate::output::write_output;
 /// Heatmap from a wide matrix (first column as row labels).
 #[derive(Args, Debug)]
 pub struct HeatmapArgs {
-    /// Color map: viridis (default), inferno, grayscale.
+    /// Color map (default: viridis). Run `kuva heatmap --help` for accepted names.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 

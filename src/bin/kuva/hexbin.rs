@@ -1,11 +1,11 @@
 use clap::Args;
 
-use kuva::plot::hexbin::{HexbinPlot, ZReduce, ColorMap};
+use kuva::plot::hexbin::{HexbinPlot, ZReduce};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{ColSpec, DataTable, InputArgs, parse_colormap};
 use crate::layout_args::{BaseArgs, AxisArgs, LogArgs, apply_base_args, apply_axis_args, apply_log_args};
 use crate::output::write_output;
 
@@ -52,9 +52,9 @@ pub struct HexbinArgs {
     #[arg(long)]
     pub stroke: Option<String>,
 
-    /// Color map: viridis (default), inferno, turbo, grayscale.
-    #[arg(long, value_enum)]
-    pub colormap: Option<CliColorMap>,
+    /// Color map (default: viridis). Run `kuva hexbin --help` for accepted names.
+    #[arg(long)]
+    pub colormap: Option<String>,
 
     /// Hide the colorbar.
     #[arg(long)]
@@ -82,15 +82,6 @@ pub enum CliZReduce {
     Max,
 }
 
-/// Color map for the hexbin color scale.
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub enum CliColorMap {
-    Viridis,
-    Inferno,
-    Turbo,
-    Grayscale,
-}
-
 fn cli_to_z_reduce(c: &CliZReduce) -> ZReduce {
     match c {
         CliZReduce::Count  => ZReduce::Count,
@@ -102,14 +93,6 @@ fn cli_to_z_reduce(c: &CliZReduce) -> ZReduce {
     }
 }
 
-fn cli_to_color_map(c: Option<&CliColorMap>) -> ColorMap {
-    match c {
-        Some(CliColorMap::Inferno)   => ColorMap::Inferno,
-        Some(CliColorMap::Turbo)     => ColorMap::Turbo,
-        Some(CliColorMap::Grayscale) => ColorMap::Grayscale,
-        _                            => ColorMap::Viridis,
-    }
-}
 
 pub fn run(args: HexbinArgs) -> Result<(), String> {
     let table = DataTable::parse(
@@ -136,7 +119,7 @@ pub fn run(args: HexbinArgs) -> Result<(), String> {
         .with_normalize(args.normalize)
         .with_flat_top(args.flat_top)
         .with_colorbar(!args.no_colorbar)
-        .with_color_map(cli_to_color_map(args.colormap.as_ref()));
+        .with_color_map(parse_colormap(args.colormap.as_deref().unwrap_or("viridis")));
 
     if let Some(ref stroke) = args.stroke {
         plot = plot.with_stroke(stroke.clone());

@@ -28,7 +28,7 @@ pub struct DotArgs {
     #[arg(long)]
     pub color_col: Option<ColSpec>,
 
-    /// Color map: viridis (default), inferno, grayscale.
+    /// Color map (default: viridis). Run `kuva dot --help` for accepted names.
     #[arg(long, default_value = "viridis")]
     pub colormap: String,
 
