@@ -23,6 +23,9 @@ pub struct StripGroup {
     /// uniform `color` for each point individually. Shorter than `values` → remaining
     /// points fall back to the group/uniform color.
     pub point_colors: Option<Vec<String>>,
+    /// Optional per-point marker shapes. Shorter than `values` → remaining points fall
+    /// back to [`MarkerShape::Circle`](crate::plot::MarkerShape).
+    pub point_shapes: Option<Vec<super::MarkerShape>>,
 }
 
 /// Builder for a strip plot (also called a dot plot or univariate scatter).
@@ -135,6 +138,7 @@ impl StripPlot {
             label: label.into(),
             values: values.into_iter().map(Into::into).collect(),
             point_colors: None,
+            point_shapes: None,
         });
         self
     }
@@ -173,6 +177,88 @@ impl StripPlot {
             label: label.into(),
             values,
             point_colors: Some(colors),
+            point_shapes: None,
+        });
+        self
+    }
+
+    /// Add a group where each point carries its own marker shape.
+    ///
+    /// `points` is any iterator of `(value, shape)` pairs. Shapes are matched to points
+    /// by position; remaining points fall back to [`MarkerShape::Circle`](crate::plot::MarkerShape).
+    ///
+    /// Use this when multiple measurement methods or categories share the same x-column
+    /// and you want to distinguish them by marker shape rather than (or in addition to) color.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::{StripPlot, MarkerShape};
+    /// let strip = StripPlot::new()
+    ///     .with_shaped_group("Sample", vec![
+    ///         (1.5, MarkerShape::Circle),
+    ///         (2.3, MarkerShape::Triangle),
+    ///         (1.8, MarkerShape::Square),
+    ///     ])
+    ///     .with_swarm();
+    /// ```
+    pub fn with_shaped_group<S, V, I>(mut self, label: S, points: I) -> Self
+    where
+        S: Into<String>,
+        I: IntoIterator<Item = (V, super::MarkerShape)>,
+        V: Into<f64>,
+    {
+        let (values, shapes): (Vec<f64>, Vec<super::MarkerShape>) = points
+            .into_iter()
+            .map(|(v, s)| (v.into(), s))
+            .unzip();
+        self.groups.push(StripGroup {
+            label: label.into(),
+            values,
+            point_colors: None,
+            point_shapes: Some(shapes),
+        });
+        self
+    }
+
+    /// Add a group where each point carries both its own color and marker shape.
+    ///
+    /// `points` is any iterator of `(value, color, shape)` triples. Color and shape are
+    /// matched to points by position; the uniform/group color and `MarkerShape::Circle`
+    /// are used as fallbacks for any point beyond the end of the list.
+    ///
+    /// This is the most expressive per-point API — use it when you have multiple
+    /// categorically distinct series packed into one column and need both color and
+    /// shape to distinguish them.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::{StripPlot, MarkerShape};
+    /// let strip = StripPlot::new()
+    ///     .with_styled_group("Sample", vec![
+    ///         (1.5, "steelblue", MarkerShape::Circle),
+    ///         (2.3, "tomato",    MarkerShape::Triangle),
+    ///         (1.8, "seagreen",  MarkerShape::Square),
+    ///     ])
+    ///     .with_swarm();
+    /// ```
+    pub fn with_styled_group<S, V, C, I>(mut self, label: S, points: I) -> Self
+    where
+        S: Into<String>,
+        I: IntoIterator<Item = (V, C, super::MarkerShape)>,
+        V: Into<f64>,
+        C: Into<String>,
+    {
+        let mut values = Vec::new();
+        let mut colors = Vec::new();
+        let mut shapes = Vec::new();
+        for (v, c, sh) in points {
+            values.push(v.into());
+            colors.push(c.into());
+            shapes.push(sh);
+        }
+        self.groups.push(StripGroup {
+            label: label.into(),
+            values,
+            point_colors: Some(colors),
+            point_shapes: Some(shapes),
         });
         self
     }

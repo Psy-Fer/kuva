@@ -324,3 +324,108 @@ fn test_strip_point_colors_with_legend() {
     assert!(svg.contains("goldenrod"), "goldenrod should appear");
     assert!(svg.contains("mediumpurple"), "mediumpurple should appear");
 }
+
+// ── Per-point marker shapes ──────────────────────────────────────────────────
+
+#[test]
+fn test_strip_shaped_group() {
+    use kuva::plot::MarkerShape;
+
+    let strip = StripPlot::new()
+        .with_shaped_group("Sample", vec![
+            (1.5, MarkerShape::Circle),
+            (2.3, MarkerShape::Triangle),
+            (1.8, MarkerShape::Square),
+            (3.1, MarkerShape::Diamond),
+            (2.7, MarkerShape::Cross),
+            (3.5, MarkerShape::Plus),
+        ])
+        .with_color("steelblue")
+        .with_swarm()
+        .with_point_size(5.0);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Strip — Per-Point Shapes")
+        .with_y_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/strip_shaped.svg", svg.clone()).unwrap();
+
+    // Shapes render as: Circle→<circle>, Square→<rect>, Triangle/Diamond→<path>,
+    // Cross/Plus→<line>.  Verify each shape type is present.
+    assert!(svg.contains("<circle"), "Circle marker should render as <circle>");
+    // Triangle + Diamond → at least 2 <path> elements from data markers
+    // (SVG also has the clip-path in <defs>, so total ≥ 3 but marker paths ≥ 2)
+    let path_count = svg.matches("<path").count();
+    assert!(path_count >= 2, "Triangle and Diamond should each produce a <path>, got {path_count}");
+    // Square → at least 1 <rect> data marker (beyond the background rect)
+    let rect_count = svg.matches("<rect").count();
+    assert!(rect_count >= 2, "Square marker should add a <rect> data element, got {rect_count}");
+    // Cross + Plus each produce 2 <line> elements
+    let line_count = svg.matches("<line").count();
+    assert!(line_count >= 4, "Cross and Plus should each produce 2 <line> elements, got {line_count}");
+}
+
+#[test]
+fn test_strip_styled_group() {
+    use kuva::plot::MarkerShape;
+
+    let strip = StripPlot::new()
+        .with_styled_group("Control", vec![
+            (1.0, "steelblue", MarkerShape::Circle),
+            (1.5, "steelblue", MarkerShape::Circle),
+            (2.0, "steelblue", MarkerShape::Circle),
+        ])
+        .with_styled_group("Treatment", vec![
+            (2.5, "tomato", MarkerShape::Triangle),
+            (3.0, "tomato", MarkerShape::Triangle),
+            (3.5, "tomato", MarkerShape::Triangle),
+        ])
+        .with_swarm()
+        .with_point_size(5.0);
+
+    let legend_entries = vec![
+        LegendEntry { label: "Control".into(),   color: "steelblue".into(), shape: LegendShape::Circle,                        dasharray: None },
+        LegendEntry { label: "Treatment".into(), color: "tomato".into(),    shape: LegendShape::Marker(MarkerShape::Triangle), dasharray: None },
+    ];
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Strip — Per-Point Color + Shape")
+        .with_y_label("Value")
+        .with_legend_entries(legend_entries);
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/strip_styled.svg", svg.clone()).unwrap();
+
+    // Circles (control) and triangles (treatment) both present.
+    assert!(svg.contains("<circle"), "circle markers for Control should be present");
+    assert!(svg.contains("<path"),   "triangle/path markers for Treatment should be present");
+    assert!(svg.contains("Control"),   "legend entry 'Control' should appear");
+    assert!(svg.contains("Treatment"), "legend entry 'Treatment' should appear");
+}
+
+#[test]
+fn test_strip_shaped_fallback_to_circle() {
+    use kuva::plot::MarkerShape;
+
+    // With an empty point_shapes list, all points should fall back to circles.
+    let strip = StripPlot::new()
+        .with_shaped_group("A", vec![
+            (1.0, MarkerShape::Circle),
+            (2.0, MarkerShape::Circle),
+        ])
+        .with_color("seagreen");
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots);
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/strip_shaped_fallback.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<circle"), "all-circle shapes should render as <circle>");
+    // No <path> data markers expected (only axis/clip paths, not marker paths).
+    let circle_count = svg.matches("<circle").count();
+    assert_eq!(circle_count, 2, "expected exactly 2 circle markers, got {circle_count}");
+}

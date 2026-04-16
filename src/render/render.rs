@@ -1191,6 +1191,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 style,
                 &boxplot.overlay_color,
                 None,
+                None, // no per-point shapes for box overlay
                 boxplot.overlay_size,
                 boxplot.overlay_seed.wrapping_add(i as u64),
                 None,
@@ -1270,6 +1271,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
                 style,
                 &violin.overlay_color,
                 None,
+                None, // no per-point shapes for violin overlay
                 violin.overlay_size,
                 violin.overlay_seed.wrapping_add(i as u64),
                 None,
@@ -1919,6 +1921,7 @@ fn add_strip_points(
     style: &StripStyle,
     color: &str,
     point_colors: Option<&[String]>,
+    point_shapes: Option<&[MarkerShape]>,
     point_size: f64,
     seed: u64,
     fill_opacity: Option<f64>,
@@ -1936,16 +1939,17 @@ fn add_strip_points(
             .and_then(|c| c.get(j).map(|s| s.as_str()))
             .unwrap_or(color)
     };
-    let make_circle = |j: usize, cx: f64, cy: f64| -> Primitive {
+    // Resolve the marker shape for point index `j`, falling back to Circle.
+    let resolve_shape = |j: usize| -> MarkerShape {
+        point_shapes
+            .and_then(|s| s.get(j).copied())
+            .unwrap_or(MarkerShape::Circle)
+    };
+    let draw_point = |j: usize, cx: f64, cy: f64, scene: &mut Scene| {
         let fill_color = resolve_color(j);
-        let stroke = stroke_width.map(|_| Color::from(fill_color));
-        Primitive::Circle {
-            cx, cy, r: point_size,
-            fill: fill_color.into(),
-            fill_opacity,
-            stroke,
-            stroke_width,
-        }
+        let stroke_col = stroke_width.map(|_| Color::from(fill_color));
+        draw_marker(scene, resolve_shape(j), cx, cy, point_size, fill_color,
+                    fill_opacity, stroke_col, stroke_width);
     };
     let tooltip_labels_opt: Option<Vec<String>> = tooltip_labels.map(|s| s.to_vec());
     let strip_extra = |v: f64| -> Option<String> {
@@ -1965,7 +1969,7 @@ fn add_strip_points(
                 if tip.is_some() || extra.is_some() {
                     scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
                 }
-                scene.add(make_circle(j, cx, computed.map_y(v)));
+                draw_point(j, cx, computed.map_y(v), scene);
                 if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
@@ -1987,7 +1991,7 @@ fn add_strip_points(
                 if tip.is_some() || extra.is_some() {
                     scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
                 }
-                scene.add(make_circle(j, cx, computed.map_y(v)));
+                draw_point(j, cx, computed.map_y(v), scene);
                 if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
@@ -2003,7 +2007,7 @@ fn add_strip_points(
                 if tip.is_some() || extra.is_some() {
                     scene.add(Primitive::GroupStart { transform: None, title: tip.clone(), extra_attrs: extra });
                 }
-                scene.add(make_circle(j, cx, computed.map_y(v)));
+                draw_point(j, cx, computed.map_y(v), scene);
                 if tip.is_some() || computed.interactive { scene.add(Primitive::GroupEnd); }
             }
         }
@@ -2022,6 +2026,7 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             &strip.style,
             color,
             group.point_colors.as_deref(),
+            group.point_shapes.as_deref(),
             strip.point_size,
             strip.seed.wrapping_add(i as u64),
             strip.marker_opacity,
@@ -4549,6 +4554,7 @@ fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayou
                 &style,
                 color,
                 None,
+                None, // no per-point shapes for raincloud rain
                 rp.rain_size,
                 rp.seed.wrapping_add(i as u64 * 1000),
                 Some(rp.rain_alpha),
@@ -5369,14 +5375,14 @@ fn add_stats_box(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) 
     let plot_bottom = computed.height - computed.margin_bottom;
     let plot_cx     = (plot_left + plot_right) / 2.0;
     let right_x     = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
-    let left_x      = plot_left - box_width;
+    let left_x      = padding; // anchor at left canvas edge within reserved OutsideLeft margin
     let inset       = computed.legend_inset;
 
     let (box_x, box_y) = match computed.stats_position {
-        LegendPosition::InsideTopRight     => (plot_right - inset - box_width + 5.0, plot_top + inset + padding),
-        LegendPosition::InsideTopLeft      => (plot_left  + inset + 5.0,             plot_top + inset + padding),
-        LegendPosition::InsideBottomRight  => (plot_right - inset - box_width + 5.0, plot_bottom - inset - box_height + padding),
-        LegendPosition::InsideBottomLeft   => (plot_left  + inset + 5.0,             plot_bottom - inset - box_height + padding),
+        LegendPosition::InsideTopRight     => (plot_right - inset - box_width + 5.0,                      plot_top + inset + padding),
+        LegendPosition::InsideTopLeft      => (plot_left  + inset + computed.tick_label_margin + 5.0,    plot_top + inset + padding),
+        LegendPosition::InsideBottomRight  => (plot_right - inset - box_width + 5.0,                      plot_bottom - inset - box_height + padding),
+        LegendPosition::InsideBottomLeft   => (plot_left  + inset + computed.tick_label_margin + 5.0,    plot_bottom - inset - box_height + padding),
         LegendPosition::InsideTopCenter    => (plot_cx - box_width / 2.0 + 5.0,      plot_top + inset + padding),
         LegendPosition::InsideBottomCenter => (plot_cx - box_width / 2.0 + 5.0,      plot_bottom - inset - box_height + padding),
         LegendPosition::OutsideRightTop    => (right_x, plot_top),
@@ -5551,9 +5557,11 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
     let plot_bottom = computed.height - computed.margin_bottom;
     let plot_cx     = (plot_left + plot_right) / 2.0;
     let right_x     = computed.width - computed.margin_right + computed.y2_axis_width + 10.0;
-    // Right-align the left legend flush with the Y axis (same ~5px gap as OutsideRight).
-    // Box right edge = left_x - legend_padding + legend_width = plot_left - 5.
-    let left_x      = plot_left - legend_width;
+    // OutsideLeft: anchor near the canvas left edge within the reserved margin.
+    // margin_left was grown by effective_legend_width, so the y-axis content starts
+    // at plot_left. The legend sits in [0, effective_legend_width]; legend_padding inset
+    // from the canvas edge keeps it from touching the border.
+    let left_x      = legend_padding;
     let inset       = computed.legend_inset;
 
     let (legend_x, legend_y) = match computed.legend_position {
@@ -5565,10 +5573,13 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
         //   legend_y = plot_edge - inset - legend_height + legend_padding  (bottom-aligned)
         //   legend_x = plot_edge + inset + 5  (left-aligned)
         //   legend_x = plot_edge - inset - legend_width + 5  (right-aligned)
-        LegendPosition::InsideTopRight     => (plot_right - inset - legend_width + 5.0, plot_top + inset + legend_padding),
-        LegendPosition::InsideTopLeft      => (plot_left  + inset + 5.0,                plot_top + inset + legend_padding),
-        LegendPosition::InsideBottomRight  => (plot_right - inset - legend_width + 5.0, plot_bottom - inset - legend_height + legend_padding),
-        LegendPosition::InsideBottomLeft   => (plot_left  + inset + 5.0,                plot_bottom - inset - legend_height + legend_padding),
+        //
+        // For left-anchored variants, add tick_label_margin so the legend clears the y-axis
+        // tick labels even when the 0.6-ratio heuristic underestimates their rendered width.
+        LegendPosition::InsideTopRight     => (plot_right - inset - legend_width + 5.0,                       plot_top + inset + legend_padding),
+        LegendPosition::InsideTopLeft      => (plot_left  + inset + computed.tick_label_margin + 5.0,         plot_top + inset + legend_padding),
+        LegendPosition::InsideBottomRight  => (plot_right - inset - legend_width + 5.0,                       plot_bottom - inset - legend_height + legend_padding),
+        LegendPosition::InsideBottomLeft   => (plot_left  + inset + computed.tick_label_margin + 5.0,         plot_bottom - inset - legend_height + legend_padding),
         LegendPosition::InsideTopCenter    => (plot_cx - legend_width / 2.0 + 5.0,      plot_top + inset + legend_padding),
         LegendPosition::InsideBottomCenter => (plot_cx - legend_width / 2.0 + 5.0,      plot_bottom - inset - legend_height + legend_padding),
         // Outside Right
