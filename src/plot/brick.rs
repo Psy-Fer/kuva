@@ -567,10 +567,31 @@ impl BrickPlot {
             Some(p) => p.iter().map(|s| s.as_str()).collect(),
             None    => DEFAULT_COLORS.to_vec(),
         };
+        // Single-base motifs use the same DNA colors as the flanking-base renderer
+        // so that A/T/C/G bricks are visually consistent with flanking sequence bricks.
+        // Multi-base motifs consume palette slots in order, skipping single-base motifs.
+        let dna_brick_color = |canon: &str| -> Option<&'static str> {
+            if canon.len() != 1 { return None; }
+            match canon {
+                "A" | "a" => Some("rgb(0,150,0)"),
+                "C" | "c" => Some("rgb(0,0,255)"),
+                "G" | "g" => Some("rgb(209,113,5)"),
+                "T" | "t" => Some("rgb(255,0,0)"),
+                _ => None,
+            }
+        };
         let mut auto_template: HashMap<char, String> = HashMap::new();
-        for (idx, (canon, _)) in sorted_canonicals.iter().enumerate() {
+        let mut palette_idx = 0usize;
+        for (canon, _) in sorted_canonicals.iter() {
             let global_letter = canonical_to_global[canon];
-            auto_template.insert(global_letter, palette[idx % palette.len()].to_string());
+            let color = if let Some(dna) = dna_brick_color(canon) {
+                dna.to_string()
+            } else {
+                let c = palette[palette_idx % palette.len()].to_string();
+                palette_idx += 1;
+                c
+            };
+            auto_template.insert(global_letter, color);
         }
         // Gaps render as light grey
         if has_gaps {
