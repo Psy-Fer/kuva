@@ -1,6 +1,6 @@
 use kuva::plot::{ScatterPlot, LinePlot, LegendEntry, LegendShape};
 use kuva::backend::svg::SvgBackend;
-use kuva::render::figure::Figure;
+use kuva::render::figure::{Figure, FigureLegendPosition};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 
@@ -729,4 +729,186 @@ fn figure_twin_y_with_layout() {
 
     assert!(svg.contains("Twin-Y in Figure"), "title should appear");
     assert!(svg.contains("Time"), "x label should appear");
+}
+
+// ── FigureLegendPosition presets ────────────────────────────────────────────
+//
+// 1×2 figure, cells 500×380, padding=10, spacing=15:
+//   grid_width  = 2·500 + 15 + 2·10 = 1035
+//   grid_height = 380 + 2·10        = 400
+//
+// Legend entries "Alpha"/"Beta" (5 chars max):
+//   legend_width  = (5·7+35).max(80) = 80
+//   legend_height = 2·18+20          = 56
+//   legend_spacing = 20
+//
+// Right / Left → total 1135 × 400
+// Top  / Bottom → total 1035 × 476
+
+fn legend_plots() -> Vec<Vec<Plot>> {
+    vec![
+        scatter_with_legend("steelblue", "Alpha"),
+        scatter_with_legend("crimson",   "Beta"),
+    ]
+}
+
+fn render_legend_pos(pos: FigureLegendPosition, name: &str) -> String {
+    std::fs::create_dir_all("test_outputs").unwrap();
+    let scene = Figure::new(1, 2)
+        .with_plots(legend_plots())
+        .with_shared_legend_position(pos)
+        .render();
+    let svg = SvgBackend.render_scene(&scene);
+    std::fs::write(format!("test_outputs/{name}.svg"), &svg).unwrap();
+    svg
+}
+
+// ── Right side ───────────────────────────────────────────────────────────────
+
+#[test]
+fn figure_legend_right_top() {
+    let svg = render_legend_pos(FigureLegendPosition::RightTop, "figure_legend_right_top");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"), "legend entries missing");
+    assert_eq!(svg_dim(&svg, "width"),  1135.0, "right legend expands width");
+    assert_eq!(svg_dim(&svg, "height"),  400.0, "right legend does not expand height");
+}
+
+#[test]
+fn figure_legend_right_middle() {
+    let svg = render_legend_pos(FigureLegendPosition::RightMiddle, "figure_legend_right_middle");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1135.0);
+    assert_eq!(svg_dim(&svg, "height"),  400.0);
+}
+
+#[test]
+fn figure_legend_right_bottom() {
+    let svg = render_legend_pos(FigureLegendPosition::RightBottom, "figure_legend_right_bottom");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1135.0);
+    assert_eq!(svg_dim(&svg, "height"),  400.0);
+}
+
+// ── Left side ────────────────────────────────────────────────────────────────
+
+#[test]
+fn figure_legend_left_top() {
+    let svg = render_legend_pos(FigureLegendPosition::LeftTop, "figure_legend_left_top");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"), "legend entries missing");
+    assert_eq!(svg_dim(&svg, "width"),  1135.0, "left legend expands width");
+    assert_eq!(svg_dim(&svg, "height"),  400.0, "left legend does not expand height");
+}
+
+#[test]
+fn figure_legend_left_middle() {
+    let svg = render_legend_pos(FigureLegendPosition::LeftMiddle, "figure_legend_left_middle");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1135.0);
+    assert_eq!(svg_dim(&svg, "height"),  400.0);
+}
+
+#[test]
+fn figure_legend_left_bottom() {
+    let svg = render_legend_pos(FigureLegendPosition::LeftBottom, "figure_legend_left_bottom");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1135.0);
+    assert_eq!(svg_dim(&svg, "height"),  400.0);
+}
+
+// ── Top edge ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn figure_legend_top_left() {
+    let svg = render_legend_pos(FigureLegendPosition::TopLeft, "figure_legend_top_left");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"), "legend entries missing");
+    assert_eq!(svg_dim(&svg, "width"),  1035.0, "top legend does not expand width");
+    assert_eq!(svg_dim(&svg, "height"),  476.0, "top legend expands height");
+}
+
+#[test]
+fn figure_legend_top_center() {
+    let svg = render_legend_pos(FigureLegendPosition::TopCenter, "figure_legend_top_center");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1035.0);
+    assert_eq!(svg_dim(&svg, "height"),  476.0);
+}
+
+#[test]
+fn figure_legend_top_right() {
+    let svg = render_legend_pos(FigureLegendPosition::TopRight, "figure_legend_top_right");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1035.0);
+    assert_eq!(svg_dim(&svg, "height"),  476.0);
+}
+
+// ── Bottom edge ───────────────────────────────────────────────────────────────
+
+#[test]
+fn figure_legend_bottom_left() {
+    let svg = render_legend_pos(FigureLegendPosition::BottomLeft, "figure_legend_bottom_left");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"), "legend entries missing");
+    assert_eq!(svg_dim(&svg, "width"),  1035.0, "bottom legend does not expand width");
+    assert_eq!(svg_dim(&svg, "height"),  476.0, "bottom legend expands height");
+}
+
+#[test]
+fn figure_legend_bottom_center() {
+    let svg = render_legend_pos(FigureLegendPosition::BottomCenter, "figure_legend_bottom_center");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1035.0);
+    assert_eq!(svg_dim(&svg, "height"),  476.0);
+}
+
+#[test]
+fn figure_legend_bottom_right() {
+    let svg = render_legend_pos(FigureLegendPosition::BottomRight, "figure_legend_bottom_right");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1035.0);
+    assert_eq!(svg_dim(&svg, "height"),  476.0);
+}
+
+// ── Backward-compat aliases still work ───────────────────────────────────────
+
+#[test]
+fn figure_legend_right_compat() {
+    // `Right` is a backward-compat alias for `RightMiddle` — same dimensions and entries.
+    let svg = render_legend_pos(FigureLegendPosition::Right, "figure_legend_right_compat");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1135.0);
+    assert_eq!(svg_dim(&svg, "height"),  400.0);
+}
+
+#[test]
+fn figure_legend_bottom_compat() {
+    // `Bottom` is a backward-compat alias for `BottomCenter` — same dimensions and entries.
+    let svg = render_legend_pos(FigureLegendPosition::Bottom, "figure_legend_bottom_compat");
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(svg_dim(&svg, "width"),  1035.0);
+    assert_eq!(svg_dim(&svg, "height"),  476.0);
+}
+
+// ── Left/Top offsets actually shift the grid ─────────────────────────────────
+//
+// For Left positions the grid cells must be offset rightward by
+// (legend_width + legend_spacing) = 100 px.  A cell that would normally start
+// at x = padding = 10 should now start at x = 110.  We verify this by
+// checking that the `translate(110,…)` group appears in the SVG.
+//
+// For Top positions the grid cells must be offset downward by
+// (legend_height + legend_spacing) = 76 px.  Cell y normally starts at
+// y = padding = 10, so with top legend it should be y = 86.
+// We verify `translate(…,86)` appears.
+
+#[test]
+fn figure_legend_left_grid_offset() {
+    let svg = render_legend_pos(FigureLegendPosition::LeftMiddle, "figure_legend_left_offset_check");
+    // Cell 0 translate: x = cell_x_offset(100) + padding(10) + col(0)*(500+15) = 110
+    assert!(svg.contains("translate(110,"), "left legend should shift grid cells right by 100px");
+}
+
+#[test]
+fn figure_legend_top_grid_offset() {
+    let svg = render_legend_pos(FigureLegendPosition::TopCenter, "figure_legend_top_offset_check");
+    // Cell 0 translate: x=10, y = cell_y_offset(76) + padding(10) + figure_title(0) = 86
+    assert!(svg.contains(",86)"), "top legend should shift grid cells down by 76px");
 }

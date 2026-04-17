@@ -5,8 +5,26 @@ use crate::plot::legend::{LegendEntry, LegendGroup};
 
 #[derive(Debug, Clone)]
 pub enum FigureLegendPosition {
+    // Right side (3 vertical alignments)
+    /// Right side, vertically centred (kept for backward compatibility).
     Right,
+    RightTop,
+    RightMiddle,
+    RightBottom,
+    // Left side
+    LeftTop,
+    LeftMiddle,
+    LeftBottom,
+    // Top edge
+    TopLeft,
+    TopCenter,
+    TopRight,
+    // Bottom edge
+    /// Bottom edge, horizontally centred (kept for backward compatibility).
     Bottom,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
     /// Arbitrary pixel position within the figure canvas.
     Custom(f64, f64),
 }
@@ -258,6 +276,66 @@ impl Figure {
         self
     }
 
+    pub fn with_shared_legend_right_top(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::RightTop);
+        self
+    }
+
+    pub fn with_shared_legend_right_middle(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::RightMiddle);
+        self
+    }
+
+    pub fn with_shared_legend_right_bottom(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::RightBottom);
+        self
+    }
+
+    pub fn with_shared_legend_left_top(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::LeftTop);
+        self
+    }
+
+    pub fn with_shared_legend_left_middle(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::LeftMiddle);
+        self
+    }
+
+    pub fn with_shared_legend_left_bottom(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::LeftBottom);
+        self
+    }
+
+    pub fn with_shared_legend_top_left(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::TopLeft);
+        self
+    }
+
+    pub fn with_shared_legend_top_center(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::TopCenter);
+        self
+    }
+
+    pub fn with_shared_legend_top_right(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::TopRight);
+        self
+    }
+
+    pub fn with_shared_legend_bottom_left(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::BottomLeft);
+        self
+    }
+
+    pub fn with_shared_legend_bottom_center(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::BottomCenter);
+        self
+    }
+
+    pub fn with_shared_legend_bottom_right(mut self) -> Self {
+        self.shared_legend = Some(FigureLegendPosition::BottomRight);
+        self
+    }
+
     /// Provide manual legend entries instead of auto-collecting.
     pub fn with_shared_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
         self.shared_legend_entries = Some(entries);
@@ -347,24 +425,25 @@ impl Figure {
             (0.0, 0.0)
         };
 
+        // Helpers: which side does the legend land on?
+        let has_entries = legend_entries.as_ref().is_some_and(|e| !e.is_empty());
+        let legend_on_right = has_entries && matches!(shared_legend.as_ref(),
+            Some(FigureLegendPosition::Right | FigureLegendPosition::RightTop
+               | FigureLegendPosition::RightMiddle | FigureLegendPosition::RightBottom));
+        let legend_on_left  = has_entries && matches!(shared_legend.as_ref(),
+            Some(FigureLegendPosition::LeftTop | FigureLegendPosition::LeftMiddle
+               | FigureLegendPosition::LeftBottom));
+        let legend_on_top    = has_entries && matches!(shared_legend.as_ref(),
+            Some(FigureLegendPosition::TopLeft | FigureLegendPosition::TopCenter
+               | FigureLegendPosition::TopRight));
+        let legend_on_bottom = has_entries && matches!(shared_legend.as_ref(),
+            Some(FigureLegendPosition::Bottom | FigureLegendPosition::BottomLeft
+               | FigureLegendPosition::BottomCenter | FigureLegendPosition::BottomRight));
+
         // If total figure size is specified, back-compute cell dimensions to fit.
         if let (Some(fw), Some(fh)) = (figure_width, figure_height) {
-            let legend_w_used = match shared_legend.as_ref() {
-                Some(FigureLegendPosition::Right)
-                    if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) =>
-                {
-                    legend_width + legend_spacing
-                }
-                _ => 0.0,
-            };
-            let legend_h_used = match shared_legend.as_ref() {
-                Some(FigureLegendPosition::Bottom)
-                    if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) =>
-                {
-                    legend_height + legend_spacing
-                }
-                _ => 0.0,
-            };
+            let legend_w_used = if legend_on_right || legend_on_left { legend_width + legend_spacing } else { 0.0 };
+            let legend_h_used = if legend_on_top || legend_on_bottom { legend_height + legend_spacing } else { 0.0 };
             let title_h = if title.is_some() { 30.0 } else { 0.0 };
             cell_width = ((fw - legend_w_used - 2.0 * padding - (cols as f64 - 1.0) * spacing)
                 / cols as f64)
@@ -453,15 +532,15 @@ impl Figure {
             + 2.0 * padding
             + figure_title_height;
 
-        let (total_width, total_height) = match shared_legend.as_ref() {
-            Some(FigureLegendPosition::Right) if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) => {
-                (grid_width + legend_width + legend_spacing, grid_height)
-            }
-            Some(FigureLegendPosition::Bottom) if legend_entries.as_ref().is_some_and(|e| !e.is_empty()) => {
-                (grid_width, grid_height + legend_height + legend_spacing)
-            }
-            _ => (grid_width, grid_height),
-        };
+        // When the legend is on the left or top, shift all grid cells so the
+        // legend occupies the vacated margin.
+        let cell_x_offset = if legend_on_left  { legend_width + legend_spacing } else { 0.0 };
+        let cell_y_offset = if legend_on_top   { legend_height + legend_spacing } else { 0.0 };
+
+        let total_width = grid_width
+            + if legend_on_right || legend_on_left { legend_width + legend_spacing } else { 0.0 };
+        let total_height = grid_height
+            + if legend_on_top || legend_on_bottom { legend_height + legend_spacing } else { 0.0 };
 
         let mut master = Scene::new(total_width, total_height);
         // Inherit font_family and theme from first user layout if set
@@ -482,8 +561,8 @@ impl Figure {
             let col_span = rect.3 - rect.1 + 1;
             let row_span = rect.2 - rect.0 + 1;
 
-            let cell_x = padding + rect.1 as f64 * (cell_width + spacing);
-            let cell_y = padding + figure_title_height + row_y_starts[rect.0];
+            let cell_x = cell_x_offset + padding + rect.1 as f64 * (cell_width + spacing);
+            let cell_y = cell_y_offset + padding + figure_title_height + row_y_starts[rect.0];
             let cell_w = col_span as f64 * cell_width + (col_span as f64 - 1.0) * spacing;
             // Multi-row spans: sum all spanned row heights + inter-row spacings.
             let cell_h = (rect.0..rect.0 + row_span)
@@ -553,16 +632,65 @@ impl Figure {
         // Render shared legend
         if let (Some(ref pos), Some(ref entries)) = (&shared_legend, &legend_entries) {
             if !entries.is_empty() {
+                // Pixel extents of just the grid content (cells + padding, no legend margin).
+                let inner_right  = cell_x_offset + grid_width;
+                let inner_bottom = cell_y_offset + grid_height;
+                // Vertical centre of the grid content area (below the figure title).
+                let grid_mid_y = cell_y_offset + figure_title_height + padding
+                    + (grid_height - figure_title_height - 2.0 * padding) / 2.0;
+
                 let (lx, ly) = match pos {
-                    FigureLegendPosition::Right => {
-                        let lx = grid_width + legend_spacing / 2.0;
-                        let ly = figure_title_height + padding + (grid_height - figure_title_height) / 2.0 - legend_height / 2.0;
-                        (lx, ly)
+                    // ── Right side ──────────────────────────────────────────────
+                    FigureLegendPosition::Right | FigureLegendPosition::RightMiddle => {
+                        (inner_right + legend_spacing / 2.0,
+                         grid_mid_y - legend_height / 2.0)
                     }
-                    FigureLegendPosition::Bottom => {
-                        let lx = grid_width / 2.0 - legend_width / 2.0;
-                        let ly = grid_height + legend_spacing / 2.0;
-                        (lx, ly)
+                    FigureLegendPosition::RightTop => {
+                        (inner_right + legend_spacing / 2.0,
+                         cell_y_offset + figure_title_height + padding)
+                    }
+                    FigureLegendPosition::RightBottom => {
+                        (inner_right + legend_spacing / 2.0,
+                         inner_bottom - padding - legend_height)
+                    }
+                    // ── Left side ────────────────────────────────────────────────
+                    FigureLegendPosition::LeftMiddle => {
+                        (legend_spacing / 2.0,
+                         grid_mid_y - legend_height / 2.0)
+                    }
+                    FigureLegendPosition::LeftTop => {
+                        (legend_spacing / 2.0,
+                         cell_y_offset + figure_title_height + padding)
+                    }
+                    FigureLegendPosition::LeftBottom => {
+                        (legend_spacing / 2.0,
+                         inner_bottom - padding - legend_height)
+                    }
+                    // ── Top edge ─────────────────────────────────────────────────
+                    FigureLegendPosition::TopLeft => {
+                        (cell_x_offset + padding,
+                         figure_title_height + legend_spacing / 2.0)
+                    }
+                    FigureLegendPosition::TopCenter => {
+                        (cell_x_offset + grid_width / 2.0 - legend_width / 2.0,
+                         figure_title_height + legend_spacing / 2.0)
+                    }
+                    FigureLegendPosition::TopRight => {
+                        (cell_x_offset + grid_width - padding - legend_width,
+                         figure_title_height + legend_spacing / 2.0)
+                    }
+                    // ── Bottom edge ───────────────────────────────────────────────
+                    FigureLegendPosition::Bottom | FigureLegendPosition::BottomCenter => {
+                        (cell_x_offset + grid_width / 2.0 - legend_width / 2.0,
+                         inner_bottom + legend_spacing / 2.0)
+                    }
+                    FigureLegendPosition::BottomLeft => {
+                        (cell_x_offset + padding,
+                         inner_bottom + legend_spacing / 2.0)
+                    }
+                    FigureLegendPosition::BottomRight => {
+                        (cell_x_offset + grid_width - padding - legend_width,
+                         inner_bottom + legend_spacing / 2.0)
                     }
                     FigureLegendPosition::Custom(x, y) => (*x, *y),
                 };
