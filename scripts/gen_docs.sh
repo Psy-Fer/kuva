@@ -11,54 +11,64 @@ EXAMPLES=(
     figure
     boxplot
     brick
+    bump
+    calendar
     candlestick
     chord
     clustermap
     contour
     density
     diceplot
+    ecdf
     forest
-    ridgeline
-    dotplot
-    heatmap
+    funnel
+    gantt
+    hexbin
     histogram
     histogram2d
+    horizon
+    jointplot
     layout
     legends
     line
     lollipop
     manhattan
+    mosaic
     network
+    parallel
     phylo
     pie
+    polar
+    pr
+    pyramid
+    qq
+    radar
+    raincloud
+    ridgeline
+    roc
+    rose
     sankey
     scale
     scatter
+    scatter3d
     series
+    slope
     stacked_area
+    streamgraph
     strip
+    sunburst
+    surface3d
     survival
     synteny
+    ternary
+    treemap
+    twin_y
     upset
+    venn
     violin
     volcano
-    waterfall
-    polar
-    raincloud
-    ternary
-    scatter3d
-    surface3d
-    roc
-    pr
-    slope
-    venn
-    twin_y
-    radar
-    horizon
     waffle
-    pyramid
-    mosaic
-    parallel
+    waterfall
     all_plots_simple
     all_plots_complex
 )
