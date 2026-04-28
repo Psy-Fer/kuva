@@ -8,6 +8,45 @@ fn render(bp: BumpPlot, title: &str) -> String {
     SvgBackend.render_scene(&render_multiple(plots, layout))
 }
 
+// ── SVG geometry helpers ──────────────────────────────────────────────────────
+
+/// Extract the (x, width) of the first <clipPath> rect from the SVG defs.
+fn clip_rect(svg: &str) -> Option<(f64, f64)> {
+    let start = svg.find("<clipPath")?;
+    let after = &svg[start..];
+    let rx = after.find("x=\"")? + 3;
+    let rx_end = after[rx..].find('"')? + rx;
+    let x: f64 = after[rx..rx_end].parse().ok()?;
+    let rw = after.find("width=\"")? + 7;
+    let rw_end = after[rw..].find('"')? + rw;
+    let w: f64 = after[rw..rw_end].parse().ok()?;
+    Some((x, w))
+}
+
+/// Parse all `x` attribute values from `<text` elements whose text content
+/// matches `name`.  Returns pixel x coordinates (right edge for End-anchored text).
+fn label_x_positions(svg: &str, name: &str) -> Vec<f64> {
+    let mut xs = Vec::new();
+    let mut rest = svg;
+    while let Some(pos) = rest.find("<text ") {
+        let elem_start = pos;
+        let end = rest[pos..].find("</text>").map(|e| pos + e + 7).unwrap_or(rest.len());
+        let elem = &rest[elem_start..end];
+        if elem.contains(name) {
+            if let Some(xp) = elem.find("x=\"") {
+                let xp = xp + 3;
+                if let Some(xe) = elem[xp..].find('"') {
+                    if let Ok(v) = elem[xp..xp + xe].parse::<f64>() {
+                        xs.push(v);
+                    }
+                }
+            }
+        }
+        rest = &rest[elem_start + 1..];
+    }
+    xs
+}
+
 fn simple_bump() -> BumpPlot {
     BumpPlot::new()
         .with_series("Alpha", vec![1, 3, 2, 1])
@@ -253,4 +292,107 @@ fn test_bump_mixed_ranked_and_raw() {
     let svg = render(bp, "Bump Mixed");
     std::fs::write("test_outputs/bump_mixed.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "mixed series should produce valid SVG");
+}
+
+// ── Label clipping tests ──────────────────────────────────────────────────────
+
+/// With show_series_labels and auto sizing (no explicit width), left-side labels
+/// should have their right edge (the x coord for TextAnchor::End text) inside the
+/// clip rect, and far enough from the left edge that the full label fits.
+#[test]
+fn test_bump_long_labels_fit_auto() {
+    let bp = BumpPlot::new()
+        .with_series("Extremely Long Label", vec![1, 2, 3])
+        .with_series("Another Very Long Name", vec![2, 1, 2])
+        .with_series("Yet Another Long One", vec![3, 3, 1])
+        .with_x_labels(["T1", "T2", "T3"])
+        .with_show_series_labels(true)
+        .with_legend(false);
+    let plots = vec![Plot::Bump(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Long Labels Auto");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/bump_long_labels_auto.svg", &svg).unwrap();
+
+    let (clip_x, clip_w) = clip_rect(&svg).expect("should have clip rect");
+
+    // Check every label — their x (right edge) and estimated left edge (x - ~7px/char)
+    for name in &["Extremely Long Label", "Another Very Long Name", "Yet Another Long One"] {
+        let xs = label_x_positions(&svg, name);
+        assert!(!xs.is_empty(), "label '{name}' should appear in SVG");
+        for x in xs {
+            let estimated_left = x - name.len() as f64 * 7.0;
+            assert!(
+                estimated_left >= clip_x - 2.0, // 2px tolerance for rounding
+                "label '{name}' left edge ({estimated_left:.1}) should be inside clip_x ({clip_x:.1})"
+            );
+            assert!(
+                x <= clip_x + clip_w + 2.0,
+                "label '{name}' right edge ({x:.1}) should be within clip right ({:.1})", clip_x + clip_w
+            );
+        }
+    }
+}
+
+/// Same check with a legend enabled alongside the labels.
+#[test]
+fn test_bump_long_labels_with_legend_fit_auto() {
+    let bp = BumpPlot::new()
+        .with_series("SuperLongSeriesNameHere", vec![1, 3, 2, 1])
+        .with_series("AnotherSuperLongName", vec![2, 1, 1, 2])
+        .with_series("ShortName", vec![3, 2, 3, 3])
+        .with_x_labels(["2021", "2022", "2023", "2024"])
+        .with_show_series_labels(true)
+        .with_legend(true);
+    let plots = vec![Plot::Bump(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Long Labels + Legend");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/bump_long_labels_legend.svg", &svg).unwrap();
+
+    let (clip_x, _clip_w) = clip_rect(&svg).expect("should have clip rect");
+    for name in &["SuperLongSeriesNameHere", "AnotherSuperLongName"] {
+        let xs = label_x_positions(&svg, name);
+        assert!(!xs.is_empty(), "label '{name}' should appear");
+        for x in xs {
+            let estimated_left = x - name.len() as f64 * 7.0;
+            assert!(
+                estimated_left >= clip_x - 2.0,
+                "label '{name}' left edge ({estimated_left:.1}) clipped by clip_x ({clip_x:.1})"
+            );
+        }
+    }
+}
+
+/// Right-side labels (last time point) should have their left edge (the x coord
+/// for TextAnchor::Start text) inside the clip rect.
+#[test]
+fn test_bump_right_labels_fit_auto() {
+    let bp = BumpPlot::new()
+        .with_series("SomeVeryLongEndLabel", vec![1, 2, 1])
+        .with_series("AnotherLongEndLabel", vec![2, 1, 2])
+        .with_x_labels(["Alpha", "Beta", "Gamma"])
+        .with_show_series_labels(true)
+        .with_legend(false);
+    let plots = vec![Plot::Bump(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Right Labels Auto");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/bump_right_labels_auto.svg", &svg).unwrap();
+
+    let (clip_x, clip_w) = clip_rect(&svg).expect("should have clip rect");
+    let clip_right = clip_x + clip_w;
+
+    for name in &["SomeVeryLongEndLabel", "AnotherLongEndLabel"] {
+        let xs = label_x_positions(&svg, name);
+        assert!(!xs.is_empty(), "label '{name}' should appear");
+        for x in xs {
+            let estimated_right = x + name.len() as f64 * 7.0;
+            assert!(
+                estimated_right <= clip_right + 2.0,
+                "label '{name}' right edge ({estimated_right:.1}) should be within clip_right ({clip_right:.1})"
+            );
+            assert!(
+                x >= clip_x - 2.0,
+                "label '{name}' x ({x:.1}) should be within clip zone"
+            );
+        }
+    }
 }

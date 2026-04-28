@@ -33,9 +33,7 @@ fn main() {
     let layout = Layout::auto_from_plots(&plots)
         .with_title("Programming Language Rankings")
         .with_x_label("Year")
-        .with_y_label("Rank")
-        .with_width(600.0)
-        .with_height(380.0);
+        .with_y_label("Rank");
     write("basic", plots, layout);
 
     // Raw values (auto-ranked)

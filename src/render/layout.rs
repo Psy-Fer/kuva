@@ -394,6 +394,8 @@ impl Layout {
         let mut pyramid_normalize: Option<bool> = None;
         let mut horizon_right_annot_px: f64 = 0.0;
         let mut gantt_right_annot_px: f64 = 0.0;
+        let mut bump_series_label_px: f64 = 0.0;
+        let mut bump_n_time: usize = 0;
 
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
@@ -799,6 +801,13 @@ impl Layout {
                         max_label_len = max_label_len.max(s.name.len());
                     }
                 }
+                if bp.show_series_labels {
+                    let series = bp.resolved_series();
+                    let max_chars = series.iter().map(|s| s.name.len()).max().unwrap_or(0);
+                    let label_px = max_chars as f64 * 7.0 + bp.dot_radius + 10.0;
+                    bump_series_label_px = bump_series_label_px.max(label_px);
+                    bump_n_time = bump_n_time.max(n_time);
+                }
             }
 
             if let Plot::Polar(pp) = plot {
@@ -981,6 +990,27 @@ impl Layout {
                         max_label_len = max_label_len.max(label.len());
                     }
                 }
+            }
+        }
+
+        // Extend x bounds for BumpPlot endpoint series labels so they render inside
+        // the clip zone.  Uses the default auto plot_width (600 px from from_layout)
+        // to compute the needed data-unit padding p on each side, solving:
+        //   (0.5 + p) / (n + 2p) * 600 >= label_px
+        // → p = (label_px * n − 300) / (600 − 2 * label_px)
+        if bump_series_label_px > 0.0 && bump_n_time > 0 {
+            let l = bump_series_label_px;
+            let n = bump_n_time as f64;
+            let auto_w = 600.0_f64;
+            let denom = auto_w - 2.0 * l;
+            let p = if denom > 0.0 {
+                ((l * n - 0.5 * auto_w) / denom).max(0.0)
+            } else {
+                n * 0.5 // label wider than half the plot — fallback
+            };
+            if p > 0.0 {
+                x_min = x_min.min(0.5 - p);
+                x_max = x_max.max(bump_n_time as f64 + 0.5 + p);
             }
         }
 
