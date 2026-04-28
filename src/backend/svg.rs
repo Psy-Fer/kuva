@@ -57,6 +57,7 @@ fn write_newline(buf: &mut String, pretty: bool) {
 
 pub struct SvgBackend {
     pretty: bool,
+    embed_font: bool,
 }
 
 impl Default for SvgBackend {
@@ -67,11 +68,21 @@ impl Default for SvgBackend {
 
 impl SvgBackend {
     pub const fn new() -> Self {
-        Self { pretty: false }
+        Self { pretty: false, embed_font: false }
     }
 
     pub fn with_pretty(mut self, v: bool) -> Self {
         self.pretty = v;
+        self
+    }
+
+    /// Embed DejaVu Sans as a base64 `@font-face` in the SVG `<style>` block.
+    ///
+    /// Use this when the SVG will be rendered in an environment with no system
+    /// fonts (headless servers, containers, CI pipelines). The embedded font
+    /// makes the SVG fully self-contained at the cost of ~1 MB of extra size.
+    pub fn with_embedded_font(mut self, v: bool) -> Self {
+        self.embed_font = v;
         self
     }
 
@@ -116,6 +127,12 @@ impl SvgBackend {
         }
         svg.push('>');
         write_newline(&mut svg, p);
+
+        if self.embed_font {
+            write_indent(&mut svg, 1, p);
+            svg.push_str(crate::fonts::dejavu_sans_style_block());
+            write_newline(&mut svg, p);
+        }
 
         if let Some(color) = &scene.background_color {
             write_indent(&mut svg, 1, p);

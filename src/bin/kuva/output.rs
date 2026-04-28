@@ -25,9 +25,11 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    let svg_backend = SvgBackend::new().with_embedded_font(args.embed_font);
+
     match &args.output {
         None => {
-            print!("{}", SvgBackend.render_scene(&scene));
+            print!("{}", svg_backend.render_scene(&scene));
             Ok(())
         }
         Some(path) => {
@@ -56,7 +58,7 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
                         .to_string())
                 }
                 _ => {
-                    fs::write(path, SvgBackend.render_scene(&scene))
+                    fs::write(path, svg_backend.render_scene(&scene))
                         .map_err(|e| e.to_string())
                 }
             }

@@ -39,6 +39,8 @@ pub mod backend;
 pub mod render;
 pub mod prelude;
 
+pub(crate) mod fonts;
+
 pub use backend::terminal::TerminalBackend;
 
 #[cfg(feature = "png")]

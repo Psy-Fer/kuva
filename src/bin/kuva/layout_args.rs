@@ -97,6 +97,13 @@ pub struct BaseArgs {
     /// Wrap legend labels and titles at N characters.
     #[arg(long, value_name = "CHARS")]
     pub legend_wrap: Option<usize>,
+
+    /// Embed DejaVu Sans font directly in SVG output.
+    /// Use this when rendering SVG in environments without system fonts
+    /// (headless servers, containers, CI pipelines). Adds ~1 MB to the SVG.
+    /// Has no effect on PNG/PDF output (those backends always have the font).
+    #[arg(long, conflicts_with = "terminal")]
+    pub embed_font: bool,
 }
 
 #[derive(Args, Debug)]
