@@ -115,7 +115,8 @@ fn scalar_field() {
         .with_data(data)
         .with_color_map(ColorMap::Inferno)
         .with_x_range(-10.0, 10.0)
-        .with_y_range(-4.0, 4.0);
+        .with_y_range(-4.0, 4.0)
+        .with_cell_size(1.0);
 
     let plots = vec![Plot::Heatmap(hm)];
     let layout = Layout::auto_from_plots(&plots)

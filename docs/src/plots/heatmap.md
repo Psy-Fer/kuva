@@ -268,6 +268,7 @@ Column reordering works the same way via `with_x_categories`. Unlike `with_y_cat
 | `.with_x_categories(order)` | Reorder columns to match `order` (left-to-right); stores `col_labels` in the same order |
 | `.with_x_range(lo, hi)` | Set custom x-axis extent (default `[0.5, cols + 0.5]`) |
 | `.with_y_range(lo, hi)` | Set custom y-axis extent (default `[0.5, rows + 0.5]`) |
+| `.with_cell_size(factor)` | Cell fill fraction `[0.5, 1.0]`. Default `0.99` leaves a thin gap between cells. Pass `1.0` for flush cells with no visible boundary — useful for large grids. |
 | `.with_legend(s)` | Attach a legend label |
 
 **Layout methods used with heatmaps:**

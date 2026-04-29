@@ -272,3 +272,107 @@ fn test_heatmap_custom_range_bounds() {
     let b = plots[0].bounds().unwrap();
     assert_eq!(b, ((-10.0, 10.0), (-4.0, 4.0)));
 }
+
+#[test]
+fn test_heatmap_cell_size_default() {
+    let hm = Heatmap::new().with_data(vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+    assert!((hm.cell_size - 0.99).abs() < 1e-9, "default cell_size should be 0.99");
+}
+
+/// Parse all (x, width) pairs from SVG `<rect>` elements.
+fn parse_rect_xw(svg: &str) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for chunk in svg.split("<rect ") {
+        let x = chunk.split("x=\"").nth(1)
+            .and_then(|s| s.split('"').next())
+            .and_then(|s| s.parse::<f64>().ok());
+        let w = chunk.split("width=\"").nth(1)
+            .and_then(|s| s.split('"').next())
+            .and_then(|s| s.parse::<f64>().ok());
+        if let (Some(x), Some(w)) = (x, w) {
+            out.push((x, w));
+        }
+    }
+    out
+}
+
+/// Find the first run of exactly `n` consecutive rects that all have the same width
+/// (within 1px). This isolates the heatmap cell batch from the colorbar (50 slices)
+/// and background/legend rects (different widths).
+fn extract_cell_rects_n(rects: &[(f64, f64)], n: usize) -> Vec<(f64, f64)> {
+    let mut i = 0;
+    while i + n <= rects.len() {
+        let w0 = rects[i].1;
+        let run: Vec<_> = rects[i..].iter()
+            .take_while(|&&(_, w)| (w - w0).abs() < 1.0)
+            .copied()
+            .collect();
+        if run.len() == n {
+            return run;
+        }
+        i += run.len().max(1);
+    }
+    vec![]
+}
+
+#[test]
+fn test_heatmap_cell_size_gap_default() {
+    // Default cell_size=0.99: each rendered rect width should be < the natural step width.
+    // Use a 1-row × 4-col grid on a fixed-width canvas to make the step predictable.
+    let data = vec![vec![1.0, 2.0, 3.0, 4.0]];
+    let hm = Heatmap::new().with_data(data);
+    let plots = vec![Plot::Heatmap(hm)];
+    let layout = Layout::auto_from_plots(&plots).with_width(500.0);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::create_dir_all("test_outputs").unwrap();
+    std::fs::write("test_outputs/heatmap_cell_size_gap.svg", &svg).unwrap();
+
+    let all_rects = parse_rect_xw(&svg);
+    let cells = extract_cell_rects_n(&all_rects, 4);
+    assert_eq!(cells.len(), 4, "expected 4 cell rects");
+
+    // Adjacent cells must have a gap: right edge of cell[j] < left edge of cell[j+1].
+    let mut sorted = cells.clone();
+    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for w in sorted.windows(2) {
+        let right = w[0].0 + w[0].1;
+        let next_left = w[1].0;
+        assert!(right < next_left + 1e-3,
+            "default cell_size=0.99: right edge {right:.3} should be < next left {next_left:.3}");
+    }
+}
+
+#[test]
+fn test_heatmap_cell_size_flush() {
+    // cell_size=1.0: cells must overlap (right edge of cell[j] > left edge of cell[j+1])
+    // so SVG anti-aliasing hairlines are covered.
+    let data = vec![vec![1.0, 2.0, 3.0, 4.0]];
+    let hm = Heatmap::new().with_data(data).with_cell_size(1.0);
+    assert!((hm.cell_size - 1.0).abs() < 1e-9);
+    let plots = vec![Plot::Heatmap(hm)];
+    let layout = Layout::auto_from_plots(&plots).with_width(500.0);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/heatmap_flush.svg", &svg).unwrap();
+
+    let all_rects = parse_rect_xw(&svg);
+    let cells = extract_cell_rects_n(&all_rects, 4);
+    assert_eq!(cells.len(), 4, "expected 4 cell rects");
+
+    // Adjacent cells must overlap: right edge of cell[j] > left edge of cell[j+1].
+    let mut sorted = cells.clone();
+    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for w in sorted.windows(2) {
+        let right = w[0].0 + w[0].1;
+        let next_left = w[1].0;
+        assert!(right > next_left,
+            "cell_size=1.0: right edge {right:.3} should overlap next left {next_left:.3}");
+    }
+}
+
+#[test]
+fn test_heatmap_cell_size_clamp() {
+    let hm = Heatmap::new().with_data(vec![vec![1.0]]).with_cell_size(2.0);
+    assert!((hm.cell_size - 1.0).abs() < 1e-9, "cell_size should be clamped to 1.0");
+    let hm2 = Heatmap::new().with_data(vec![vec![1.0]]).with_cell_size(0.1);
+    assert!((hm2.cell_size - 0.5).abs() < 1e-9, "cell_size should be clamped to 0.5");
+}

@@ -1536,7 +1536,8 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     let y_step = (y_hi - y_lo) / rows as f64;
 
     // Build rect data across rows.
-    struct CellData { x: f64, y: f64, w: f64, h: f64, fill: Color }
+    // full_w / full_h stored separately so value-overlay centering is independent of cell_size.
+    struct CellData { x: f64, y: f64, w: f64, h: f64, full_w: f64, full_h: f64, fill: Color }
     let cell_data: Vec<CellData> = heatmap.data
         .iter()
         .enumerate()
@@ -1547,10 +1548,20 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                 let x1 = computed.map_x(x_lo + (j + 1) as f64 * x_step);
                 let y0 = computed.map_y(y_lo + (i + 1) as f64 * y_step);
                 let y1 = computed.map_y(y_lo + i as f64 * y_step);
+                let full_w = (x1 - x0).abs();
+                let full_h = (y1 - y0).abs();
+                // At cell_size < 1.0 leave a deliberate gap (factor * natural size).
+                // At cell_size = 1.0 add a 0.5 px overlap so SVG anti-aliasing hairlines
+                // between adjacent rects are hidden — same trick used by the colorbar.
+                let (dw, dh) = if heatmap.cell_size >= 1.0 {
+                    (full_w + 0.5, full_h + 0.5)
+                } else {
+                    (full_w * heatmap.cell_size, full_h * heatmap.cell_size)
+                };
                 CellData {
                     x: x0, y: y0,
-                    w: (x1 - x0).abs() * 0.99,
-                    h: (y1 - y0).abs() * 0.99,
+                    w: dw, h: dh,
+                    full_w, full_h,
                     fill: Color::from(cmap.map(norm(value))),
                 }
             })
@@ -1605,8 +1616,8 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
             let j = idx % cols;
             let _ = (i, j);
             scene.add(Primitive::Text {
-                x: cd.x + cd.w / 2.0 / 0.99,
-                y: cd.y + cd.h / 2.0 / 0.99,
+                x: cd.x + cd.full_w / 2.0,
+                y: cd.y + cd.full_h / 2.0,
                 content: format!("{:.2}", heatmap.data[idx / cols][idx % cols]),
                 size: computed.body_size,
                 anchor: TextAnchor::Middle,

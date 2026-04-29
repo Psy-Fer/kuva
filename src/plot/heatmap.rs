@@ -104,6 +104,11 @@ pub struct Heatmap {
     /// Custom y-axis range `(y_min, y_max)`. When set, cell rows are
     /// mapped linearly across this range instead of the default `[0.5, rows+0.5]`.
     pub y_range: Option<(f64, f64)>,
+    /// Fraction of each cell's natural size used when drawing the cell rect.
+    /// `0.99` (default) leaves a 1% gap between cells, making cell boundaries
+    /// visible. `1.0` draws cells flush — useful for large grids where the gap
+    /// becomes a distracting grid pattern.
+    pub cell_size: f64,
 }
 
 
@@ -127,6 +132,7 @@ impl Heatmap {
             tooltip_labels: None,
             x_range: None,
             y_range: None,
+            cell_size: 0.99,
         }
     }
 
@@ -324,6 +330,18 @@ impl Heatmap {
     /// heatmap represents a scalar field over a physical domain.
     pub fn with_y_range(mut self, y_min: impl Into<f64>, y_max: impl Into<f64>) -> Self {
         self.y_range = Some((y_min.into(), y_max.into()));
+        self
+    }
+
+    /// Set the cell size as a fraction of each cell's natural width and height.
+    ///
+    /// The default `0.99` leaves a thin gap that makes cell boundaries visible.
+    /// Pass `1.0` to draw cells flush with no gap — recommended for large grids
+    /// where the gap becomes a distracting grid pattern.
+    ///
+    /// Values are clamped to `[0.5, 1.0]`.
+    pub fn with_cell_size(mut self, factor: impl Into<f64>) -> Self {
+        self.cell_size = factor.into().clamp(0.5, 1.0);
         self
     }
 }

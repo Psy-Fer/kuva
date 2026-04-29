@@ -50,6 +50,10 @@ kuva heatmap counts.tsv --long-format \
 
 `Heatmap::with_x_range(lo, hi)` and `with_y_range(lo, hi)` are available in the Rust API for representing scalar fields over a physical domain (e.g. temperature over a spatial grid with real-world coordinates). These are not yet exposed as CLI flags; use the library directly when you need them.
 
+### Cell size
+
+`Heatmap::with_cell_size(factor)` controls the fraction of each cell's natural size used when drawing the cell rectangle. The default `0.99` leaves a thin gap that makes cell boundaries visible. Pass `1.0` for flush cells with no visible boundary — recommended for large grids where the gap becomes a distracting grid pattern. Not yet exposed as a CLI flag; use the library directly.
+
 ---
 
 *See also: [Shared flags](./index.md#shared-flags) — output, appearance, axes, log scale.*
