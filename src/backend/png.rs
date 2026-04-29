@@ -9,7 +9,7 @@ fn shared_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
     static FONTDB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
     FONTDB.get_or_init(|| {
         let mut db = resvg::usvg::fontdb::Database::new();
-        db.load_font_data(crate::fonts::DEJAVU_SANS.to_vec());
+        db.load_font_data(crate::fonts::dejavu_sans().to_vec());
         db.load_system_fonts();
         Arc::new(db)
     }).clone()

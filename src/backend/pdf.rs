@@ -16,7 +16,7 @@ impl PdfBackend {
         let svg_str = SvgBackend.render_scene(scene);
 
         let mut fontdb = svg2pdf::usvg::fontdb::Database::new();
-        fontdb.load_font_data(crate::fonts::DEJAVU_SANS.to_vec());
+        fontdb.load_font_data(crate::fonts::dejavu_sans().to_vec());
         fontdb.load_system_fonts();
         let options = svg2pdf::usvg::Options {
             fontdb: std::sync::Arc::new(fontdb),

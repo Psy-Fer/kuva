@@ -10,6 +10,9 @@ keywords = ["plotting", "bioinformatics", "svg", "visualization", "science"]
 categories = ["science", "visualization", "graphics", "command-line-utilities"]
 documentation = "https://docs.rs/kuva"
 readme = "README.md"
+# The raw .ttf is kept in the repo for regenerating the .deflate asset, but is
+# not published — only the compressed form ships in the crate.
+exclude = ["assets/fonts/DejaVuSans.ttf"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -29,6 +32,7 @@ doom = ["cli"]
 colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
+flate2 = "1"
 resvg       = { version = "0.44", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }

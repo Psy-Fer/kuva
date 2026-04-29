@@ -663,6 +663,7 @@ dependencies = [
  "clap_mangen",
  "colorous",
  "criterion",
+ "flate2",
  "image 0.24.9",
  "rand",
  "rand_distr",
