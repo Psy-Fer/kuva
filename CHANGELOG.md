@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Date/time axis documentation** — new reference page `docs/src/reference/datetime.md` with four worked examples (monthly line, scatter with dates, multi-series, hourly), covering `ymd()`, `ymd_hms()`, `DateTimeAxis` constructors, `.with_step()`, auto mode, and conversion notes for `chrono`, `time`, and `std::time`. `examples/datetime.rs` generates the accompanying SVG assets. Closes [#32](https://github.com/Psy-Fer/kuva/issues/32).
+
 - **`GanttPlot`** — Gantt chart with horizontal task bars, optional group/phase grouping, group header background bands, per-task progress fill, milestone diamonds, "now" reference line, and smart label placement (inside bar when wide enough, to the right otherwise). Tasks with the same group share a color drawn from the category10 palette; per-task color overrides are supported. Builder API: `with_task`, `with_task_group`, `with_task_group_progress`, `with_task_progress`, `with_colored_task`, `with_milestone`, `with_milestone_group`, `with_now_line`, `with_group_order`, `with_bar_height`, `with_milestone_size`, `with_show_labels`, `with_group_bg`. `render_gantt` convenience function. CLI: `kuva gantt` with `--label-col`, `--start-col`, `--end-col`, `--group-col`, `--progress-col`, `--milestone-col`, `--now`, `--bar-height`, `--no-labels`. **V2 features (dependency arrows, lane stacking) deferred to next version.**
 
 ### Fixed
