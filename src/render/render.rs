@@ -5688,13 +5688,11 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
         let legend_padding = computed.legend_padding;
         let plot_left = computed.margin_left;
         let plot_right = computed.width - computed.margin_right;
-        let plot_bottom = computed.height - computed.margin_bottom;
-        // Legend sits just below the x-axis area
+        // Legend sits in the reserved band below the x-axis content.
+        // The x-axis labels end at (height - legend_bottom_extra); add a 5px gap.
         let n_entries = legend.entries.len().max(1);
         let n_rows = n_entries.div_ceil(n_cols);
-        let legend_y = plot_bottom + computed.legend_bottom_extra - (
-            n_rows as f64 * line_height + legend_padding * 2.0 + 5.0
-        );
+        let legend_y = computed.height - computed.legend_bottom_extra + 5.0;
         let avail_w = plot_right - plot_left;
         let col_w = avail_w / n_cols as f64;
         let theme = &computed.theme;

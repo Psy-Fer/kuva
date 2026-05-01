@@ -158,6 +158,7 @@ pub use crate::plot::{
     LegendPosition,
     LegendEntry,
     LegendShape,
+    LegendPlot,
 };
 
 // ── Plot enum ────────────────────────────────────────────────────────────────
@@ -167,6 +168,7 @@ pub use crate::render::plots::Plot;
 pub use crate::render::layout::{Layout, TickFormat};
 pub use crate::render::render::{
     render_multiple,
+    collect_legend_entries,
     render_twin_y,
     render_sankey,
     render_phylo_tree,

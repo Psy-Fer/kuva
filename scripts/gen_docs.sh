@@ -29,6 +29,7 @@ EXAMPLES=(
     horizon
     jointplot
     layout
+    legend_plot
     legends
     line
     lollipop
