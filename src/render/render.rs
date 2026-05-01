@@ -5784,6 +5784,13 @@ fn add_legend_with_offset(legend: &Legend, scene: &mut Scene, computed: &Compute
         legend_width
     };
 
+    // If entries are capped, shrink the bounding box height to match what's actually rendered.
+    let legend_height = if flat_overflow > 0 && computed.legend_height_override.is_none() {
+        (title_rows + max_entries_display) as f64 * line_height + legend_padding * 2.0
+    } else {
+        legend_height
+    };
+
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
