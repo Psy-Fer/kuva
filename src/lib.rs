@@ -65,6 +65,7 @@ pub use backend::raster::RasterBackend;
 pub use backend::pdf::PdfBackend;
 
 pub use render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};
+pub use render::render_utils::{silverman_bandwidth, simple_kde, simple_kde_reflect};
 pub use render::layout::TickFormat;
 pub use render::palette::Palette;
 pub use render::render::render_calendar;
