@@ -81,12 +81,6 @@ pub use render::render_utils::silverman_bandwidth;
 /// [`simple_kde_reflect`] instead.
 pub use render::render_utils::simple_kde;
 
-/// Like [`simple_kde`] but applies boundary reflection at `x_lo` and/or
-/// `x_hi` so the curve does not bleed into physically impossible values.
-///
-/// Set `reflect_lo = true` when data cannot go below `x_lo` (e.g. identity
-/// scores ≥ 0); set `reflect_hi = true` when data cannot exceed `x_hi`.
-pub use render::render_utils::simple_kde_reflect;
 pub use render::layout::TickFormat;
 pub use render::palette::Palette;
 pub use render::render::render_calendar;
@@ -94,6 +88,12 @@ pub use render::render::render_phylo_tree;
 pub use render::render::render_sankey;
 pub use render::render::render_synteny;
 pub use render::render::render_twin_y;
+/// Like [`simple_kde`] but applies boundary reflection at `x_lo` and/or
+/// `x_hi` so the curve does not bleed into physically impossible values.
+///
+/// Set `reflect_lo = true` when data cannot go below `x_lo` (e.g. identity
+/// scores ≥ 0); set `reflect_hi = true` when data cannot exceed `x_hi`.
+pub use render::render_utils::simple_kde_reflect;
 pub use render::theme::Theme;
 
 /// Render a collection of plots to an SVG string in one call.

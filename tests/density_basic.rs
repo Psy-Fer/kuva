@@ -459,9 +459,7 @@ fn test_density_fit_ymin_tracks_data() {
 #[test]
 fn test_density_fit_overridden_by_bar() {
     use kuva::plot::BarPlot;
-    let dp = DensityPlot::new()
-        .with_data(vec![1.0, 2.0, 3.0])
-        .with_fit();
+    let dp = DensityPlot::new().with_data(vec![1.0, 2.0, 3.0]).with_fit();
     let bar = BarPlot::new().with_bar("A", 5.0);
     let plots = vec![Plot::Density(dp), Plot::Bar(bar)];
     let layout = Layout::auto_from_plots(&plots);
