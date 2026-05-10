@@ -13312,6 +13312,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     });
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
+        if layout.y2_range.is_some() {
+            add_y2_axis(&mut scene, &computed, &layout);
+        }
     }
 
     // For DicePlot: precompute the actual grid extents so that axis labels and

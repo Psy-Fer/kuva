@@ -131,6 +131,9 @@ pub struct Layout {
     pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
+    pub enclosed_axes: bool,
+    pub internal_ticks: bool,
+    pub mirror_ticks: bool,
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
@@ -301,6 +304,9 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
+            enclosed_axes: false,
+            internal_ticks: false,
+            mirror_ticks: false,
             x_label: None,
             y_label: None,
             title: None,
@@ -1413,6 +1419,24 @@ impl Layout {
 
     pub fn with_show_grid(mut self, show: bool) -> Self {
         self.show_grid = show;
+        self
+    }
+
+    pub fn with_enclosed_axes(mut self, enclosed: bool) -> Self {
+        self.enclosed_axes = enclosed;
+        self
+    }
+
+    pub fn with_internal_ticks(mut self, internal: bool) -> Self {
+        self.internal_ticks = internal;
+        self
+    }
+
+    pub fn with_mirror_ticks(mut self, mirror: bool) -> Self {
+        self.mirror_ticks = mirror;
+        if mirror {
+            self.enclosed_axes = true;
+        }
         self
     }
 

@@ -131,6 +131,18 @@ pub struct AxisArgs {
     #[arg(long)]
     pub no_grid: bool,
 
+    /// Draw top and right axes to fully enclose the plotted region.
+    #[arg(long)]
+    pub enclosed_axes: bool,
+
+    /// Draw tick marks pointing inwards into the plot area.
+    #[arg(long)]
+    pub internal_ticks: bool,
+
+    /// Mirror tick marks to the top and right axes (implies --enclosed-axes).
+    #[arg(long)]
+    pub mirror_ticks: bool,
+
     /// Fix the X axis lower bound; overrides auto-range.
     #[arg(long)]
     pub x_min: Option<f64>,
@@ -276,6 +288,15 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
     }
     if args.no_grid {
         layout = layout.with_show_grid(false);
+    }
+    if args.enclosed_axes || args.mirror_ticks {
+        layout = layout.with_enclosed_axes(true);
+    }
+    if args.internal_ticks {
+        layout = layout.with_internal_ticks(true);
+    }
+    if args.mirror_ticks {
+        layout = layout.with_mirror_ticks(true);
     }
     if let Some(v) = args.x_min {
         layout = layout.with_x_axis_min(v);
