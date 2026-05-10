@@ -120,6 +120,83 @@ fn tick_format_sci(v: f64) -> String {
     }
 }
 
+/// Controls which axis border lines are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisLine {
+    /// Draw only the primary bottom and left axes.
+    Left,
+    /// Draw a full box around the plot area.
+    Box,
+}
+
+impl From<&str> for AxisLine {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "left" | "primary" => Self::Left,
+            "box" | "frame" | "enclosed" => Self::Box,
+            other => panic!("invalid axis line '{other}'; expected left or box"),
+        }
+    }
+}
+
+impl From<String> for AxisLine {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks point inside, outside, or across axis lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickAlign {
+    Inside,
+    Outside,
+    Center,
+}
+
+impl From<&str> for TickAlign {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "inside" | "in" => Self::Inside,
+            "outside" | "out" => Self::Outside,
+            "center" | "centre" | "middle" => Self::Center,
+            other => {
+                panic!("invalid tick alignment '{other}'; expected inside, outside, or center")
+            }
+        }
+    }
+}
+
+impl From<String> for TickAlign {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks appear only on the primary axes or on both sides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickPos {
+    /// Draw ticks only on the primary bottom and left axes.
+    Primary,
+    /// Mirror ticks onto the top and right axes.
+    Both,
+}
+
+impl From<&str> for TickPos {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "primary" | "left" | "bottom" | "lower" => Self::Primary,
+            "both" | "mirror" | "mirrored" => Self::Both,
+            other => panic!("invalid tick position '{other}'; expected primary or both"),
+        }
+    }
+}
+
+impl From<String> for TickPos {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
 /// Defines the layout of the plot
 pub struct Layout {
     pub width: Option<f64>,
@@ -131,9 +208,9 @@ pub struct Layout {
     pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
-    pub enclosed_axes: bool,
-    pub internal_ticks: bool,
-    pub mirror_ticks: bool,
+    pub axis_line: AxisLine,
+    pub tick_align: TickAlign,
+    pub tick_pos: TickPos,
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
@@ -304,9 +381,9 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
-            enclosed_axes: false,
-            internal_ticks: false,
-            mirror_ticks: false,
+            axis_line: AxisLine::Left,
+            tick_align: TickAlign::Outside,
+            tick_pos: TickPos::Primary,
             x_label: None,
             y_label: None,
             title: None,
@@ -1422,22 +1499,34 @@ impl Layout {
         self
     }
 
-    pub fn with_enclosed_axes(mut self, enclosed: bool) -> Self {
-        self.enclosed_axes = enclosed;
+    pub fn with_axis_line<L: Into<AxisLine>>(mut self, line: L) -> Self {
+        self.axis_line = line.into();
         self
     }
 
-    pub fn with_internal_ticks(mut self, internal: bool) -> Self {
-        self.internal_ticks = internal;
+    pub fn with_box_axes(self) -> Self {
+        self.with_axis_line(AxisLine::Box)
+    }
+
+    pub fn with_tick_align<A: Into<TickAlign>>(mut self, align: A) -> Self {
+        self.tick_align = align.into();
         self
     }
 
-    pub fn with_mirror_ticks(mut self, mirror: bool) -> Self {
-        self.mirror_ticks = mirror;
-        if mirror {
-            self.enclosed_axes = true;
+    pub fn with_tick_alignment<A: Into<TickAlign>>(self, align: A) -> Self {
+        self.with_tick_align(align)
+    }
+
+    pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
+        self.tick_pos = pos.into();
+        if self.tick_pos == TickPos::Both {
+            self.axis_line = AxisLine::Box;
         }
         self
+    }
+
+    pub fn with_tick_position<P: Into<TickPos>>(self, pos: P) -> Self {
+        self.with_tick_pos(pos)
     }
 
     fn with_show_legend(mut self) -> Self {

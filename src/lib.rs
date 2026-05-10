@@ -81,7 +81,7 @@ pub use render::render_utils::silverman_bandwidth;
 /// [`simple_kde_reflect`] instead.
 pub use render::render_utils::simple_kde;
 
-pub use render::layout::TickFormat;
+pub use render::layout::{AxisLine, TickAlign, TickFormat, TickPos};
 pub use render::palette::Palette;
 pub use render::render::render_calendar;
 pub use render::render::render_phylo_tree;

@@ -165,7 +165,7 @@ pub use crate::plot::{
 pub use crate::render::plots::Plot;
 
 // ── Layout & rendering ───────────────────────────────────────────────────────
-pub use crate::render::layout::{Layout, TickFormat};
+pub use crate::render::layout::{AxisLine, Layout, TickAlign, TickFormat, TickPos};
 pub use crate::render::render::{
     collect_legend_entries, render_bump, render_forest, render_funnel, render_gantt,
     render_jointplot, render_lollipop, render_mosaic, render_multiple, render_parallel,

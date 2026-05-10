@@ -1,6 +1,6 @@
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;
-use kuva::render::layout::Layout;
+use kuva::render::layout::{Layout, TickAlign, TickPos};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
@@ -23,8 +23,8 @@ fn test_y2_override_svg() {
 
     let layout = Layout::new((0.5, 3.5), (0.0, 10.0))
         .with_title("Y2 Override")
-        .with_internal_ticks(true)
-        .with_mirror_ticks(true)
+        .with_tick_align(TickAlign::Inside)
+        .with_tick_pos(TickPos::Both)
         .with_y2_range(0.0, 500.0)
         .with_y2_label("Secondary Axis");
 
@@ -33,7 +33,7 @@ fn test_y2_override_svg() {
     std::fs::write("test_outputs/y2_override_internal.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("Secondary Axis"));
-    // Top axis line (even with Y2, top should be enclosed if mirror_ticks is true)
+    // Top axis line (tick_pos=both promotes the plot to axis_line=box)
     assert!(svg.contains("y1=\"44\" x2=\"659\" y2=\"44\""));
     // Right axis line (drawn by add_y2_axis)
     assert!(svg.contains("x1=\"659\" y1=\"44\" x2=\"659\" y2=\"494\""));

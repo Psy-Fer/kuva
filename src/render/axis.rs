@@ -1,5 +1,5 @@
 use crate::render::color::Color;
-use crate::render::layout::{ComputedLayout, Layout, TickFormat};
+use crate::render::layout::{AxisLine, ComputedLayout, Layout, TickAlign, TickFormat, TickPos};
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils;
 
@@ -17,10 +17,10 @@ fn draw_x_tick(
         computed.tick_mark_major
     };
     let y_base = computed.height - computed.margin_bottom;
-    let (y1, y2) = if layout.internal_ticks {
-        (y_base - tick_len, y_base)
-    } else {
-        (y_base, y_base + tick_len)
+    let (y1, y2) = match layout.tick_align {
+        TickAlign::Inside => (y_base - tick_len, y_base),
+        TickAlign::Outside => (y_base, y_base + tick_len),
+        TickAlign::Center => (y_base - tick_len * 0.5, y_base + tick_len * 0.5),
     };
     scene.add(Primitive::Line {
         x1: x,
@@ -31,12 +31,12 @@ fn draw_x_tick(
         stroke_width: computed.tick_stroke_width,
         stroke_dasharray: None,
     });
-    if layout.mirror_ticks {
+    if layout.tick_pos == TickPos::Both {
         let y_top = computed.margin_top;
-        let (ty1, ty2) = if layout.internal_ticks {
-            (y_top, y_top + tick_len)
-        } else {
-            (y_top - tick_len, y_top)
+        let (ty1, ty2) = match layout.tick_align {
+            TickAlign::Inside => (y_top, y_top + tick_len),
+            TickAlign::Outside => (y_top - tick_len, y_top),
+            TickAlign::Center => (y_top - tick_len * 0.5, y_top + tick_len * 0.5),
         };
         scene.add(Primitive::Line {
             x1: x,
@@ -64,10 +64,10 @@ fn draw_y_tick(
         computed.tick_mark_major
     };
     let x_base = computed.margin_left;
-    let (x1, x2) = if layout.internal_ticks {
-        (x_base, x_base + tick_len)
-    } else {
-        (x_base - tick_len, x_base)
+    let (x1, x2) = match layout.tick_align {
+        TickAlign::Inside => (x_base, x_base + tick_len),
+        TickAlign::Outside => (x_base - tick_len, x_base),
+        TickAlign::Center => (x_base - tick_len * 0.5, x_base + tick_len * 0.5),
     };
     scene.add(Primitive::Line {
         x1,
@@ -78,12 +78,12 @@ fn draw_y_tick(
         stroke_width: computed.tick_stroke_width,
         stroke_dasharray: None,
     });
-    if layout.mirror_ticks && layout.y2_range.is_none() {
+    if layout.tick_pos == TickPos::Both && layout.y2_range.is_none() {
         let x_right = computed.width - computed.margin_right;
-        let (tx1, tx2) = if layout.internal_ticks {
-            (x_right - tick_len, x_right)
-        } else {
-            (x_right, x_right + tick_len)
+        let (tx1, tx2) = match layout.tick_align {
+            TickAlign::Inside => (x_right - tick_len, x_right),
+            TickAlign::Outside => (x_right, x_right + tick_len),
+            TickAlign::Center => (x_right - tick_len * 0.5, x_right + tick_len * 0.5),
         };
         scene.add(Primitive::Line {
             x1: tx1,
@@ -457,7 +457,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         }
     }
 
-    if layout.enclosed_axes || layout.mirror_ticks {
+    if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
         // Top axis
         scene.add(Primitive::Line {
             x1: computed.margin_left,
@@ -515,10 +515,13 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     for ty in y2_ticks.iter() {
         let y = computed.map_y2(*ty);
 
-        let (tx1, tx2) = if layout.internal_ticks {
-            (axis_x - computed.tick_mark_major, axis_x)
-        } else {
-            (axis_x, axis_x + computed.tick_mark_major)
+        let (tx1, tx2) = match layout.tick_align {
+            TickAlign::Inside => (axis_x - computed.tick_mark_major, axis_x),
+            TickAlign::Outside => (axis_x, axis_x + computed.tick_mark_major),
+            TickAlign::Center => (
+                axis_x - computed.tick_mark_major * 0.5,
+                axis_x + computed.tick_mark_major * 0.5,
+            ),
         };
 
         scene.add(Primitive::Line {
