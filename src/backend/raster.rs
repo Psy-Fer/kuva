@@ -1,33 +1,1330 @@
-//! Direct raster backend that renders Scene primitives into a `tiny_skia::Pixmap`
-//! without the SVG serialization → parse → rasterize round-trip.
+//! Direct raster backend: Scene primitives → RGBA pixel buffer → PNG bytes.
 //!
-//! For data-heavy plots (scatter, manhattan, heatmap), this avoids:
-//! 1. Generating a multi-MB SVG string
-//! 2. Parsing that string back into a tree (usvg)
-//! 3. Re-rasterizing from the parsed tree
-//!
-//! Text elements are rendered via a minimal SVG overlay through resvg since
-//! text shaping requires the full font pipeline.
+//! No SVG serialization round-trip. Geometry is rasterized directly:
+//!   - Thin lines via Xiaolin Wu's AA algorithm
+//!   - Thick lines via perpendicular quad tessellation + round caps
+//!   - Circles via signed-distance-field coverage (1px AA ramp)
+//!   - CircleBatch via precomputed per-radius mask (hot path for scatter)
+//!   - Paths via SVG parser → adaptive bezier tessellation → scanline fill
+//!   - SVG arcs converted to cubic beziers (SVG 1.1 spec, Appendix F)
+//!   - Text via fontdue with glyph caching; rotated text via offscreen blit
+//!   - Clip rects and translate transforms fully respected
 
-use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
-use resvg::tiny_skia::{
-    self, Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform,
-};
+use fontdue::{Font, FontSettings, Metrics};
 
+use crate::render::color::Color as KColor;
 use crate::render::render::{Primitive, Scene, TextAnchor};
 
-fn shared_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
-    static FONTDB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    FONTDB
-        .get_or_init(|| {
-            let mut db = resvg::usvg::fontdb::Database::new();
-            db.load_font_data(crate::fonts::dejavu_sans().to_vec());
-            db.load_system_fonts();
-            Arc::new(db)
-        })
-        .clone()
+// ── RGBA ──────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug)]
+struct Rgba {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
 }
+
+impl Rgba {
+    #[inline]
+    fn opaque(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+    #[inline]
+    fn with_alpha(self, a: u8) -> Self {
+        Self { a, ..self }
+    }
+}
+
+// ── Clip rect (half-open [x0,x1) × [y0,y1) in integer pixel space) ───────────
+
+#[derive(Clone, Copy, Debug)]
+struct Clip {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl Clip {
+    fn full(w: u32, h: u32) -> Self {
+        Self {
+            x0: 0,
+            y0: 0,
+            x1: w as i32,
+            y1: h as i32,
+        }
+    }
+
+    fn intersect(self, other: Clip) -> Self {
+        Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        }
+    }
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
+
+struct Canvas {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>, // RGBA row-major
+}
+
+impl Canvas {
+    fn new(w: u32, h: u32) -> Self {
+        Self {
+            width: w,
+            height: h,
+            pixels: vec![0u8; w as usize * h as usize * 4],
+        }
+    }
+
+    fn fill_background(&mut self, c: Rgba) {
+        for p in self.pixels.chunks_exact_mut(4) {
+            p[0] = c.r;
+            p[1] = c.g;
+            p[2] = c.b;
+            p[3] = c.a;
+        }
+    }
+
+    /// Composite `color` at `cov` coverage over the pixel at (x, y).
+    /// The background is always opaque after `fill_background`, so dst_a == 255
+    /// always, collapsing the Porter-Duff "src over" formula to:
+    ///   out_rgb = src_rgb * eff_a + dst_rgb * (1 - eff_a)
+    #[inline(always)]
+    fn blend(&mut self, x: i32, y: i32, c: Rgba, cov: f32) {
+        if (x as u32) >= self.width || (y as u32) >= self.height {
+            return;
+        }
+        let eff = (cov * c.a as f32 + 0.5) as u32;
+        if eff == 0 {
+            return;
+        }
+        let eff = eff.min(255);
+        let idx = (y as usize * self.width as usize + x as usize) * 4;
+        let p = &mut self.pixels[idx..idx + 4];
+        if eff == 255 {
+            p[0] = c.r;
+            p[1] = c.g;
+            p[2] = c.b;
+            p[3] = 255;
+        } else {
+            let inv = 255 - eff;
+            p[0] = ((c.r as u32 * eff + p[0] as u32 * inv) / 255) as u8;
+            p[1] = ((c.g as u32 * eff + p[1] as u32 * inv) / 255) as u8;
+            p[2] = ((c.b as u32 * eff + p[2] as u32 * inv) / 255) as u8;
+            p[3] = 255;
+        }
+    }
+
+    #[inline(always)]
+    fn blend_c(&mut self, x: i32, y: i32, c: Rgba, cov: f32, clip: Clip) {
+        if x >= clip.x0 && x < clip.x1 && y >= clip.y0 && y < clip.y1 {
+            self.blend(x, y, c, cov);
+        }
+    }
+
+    // ── Rectangle fill ────────────────────────────────────────────────────────
+
+    fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, c: Rgba, clip: Clip) {
+        let x0 = (x.floor() as i32).max(clip.x0);
+        let y0 = (y.floor() as i32).max(clip.y0);
+        let x1 = ((x + w).ceil() as i32).min(clip.x1);
+        let y1 = ((y + h).ceil() as i32).min(clip.y1);
+        for py in y0..y1 {
+            let yc = partial_cov(y, y + h, py);
+            if yc <= 0.0 {
+                continue;
+            }
+            for px in x0..x1 {
+                let xc = partial_cov(x, x + w, px);
+                if xc > 0.0 {
+                    self.blend(px, py, c, xc * yc);
+                }
+            }
+        }
+    }
+
+    // ── Xiaolin Wu anti-aliased thin line ─────────────────────────────────────
+    //
+    // For width ≤ 1.5px. Produces two blended pixels per step along the major
+    // axis; coverage is the fractional distance from each pixel's integer boundary.
+
+    fn draw_line_wu(
+        &mut self,
+        mut x0: f32,
+        mut y0: f32,
+        mut x1: f32,
+        mut y1: f32,
+        c: Rgba,
+        clip: Clip,
+    ) {
+        let steep = (y1 - y0).abs() > (x1 - x0).abs();
+        if steep {
+            std::mem::swap(&mut x0, &mut y0);
+            std::mem::swap(&mut x1, &mut y1);
+        }
+        if x0 > x1 {
+            std::mem::swap(&mut x0, &mut x1);
+            std::mem::swap(&mut y0, &mut y1);
+        }
+
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let grad = if dx.abs() < 1e-6 { 1.0f32 } else { dy / dx };
+
+        // First endpoint
+        let xend = x0.round();
+        let yend = y0 + grad * (xend - x0);
+        let xgap = 1.0 - (x0 + 0.5).fract();
+        let ix0 = xend as i32;
+        let iy0 = yend.floor() as i32;
+        let frac = yend.fract();
+        if steep {
+            self.blend_c(iy0, ix0, c, (1.0 - frac) * xgap, clip);
+            self.blend_c(iy0 + 1, ix0, c, frac * xgap, clip);
+        } else {
+            self.blend_c(ix0, iy0, c, (1.0 - frac) * xgap, clip);
+            self.blend_c(ix0, iy0 + 1, c, frac * xgap, clip);
+        }
+        let mut intery = yend + grad;
+
+        // Second endpoint
+        let xend2 = x1.round();
+        let yend2 = y1 + grad * (xend2 - x1);
+        let xgap2 = (x1 + 0.5).fract();
+        let ix1 = xend2 as i32;
+        let iy1 = yend2.floor() as i32;
+        let frac2 = yend2.fract();
+        if steep {
+            self.blend_c(iy1, ix1, c, (1.0 - frac2) * xgap2, clip);
+            self.blend_c(iy1 + 1, ix1, c, frac2 * xgap2, clip);
+        } else {
+            self.blend_c(ix1, iy1, c, (1.0 - frac2) * xgap2, clip);
+            self.blend_c(ix1, iy1 + 1, c, frac2 * xgap2, clip);
+        }
+
+        // Interior
+        for ix in (ix0 + 1)..ix1 {
+            let iy = intery.floor() as i32;
+            let f = intery.fract();
+            if steep {
+                self.blend_c(iy, ix, c, 1.0 - f, clip);
+                self.blend_c(iy + 1, ix, c, f, clip);
+            } else {
+                self.blend_c(ix, iy, c, 1.0 - f, clip);
+                self.blend_c(ix, iy + 1, c, f, clip);
+            }
+            intery += grad;
+        }
+    }
+
+    // ── Thick line via parallelogram + round caps ─────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_line_thick(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        c: Rgba,
+        width: f32,
+        clip: Clip,
+    ) {
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.01 {
+            self.fill_circle_aa(x0, y0, width * 0.5, c, clip);
+            return;
+        }
+        let hw = width * 0.5;
+        let px = -dy / len * hw;
+        let py = dx / len * hw;
+        self.fill_polygon(
+            &[
+                (x0 + px, y0 + py),
+                (x0 - px, y0 - py),
+                (x1 - px, y1 - py),
+                (x1 + px, y1 + py),
+            ],
+            c,
+            clip,
+        );
+        self.fill_circle_aa(x0, y0, hw, c, clip);
+        self.fill_circle_aa(x1, y1, hw, c, clip);
+    }
+
+    // ── Line dispatcher ───────────────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_line(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        c: Rgba,
+        width: f32,
+        dasharray: Option<&str>,
+        clip: Clip,
+    ) {
+        if let Some(dash) = dasharray.filter(|s| !s.is_empty()) {
+            self.draw_dashed_line(x0, y0, x1, y1, c, width, dash, clip);
+        } else if width <= 1.5 {
+            self.draw_line_wu(x0, y0, x1, y1, c, clip);
+        } else {
+            self.draw_line_thick(x0, y0, x1, y1, c, width, clip);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_dashed_line(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        c: Rgba,
+        width: f32,
+        dasharray: &str,
+        clip: Clip,
+    ) {
+        let dashes = parse_dasharray(dasharray);
+        if dashes.is_empty() {
+            self.draw_line(x0, y0, x1, y1, c, width, None, clip);
+            return;
+        }
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let total = (dx * dx + dy * dy).sqrt();
+        if total < 0.01 {
+            return;
+        }
+        let ux = dx / total;
+        let uy = dy / total;
+        let mut pos = 0.0f32;
+        let mut di = 0usize;
+        let mut drawing = true;
+        while pos < total {
+            let seg = dashes[di % dashes.len()];
+            let end = (pos + seg).min(total);
+            if drawing {
+                let sx = x0 + ux * pos;
+                let sy = y0 + uy * pos;
+                let ex = x0 + ux * end;
+                let ey = y0 + uy * end;
+                if width <= 1.5 {
+                    self.draw_line_wu(sx, sy, ex, ey, c, clip);
+                } else {
+                    self.draw_line_thick(sx, sy, ex, ey, c, width, clip);
+                }
+            }
+            pos = end;
+            di += 1;
+            drawing = !drawing;
+        }
+    }
+
+    // ── AA circle fill — SDF coverage ─────────────────────────────────────────
+    //
+    // For each pixel, coverage = clamp(r_outer - dist_to_center, 0, 1) where
+    // r_outer = r + 0.5. This gives a 1-pixel-wide AA fringe. Pixels fully
+    // inside r - 0.5 receive coverage = 1 without a sqrt call.
+
+    fn fill_circle_aa(&mut self, cx: f32, cy: f32, r: f32, c: Rgba, clip: Clip) {
+        let r_outer = r + 0.5;
+        let r_inner = (r - 0.5).max(0.0);
+        let r_outer2 = r_outer * r_outer;
+        let r_inner2 = r_inner * r_inner;
+
+        let x0 = ((cx - r_outer).floor() as i32).max(clip.x0);
+        let x1 = ((cx + r_outer).ceil() as i32).min(clip.x1 - 1);
+        let y0 = ((cy - r_outer).floor() as i32).max(clip.y0);
+        let y1 = ((cy + r_outer).ceil() as i32).min(clip.y1 - 1);
+
+        for py in y0..=y1 {
+            let dy = py as f32 + 0.5 - cy;
+            let dy2 = dy * dy;
+            if dy2 >= r_outer2 {
+                continue;
+            }
+            for px in x0..=x1 {
+                let dx = px as f32 + 0.5 - cx;
+                let d2 = dx * dx + dy2;
+                let cov = if d2 <= r_inner2 {
+                    1.0
+                } else if d2 >= r_outer2 {
+                    continue;
+                } else {
+                    r_outer - d2.sqrt()
+                };
+                self.blend(px, py, c, cov);
+            }
+        }
+    }
+
+    /// Annular stroke for a circle. Each pixel's coverage is the minimum of
+    /// its inward and outward distances to the band edges, giving smooth AA on
+    /// both the inner and outer boundaries.
+    fn stroke_circle_aa(&mut self, cx: f32, cy: f32, r: f32, c: Rgba, sw: f32, clip: Clip) {
+        let hw = sw * 0.5;
+        let r_outer = r + hw + 0.5;
+        let r_inner = (r - hw - 0.5).max(0.0);
+        let outer2 = r_outer * r_outer;
+        let inner2 = r_inner * r_inner;
+        let band_outer = r + hw; // nominal outer edge
+        let band_inner = (r - hw).max(0.0); // nominal inner edge
+
+        let x0 = ((cx - r_outer).floor() as i32).max(clip.x0);
+        let x1 = ((cx + r_outer).ceil() as i32).min(clip.x1 - 1);
+        let y0 = ((cy - r_outer).floor() as i32).max(clip.y0);
+        let y1 = ((cy + r_outer).ceil() as i32).min(clip.y1 - 1);
+
+        for py in y0..=y1 {
+            let dy = py as f32 + 0.5 - cy;
+            let dy2 = dy * dy;
+            if dy2 >= outer2 {
+                continue;
+            }
+            for px in x0..=x1 {
+                let dx = px as f32 + 0.5 - cx;
+                let d2 = dx * dx + dy2;
+                if d2 < inner2 || d2 > outer2 {
+                    continue;
+                }
+                let d = d2.sqrt();
+                let out_cov = ((band_outer + 0.5) - d).clamp(0.0, 1.0);
+                let in_cov = (d - (band_inner - 0.5)).clamp(0.0, 1.0);
+                let cov = out_cov.min(in_cov);
+                if cov > 0.0 {
+                    self.blend(px, py, c, cov);
+                }
+            }
+        }
+    }
+
+    // ── Precomputed circle mask ────────────────────────────────────────────────
+    //
+    // Coverage values stored as u8 (0-255). The mask is (2*half+1)² pixels,
+    // centered at (half + 0.5, half + 0.5). Built once per unique radius and
+    // stamped per point in CircleBatch — avoids sqrt per point per pixel.
+
+    fn make_circle_mask(r: f32) -> (i32, Vec<u8>) {
+        let half = (r + 1.5).ceil() as i32;
+        let size = half * 2 + 1;
+        let center = half as f32 + 0.5;
+        let r_outer = r + 0.5;
+        let r_inner = (r - 0.5).max(0.0);
+        let r_outer2 = r_outer * r_outer;
+        let r_inner2 = r_inner * r_inner;
+
+        let mut mask = vec![0u8; (size * size) as usize];
+        for my in 0..size {
+            let dy = my as f32 + 0.5 - center;
+            let dy2 = dy * dy;
+            for mx in 0..size {
+                let dx = mx as f32 + 0.5 - center;
+                let d2 = dx * dx + dy2;
+                let cov: f32 = if d2 <= r_inner2 {
+                    1.0
+                } else if d2 >= r_outer2 {
+                    0.0
+                } else {
+                    r_outer - d2.sqrt()
+                };
+                mask[(my * size + mx) as usize] = (cov * 255.0 + 0.5) as u8;
+            }
+        }
+        (half, mask)
+    }
+
+    fn blit_circle_mask(&mut self, ix: i32, iy: i32, half: i32, mask: &[u8], c: Rgba, clip: Clip) {
+        let size = half * 2 + 1;
+        let ox = ix - half;
+        let oy = iy - half;
+        for my in 0..size {
+            let py = oy + my;
+            if py < clip.y0 || py >= clip.y1 {
+                continue;
+            }
+            let row = (my * size) as usize;
+            for mx in 0..size {
+                let px = ox + mx;
+                if px < clip.x0 || px >= clip.x1 {
+                    continue;
+                }
+                let byte = mask[row + mx as usize];
+                if byte > 0 {
+                    self.blend(px, py, c, byte as f32 * (1.0 / 255.0));
+                }
+            }
+        }
+    }
+
+    // ── Scanline polygon fill with sub-pixel AA ────────────────────────────────
+    //
+    // For each scanline at py + 0.5, finds all edge crossings, sorts them, and
+    // fills paired spans. Edge pixels receive fractional coverage based on the
+    // exact float crossing position — not rounded, not approximated.
+
+    fn fill_polygon(&mut self, pts: &[(f32, f32)], c: Rgba, clip: Clip) {
+        if pts.len() < 3 {
+            return;
+        }
+
+        let y_min = pts
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::INFINITY, f32::min)
+            .floor() as i32;
+        let y_max = pts
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::NEG_INFINITY, f32::max)
+            .ceil() as i32;
+        let y0 = y_min.max(clip.y0);
+        let y1 = y_max.min(clip.y1 - 1);
+
+        let n = pts.len();
+        let mut xs: Vec<f32> = Vec::with_capacity(8);
+
+        for py in y0..=y1 {
+            let sy = py as f32 + 0.5;
+            xs.clear();
+            for i in 0..n {
+                let (ax, ay) = pts[i];
+                let (bx, by) = pts[(i + 1) % n];
+                if (ay <= sy && by > sy) || (by <= sy && ay > sy) {
+                    let t = (sy - ay) / (by - ay);
+                    xs.push(ax + t * (bx - ax));
+                }
+            }
+            xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            let mut i = 0;
+            while i + 1 < xs.len() {
+                self.fill_span_aa(xs[i], xs[i + 1], py, c, clip);
+                i += 2;
+            }
+        }
+    }
+
+    /// Fill the horizontal span [x_lo, x_hi] at scanline row `py`.
+    /// Left and right edge pixels receive exact fractional coverage.
+    #[inline]
+    fn fill_span_aa(&mut self, x_lo: f32, x_hi: f32, py: i32, c: Rgba, clip: Clip) {
+        if x_hi <= x_lo {
+            return;
+        }
+
+        let ix_lo = x_lo.floor() as i32;
+        let ix_hi = x_hi.floor() as i32;
+
+        if ix_lo == ix_hi {
+            let cov = (x_hi - x_lo).min(1.0);
+            self.blend_c(ix_lo, py, c, cov, clip);
+            return;
+        }
+
+        // Left partial pixel: how much of [ix_lo, ix_lo+1) is right of x_lo
+        let left_cov = (ix_lo + 1) as f32 - x_lo;
+        self.blend_c(ix_lo, py, c, left_cov.min(1.0), clip);
+
+        // Interior: fully covered
+        let int_lo = (ix_lo + 1).max(clip.x0);
+        let int_hi = ix_hi.min(clip.x1);
+        for px in int_lo..int_hi {
+            self.blend(px, py, c, 1.0);
+        }
+
+        // Right partial pixel: how much of [ix_hi, ix_hi+1) is left of x_hi
+        let right_cov = x_hi - ix_hi as f32;
+        if right_cov > 0.0 {
+            self.blend_c(ix_hi, py, c, right_cov.min(1.0), clip);
+        }
+    }
+
+    // ── Text rendering ────────────────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_text(
+        &mut self,
+        x: f32,
+        y: f32,
+        text: &str,
+        size: f32,
+        c: Rgba,
+        anchor: TextAnchor,
+        rotate: Option<f32>,
+        font: &Font,
+        cache: &mut GlyphCache,
+        clip: Clip,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        if let Some(angle) = rotate {
+            self.draw_text_rotated(x, y, text, size, c, anchor, angle, font, cache, clip);
+        } else {
+            let pen_x = anchor_pen_x(x, text, size, anchor, font, cache);
+            self.rasterize_glyphs(pen_x, y, text, size, c, font, cache, clip);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rasterize_glyphs(
+        &mut self,
+        pen_x: f32,
+        baseline_y: f32,
+        text: &str,
+        size: f32,
+        c: Rgba,
+        font: &Font,
+        cache: &mut GlyphCache,
+        clip: Clip,
+    ) {
+        let mut px = pen_x;
+        for ch in text.chars() {
+            let key = glyph_key(ch, size);
+            cache
+                .0
+                .entry(key)
+                .or_insert_with(|| font.rasterize(ch, size));
+            let (metrics, bitmap) = &cache.0[&key];
+            let gx = (px + metrics.xmin as f32).round() as i32;
+            // fontdue ymin: pixels above baseline the bottom of the bitmap sits.
+            // Positive = above baseline (ascenders). Negative = below (descenders).
+            // In screen coords (y down): bitmap_top = baseline - ymin - height
+            let gy = (baseline_y as i32) - metrics.ymin - metrics.height as i32;
+            let mw = metrics.width;
+            let adv = metrics.advance_width;
+            for row in 0..metrics.height {
+                let sy = gy + row as i32;
+                if sy < clip.y0 || sy >= clip.y1 {
+                    continue;
+                }
+                let row_off = row * mw;
+                for col in 0..mw {
+                    let sx = gx + col as i32;
+                    if sx < clip.x0 || sx >= clip.x1 {
+                        continue;
+                    }
+                    let byte = bitmap[row_off + col];
+                    if byte > 0 {
+                        self.blend(sx, sy, c, byte as f32 * (1.0 / 255.0));
+                    }
+                }
+            }
+            px += adv;
+        }
+    }
+
+    /// Render text unrotated into a small offscreen canvas, then rotate-blit
+    /// it into the main canvas using bilinear sampling. Rotation is around
+    /// the anchor point (x, y) — matching SVG's `transform="rotate(a,x,y)"`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_text_rotated(
+        &mut self,
+        anchor_x: f32,
+        anchor_y: f32,
+        text: &str,
+        size: f32,
+        c: Rgba,
+        anchor: TextAnchor,
+        angle_deg: f32,
+        font: &Font,
+        cache: &mut GlyphCache,
+        clip: Clip,
+    ) {
+        let text_w = measure_text(text, size, font, cache);
+        let text_h = size * 1.5;
+        let pad = 2.0f32;
+
+        let buf_w = (text_w + pad * 2.0).ceil() as u32 + 4;
+        let buf_h = (text_h + pad * 2.0).ceil() as u32 + 4;
+
+        // In the offscreen buffer the anchor point is at (off_ax, off_ay).
+        // off_ay is the baseline; off_ax depends on text anchor.
+        let off_ax = match anchor {
+            TextAnchor::Start => pad,
+            TextAnchor::Middle => pad + text_w * 0.5,
+            TextAnchor::End => pad + text_w,
+        };
+        let off_ay = buf_h as f32 - pad - size * 0.3; // baseline near bottom
+
+        let mut offscreen = Canvas::new(buf_w, buf_h);
+        // Transparent bg — pixels start at 0,0,0,0
+        let off_pen_x = match anchor {
+            TextAnchor::Start => pad,
+            TextAnchor::Middle => pad,
+            TextAnchor::End => pad,
+        };
+        offscreen.rasterize_glyphs(
+            off_pen_x,
+            off_ay,
+            text,
+            size,
+            c,
+            font,
+            cache,
+            Clip::full(buf_w, buf_h),
+        );
+
+        // Inverse-rotate each destination pixel to find its source in offscreen.
+        // SVG rotate(θ) is CW in screen coords (y-down), matching positive θ here.
+        let rad = angle_deg * std::f32::consts::PI / 180.0;
+        let cos_a = rad.cos();
+        let sin_a = rad.sin();
+
+        // Bounding box of the rotated offscreen rectangle in canvas space
+        let corners = [
+            (0.0f32, 0.0f32),
+            (buf_w as f32, 0.0f32),
+            (buf_w as f32, buf_h as f32),
+            (0.0f32, buf_h as f32),
+        ];
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for (cx, cy) in &corners {
+            let dx = cx - off_ax;
+            let dy = cy - off_ay;
+            let wx = anchor_x + cos_a * dx - sin_a * dy;
+            let wy = anchor_y + sin_a * dx + cos_a * dy;
+            min_x = min_x.min(wx);
+            max_x = max_x.max(wx);
+            min_y = min_y.min(wy);
+            max_y = max_y.max(wy);
+        }
+
+        let dx0 = (min_x.floor() as i32).max(clip.x0);
+        let dx1 = (max_x.ceil() as i32).min(clip.x1 - 1);
+        let dy0 = (min_y.floor() as i32).max(clip.y0);
+        let dy1 = (max_y.ceil() as i32).min(clip.y1 - 1);
+
+        for dy in dy0..=dy1 {
+            for dx in dx0..=dx1 {
+                // Inverse rotation: canvas (dx, dy) → offscreen (src_x, src_y)
+                let dxw = dx as f32 + 0.5 - anchor_x;
+                let dyw = dy as f32 + 0.5 - anchor_y;
+                let src_x = off_ax + cos_a * dxw + sin_a * dyw;
+                let src_y = off_ay - sin_a * dxw + cos_a * dyw;
+                let sample =
+                    bilinear_rgba(&offscreen.pixels, buf_w, buf_h, src_x - 0.5, src_y - 0.5);
+                if sample.a > 0 {
+                    self.blend(dx, dy, sample, sample.a as f32 * (1.0 / 255.0));
+                }
+            }
+        }
+    }
+
+    // ── PNG encode ────────────────────────────────────────────────────────────
+
+    fn encode_png(self) -> Result<Vec<u8>, String> {
+        let mut buf = Vec::with_capacity(self.pixels.len() / 4);
+        let mut enc = png::Encoder::new(std::io::Cursor::new(&mut buf), self.width, self.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header()
+            .and_then(|mut w| w.write_image_data(&self.pixels))
+            .map_err(|e| e.to_string())?;
+        Ok(buf)
+    }
+}
+
+// ── Glyph cache ───────────────────────────────────────────────────────────────
+
+struct GlyphCache(HashMap<(char, u32), (Metrics, Vec<u8>)>);
+
+impl GlyphCache {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+/// Cache key: char + size in thousandths of a pixel (avoids f32 as HashMap key).
+#[inline]
+fn glyph_key(ch: char, size: f32) -> (char, u32) {
+    (ch, (size * 1000.0).round() as u32)
+}
+
+fn measure_text(text: &str, size: f32, font: &Font, cache: &mut GlyphCache) -> f32 {
+    let mut total = 0.0f32;
+    for ch in text.chars() {
+        let key = glyph_key(ch, size);
+        cache
+            .0
+            .entry(key)
+            .or_insert_with(|| font.rasterize(ch, size));
+        total += cache.0[&key].0.advance_width;
+    }
+    total
+}
+
+fn anchor_pen_x(
+    x: f32,
+    text: &str,
+    size: f32,
+    anchor: TextAnchor,
+    font: &Font,
+    cache: &mut GlyphCache,
+) -> f32 {
+    match anchor {
+        TextAnchor::Start => x,
+        TextAnchor::Middle => x - measure_text(text, size, font, cache) * 0.5,
+        TextAnchor::End => x - measure_text(text, size, font, cache),
+    }
+}
+
+// ── Shared font ───────────────────────────────────────────────────────────────
+
+fn shared_font() -> &'static Font {
+    static FONT: OnceLock<Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(crate::fonts::dejavu_sans(), FontSettings::default())
+            .expect("bundled DejaVu Sans TTF is valid")
+    })
+}
+
+// ── SVG path parsing ──────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug)]
+enum PathCmd {
+    MoveTo(f32, f32),
+    LineTo(f32, f32),
+    /// Cubic bezier: cp1x cp1y cp2x cp2y ex ey
+    CubicTo(f32, f32, f32, f32, f32, f32),
+    ClosePath,
+}
+
+fn parse_svg_path(d: &str) -> Vec<PathCmd> {
+    let mut out = Vec::new();
+    let b = d.as_bytes();
+    let mut i = 0;
+    let mut cx = 0.0f32;
+    let mut cy = 0.0f32;
+    let mut sub_start = (0.0f32, 0.0f32);
+
+    fn skip(b: &[u8], i: &mut usize) {
+        while *i < b.len() && matches!(b[*i], b' ' | b',' | b'\n' | b'\r' | b'\t') {
+            *i += 1;
+        }
+    }
+
+    fn num(b: &[u8], i: &mut usize) -> Option<f32> {
+        skip(b, i);
+        let s = *i;
+        if *i < b.len() && matches!(b[*i], b'-' | b'+') {
+            *i += 1;
+        }
+        let mut dot = false;
+        while *i < b.len() && (b[*i].is_ascii_digit() || (b[*i] == b'.' && !dot)) {
+            if b[*i] == b'.' {
+                dot = true;
+            }
+            *i += 1;
+        }
+        if *i < b.len() && matches!(b[*i], b'e' | b'E') {
+            *i += 1;
+            if *i < b.len() && matches!(b[*i], b'-' | b'+') {
+                *i += 1;
+            }
+            while *i < b.len() && b[*i].is_ascii_digit() {
+                *i += 1;
+            }
+        }
+        if s == *i {
+            return None;
+        }
+        std::str::from_utf8(&b[s..*i]).ok()?.parse().ok()
+    }
+
+    fn flag(b: &[u8], i: &mut usize) -> Option<u8> {
+        skip(b, i);
+        if *i < b.len() && matches!(b[*i], b'0' | b'1') {
+            let v = b[*i] - b'0';
+            *i += 1;
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    while i < b.len() {
+        skip(b, &mut i);
+        if i >= b.len() {
+            break;
+        }
+        let cmd = b[i];
+        if cmd.is_ascii_alphabetic() {
+            i += 1;
+        }
+        let rel = cmd.is_ascii_lowercase() && !matches!(cmd, b'z' | b'Z');
+
+        match cmd | 0x20 {
+            // to lowercase
+            b'm' => {
+                while let Some(x) = num(b, &mut i) {
+                    let Some(y) = num(b, &mut i) else { break };
+                    let (ax, ay) = if rel { (cx + x, cy + y) } else { (x, y) };
+                    cx = ax;
+                    cy = ay;
+                    sub_start = (ax, ay);
+                    out.push(PathCmd::MoveTo(ax, ay));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                    // Implicit L after M
+                    let Some(x2) = num(b, &mut i) else { break };
+                    let Some(y2) = num(b, &mut i) else { break };
+                    let (bx2, by2) = if rel { (cx + x2, cy + y2) } else { (x2, y2) };
+                    cx = bx2;
+                    cy = by2;
+                    out.push(PathCmd::LineTo(bx2, by2));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'l' => {
+                while let Some(x) = num(b, &mut i) {
+                    let Some(y) = num(b, &mut i) else { break };
+                    let (ax, ay) = if rel { (cx + x, cy + y) } else { (x, y) };
+                    cx = ax;
+                    cy = ay;
+                    out.push(PathCmd::LineTo(ax, ay));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'h' => {
+                while let Some(x) = num(b, &mut i) {
+                    cx = if rel { cx + x } else { x };
+                    out.push(PathCmd::LineTo(cx, cy));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'v' => {
+                while let Some(y) = num(b, &mut i) {
+                    cy = if rel { cy + y } else { y };
+                    out.push(PathCmd::LineTo(cx, cy));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'c' => {
+                while let Some(x1) = num(b, &mut i) {
+                    let Some(y1) = num(b, &mut i) else { break };
+                    let Some(x2) = num(b, &mut i) else { break };
+                    let Some(y2) = num(b, &mut i) else { break };
+                    let Some(x) = num(b, &mut i) else { break };
+                    let Some(y) = num(b, &mut i) else { break };
+                    let base = if rel { (cx, cy) } else { (0.0, 0.0) };
+                    let (ax1, ay1) = (base.0 + x1, base.1 + y1);
+                    let (ax2, ay2) = (base.0 + x2, base.1 + y2);
+                    let (ax, ay) = (base.0 + x, base.1 + y);
+                    cx = ax;
+                    cy = ay;
+                    out.push(PathCmd::CubicTo(ax1, ay1, ax2, ay2, ax, ay));
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'a' => {
+                while let Some(rx) = num(b, &mut i) {
+                    let Some(ry) = num(b, &mut i) else { break };
+                    let Some(xrot) = num(b, &mut i) else { break };
+                    let Some(la) = flag(b, &mut i) else { break };
+                    let Some(sw) = flag(b, &mut i) else { break };
+                    let Some(x) = num(b, &mut i) else { break };
+                    let Some(y) = num(b, &mut i) else { break };
+                    let (ex, ey) = if rel { (cx + x, cy + y) } else { (x, y) };
+                    svg_arc_to_cubics(cx, cy, rx, ry, xrot, la != 0, sw != 0, ex, ey, &mut out);
+                    cx = ex;
+                    cy = ey;
+                    skip(b, &mut i);
+                    if i >= b.len() || b[i].is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            b'z' => {
+                out.push(PathCmd::ClosePath);
+                cx = sub_start.0;
+                cy = sub_start.1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+// ── SVG arc → cubic beziers ───────────────────────────────────────────────────
+//
+// Implements SVG 1.1 spec Appendix F endpoint-to-center parameterization,
+// then splits into ≤90° segments and approximates each with a cubic bezier
+// using the standard Riškus/Maisonobe α formula.
+
+#[allow(clippy::too_many_arguments)]
+fn svg_arc_to_cubics(
+    x1: f32,
+    y1: f32,
+    mut rx: f32,
+    mut ry: f32,
+    x_rot_deg: f32,
+    large_arc: bool,
+    sweep: bool,
+    x2: f32,
+    y2: f32,
+    out: &mut Vec<PathCmd>,
+) {
+    if (x1 - x2).abs() < 1e-5 && (y1 - y2).abs() < 1e-5 {
+        return;
+    }
+    rx = rx.abs();
+    ry = ry.abs();
+    if rx < 1e-5 || ry < 1e-5 {
+        out.push(PathCmd::LineTo(x2, y2));
+        return;
+    }
+
+    let phi = x_rot_deg.to_radians();
+    let (sin_phi, cos_phi) = phi.sin_cos();
+
+    // Midpoint in rotated frame (SVG spec F.6.5.1)
+    let dx2 = (x1 - x2) * 0.5;
+    let dy2 = (y1 - y2) * 0.5;
+    let x1p = cos_phi * dx2 + sin_phi * dy2;
+    let y1p = -sin_phi * dx2 + cos_phi * dy2;
+
+    // Ensure radii are large enough (spec F.6.6.3)
+    let lambda = (x1p / rx) * (x1p / rx) + (y1p / ry) * (y1p / ry);
+    if lambda > 1.0 {
+        let s = lambda.sqrt();
+        rx *= s;
+        ry *= s;
+    }
+
+    let rx2 = rx * rx;
+    let ry2 = ry * ry;
+    let x1p2 = x1p * x1p;
+    let y1p2 = y1p * y1p;
+
+    // Center in rotated frame (spec F.6.5.2)
+    let num = (rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2).max(0.0);
+    let den = rx2 * y1p2 + ry2 * x1p2;
+    let sq = if den.abs() < 1e-10 {
+        0.0
+    } else {
+        (num / den).sqrt()
+    };
+    let sign = if large_arc == sweep { -1.0f32 } else { 1.0f32 };
+    let cxp = sign * sq * (rx * y1p / ry);
+    let cyp = -sign * sq * (ry * x1p / rx);
+
+    // Center in original frame (spec F.6.5.3)
+    let cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) * 0.5;
+    let cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) * 0.5;
+
+    // Angles (spec F.6.5.5–6)
+    let ux = (x1p - cxp) / rx;
+    let uy = (y1p - cyp) / ry;
+    let vx = (-x1p - cxp) / rx;
+    let vy = (-y1p - cyp) / ry;
+
+    let theta1 = vec2_angle(1.0, 0.0, ux, uy);
+    let mut d_theta = vec2_angle(ux, uy, vx, vy);
+    if !sweep && d_theta > 0.0 {
+        d_theta -= std::f32::consts::TAU;
+    }
+    if sweep && d_theta < 0.0 {
+        d_theta += std::f32::consts::TAU;
+    }
+
+    // Split into ≤90° segments
+    let n = (d_theta.abs() / (std::f32::consts::PI * 0.5)).ceil() as i32;
+    let n = n.max(1);
+    let seg = d_theta / n as f32;
+    let mut theta = theta1;
+    for _ in 0..n {
+        arc_seg_cubic(cx, cy, rx, ry, cos_phi, sin_phi, theta, seg, out);
+        theta += seg;
+    }
+}
+
+fn vec2_angle(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
+    let dot = (ux * vx + uy * vy).clamp(-1.0, 1.0)
+        / ((ux * ux + uy * uy) * (vx * vx + vy * vy))
+            .sqrt()
+            .max(1e-10);
+    let a = dot.acos();
+    if ux * vy - uy * vx < 0.0 {
+        -a
+    } else {
+        a
+    }
+}
+
+/// Convert a single arc segment (angle `theta` to `theta + d_theta`, guaranteed
+/// ≤90°) to a cubic bezier via the standard α = (4/3)·tan(dθ/4) formula.
+#[allow(clippy::too_many_arguments)]
+fn arc_seg_cubic(
+    cx: f32,
+    cy: f32,
+    rx: f32,
+    ry: f32,
+    cos_phi: f32,
+    sin_phi: f32,
+    theta: f32,
+    d_theta: f32,
+    out: &mut Vec<PathCmd>,
+) {
+    let alpha = (4.0 / 3.0) * (d_theta * 0.25).tan();
+    let (sin_t, cos_t) = theta.sin_cos();
+    let (sin_t2, cos_t2) = (theta + d_theta).sin_cos();
+
+    // Points and tangent derivatives on the (centered, axis-aligned) ellipse
+    let (ex1, ey1) = (rx * cos_t, ry * sin_t);
+    let (ex2, ey2) = (rx * cos_t2, ry * sin_t2);
+    let (dx1, dy1) = (-rx * sin_t, ry * cos_t); // tangent at start
+    let (dx2, dy2) = (-rx * sin_t2, ry * cos_t2); // tangent at end
+
+    // Control points in the rotated+translated frame
+    let cp1 = ellipse_to_canvas(
+        ex1 + alpha * dx1,
+        ey1 + alpha * dy1,
+        cx,
+        cy,
+        cos_phi,
+        sin_phi,
+    );
+    let cp2 = ellipse_to_canvas(
+        ex2 - alpha * dx2,
+        ey2 - alpha * dy2,
+        cx,
+        cy,
+        cos_phi,
+        sin_phi,
+    );
+    let p2 = ellipse_to_canvas(ex2, ey2, cx, cy, cos_phi, sin_phi);
+
+    out.push(PathCmd::CubicTo(cp1.0, cp1.1, cp2.0, cp2.1, p2.0, p2.1));
+}
+
+#[inline]
+fn ellipse_to_canvas(ex: f32, ey: f32, cx: f32, cy: f32, cos_phi: f32, sin_phi: f32) -> (f32, f32) {
+    (
+        cos_phi * ex - sin_phi * ey + cx,
+        sin_phi * ex + cos_phi * ey + cy,
+    )
+}
+
+// ── Adaptive bezier tessellation (de Casteljau) ───────────────────────────────
+//
+// Recursion stops when the midpoint of the bezier deviates from the chord by
+// less than `tol` pixels. This concentrates segments where the curve bends.
+
+fn tessellate_cubic(
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    p3: (f32, f32),
+    tol: f32,
+    out: &mut Vec<(f32, f32)>,
+) {
+    // Midpoint of the bezier vs midpoint of the chord
+    let mid = (
+        0.125 * (p0.0 + 3.0 * p1.0 + 3.0 * p2.0 + p3.0),
+        0.125 * (p0.1 + 3.0 * p1.1 + 3.0 * p2.1 + p3.1),
+    );
+    let lin = ((p0.0 + p3.0) * 0.5, (p0.1 + p3.1) * 0.5);
+    let dx = mid.0 - lin.0;
+    let dy = mid.1 - lin.1;
+    if dx * dx + dy * dy < tol * tol {
+        out.push(p3);
+        return;
+    }
+    // De Casteljau split at t = 0.5
+    let q0 = mid2(p0, p1);
+    let q1 = mid2(p1, p2);
+    let q2 = mid2(p2, p3);
+    let r0 = mid2(q0, q1);
+    let r1 = mid2(q1, q2);
+    let s = mid2(r0, r1);
+    tessellate_cubic(p0, q0, r0, s, tol, out);
+    tessellate_cubic(s, r1, q2, p3, tol, out);
+}
+
+#[inline]
+fn mid2(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+    ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
+}
+
+/// Tessellate a list of path commands into sub-paths of (f32,f32) vertices.
+fn tessellate_path(cmds: &[PathCmd], tol: f32) -> Vec<Vec<(f32, f32)>> {
+    let mut paths: Vec<Vec<(f32, f32)>> = Vec::new();
+    let mut cur: Vec<(f32, f32)> = Vec::new();
+    let mut pen = (0.0f32, 0.0f32);
+    let mut sub_start = (0.0f32, 0.0f32);
+
+    for &cmd in cmds {
+        match cmd {
+            PathCmd::MoveTo(x, y) => {
+                if cur.len() > 1 {
+                    paths.push(std::mem::take(&mut cur));
+                } else {
+                    cur.clear();
+                }
+                cur.push((x, y));
+                pen = (x, y);
+                sub_start = (x, y);
+            }
+            PathCmd::LineTo(x, y) => {
+                cur.push((x, y));
+                pen = (x, y);
+            }
+            PathCmd::CubicTo(x1, y1, x2, y2, x, y) => {
+                tessellate_cubic(pen, (x1, y1), (x2, y2), (x, y), tol, &mut cur);
+                pen = (x, y);
+            }
+            PathCmd::ClosePath => {
+                if (pen.0 - sub_start.0).abs() > 0.01 || (pen.1 - sub_start.1).abs() > 0.01 {
+                    cur.push(sub_start);
+                }
+                if cur.len() > 1 {
+                    paths.push(std::mem::take(&mut cur));
+                } else {
+                    cur.clear();
+                }
+                pen = sub_start;
+            }
+        }
+    }
+    if cur.len() > 1 {
+        paths.push(cur);
+    }
+    paths
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Coverage of pixel column/row `px` under a 1D interval [lo, hi].
+/// Computes the overlap of [lo, hi] with the pixel interval [px, px+1).
+#[inline]
+fn partial_cov(lo: f32, hi: f32, px: i32) -> f32 {
+    let p0 = px as f32;
+    (hi.min(p0 + 1.0) - lo.max(p0)).clamp(0.0, 1.0)
+}
+
+fn parse_dasharray(s: &str) -> Vec<f32> {
+    s.split([' ', ','])
+        .filter_map(|t| t.trim().parse::<f32>().ok())
+        .filter(|&v| v > 0.0)
+        .collect()
+}
+
+/// Bilinear RGBA sample from a pixel buffer. Returns (0,0,0,0) for out-of-bounds.
+fn bilinear_rgba(pixels: &[u8], w: u32, h: u32, x: f32, y: f32) -> Rgba {
+    let x0 = x.floor() as i32;
+    let y0 = y.floor() as i32;
+    let fx = x - x.floor();
+    let fy = y - y.floor();
+
+    let get = |xi: i32, yi: i32| -> [f32; 4] {
+        if xi < 0 || yi < 0 || xi >= w as i32 || yi >= h as i32 {
+            return [0.0; 4];
+        }
+        let idx = (yi as usize * w as usize + xi as usize) * 4;
+        [
+            pixels[idx] as f32,
+            pixels[idx + 1] as f32,
+            pixels[idx + 2] as f32,
+            pixels[idx + 3] as f32,
+        ]
+    };
+
+    let [r00, g00, b00, a00] = get(x0, y0);
+    let [r10, g10, b10, a10] = get(x0 + 1, y0);
+    let [r01, g01, b01, a01] = get(x0, y0 + 1);
+    let [r11, g11, b11, a11] = get(x0 + 1, y0 + 1);
+
+    let lerp = |a: f32, b: f32, c: f32, d: f32| -> u8 {
+        ((a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy) as u8
+    };
+
+    Rgba {
+        r: lerp(r00, r10, r01, r11),
+        g: lerp(g00, g10, g01, g11),
+        b: lerp(b00, b10, b01, b11),
+        a: lerp(a00, a10, a01, a11),
+    }
+}
+
+// ── Color conversion ──────────────────────────────────────────────────────────
+
+fn kcolor_to_rgba(c: &KColor) -> Option<Rgba> {
+    match c {
+        KColor::Rgb(r, g, b) => Some(Rgba::opaque(*r, *g, *b)),
+        KColor::None => None,
+        // Reuse the existing parser in color.rs which covers all CSS names used
+        // in kuva. Any color it returns as Css(_) is genuinely unknown; skip it.
+        KColor::Css(s) => match KColor::from(s.as_ref()) {
+            KColor::Rgb(r, g, b) => Some(Rgba::opaque(r, g, b)),
+            _ => None,
+        },
+    }
+}
+
+fn css_to_rgba(s: &str) -> Option<Rgba> {
+    kcolor_to_rgba(&KColor::from(s))
+}
+
+// ── Transform stack helper ────────────────────────────────────────────────────
+
+fn parse_translate(t: &str) -> (f32, f32) {
+    let t = t.trim();
+    if let Some(inner) = t
+        .strip_prefix("translate(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        let mut parts = inner.split(',');
+        let x = parts
+            .next()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0.0);
+        let y = parts
+            .next()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0.0);
+        return (x, y);
+    }
+    (0.0, 0.0)
+}
+
+// ── Public backend ────────────────────────────────────────────────────────────
 
 pub struct RasterBackend {
     pub scale: f32,
@@ -56,59 +1353,84 @@ impl RasterBackend {
             return Err("scene has zero dimensions".into());
         }
 
-        let mut pixmap =
-            Pixmap::new(w, h).ok_or_else(|| "failed to allocate pixmap".to_string())?;
+        let mut canvas = Canvas::new(w, h);
+        let bg = scene
+            .background_color
+            .as_deref()
+            .and_then(css_to_rgba)
+            .unwrap_or(Rgba::opaque(255, 255, 255));
+        canvas.fill_background(bg);
 
-        let transform = Transform::from_scale(self.scale, self.scale);
+        let font = shared_font();
+        let mut glyph_cache = GlyphCache::new();
+        let s = self.scale;
 
-        if let Some(ref bg) = scene.background_color {
-            if let Some(c) = parse_color(bg) {
-                pixmap.fill(c);
-            }
-        }
+        let default_text = scene
+            .text_color
+            .as_deref()
+            .and_then(css_to_rgba)
+            .unwrap_or(Rgba::opaque(0, 0, 0));
 
-        let mut text_primitives: Vec<&Primitive> = Vec::new();
+        let mut tx_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+        let mut clip_stack: Vec<Clip> = vec![Clip::full(w, h)];
+
+        // Precomputed circle masks: key = radius in 16ths of a scaled pixel
+        let mut mask_cache: HashMap<u32, (i32, Vec<u8>)> = HashMap::new();
 
         for elem in &scene.elements {
+            let (tx, ty) = *tx_stack.last().unwrap();
+            let clip = *clip_stack.last().unwrap();
+
+            // Helper: apply scale + translate to a scene coordinate
+            macro_rules! sx {
+                ($v:expr) => {
+                    ($v as f32 + tx) * s
+                };
+            }
+            macro_rules! sy {
+                ($v:expr) => {
+                    ($v as f32 + ty) * s
+                };
+            }
+
             match elem {
-                Primitive::Circle {
-                    cx,
-                    cy,
-                    r,
-                    fill,
-                    fill_opacity,
-                    stroke,
-                    stroke_width,
-                } => {
-                    if let Some(mut color) = color_to_skia(fill) {
-                        if let Some(op) = fill_opacity {
-                            let a = op.clamp(0.0, 1.0) as f32;
-                            color = Color::from_rgba(color.red(), color.green(), color.blue(), a)
-                                .unwrap_or(color);
-                        }
-                        let mut paint = Paint::default();
-                        paint.set_color(color);
-                        paint.anti_alias = true;
-                        if let Some(path) =
-                            PathBuilder::from_circle(*cx as f32, *cy as f32, *r as f32)
-                        {
-                            pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
-                            if let Some(sc) = stroke {
-                                if let Some(sc_color) = color_to_skia(sc) {
-                                    let mut sp = Paint::default();
-                                    sp.set_color(sc_color);
-                                    sp.anti_alias = true;
-                                    let sw = stroke_width.unwrap_or(1.0) as f32;
-                                    let sk_stroke = Stroke {
-                                        width: sw,
-                                        ..Stroke::default()
-                                    };
-                                    pixmap.stroke_path(&path, &sp, &sk_stroke, transform, None);
-                                }
-                            }
-                        }
+                Primitive::GroupStart { transform, .. } => {
+                    let (dx, dy) = transform
+                        .as_deref()
+                        .map(parse_translate)
+                        .unwrap_or((0.0, 0.0));
+                    tx_stack.push((tx + dx, ty + dy));
+                    clip_stack.push(clip);
+                }
+                Primitive::GroupEnd => {
+                    if tx_stack.len() > 1 {
+                        tx_stack.pop();
+                    }
+                    if clip_stack.len() > 1 {
+                        clip_stack.pop();
                     }
                 }
+                Primitive::ClipStart {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                } => {
+                    let new_clip = Clip {
+                        x0: sx!(*x).floor() as i32,
+                        y0: sy!(*y).floor() as i32,
+                        x1: sx!(*x + *width).ceil() as i32,
+                        y1: sy!(*y + *height).ceil() as i32,
+                    };
+                    clip_stack.push(clip.intersect(new_clip));
+                }
+                Primitive::ClipEnd => {
+                    if clip_stack.len() > 1 {
+                        clip_stack.pop();
+                    }
+                }
+
                 Primitive::Rect {
                     x,
                     y,
@@ -119,39 +1441,63 @@ impl RasterBackend {
                     stroke_width,
                     opacity,
                 } => {
-                    if let Some(rect) =
-                        Rect::from_xywh(*x as f32, *y as f32, *width as f32, *height as f32)
-                    {
-                        if let Some(mut color) = color_to_skia(fill) {
-                            if let Some(op) = opacity {
-                                let a = (*op as f32).clamp(0.0, 1.0) * color.alpha();
-                                color =
-                                    Color::from_rgba(color.red(), color.green(), color.blue(), a)
-                                        .unwrap_or(color);
-                            }
-                            let mut paint = Paint::default();
-                            paint.set_color(color);
-                            pixmap.fill_rect(rect, &paint, transform, None);
-                        }
-                        if let Some(ref stroke_color) = stroke {
-                            if let Some(color) = color_to_skia(stroke_color) {
-                                let mut paint = Paint::default();
-                                paint.set_color(color);
-                                paint.anti_alias = true;
-                                let sw = stroke_width.unwrap_or(1.0) as f32;
-                                let sk_stroke = Stroke {
-                                    width: sw,
-                                    ..Stroke::default()
-                                };
-                                let mut pb = PathBuilder::new();
-                                pb.push_rect(rect);
-                                if let Some(path) = pb.finish() {
-                                    pixmap.stroke_path(&path, &paint, &sk_stroke, transform, None);
-                                }
+                    let (fx, fy, fw, fh) =
+                        (sx!(*x), sy!(*y), *width as f32 * s, *height as f32 * s);
+                    if let Some(rgba) = kcolor_to_rgba(fill) {
+                        let rgba = if let Some(op) = opacity {
+                            rgba.with_alpha((op.clamp(0.0, 1.0) * rgba.a as f64) as u8)
+                        } else {
+                            rgba
+                        };
+                        canvas.fill_rect(fx, fy, fw, fh, rgba, clip);
+                    }
+                    if let Some(sc) = stroke {
+                        if let Some(sc_rgba) = kcolor_to_rgba(sc) {
+                            let sw = stroke_width.unwrap_or(1.0) as f32 * s;
+                            let pts = [
+                                (fx, fy),
+                                (fx + fw, fy),
+                                (fx + fw, fy + fh),
+                                (fx, fy + fh),
+                                (fx, fy),
+                            ];
+                            for i in 0..4 {
+                                canvas.draw_line(
+                                    pts[i].0,
+                                    pts[i].1,
+                                    pts[i + 1].0,
+                                    pts[i + 1].1,
+                                    sc_rgba,
+                                    sw,
+                                    None,
+                                    clip,
+                                );
                             }
                         }
                     }
                 }
+
+                Primitive::RectBatch {
+                    x,
+                    y,
+                    w: ws,
+                    h: hs,
+                    fills,
+                } => {
+                    for i in 0..x.len() {
+                        if let Some(rgba) = kcolor_to_rgba(&fills[i]) {
+                            canvas.fill_rect(
+                                sx!(x[i]),
+                                sy!(y[i]),
+                                ws[i] as f32 * s,
+                                hs[i] as f32 * s,
+                                rgba,
+                                clip,
+                            );
+                        }
+                    }
+                }
+
                 Primitive::Line {
                     x1,
                     y1,
@@ -159,61 +1505,52 @@ impl RasterBackend {
                     y2,
                     stroke,
                     stroke_width,
-                    ..
+                    stroke_dasharray,
                 } => {
-                    if let Some(color) = color_to_skia(stroke) {
-                        let mut paint = Paint::default();
-                        paint.set_color(color);
-                        paint.anti_alias = true;
-                        let sk_stroke = Stroke {
-                            width: *stroke_width as f32,
-                            ..Stroke::default()
-                        };
-                        let mut pb = PathBuilder::new();
-                        pb.move_to(*x1 as f32, *y1 as f32);
-                        pb.line_to(*x2 as f32, *y2 as f32);
-                        if let Some(path) = pb.finish() {
-                            pixmap.stroke_path(&path, &paint, &sk_stroke, transform, None);
+                    if let Some(rgba) = kcolor_to_rgba(stroke) {
+                        canvas.draw_line(
+                            sx!(*x1),
+                            sy!(*y1),
+                            sx!(*x2),
+                            sy!(*y2),
+                            rgba,
+                            *stroke_width as f32 * s,
+                            stroke_dasharray.as_deref(),
+                            clip,
+                        );
+                    }
+                }
+
+                Primitive::Circle {
+                    cx,
+                    cy,
+                    r,
+                    fill,
+                    fill_opacity,
+                    stroke,
+                    stroke_width,
+                } => {
+                    let (fcx, fcy, fr) = (sx!(*cx), sy!(*cy), *r as f32 * s);
+                    if let Some(rgba) = kcolor_to_rgba(fill) {
+                        let rgba = fill_opacity
+                            .map(|op| rgba.with_alpha((op.clamp(0.0, 1.0) * 255.0) as u8))
+                            .unwrap_or(rgba);
+                        canvas.fill_circle_aa(fcx, fcy, fr, rgba, clip);
+                    }
+                    if let Some(sc) = stroke {
+                        if let Some(sc_rgba) = kcolor_to_rgba(sc) {
+                            canvas.stroke_circle_aa(
+                                fcx,
+                                fcy,
+                                fr,
+                                sc_rgba,
+                                stroke_width.unwrap_or(1.0) as f32 * s,
+                                clip,
+                            );
                         }
                     }
                 }
-                Primitive::Path(pd) => {
-                    if let Some(path) = parse_svg_path(&pd.d) {
-                        if let Some(ref fill_str) = pd.fill {
-                            if let Some(mut color) = color_to_skia(fill_str) {
-                                if let Some(op) = pd.opacity {
-                                    let a = (op as f32).clamp(0.0, 1.0) * color.alpha();
-                                    color = Color::from_rgba(
-                                        color.red(),
-                                        color.green(),
-                                        color.blue(),
-                                        a,
-                                    )
-                                    .unwrap_or(color);
-                                }
-                                let mut paint = Paint::default();
-                                paint.set_color(color);
-                                paint.anti_alias = true;
-                                pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
-                            }
-                        }
-                        if !matches!(pd.stroke, crate::render::color::Color::None) {
-                            if let Some(color) = color_to_skia(&pd.stroke) {
-                                let mut paint = Paint::default();
-                                paint.set_color(color);
-                                paint.anti_alias = true;
-                                let sk_stroke = Stroke {
-                                    width: pd.stroke_width as f32,
-                                    ..Stroke::default()
-                                };
-                                pixmap.stroke_path(&path, &paint, &sk_stroke, transform, None);
-                            }
-                        }
-                    }
-                }
-                Primitive::Text { .. } | Primitive::RichText { .. } => {
-                    text_primitives.push(elem);
-                }
+
                 Primitive::CircleBatch {
                     cx,
                     cy,
@@ -223,425 +1560,147 @@ impl RasterBackend {
                     stroke,
                     stroke_width,
                 } => {
-                    if let Some(mut color) = color_to_skia(fill) {
-                        if let Some(op) = fill_opacity {
-                            let a = op.clamp(0.0, 1.0) as f32;
-                            color = Color::from_rgba(color.red(), color.green(), color.blue(), a)
-                                .unwrap_or(color);
-                        }
-                        let mut paint = Paint::default();
-                        paint.set_color(color);
-                        paint.anti_alias = true;
-                        let stroke_paint = stroke.as_ref().and_then(color_to_skia).map(|sc| {
-                            let mut sp = Paint::default();
-                            sp.set_color(sc);
-                            sp.anti_alias = true;
-                            sp
-                        });
-                        let sw = stroke_width.unwrap_or(1.0) as f32;
-                        let sk_stroke = Stroke {
-                            width: sw,
-                            ..Stroke::default()
-                        };
+                    if let Some(rgba) = kcolor_to_rgba(fill) {
+                        let rgba = fill_opacity
+                            .map(|op| rgba.with_alpha((op.clamp(0.0, 1.0) * 255.0) as u8))
+                            .unwrap_or(rgba);
+                        let fr = *r as f32 * s;
+                        let key = (fr * 16.0).round() as u32;
+                        let entry = mask_cache
+                            .entry(key)
+                            .or_insert_with(|| Canvas::make_circle_mask(fr));
+                        let half = entry.0;
+                        let mask = &entry.1 as *const Vec<u8>; // raw ptr to avoid borrow split
+
                         for i in 0..cx.len() {
-                            if let Some(path) =
-                                PathBuilder::from_circle(cx[i] as f32, cy[i] as f32, *r as f32)
-                            {
-                                pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
-                                if let Some(ref sp) = stroke_paint {
-                                    pixmap.stroke_path(&path, sp, &sk_stroke, transform, None);
+                            let ix = sx!(cx[i]).round() as i32;
+                            let iy = sy!(cy[i]).round() as i32;
+                            // SAFETY: mask_cache is not mutated in this loop
+                            canvas.blit_circle_mask(ix, iy, half, unsafe { &*mask }, rgba, clip);
+                        }
+
+                        if let Some(sc) = stroke {
+                            if let Some(sc_rgba) = kcolor_to_rgba(sc) {
+                                let sw = stroke_width.unwrap_or(1.0) as f32 * s;
+                                for i in 0..cx.len() {
+                                    canvas.stroke_circle_aa(
+                                        sx!(cx[i]),
+                                        sy!(cy[i]),
+                                        fr,
+                                        sc_rgba,
+                                        sw,
+                                        clip,
+                                    );
                                 }
                             }
                         }
                     }
                 }
-                Primitive::RectBatch { x, y, w, h, fills } => {
-                    let mut paint = Paint::default();
-                    for i in 0..x.len() {
-                        if let Some(rect) =
-                            Rect::from_xywh(x[i] as f32, y[i] as f32, w[i] as f32, h[i] as f32)
-                        {
-                            if let Some(color) = color_to_skia(&fills[i]) {
-                                paint.set_color(color);
-                                pixmap.fill_rect(rect, &paint, transform, None);
+
+                Primitive::Path(pd) => {
+                    let cmds = parse_svg_path(&pd.d);
+                    let subs = tessellate_path(&cmds, 0.25);
+
+                    // Apply scale + translate to tessellated points
+                    let transform_pts = |sub: &Vec<(f32, f32)>| -> Vec<(f32, f32)> {
+                        sub.iter()
+                            .map(|&(x, y)| ((x + tx) * s, (y + ty) * s))
+                            .collect()
+                    };
+
+                    if let Some(ref fc) = pd.fill {
+                        if let Some(mut rgba) = kcolor_to_rgba(fc) {
+                            if let Some(op) = pd.opacity {
+                                rgba = rgba.with_alpha((op.clamp(0.0, 1.0) * 255.0) as u8);
+                            }
+                            for sub in &subs {
+                                canvas.fill_polygon(&transform_pts(sub), rgba, clip);
+                            }
+                        }
+                    }
+
+                    if !matches!(pd.stroke, KColor::None) {
+                        if let Some(rgba) = kcolor_to_rgba(&pd.stroke) {
+                            let sw = pd.stroke_width as f32 * s;
+                            let dash = pd.stroke_dasharray.as_deref();
+                            for sub in &subs {
+                                let pts = transform_pts(sub);
+                                for j in 0..pts.len().saturating_sub(1) {
+                                    canvas.draw_line(
+                                        pts[j].0,
+                                        pts[j].1,
+                                        pts[j + 1].0,
+                                        pts[j + 1].1,
+                                        rgba,
+                                        sw,
+                                        dash,
+                                        clip,
+                                    );
+                                }
                             }
                         }
                     }
                 }
-                Primitive::GroupStart { .. } | Primitive::GroupEnd => {}
-                Primitive::ClipStart { .. } | Primitive::ClipEnd => {}
-            }
-        }
 
-        // Render text via a minimal SVG overlay through resvg.
-        if !text_primitives.is_empty() {
-            let text_svg = build_text_svg(scene, &text_primitives);
-            let options = resvg::usvg::Options {
-                fontdb: shared_fontdb(),
-                ..Default::default()
-            };
-            if let Ok(tree) = resvg::usvg::Tree::from_str(&text_svg, &options) {
-                resvg::render(&tree, transform, &mut pixmap.as_mut());
-            }
-        }
-
-        pixmap.encode_png().map_err(|e| e.to_string())
-    }
-}
-
-fn build_text_svg(scene: &Scene, texts: &[&Primitive]) -> String {
-    use std::fmt::Write;
-
-    let mut svg = String::with_capacity(texts.len() * 120 + 200);
-    let _ = write!(
-        svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}""#,
-        scene.width, scene.height
-    );
-    if let Some(ref family) = scene.font_family {
-        let _ = write!(svg, r#" font-family="{family}""#);
-    }
-    if let Some(ref color) = scene.text_color {
-        let _ = write!(svg, r#" fill="{color}""#);
-    }
-    svg.push('>');
-
-    for elem in texts {
-        match elem {
-            Primitive::Text {
-                x,
-                y,
-                content,
-                size,
-                anchor,
-                rotate,
-                bold,
-                ..
-            } => {
-                let anchor_str = match anchor {
-                    TextAnchor::Start => "start",
-                    TextAnchor::Middle => "middle",
-                    TextAnchor::End => "end",
-                };
-                let _ = write!(
-                    svg,
-                    r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}""#
-                );
-                if *bold {
-                    svg.push_str(r#" font-weight="bold""#);
+                Primitive::Text {
+                    x,
+                    y,
+                    content,
+                    size,
+                    anchor,
+                    rotate,
+                    bold: _,
+                    color,
+                } => {
+                    let rgba = color
+                        .as_ref()
+                        .and_then(kcolor_to_rgba)
+                        .unwrap_or(default_text);
+                    canvas.draw_text(
+                        sx!(*x),
+                        sy!(*y),
+                        content,
+                        *size as f32 * s,
+                        rgba,
+                        *anchor,
+                        rotate.map(|r| r as f32),
+                        font,
+                        &mut glyph_cache,
+                        clip,
+                    );
                 }
-                if let Some(angle) = rotate {
-                    let _ = write!(svg, r#" transform="rotate({angle},{x},{y})""#);
-                }
-                svg.push('>');
-                write_escaped(&mut svg, content);
-                svg.push_str("</text>");
-            }
-            Primitive::RichText {
-                x,
-                y,
-                spans,
-                size,
-                anchor,
-                ..
-            } => {
-                let anchor_str = match anchor {
-                    TextAnchor::Start => "start",
-                    TextAnchor::Middle => "middle",
-                    TextAnchor::End => "end",
-                };
-                let _ = write!(
-                    svg,
-                    r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor_str}">"#
-                );
-                for span in spans {
-                    let styled = span.bold || span.italic || span.underline;
-                    if styled {
-                        svg.push_str("<tspan");
-                        if span.bold {
-                            svg.push_str(r#" font-weight="bold""#);
-                        }
-                        if span.italic {
-                            svg.push_str(r#" font-style="italic""#);
-                        }
-                        if span.underline {
-                            svg.push_str(r#" text-decoration="underline""#);
-                        }
-                        svg.push('>');
-                    }
-                    write_escaped(&mut svg, &span.text);
-                    if styled {
-                        svg.push_str("</tspan>");
-                    }
-                }
-                svg.push_str("</text>");
-            }
-            _ => {}
-        }
-    }
 
-    svg.push_str("</svg>");
-    svg
-}
-
-fn write_escaped(buf: &mut String, s: &str) {
-    for b in s.bytes() {
-        match b {
-            b'&' => buf.push_str("&amp;"),
-            b'<' => buf.push_str("&lt;"),
-            b'>' => buf.push_str("&gt;"),
-            b'"' => buf.push_str("&quot;"),
-            _ => buf.push(b as char),
-        }
-    }
-}
-
-/// Convert a kuva Color to a tiny_skia Color without string round-tripping.
-fn color_to_skia(c: &crate::render::color::Color) -> Option<Color> {
-    match c {
-        crate::render::color::Color::Rgb(r, g, b) => Some(Color::from_rgba8(*r, *g, *b, 255)),
-        crate::render::color::Color::None => None,
-        crate::render::color::Color::Css(s) => parse_color(s),
-    }
-}
-
-/// Parse a CSS color string into a tiny_skia Color.
-fn parse_color(s: &str) -> Option<Color> {
-    let s = s.trim();
-    if s.is_empty() || s.eq_ignore_ascii_case("none") || s.eq_ignore_ascii_case("transparent") {
-        return None;
-    }
-    // #RRGGBB
-    if s.len() == 7 && s.as_bytes()[0] == b'#' {
-        let r = u8::from_str_radix(&s[1..3], 16).ok()?;
-        let g = u8::from_str_radix(&s[3..5], 16).ok()?;
-        let b = u8::from_str_radix(&s[5..7], 16).ok()?;
-        return Some(Color::from_rgba8(r, g, b, 255));
-    }
-    // #RGB
-    if s.len() == 4 && s.as_bytes()[0] == b'#' {
-        let r = u8::from_str_radix(&s[1..2], 16).ok()?;
-        let g = u8::from_str_radix(&s[2..3], 16).ok()?;
-        let b = u8::from_str_radix(&s[3..4], 16).ok()?;
-        return Some(Color::from_rgba8(r * 17, g * 17, b * 17, 255));
-    }
-    // rgb(r, g, b) or rgb(r,g,b)
-    if let Some(inner) = s.strip_prefix("rgb(").and_then(|t| t.strip_suffix(')')) {
-        let parts: Vec<&str> = inner.split(',').collect();
-        if parts.len() == 3 {
-            let r = parts[0].trim().parse::<f64>().ok()?.round() as u8;
-            let g = parts[1].trim().parse::<f64>().ok()?.round() as u8;
-            let b = parts[2].trim().parse::<f64>().ok()?.round() as u8;
-            return Some(Color::from_rgba8(r, g, b, 255));
-        }
-    }
-    // Named CSS colors (common subset used in plotting)
-    match s.to_ascii_lowercase().as_str() {
-        "black" => Some(Color::from_rgba8(0, 0, 0, 255)),
-        "white" => Some(Color::from_rgba8(255, 255, 255, 255)),
-        "red" => Some(Color::from_rgba8(255, 0, 0, 255)),
-        "green" => Some(Color::from_rgba8(0, 128, 0, 255)),
-        "blue" => Some(Color::from_rgba8(0, 0, 255, 255)),
-        "steelblue" => Some(Color::from_rgba8(70, 130, 180, 255)),
-        "gray" | "grey" => Some(Color::from_rgba8(128, 128, 128, 255)),
-        "lightgray" | "lightgrey" => Some(Color::from_rgba8(211, 211, 211, 255)),
-        "darkgray" | "darkgrey" => Some(Color::from_rgba8(169, 169, 169, 255)),
-        "orange" => Some(Color::from_rgba8(255, 165, 0, 255)),
-        "yellow" => Some(Color::from_rgba8(255, 255, 0, 255)),
-        "purple" => Some(Color::from_rgba8(128, 0, 128, 255)),
-        "pink" => Some(Color::from_rgba8(255, 192, 203, 255)),
-        "brown" => Some(Color::from_rgba8(165, 42, 42, 255)),
-        "cyan" => Some(Color::from_rgba8(0, 255, 255, 255)),
-        "magenta" => Some(Color::from_rgba8(255, 0, 255, 255)),
-        "coral" => Some(Color::from_rgba8(255, 127, 80, 255)),
-        "salmon" => Some(Color::from_rgba8(250, 128, 114, 255)),
-        "navy" => Some(Color::from_rgba8(0, 0, 128, 255)),
-        "teal" => Some(Color::from_rgba8(0, 128, 128, 255)),
-        "olive" => Some(Color::from_rgba8(128, 128, 0, 255)),
-        "maroon" => Some(Color::from_rgba8(128, 0, 0, 255)),
-        "silver" => Some(Color::from_rgba8(192, 192, 192, 255)),
-        "gold" => Some(Color::from_rgba8(255, 215, 0, 255)),
-        "tomato" => Some(Color::from_rgba8(255, 99, 71, 255)),
-        "crimson" => Some(Color::from_rgba8(220, 20, 60, 255)),
-        "dodgerblue" => Some(Color::from_rgba8(30, 144, 255, 255)),
-        "limegreen" => Some(Color::from_rgba8(50, 205, 50, 255)),
-        "orangered" => Some(Color::from_rgba8(255, 69, 0, 255)),
-        "darkred" => Some(Color::from_rgba8(139, 0, 0, 255)),
-        "darkblue" => Some(Color::from_rgba8(0, 0, 139, 255)),
-        "darkgreen" => Some(Color::from_rgba8(0, 100, 0, 255)),
-        "firebrick" => Some(Color::from_rgba8(178, 34, 34, 255)),
-        "royalblue" => Some(Color::from_rgba8(65, 105, 225, 255)),
-        "slategray" | "slategrey" => Some(Color::from_rgba8(112, 128, 144, 255)),
-        "dimgray" | "dimgrey" => Some(Color::from_rgba8(105, 105, 105, 255)),
-        "indianred" => Some(Color::from_rgba8(205, 92, 92, 255)),
-        "mediumblue" => Some(Color::from_rgba8(0, 0, 205, 255)),
-        "midnightblue" => Some(Color::from_rgba8(25, 25, 112, 255)),
-        "forestgreen" => Some(Color::from_rgba8(34, 139, 34, 255)),
-        "seagreen" => Some(Color::from_rgba8(46, 139, 87, 255)),
-        "sienna" => Some(Color::from_rgba8(160, 82, 45, 255)),
-        "chocolate" => Some(Color::from_rgba8(210, 105, 30, 255)),
-        "peru" => Some(Color::from_rgba8(205, 133, 63, 255)),
-        "tan" => Some(Color::from_rgba8(210, 180, 140, 255)),
-        "plum" => Some(Color::from_rgba8(221, 160, 221, 255)),
-        "orchid" => Some(Color::from_rgba8(218, 112, 214, 255)),
-        "violet" => Some(Color::from_rgba8(238, 130, 238, 255)),
-        "turquoise" => Some(Color::from_rgba8(64, 224, 208, 255)),
-        "aquamarine" => Some(Color::from_rgba8(127, 255, 212, 255)),
-        "cornflowerblue" => Some(Color::from_rgba8(100, 149, 237, 255)),
-        "cadetblue" => Some(Color::from_rgba8(95, 158, 160, 255)),
-        "darkorange" => Some(Color::from_rgba8(255, 140, 0, 255)),
-        "deeppink" => Some(Color::from_rgba8(255, 20, 147, 255)),
-        "hotpink" => Some(Color::from_rgba8(255, 105, 180, 255)),
-        "mediumpurple" => Some(Color::from_rgba8(147, 112, 219, 255)),
-        "mediumseagreen" => Some(Color::from_rgba8(60, 179, 113, 255)),
-        "mediumvioletred" => Some(Color::from_rgba8(199, 21, 133, 255)),
-        "darkcyan" => Some(Color::from_rgba8(0, 139, 139, 255)),
-        "darkmagenta" => Some(Color::from_rgba8(139, 0, 139, 255)),
-        "darkviolet" => Some(Color::from_rgba8(148, 0, 211, 255)),
-        "darkorchid" => Some(Color::from_rgba8(153, 50, 204, 255)),
-        "darkslateblue" => Some(Color::from_rgba8(72, 61, 139, 255)),
-        "darkslategray" | "darkslategrey" => Some(Color::from_rgba8(47, 79, 79, 255)),
-        "darkturquoise" => Some(Color::from_rgba8(0, 206, 209, 255)),
-        "lightcoral" => Some(Color::from_rgba8(240, 128, 128, 255)),
-        "lightsalmon" => Some(Color::from_rgba8(255, 160, 122, 255)),
-        "lightseagreen" => Some(Color::from_rgba8(32, 178, 170, 255)),
-        "lightskyblue" => Some(Color::from_rgba8(135, 206, 250, 255)),
-        "lightsteelblue" => Some(Color::from_rgba8(176, 196, 222, 255)),
-        _ => None, // unrecognized; fall through
-    }
-}
-
-/// Minimal SVG path data parser. Handles M, L, C, A, Z commands (absolute only).
-fn parse_svg_path(d: &str) -> Option<tiny_skia::Path> {
-    let mut pb = PathBuilder::new();
-    let chars = d.as_bytes();
-    let mut i = 0;
-
-    fn skip_ws_comma(data: &[u8], pos: &mut usize) {
-        while *pos < data.len()
-            && (data[*pos] == b' '
-                || data[*pos] == b','
-                || data[*pos] == b'\n'
-                || data[*pos] == b'\r'
-                || data[*pos] == b'\t')
-        {
-            *pos += 1;
-        }
-    }
-
-    fn parse_f32(data: &[u8], pos: &mut usize) -> Option<f32> {
-        skip_ws_comma(data, pos);
-        let start = *pos;
-        if *pos < data.len() && (data[*pos] == b'-' || data[*pos] == b'+') {
-            *pos += 1;
-        }
-        let mut has_dot = false;
-        while *pos < data.len() && (data[*pos].is_ascii_digit() || (data[*pos] == b'.' && !has_dot))
-        {
-            if data[*pos] == b'.' {
-                has_dot = true;
-            }
-            *pos += 1;
-        }
-        // Handle exponent notation
-        if *pos < data.len() && (data[*pos] == b'e' || data[*pos] == b'E') {
-            *pos += 1;
-            if *pos < data.len() && (data[*pos] == b'-' || data[*pos] == b'+') {
-                *pos += 1;
-            }
-            while *pos < data.len() && data[*pos].is_ascii_digit() {
-                *pos += 1;
-            }
-        }
-        if start == *pos {
-            return None;
-        }
-        std::str::from_utf8(&data[start..*pos]).ok()?.parse().ok()
-    }
-
-    fn parse_flag(data: &[u8], pos: &mut usize) -> Option<u8> {
-        skip_ws_comma(data, pos);
-        if *pos < data.len() && (data[*pos] == b'0' || data[*pos] == b'1') {
-            let v = data[*pos] - b'0';
-            *pos += 1;
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    while i < chars.len() {
-        skip_ws_comma(chars, &mut i);
-        if i >= chars.len() {
-            break;
-        }
-        let cmd = chars[i];
-        if cmd.is_ascii_alphabetic() {
-            i += 1;
-        }
-        match cmd {
-            b'M' => {
-                let x = parse_f32(chars, &mut i)?;
-                let y = parse_f32(chars, &mut i)?;
-                pb.move_to(x, y);
-                // Implicit L after M
-                loop {
-                    skip_ws_comma(chars, &mut i);
-                    if i >= chars.len() || chars[i].is_ascii_alphabetic() {
-                        break;
-                    }
-                    let x = parse_f32(chars, &mut i)?;
-                    let y = parse_f32(chars, &mut i)?;
-                    pb.line_to(x, y);
+                Primitive::RichText {
+                    x,
+                    y,
+                    spans,
+                    size,
+                    anchor,
+                    color,
+                } => {
+                    let rgba = color
+                        .as_ref()
+                        .and_then(kcolor_to_rgba)
+                        .unwrap_or(default_text);
+                    // Flatten spans — bold/italic require additional font faces;
+                    // treat as plain text for now (a separate bold TTF can be added later).
+                    let content: String = spans.iter().map(|sp| sp.text.as_str()).collect();
+                    canvas.draw_text(
+                        sx!(*x),
+                        sy!(*y),
+                        &content,
+                        *size as f32 * s,
+                        rgba,
+                        *anchor,
+                        None,
+                        font,
+                        &mut glyph_cache,
+                        clip,
+                    );
                 }
             }
-            b'L' => loop {
-                let x = parse_f32(chars, &mut i)?;
-                let y = parse_f32(chars, &mut i)?;
-                pb.line_to(x, y);
-                skip_ws_comma(chars, &mut i);
-                if i >= chars.len() || chars[i].is_ascii_alphabetic() {
-                    break;
-                }
-            },
-            b'C' => loop {
-                let x1 = parse_f32(chars, &mut i)?;
-                let y1 = parse_f32(chars, &mut i)?;
-                let x2 = parse_f32(chars, &mut i)?;
-                let y2 = parse_f32(chars, &mut i)?;
-                let x = parse_f32(chars, &mut i)?;
-                let y = parse_f32(chars, &mut i)?;
-                pb.cubic_to(x1, y1, x2, y2, x, y);
-                skip_ws_comma(chars, &mut i);
-                if i >= chars.len() || chars[i].is_ascii_alphabetic() {
-                    break;
-                }
-            },
-            b'A' => loop {
-                let _rx = parse_f32(chars, &mut i)?;
-                let _ry = parse_f32(chars, &mut i)?;
-                let _x_rot = parse_f32(chars, &mut i)?;
-                let _large_arc = parse_flag(chars, &mut i)?;
-                let _sweep = parse_flag(chars, &mut i)?;
-                let x = parse_f32(chars, &mut i)?;
-                let y = parse_f32(chars, &mut i)?;
-                // tiny_skia PathBuilder lacks arc_to; approximate with line_to.
-                // Arcs are only used in pie/chord charts which are low-element-count
-                // plots, so the visual difference is acceptable for the raster fast path.
-                pb.line_to(x, y);
-                skip_ws_comma(chars, &mut i);
-                if i >= chars.len() || chars[i].is_ascii_alphabetic() {
-                    break;
-                }
-            },
-            b'Z' | b'z' => {
-                pb.close();
-            }
-            _ => {
-                // Skip unrecognized
-                i += 1;
-            }
         }
+
+        canvas.encode_png()
     }
-    pb.finish()
 }

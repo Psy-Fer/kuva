@@ -36,3 +36,6 @@ TODO*.md
 
 # doom feature asset cache
 /doom-assets/
+
+# Benchmarks — data and results are local only
+/benches/

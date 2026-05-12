@@ -19,7 +19,7 @@ all-features = true
 
 [features]
 default = []
-png  = ["dep:resvg"]
+png  = ["dep:fontdue", "dep:png"]
 pdf  = ["dep:svg2pdf"]
 cli  = ["dep:clap", "dep:clap_mangen", "dep:csv"]
 full = ["png", "pdf"]
@@ -33,7 +33,8 @@ colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
 flate2 = "1"
-resvg       = { version = "0.44", optional = true }
+fontdue     = { version = "0.9",  optional = true }
+png         = { version = "0.18", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }
