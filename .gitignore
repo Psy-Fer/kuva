@@ -20,6 +20,7 @@ target/
 
 /target
 /smoke_test_outputs
+/raster_test
 /docs/book
 
 # Internal / maintainer-only files

@@ -1642,6 +1642,109 @@ impl RasterBackend {
                     }
                 }
 
+                Primitive::PolyLine {
+                    points,
+                    stroke,
+                    stroke_width,
+                    stroke_dasharray,
+                } => {
+                    if let Some(rgba) = kcolor_to_rgba(stroke) {
+                        let sw = *stroke_width as f32 * s;
+                        let n = points.len();
+                        if n < 2 {
+                            // nothing
+                        } else if let Some(dash_str) = stroke_dasharray.as_deref() {
+                            // Dashed: per-segment (correctness over speed)
+                            for w in points.windows(2) {
+                                canvas.draw_line(
+                                    sx!(w[0].0),
+                                    sy!(w[0].1),
+                                    sx!(w[1].0),
+                                    sy!(w[1].1),
+                                    rgba,
+                                    sw,
+                                    Some(dash_str),
+                                    clip,
+                                );
+                            }
+                        } else if sw <= 1.5 {
+                            // Thin: single Wu row per segment
+                            for w in points.windows(2) {
+                                canvas.draw_line_wu(
+                                    sx!(w[0].0),
+                                    sy!(w[0].1),
+                                    sx!(w[1].0),
+                                    sy!(w[1].1),
+                                    rgba,
+                                    clip,
+                                );
+                            }
+                        } else {
+                            // Thick: per-segment trapezoids with clamped-miter joins.
+                            // Streaming: only pts_s is allocated; normals and join offsets
+                            // are computed on the fly so norms/left/right Vecs are avoided.
+                            // Round caps only at the two polyline endpoints.
+                            let hw = sw * 0.5;
+                            let pts_s: Vec<(f32, f32)> =
+                                points.iter().map(|&(x, y)| (sx!(x), sy!(y))).collect();
+
+                            const MITER_LIMIT: f32 = 4.0;
+
+                            let seg_norm = |p: (f32, f32), q: (f32, f32)| -> (f32, f32) {
+                                let dx = q.0 - p.0;
+                                let dy = q.1 - p.1;
+                                let r = (dx * dx + dy * dy).sqrt().max(1e-6);
+                                (-dy / r, dx / r)
+                            };
+
+                            let n0 = seg_norm(pts_s[0], pts_s[1]);
+                            let mut prev_left = (pts_s[0].0 + n0.0 * hw, pts_s[0].1 + n0.1 * hw);
+                            let mut prev_right = (pts_s[0].0 - n0.0 * hw, pts_s[0].1 - n0.1 * hw);
+                            let mut cur_norm = n0;
+
+                            canvas.fill_circle_aa(pts_s[0].0, pts_s[0].1, hw, rgba, clip);
+
+                            for i in 0..n - 1 {
+                                let (cur_left, cur_right) = if i == n - 2 {
+                                    let p = pts_s[n - 1];
+                                    (
+                                        (p.0 + cur_norm.0 * hw, p.1 + cur_norm.1 * hw),
+                                        (p.0 - cur_norm.0 * hw, p.1 - cur_norm.1 * hw),
+                                    )
+                                } else {
+                                    let nn = seg_norm(pts_s[i + 1], pts_s[i + 2]);
+                                    let mx = cur_norm.0 + nn.0;
+                                    let my = cur_norm.1 + nn.1;
+                                    let len2 = mx * mx + my * my;
+                                    let (ox, oy) = if len2 < 1e-6 {
+                                        (nn.0 * hw, nn.1 * hw)
+                                    } else {
+                                        let dot = cur_norm.0 * mx + cur_norm.1 * my;
+                                        let scale = if dot > 1e-6 {
+                                            (hw * len2.sqrt() / dot).min(hw * MITER_LIMIT)
+                                        } else {
+                                            hw * MITER_LIMIT
+                                        };
+                                        let inv_len = 1.0 / len2.sqrt();
+                                        (mx * inv_len * scale, my * inv_len * scale)
+                                    };
+                                    let p = pts_s[i + 1];
+                                    cur_norm = nn;
+                                    ((p.0 + ox, p.1 + oy), (p.0 - ox, p.1 - oy))
+                                };
+                                canvas.fill_polygon(
+                                    &[prev_left, cur_left, cur_right, prev_right],
+                                    rgba,
+                                    clip,
+                                );
+                                prev_left = cur_left;
+                                prev_right = cur_right;
+                            }
+                            canvas.fill_circle_aa(pts_s[n - 1].0, pts_s[n - 1].1, hw, rgba, clip);
+                        }
+                    }
+                }
+
                 Primitive::Text {
                     x,
                     y,

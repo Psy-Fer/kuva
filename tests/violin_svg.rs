@@ -163,7 +163,7 @@ fn test_violin_group_colors_full() {
     assert!(svg.contains("<svg"));
     assert!(svg.contains("steelblue") || svg.contains("#4682b4"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));
-    assert!(svg.contains("seagreen"));
+    assert!(svg.contains("seagreen") || svg.contains("#2e8b57"));
 }
 
 #[test]

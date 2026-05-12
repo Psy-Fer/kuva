@@ -97,7 +97,7 @@ fn test_bar_stacked() {
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#ff6347"));
-    assert!(svg.contains("skyblue"));
+    assert!(svg.contains("#87ceeb"));
     assert!(svg.contains("#ffd700"));
 }
 

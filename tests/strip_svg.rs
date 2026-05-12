@@ -257,11 +257,11 @@ fn test_strip_point_colors_full() {
         "SVG should contain tomato (#ff6347)"
     );
     assert!(
-        svg.contains("seagreen"),
+        svg.contains("seagreen") || svg.contains("#2e8b57"),
         "SVG should contain seagreen color"
     );
     assert!(
-        svg.contains("goldenrod"),
+        svg.contains("goldenrod") || svg.contains("#daa520"),
         "SVG should contain goldenrod color"
     );
 }
@@ -366,9 +366,18 @@ fn test_strip_point_colors_with_legend() {
     assert!(svg.contains("CGCG"), "SVG should contain CGCG legend entry");
     // All four motif colors should appear in the SVG
     assert!(svg.contains("#ff6347"), "tomato (#ff6347) should appear");
-    assert!(svg.contains("seagreen"), "seagreen should appear");
-    assert!(svg.contains("goldenrod"), "goldenrod should appear");
-    assert!(svg.contains("mediumpurple"), "mediumpurple should appear");
+    assert!(
+        svg.contains("seagreen") || svg.contains("#2e8b57"),
+        "seagreen should appear"
+    );
+    assert!(
+        svg.contains("goldenrod") || svg.contains("#daa520"),
+        "goldenrod should appear"
+    );
+    assert!(
+        svg.contains("mediumpurple") || svg.contains("#9370db"),
+        "mediumpurple should appear"
+    );
 }
 
 // ── Per-point marker shapes ──────────────────────────────────────────────────

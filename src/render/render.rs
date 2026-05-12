@@ -204,6 +204,16 @@ pub enum Primitive {
         stroke: Option<Color>,
         stroke_width: Option<f64>,
     },
+    /// A polyline stroke stored as screen-coordinate points.
+    /// The raster backend builds the stroke outline polygon once and calls
+    /// `fill_polygon` a single time, regardless of point count.
+    /// The SVG/terminal backends emit the equivalent `M L L…` path.
+    PolyLine {
+        points: Vec<(f64, f64)>,
+        stroke: Color,
+        stroke_width: f64,
+        stroke_dasharray: Option<String>,
+    },
     /// Struct-of-arrays batch of axis-aligned rectangles, each with its own fill.
     /// Produced by heatmap/histogram2d renderers.
     RectBatch {
@@ -804,33 +814,40 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     if line.data.len() >= 2 {
-        let points: Vec<(f64, f64)> = line
-            .data
-            .iter()
-            .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
-            .collect();
-
-        let stroke_d = if line.step {
-            build_step_path(&points)
+        // Map data → screen coordinates once. For step lines, expand to the
+        // explicit staircase polyline so backends receive the full point sequence.
+        let screen_pts: Vec<(f64, f64)> = if line.step {
+            let mapped: Vec<(f64, f64)> = line
+                .data
+                .iter()
+                .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
+                .collect();
+            let mut step = Vec::with_capacity(mapped.len() * 2 - 1);
+            for (i, &(x, y)) in mapped.iter().enumerate() {
+                if i == 0 {
+                    step.push((x, y));
+                } else {
+                    step.push((x, mapped[i - 1].1)); // horizontal leg
+                    step.push((x, y)); // vertical leg
+                }
+            }
+            step
         } else {
-            build_path(&points)
+            line.data
+                .iter()
+                .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
+                .collect()
         };
 
-        // Draw fill area behind the stroke line
+        // Fill area: still uses a Path (polygon, not stroke)
         if line.fill {
             let baseline_y = computed.map_y(computed.y_range.0.max(0.0));
-            let first_x = points
-                .first()
-                .expect("line fill requires at least one point")
-                .0;
-            let last_x = points
-                .last()
-                .expect("line fill requires at least one point")
-                .0;
-            let fill_d = format!(
-                "{}L {last_x} {baseline_y} L {first_x} {baseline_y} Z",
-                stroke_d
-            );
+            let first_x = screen_pts.first().unwrap().0;
+            let last_x = screen_pts.last().unwrap().0;
+            let mut fill_d = build_path(&screen_pts);
+            fill_d.push_str(&format!(
+                "L {last_x} {baseline_y} L {first_x} {baseline_y} Z"
+            ));
             scene.add(Primitive::Path(Box::new(PathData {
                 d: fill_d,
                 fill: Some(Color::from(&line.color)),
@@ -841,14 +858,12 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             })));
         }
 
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: stroke_d,
-            fill: None,
+        scene.add(Primitive::PolyLine {
+            points: screen_pts,
             stroke: Color::from(&line.color),
             stroke_width: line.stroke_width,
-            opacity: None,
             stroke_dasharray: line.line_style.dasharray(),
-        })));
+        });
     }
 
     // Draw error bars

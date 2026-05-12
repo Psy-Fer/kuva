@@ -344,10 +344,11 @@ fn test_forest_colored_rows() {
     let svg = SvgBackend.render_scene(&scene);
     std::fs::write("test_outputs/forest_colored_rows.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
-    // Per-row colors should appear in the SVG.
-    // "seagreen" is not in the named-color table so it stays as a CSS string;
-    // "tomato" is resolved to its Rgb value and emitted as hex.
-    assert!(svg.contains("seagreen"), "SVG should contain seagreen");
+    // Per-row colors should appear in the SVG (resolved to hex by Color).
+    assert!(
+        svg.contains("seagreen") || svg.contains("#2e8b57"),
+        "SVG should contain seagreen"
+    );
     assert!(
         svg.contains("#ff6347"),
         "SVG should contain #ff6347 (tomato)"

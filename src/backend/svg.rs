@@ -344,6 +344,39 @@ impl SvgBackend {
                     svg.push_str(" />");
                     write_newline(&mut svg, p);
                 }
+                Primitive::PolyLine {
+                    points,
+                    stroke,
+                    stroke_width,
+                    stroke_dasharray,
+                } => {
+                    write_indent(&mut svg, depth, p);
+                    svg.push_str(r#"<path d=""#);
+                    for (i, &(x, y)) in points.iter().enumerate() {
+                        if i == 0 {
+                            svg.push('M');
+                        } else {
+                            svg.push('L');
+                        }
+                        svg.push(' ');
+                        write_float(&mut svg, x);
+                        svg.push(' ');
+                        write_float(&mut svg, y);
+                        svg.push(' ');
+                    }
+                    svg.push_str(r#"" stroke=""#);
+                    stroke.write_svg(&mut svg);
+                    svg.push_str(r#"" stroke-width=""#);
+                    write_float(&mut svg, *stroke_width);
+                    svg.push_str(r#"" fill="none""#);
+                    if let Some(ref dash) = stroke_dasharray {
+                        svg.push_str(r#" stroke-dasharray=""#);
+                        svg.push_str(dash);
+                        svg.push('"');
+                    }
+                    svg.push_str(" />");
+                    write_newline(&mut svg, p);
+                }
                 Primitive::Path(pd) => {
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<path d=""#);

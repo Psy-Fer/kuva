@@ -67,7 +67,7 @@ fn test_boxplot_group_colors_full() {
     // Each group color must appear; the fallback "black" must not be used as a fill
     assert!(svg.contains("steelblue") || svg.contains("#4682b4"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));
-    assert!(svg.contains("seagreen"));
+    assert!(svg.contains("seagreen") || svg.contains("#2e8b57"));
 }
 
 #[test]

@@ -208,7 +208,7 @@ fn test_volcano_custom_colors() {
     std::fs::write("test_outputs/volcano_custom_colors.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#ff8c00"));
-    assert!(svg.contains("mediumpurple"));
+    assert!(svg.contains("mediumpurple") || svg.contains("#9370db"));
 }
 
 #[test]
