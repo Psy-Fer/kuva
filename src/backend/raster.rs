@@ -1680,10 +1680,17 @@ impl RasterBackend {
                                 );
                             }
                         } else {
-                            // Thick: per-segment trapezoids with clamped-miter joins.
-                            // Streaming: only pts_s is allocated; normals and join offsets
-                            // are computed on the fly so norms/left/right Vecs are avoided.
-                            // Round caps only at the two polyline endpoints.
+                            // Thick: single polygon with round joins.
+                            // Left/right contours traced from start to end.  At each interior
+                            // vertex the CONVEX (outer) side gets a circular arc approximation
+                            // so the outer stroke boundary is smooth; the CONCAVE (inner) side
+                            // uses a miter point.  Single fill_polygon → no seam, no bumps.
+                            // Round caps at the two polyline endpoints only.
+                            //
+                            // In screen coords (y-down) cross(np, nn) > 0 is a visual right
+                            // turn; the outer (convex) side is -nm (right contour = top for
+                            // peaks).  cross < 0 is a visual left turn; outer is +nm (left
+                            // contour = bottom for troughs).
                             let hw = sw * 0.5;
                             let pts_s: Vec<(f32, f32)> =
                                 points.iter().map(|&(x, y)| (sx!(x), sy!(y))).collect();
@@ -1697,49 +1704,109 @@ impl RasterBackend {
                                 (-dy / r, dx / r)
                             };
 
+                            // Rotate unit vector n0 by `angle * sign` and push the result
+                            // scaled by hw onto pts.  Generates arc_n evenly-spaced points
+                            // from just-past n0 up to and including n1.
+                            let push_arc = |pts: &mut Vec<(f32, f32)>,
+                                            cx: f32,
+                                            cy: f32,
+                                            n0: (f32, f32),
+                                            n1: (f32, f32),
+                                            hw: f32,
+                                            sign: f32| {
+                                let dot = (n0.0 * n1.0 + n0.1 * n1.1).clamp(-1.0, 1.0);
+                                let angle = dot.acos();
+                                // 8 arc steps per 180° ≈ 22.5° per step
+                                let arc_n = ((angle * 8.0 / std::f32::consts::PI).ceil() as usize)
+                                    .max(1);
+                                for k in 1..=arc_n {
+                                    let a = angle * (k as f32 / arc_n as f32) * sign;
+                                    let (ca, sa) = (a.cos(), a.sin());
+                                    let nx = n0.0 * ca - n0.1 * sa;
+                                    let ny = n0.0 * sa + n0.1 * ca;
+                                    pts.push((cx + nx * hw, cy + ny * hw));
+                                }
+                            };
+
+                            let mut left: Vec<(f32, f32)> = Vec::with_capacity(n + 16);
+                            let mut right: Vec<(f32, f32)> = Vec::with_capacity(n + 16);
+
                             let n0 = seg_norm(pts_s[0], pts_s[1]);
-                            let mut prev_left = (pts_s[0].0 + n0.0 * hw, pts_s[0].1 + n0.1 * hw);
-                            let mut prev_right = (pts_s[0].0 - n0.0 * hw, pts_s[0].1 - n0.1 * hw);
-                            let mut cur_norm = n0;
+                            left.push((pts_s[0].0 + n0.0 * hw, pts_s[0].1 + n0.1 * hw));
+                            right.push((pts_s[0].0 - n0.0 * hw, pts_s[0].1 - n0.1 * hw));
 
-                            canvas.fill_circle_aa(pts_s[0].0, pts_s[0].1, hw, rgba, clip);
+                            for i in 1..n - 1 {
+                                let p = pts_s[i];
+                                let np = seg_norm(pts_s[i - 1], pts_s[i]);
+                                let nn = seg_norm(pts_s[i], pts_s[i + 1]);
 
-                            for i in 0..n - 1 {
-                                let (cur_left, cur_right) = if i == n - 2 {
-                                    let p = pts_s[n - 1];
-                                    (
-                                        (p.0 + cur_norm.0 * hw, p.1 + cur_norm.1 * hw),
-                                        (p.0 - cur_norm.0 * hw, p.1 - cur_norm.1 * hw),
-                                    )
+                                // Signed cross: positive → visual right turn (outer = -nm),
+                                //               negative → visual left turn  (outer = +nm)
+                                let cross = np.0 * nn.1 - np.1 * nn.0;
+
+                                // Miter offset for the inner (concave) contour
+                                let mx = np.0 + nn.0;
+                                let my = np.1 + nn.1;
+                                let len2 = mx * mx + my * my;
+                                let (ox, oy) = if len2 < 1e-6 {
+                                    (nn.0 * hw, nn.1 * hw)
                                 } else {
-                                    let nn = seg_norm(pts_s[i + 1], pts_s[i + 2]);
-                                    let mx = cur_norm.0 + nn.0;
-                                    let my = cur_norm.1 + nn.1;
-                                    let len2 = mx * mx + my * my;
-                                    let (ox, oy) = if len2 < 1e-6 {
-                                        (nn.0 * hw, nn.1 * hw)
+                                    let dot = np.0 * mx + np.1 * my;
+                                    let scale = if dot > 1e-6 {
+                                        (hw * len2.sqrt() / dot).min(hw * MITER_LIMIT)
                                     } else {
-                                        let dot = cur_norm.0 * mx + cur_norm.1 * my;
-                                        let scale = if dot > 1e-6 {
-                                            (hw * len2.sqrt() / dot).min(hw * MITER_LIMIT)
-                                        } else {
-                                            hw * MITER_LIMIT
-                                        };
-                                        let inv_len = 1.0 / len2.sqrt();
-                                        (mx * inv_len * scale, my * inv_len * scale)
+                                        hw * MITER_LIMIT
                                     };
-                                    let p = pts_s[i + 1];
-                                    cur_norm = nn;
-                                    ((p.0 + ox, p.1 + oy), (p.0 - ox, p.1 - oy))
+                                    let inv = 1.0 / len2.sqrt();
+                                    (mx * inv * scale, my * inv * scale)
                                 };
-                                canvas.fill_polygon(
-                                    &[prev_left, cur_left, cur_right, prev_right],
-                                    rgba,
-                                    clip,
-                                );
-                                prev_left = cur_left;
-                                prev_right = cur_right;
+
+                                if cross > 1e-4 {
+                                    // Visual right turn: outer is -nm (right contour, top)
+                                    left.push((p.0 + ox, p.1 + oy)); // inner miter
+                                    // Arc start must be pushed explicitly so the outer edge
+                                    // of the incoming segment is a proper polygon edge.
+                                    right.push((p.0 - np.0 * hw, p.1 - np.1 * hw));
+                                    push_arc(
+                                        &mut right,
+                                        p.0,
+                                        p.1,
+                                        (-np.0, -np.1),
+                                        (-nn.0, -nn.1),
+                                        hw,
+                                        1.0,
+                                    );
+                                } else if cross < -1e-4 {
+                                    // Visual left turn: outer is +nm (left contour, bottom)
+                                    left.push((p.0 + np.0 * hw, p.1 + np.1 * hw)); // arc start
+                                    push_arc(&mut left, p.0, p.1, np, nn, hw, -1.0);
+                                    right.push((p.0 - ox, p.1 - oy)); // inner miter
+                                } else {
+                                    // Nearly straight: simple perpendicular offset
+                                    left.push((p.0 + ox, p.1 + oy));
+                                    right.push((p.0 - ox, p.1 - oy));
+                                }
                             }
+
+                            let n_last = seg_norm(pts_s[n - 2], pts_s[n - 1]);
+                            left.push((
+                                pts_s[n - 1].0 + n_last.0 * hw,
+                                pts_s[n - 1].1 + n_last.1 * hw,
+                            ));
+                            right.push((
+                                pts_s[n - 1].0 - n_last.0 * hw,
+                                pts_s[n - 1].1 - n_last.1 * hw,
+                            ));
+
+                            let mut poly: Vec<(f32, f32)> =
+                                Vec::with_capacity(left.len() + right.len());
+                            poly.extend_from_slice(&left);
+                            for &p in right.iter().rev() {
+                                poly.push(p);
+                            }
+
+                            canvas.fill_polygon(&poly, rgba, clip);
+                            canvas.fill_circle_aa(pts_s[0].0, pts_s[0].1, hw, rgba, clip);
                             canvas.fill_circle_aa(pts_s[n - 1].0, pts_s[n - 1].1, hw, rgba, clip);
                         }
                     }
