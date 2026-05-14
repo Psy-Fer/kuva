@@ -335,6 +335,111 @@ impl Canvas {
         }
     }
 
+    // ── Stadium (capsule) fill ────────────────────────────────────────────────
+    //
+    // Fills the set of all pixels within `hw` of the line segment p0→p1.
+    // This is the exact shape of a thick stroke segment: a rectangle body
+    // with semicircular caps at each end.
+    //
+    // For each scanline, the x span is computed analytically as the union of:
+    //   1. The semicircle cap at p0: x ∈ [x0 ± sqrt(hw² - (fy-y0)²)]
+    //   2. The semicircle cap at p1: x ∈ [x1 ± sqrt(hw² - (fy-y1)²)]
+    //   3. The rectangle body: where the perpendicular distance to the segment
+    //      line is ≤ hw AND the foot-of-perpendicular falls within [p0, p1].
+    //
+    // The stadium is always convex, so there are no self-intersection issues.
+    // When successive stadiums are rendered for a polyline, their caps overlap
+    // at each vertex and naturally form correct round joins without any join
+    // geometry construction.
+    fn fill_stadium(&mut self, p0: (f32, f32), p1: (f32, f32), hw: f32, c: Rgba, clip: Clip) {
+        let (x0, y0) = p0;
+        let (x1, y1) = p1;
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len_sq = dx * dx + dy * dy;
+
+        if len_sq < 0.01 {
+            self.fill_circle_aa(x0, y0, hw, c, clip);
+            return;
+        }
+
+        let len = len_sq.sqrt();
+        let hw_sq = hw * hw;
+
+        let y_lo = y0.min(y1) - hw;
+        let y_hi = y0.max(y1) + hw;
+        let py_start = (y_lo.floor() as i32).max(clip.y0);
+        let py_end = (y_hi.ceil() as i32).min(clip.y1 - 1);
+
+        for py in py_start..=py_end {
+            let fy = py as f32 + 0.5;
+
+            let mut x_lo = f32::INFINITY;
+            let mut x_hi = f32::NEG_INFINITY;
+
+            // Cap at p0
+            let dy0 = fy - y0;
+            let rem0 = hw_sq - dy0 * dy0;
+            if rem0 >= 0.0 {
+                let r0 = rem0.sqrt();
+                x_lo = x_lo.min(x0 - r0);
+                x_hi = x_hi.max(x0 + r0);
+            }
+
+            // Cap at p1
+            let dy1 = fy - y1;
+            let rem1 = hw_sq - dy1 * dy1;
+            if rem1 >= 0.0 {
+                let r1 = rem1.sqrt();
+                x_lo = x_lo.min(x1 - r1);
+                x_hi = x_hi.max(x1 + r1);
+            }
+
+            // Body rectangle: perpendicular distance to segment line ≤ hw,
+            // intersected with the projection band t ∈ [0, 1].
+            if dy.abs() > 1e-6 {
+                // Perpendicular condition: |P(x)| ≤ hw*len where P(x) = -dy*(x-x0) + dx*(fy-y0)
+                let base = dx * (fy - y0);
+                let a = x0 + (base - hw * len) / dy;
+                let b = x0 + (base + hw * len) / dy;
+                let (perp_lo, perp_hi) = if a <= b { (a, b) } else { (b, a) };
+
+                // Projection condition: t = (dx*(x-x0) + dy*(fy-y0)) / len_sq ∈ [0, 1]
+                let proj_off = -dy * (fy - y0); // = dx*(x-x0) at t=0
+                let (proj_lo, proj_hi) = if dx > 1e-6 {
+                    (x0 + proj_off / dx, x0 + (proj_off + len_sq) / dx)
+                } else if dx < -1e-6 {
+                    (x0 + (proj_off + len_sq) / dx, x0 + proj_off / dx)
+                } else {
+                    // Vertical: t depends only on y; x is unconstrained within segment
+                    let t = (fy - y0) / dy;
+                    if (0.0..=1.0).contains(&t) {
+                        (f32::NEG_INFINITY, f32::INFINITY)
+                    } else {
+                        (f32::INFINITY, f32::NEG_INFINITY)
+                    }
+                };
+
+                let body_lo = perp_lo.max(proj_lo);
+                let body_hi = perp_hi.min(proj_hi);
+                if body_lo < body_hi {
+                    x_lo = x_lo.min(body_lo);
+                    x_hi = x_hi.max(body_hi);
+                }
+            } else {
+                // Near-horizontal: perpendicular distance ≈ |fy - y0|, x unconstrained
+                if (fy - y0).abs() <= hw {
+                    x_lo = x_lo.min(x0.min(x1));
+                    x_hi = x_hi.max(x0.max(x1));
+                }
+            }
+
+            if x_lo < x_hi {
+                self.fill_span_aa(x_lo, x_hi, py, c, clip);
+            }
+        }
+    }
+
     // ── AA circle fill — SDF coverage ─────────────────────────────────────────
     //
     // For each pixel, coverage = clamp(r_outer - dist_to_center, 0, 1) where
@@ -471,49 +576,110 @@ impl Canvas {
         }
     }
 
-    // ── Scanline polygon fill with sub-pixel AA ────────────────────────────────
+    // ── Scanline polygon fill — AET + nonzero winding rule ────────────────────
     //
-    // For each scanline at py + 0.5, finds all edge crossings, sorts them, and
-    // fills paired spans. Edge pixels receive fractional coverage based on the
-    // exact float crossing position — not rounded, not approximated.
+    // Edges are bucketed by first active scanline (AET) so each scanline only
+    // processes currently-crossing edges (~4 for a stroke polygon, not 2n).
+    //
+    // Nonzero winding fill (not even-odd): for a consistently-wound stroke
+    // polygon, self-intersecting regions caused by miter overreach on real-world
+    // data wind in the same direction as the rest of the interior (winding stays
+    // nonzero) and are therefore filled rather than left as transparent holes.
+    // For simple non-self-intersecting polygons the result is identical to
+    // even-odd fill.
 
     fn fill_polygon(&mut self, pts: &[(f32, f32)], c: Rgba, clip: Clip) {
         if pts.len() < 3 {
             return;
         }
 
-        let y_min = pts
-            .iter()
-            .map(|p| p.1)
-            .fold(f32::INFINITY, f32::min)
-            .floor() as i32;
-        let y_max = pts
-            .iter()
-            .map(|p| p.1)
-            .fold(f32::NEG_INFINITY, f32::max)
-            .ceil() as i32;
-        let y0 = y_min.max(clip.y0);
-        let y1 = y_max.min(clip.y1 - 1);
+        let y_lo = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+        let y_hi = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+        let scan_y0 = (y_lo.floor() as i32).max(clip.y0);
+        let scan_y1 = (y_hi.ceil() as i32).min(clip.y1 - 1);
+        if scan_y0 > scan_y1 {
+            return;
+        }
 
+        struct AetEdge {
+            y_max: i32,
+            x: f32,
+            inv_slope: f32,
+            // +1 for edges going down in screen y (ay < by), -1 for upward (ay > by).
+            winding: i32,
+        }
+
+        let height = (scan_y1 - scan_y0 + 1) as usize;
+        let mut et: Vec<Vec<AetEdge>> = (0..height).map(|_| Vec::new()).collect();
         let n = pts.len();
-        let mut xs: Vec<f32> = Vec::with_capacity(8);
 
-        for py in y0..=y1 {
-            let sy = py as f32 + 0.5;
-            xs.clear();
-            for i in 0..n {
-                let (ax, ay) = pts[i];
-                let (bx, by) = pts[(i + 1) % n];
-                if (ay <= sy && by > sy) || (by <= sy && ay > sy) {
-                    let t = (sy - ay) / (by - ay);
-                    xs.push(ax + t * (bx - ax));
+        for i in 0..n {
+            let (ax, ay) = pts[i];
+            let (bx, by) = pts[(i + 1) % n];
+            if (ay - by).abs() < 1e-6 {
+                continue;
+            }
+            // Canonical orientation: ay_c < by_c (going down in screen y).
+            // Downward edges contribute +1 winding; upward (flipped) contribute -1.
+            let (ax_c, ay_c, bx_c, by_c, winding) = if ay < by {
+                (ax, ay, bx, by, 1i32)
+            } else {
+                (bx, by, ax, ay, -1i32)
+            };
+
+            // Active for scanlines where ay_c <= py+0.5 < by_c.
+            let py_start = (ay_c - 0.5).ceil() as i32;
+            let py_end = (by_c - 0.5).ceil() as i32;
+            if py_start >= py_end {
+                continue;
+            }
+
+            let inv_slope = (bx_c - ax_c) / (by_c - ay_c);
+            let eff_start = py_start.max(scan_y0);
+            let eff_end = py_end.min(scan_y1 + 1);
+            if eff_start >= eff_end {
+                continue;
+            }
+
+            let x_eff = ax_c + (eff_start as f32 + 0.5 - ay_c) * inv_slope;
+            et[(eff_start - scan_y0) as usize].push(AetEdge {
+                y_max: eff_end,
+                x: x_eff,
+                inv_slope,
+                winding,
+            });
+        }
+
+        let mut aet: Vec<AetEdge> = Vec::with_capacity(8);
+        let mut xs: Vec<(f32, i32)> = Vec::with_capacity(8);
+
+        for py in scan_y0..=scan_y1 {
+            let bucket = (py - scan_y0) as usize;
+            aet.append(&mut et[bucket]);
+            aet.retain(|e| e.y_max > py);
+
+            if !aet.is_empty() {
+                xs.clear();
+                xs.extend(aet.iter().map(|e| (e.x, e.winding)));
+                xs.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+                // Nonzero winding: fill while cumulative winding != 0.
+                let mut winding = 0i32;
+                let mut span_start = 0.0f32;
+                for &(x, w) in &xs {
+                    let was_inside = winding != 0;
+                    winding += w;
+                    let is_inside = winding != 0;
+                    if !was_inside && is_inside {
+                        span_start = x;
+                    } else if was_inside && !is_inside {
+                        self.fill_span_aa(span_start, x, py, c, clip);
+                    }
                 }
             }
-            xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-            let mut i = 0;
-            while i + 1 < xs.len() {
-                self.fill_span_aa(xs[i], xs[i + 1], py, c, clip);
-                i += 2;
+
+            for e in aet.iter_mut() {
+                e.x += e.inv_slope;
             }
         }
     }
@@ -1680,134 +1846,18 @@ impl RasterBackend {
                                 );
                             }
                         } else {
-                            // Thick: single polygon with round joins.
-                            // Left/right contours traced from start to end.  At each interior
-                            // vertex the CONVEX (outer) side gets a circular arc approximation
-                            // so the outer stroke boundary is smooth; the CONCAVE (inner) side
-                            // uses a miter point.  Single fill_polygon → no seam, no bumps.
-                            // Round caps at the two polyline endpoints only.
-                            //
-                            // In screen coords (y-down) cross(np, nn) > 0 is a visual right
-                            // turn; the outer (convex) side is -nm (right contour = top for
-                            // peaks).  cross < 0 is a visual left turn; outer is +nm (left
-                            // contour = bottom for troughs).
+                            // Thick: per-segment stadium (capsule) fill.
+                            // Each segment is filled as the set of all pixels within hw of
+                            // that segment. Adjacent stadiums overlap at joins, naturally
+                            // producing round joins without any join geometry construction.
+                            // This is convex-per-segment so there are no self-intersections,
+                            // no below-baseline arc artifacts, and no polygon construction cost.
                             let hw = sw * 0.5;
                             let pts_s: Vec<(f32, f32)> =
                                 points.iter().map(|&(x, y)| (sx!(x), sy!(y))).collect();
-
-                            const MITER_LIMIT: f32 = 4.0;
-
-                            let seg_norm = |p: (f32, f32), q: (f32, f32)| -> (f32, f32) {
-                                let dx = q.0 - p.0;
-                                let dy = q.1 - p.1;
-                                let r = (dx * dx + dy * dy).sqrt().max(1e-6);
-                                (-dy / r, dx / r)
-                            };
-
-                            // Rotate unit vector n0 by `angle * sign` and push the result
-                            // scaled by hw onto pts.  Generates arc_n evenly-spaced points
-                            // from just-past n0 up to and including n1.
-                            let push_arc = |pts: &mut Vec<(f32, f32)>,
-                                            cx: f32,
-                                            cy: f32,
-                                            n0: (f32, f32),
-                                            n1: (f32, f32),
-                                            hw: f32,
-                                            sign: f32| {
-                                let dot = (n0.0 * n1.0 + n0.1 * n1.1).clamp(-1.0, 1.0);
-                                let angle = dot.acos();
-                                // 8 arc steps per 180° ≈ 22.5° per step
-                                let arc_n =
-                                    ((angle * 8.0 / std::f32::consts::PI).ceil() as usize).max(1);
-                                for k in 1..=arc_n {
-                                    let a = angle * (k as f32 / arc_n as f32) * sign;
-                                    let (ca, sa) = (a.cos(), a.sin());
-                                    let nx = n0.0 * ca - n0.1 * sa;
-                                    let ny = n0.0 * sa + n0.1 * ca;
-                                    pts.push((cx + nx * hw, cy + ny * hw));
-                                }
-                            };
-
-                            let mut left: Vec<(f32, f32)> = Vec::with_capacity(n + 16);
-                            let mut right: Vec<(f32, f32)> = Vec::with_capacity(n + 16);
-
-                            let n0 = seg_norm(pts_s[0], pts_s[1]);
-                            left.push((pts_s[0].0 + n0.0 * hw, pts_s[0].1 + n0.1 * hw));
-                            right.push((pts_s[0].0 - n0.0 * hw, pts_s[0].1 - n0.1 * hw));
-
-                            for i in 1..n - 1 {
-                                let p = pts_s[i];
-                                let np = seg_norm(pts_s[i - 1], pts_s[i]);
-                                let nn = seg_norm(pts_s[i], pts_s[i + 1]);
-
-                                // Signed cross: positive → visual right turn (outer = -nm),
-                                //               negative → visual left turn  (outer = +nm)
-                                let cross = np.0 * nn.1 - np.1 * nn.0;
-
-                                // Miter offset for the inner (concave) contour
-                                let mx = np.0 + nn.0;
-                                let my = np.1 + nn.1;
-                                let len2 = mx * mx + my * my;
-                                let (ox, oy) = if len2 < 1e-6 {
-                                    (nn.0 * hw, nn.1 * hw)
-                                } else {
-                                    let dot = np.0 * mx + np.1 * my;
-                                    let scale = if dot > 1e-6 {
-                                        (hw * len2.sqrt() / dot).min(hw * MITER_LIMIT)
-                                    } else {
-                                        hw * MITER_LIMIT
-                                    };
-                                    let inv = 1.0 / len2.sqrt();
-                                    (mx * inv * scale, my * inv * scale)
-                                };
-
-                                if cross > 1e-4 {
-                                    // Visual right turn: outer is -nm (right contour, top)
-                                    left.push((p.0 + ox, p.1 + oy)); // inner miter
-                                                                     // Arc start must be pushed explicitly so the outer edge
-                                                                     // of the incoming segment is a proper polygon edge.
-                                    right.push((p.0 - np.0 * hw, p.1 - np.1 * hw));
-                                    push_arc(
-                                        &mut right,
-                                        p.0,
-                                        p.1,
-                                        (-np.0, -np.1),
-                                        (-nn.0, -nn.1),
-                                        hw,
-                                        1.0,
-                                    );
-                                } else if cross < -1e-4 {
-                                    // Visual left turn: outer is +nm (left contour, bottom)
-                                    left.push((p.0 + np.0 * hw, p.1 + np.1 * hw)); // arc start
-                                    push_arc(&mut left, p.0, p.1, np, nn, hw, -1.0);
-                                    right.push((p.0 - ox, p.1 - oy)); // inner miter
-                                } else {
-                                    // Nearly straight: simple perpendicular offset
-                                    left.push((p.0 + ox, p.1 + oy));
-                                    right.push((p.0 - ox, p.1 - oy));
-                                }
+                            for w in pts_s.windows(2) {
+                                canvas.fill_stadium(w[0], w[1], hw, rgba, clip);
                             }
-
-                            let n_last = seg_norm(pts_s[n - 2], pts_s[n - 1]);
-                            left.push((
-                                pts_s[n - 1].0 + n_last.0 * hw,
-                                pts_s[n - 1].1 + n_last.1 * hw,
-                            ));
-                            right.push((
-                                pts_s[n - 1].0 - n_last.0 * hw,
-                                pts_s[n - 1].1 - n_last.1 * hw,
-                            ));
-
-                            let mut poly: Vec<(f32, f32)> =
-                                Vec::with_capacity(left.len() + right.len());
-                            poly.extend_from_slice(&left);
-                            for &p in right.iter().rev() {
-                                poly.push(p);
-                            }
-
-                            canvas.fill_polygon(&poly, rgba, clip);
-                            canvas.fill_circle_aa(pts_s[0].0, pts_s[0].1, hw, rgba, clip);
-                            canvas.fill_circle_aa(pts_s[n - 1].0, pts_s[n - 1].1, hw, rgba, clip);
                         }
                     }
                 }
