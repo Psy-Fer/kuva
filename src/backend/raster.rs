@@ -1717,8 +1717,8 @@ impl RasterBackend {
                                 let dot = (n0.0 * n1.0 + n0.1 * n1.1).clamp(-1.0, 1.0);
                                 let angle = dot.acos();
                                 // 8 arc steps per 180° ≈ 22.5° per step
-                                let arc_n = ((angle * 8.0 / std::f32::consts::PI).ceil() as usize)
-                                    .max(1);
+                                let arc_n =
+                                    ((angle * 8.0 / std::f32::consts::PI).ceil() as usize).max(1);
                                 for k in 1..=arc_n {
                                     let a = angle * (k as f32 / arc_n as f32) * sign;
                                     let (ca, sa) = (a.cos(), a.sin());
@@ -1764,8 +1764,8 @@ impl RasterBackend {
                                 if cross > 1e-4 {
                                     // Visual right turn: outer is -nm (right contour, top)
                                     left.push((p.0 + ox, p.1 + oy)); // inner miter
-                                    // Arc start must be pushed explicitly so the outer edge
-                                    // of the incoming segment is a proper polygon edge.
+                                                                     // Arc start must be pushed explicitly so the outer edge
+                                                                     // of the incoming segment is a proper polygon edge.
                                     right.push((p.0 - np.0 * hw, p.1 - np.1 * hw));
                                     push_arc(
                                         &mut right,
