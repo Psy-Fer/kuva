@@ -1,3 +1,4 @@
+use crate::parquet;
 use clap::Args;
 
 use kuva::plot::scatter::{ScatterPlot, TrendLine};
@@ -66,6 +67,19 @@ pub struct ScatterArgs {
 }
 
 pub fn run(args: ScatterArgs) -> Result<(), String> {
+    let color = args.color.unwrap_or_else(|| "steelblue".to_string());
+    let size = args.size.unwrap_or(3.0);
+    let trend = args.trend;
+    let equation = args.equation;
+    let correlation = args.correlation;
+    let legend = args.legend;
+    // if args.input.no_header {
+    //     eprintln!("WARNING! Passed --no-header alongside .parquet input. Ignoring argument and trying to parse parquet data regardless.");
+    // }
+    // if args.input.delimiter.is_some() {
+    //     eprintln!("WARNING! Passed --delimiter alongside .parquet input. Ignoring argument and trying to parse parquet data regardless.");
+    // }
+
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
@@ -78,12 +92,6 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     } else {
         args.y
     };
-    let color = args.color.unwrap_or_else(|| "steelblue".to_string());
-    let size = args.size.unwrap_or(3.0);
-    let trend = args.trend;
-    let equation = args.equation;
-    let correlation = args.correlation;
-    let legend = args.legend;
 
     let plots: Vec<Plot> = if let Some(color_by) = args.color_by {
         if y_cols.len() > 1 {
