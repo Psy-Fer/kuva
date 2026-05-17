@@ -5,7 +5,7 @@ use std::str::FromStr;
 use clap::Args;
 
 /// A column selector: either a 0-based integer index or a header name.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ColSpec {
     Index(usize),
     Name(String),

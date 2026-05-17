@@ -1,6 +1,7 @@
 use arrow::array::{Array, Float64Array, RecordBatchReader};
 use arrow::compute::cast;
 use arrow::datatypes::DataType;
+use arrow::util::display::{ArrayFormatter, FormatOptions};
 use bytes::Bytes;
 use parquet::arrow::ProjectionMask;
 use parquet::schema::types::SchemaDescriptor;
@@ -16,6 +17,10 @@ pub struct ParquetScatterSource {
     // CLI Scatter only supports numeric X axis anyways
     pub x_col: Vec<f64>,
     pub y_cols: Vec<Vec<f64>>,
+    // @dev TODO: very inefficient to hold onto every string just to group
+    pub group_by: Vec<String>,
+    /// Ordered as x_col + y_cols + group_by
+    pub column_names: Vec<String>,
 }
 
 impl ParquetScatterSource {
@@ -32,6 +37,7 @@ impl ParquetScatterSource {
         input: Option<&Path>,
         x_col: ColSpec,
         y_cols: Vec<ColSpec>,
+        gb_col: ColSpec,
     ) -> Result<Self, String> {
         // we need different branches for stdin, which uses a Builder<_<bytes>>,
         // and from file, which uses a Builder<_<file>>
@@ -52,13 +58,17 @@ impl ParquetScatterSource {
                         .iter()
                         .map(|col| resolve_colspec(col, schema))
                         .collect::<Result<Vec<usize>, String>>()?;
+                    let group_by_index = resolve_colspec(&gb_col, schema)?;
 
                     requested_leafs.push(x_leaf_index);
                     requested_leafs.extend(y_leaf_indices.iter().copied());
+                    requested_leafs.push(group_by_index);
 
                     ProjectionMask::leaves(
                         schema,
-                        std::iter::once(x_leaf_index).chain(y_leaf_indices.iter().copied()),
+                        std::iter::once(x_leaf_index)
+                            .chain(y_leaf_indices.iter().copied())
+                            .chain(std::iter::once(group_by_index)),
                     )
                 };
                 let reader = builder
@@ -83,13 +93,17 @@ impl ParquetScatterSource {
                         .iter()
                         .map(|col| resolve_colspec(col, schema))
                         .collect::<Result<Vec<usize>, String>>()?;
+                    let group_by_index = resolve_colspec(&gb_col, schema)?;
 
                     requested_leafs.push(x_leaf_index);
                     requested_leafs.extend(y_leaf_indices.iter().copied());
+                    requested_leafs.push(group_by_index);
 
                     ProjectionMask::leaves(
                         schema,
-                        std::iter::once(x_leaf_index).chain(y_leaf_indices.iter().copied()),
+                        std::iter::once(x_leaf_index)
+                            .chain(y_leaf_indices.iter().copied())
+                            .chain(std::iter::once(group_by_index)),
                     )
                 };
                 let reader = builder
@@ -101,9 +115,11 @@ impl ParquetScatterSource {
             }
         };
 
-        // Design decision: can only support logical numeric datatypes for now
+        let projected_cols = map_requested_leaves(&requested_leafs);
+
+        // Design decision: x/y can only support numeric datatypes for now
         let schema = reader.schema();
-        for field in schema.fields() {
+        for (i, field) in schema.fields().iter().enumerate() {
             match field.data_type() {
                 DataType::Int8
                 | DataType::Int16
@@ -117,18 +133,48 @@ impl ParquetScatterSource {
                 | DataType::Float32
                 | DataType::Float64 => {}
                 _ => {
-                    return Err(format!("Unsupported datatype: {:?}", field.data_type()));
+                    // if this column is the group_by column then we can support anything
+                    // that can be cast to a String, UNLESS the user additionally wants to use
+                    // this column for data
+                    if i == projected_cols[projected_cols.len() - 1]
+                        && (x_col != gb_col && y_cols.iter().all(|col| col != &gb_col))
+                    {
+                        let first_batch = reader
+                            .peekable()
+                            .peek()
+                            .ok_or_else(|| format!("Parquet has no batches."))?
+                            .map_err(|e| format!("Failed to read parquet batch. {}", e))?;
+
+                        let try_group_by_col =
+                            first_batch.column(projected_cols[projected_cols.len() - 1]);
+                        let Ok(_) =
+                            ArrayFormatter::try_new(try_group_by_col, &FormatOptions::default())
+                        else {
+                            return Err(format!(
+                                "Unsupported datatype for field {}: {:?}",
+                                field.name(),
+                                field.data_type()
+                            ));
+                        };
+                    } else {
+                        return Err(format!(
+                            "Unsupported datatype for field {}: {:?}",
+                            field.name(),
+                            field.data_type()
+                        ));
+                    }
                 }
             }
         }
 
         let mut x_vec: Vec<f64> = Vec::new();
         let mut y_vec: Vec<Vec<f64>> = vec![Vec::new(); y_cols.len()];
-        let projected_cols = map_requested_leaves(&requested_leafs);
+        let mut gb_vec: Vec<String> = Vec::new();
 
         for batch in reader {
             let batch = batch.map_err(|e| format!("Failed to read parquet batch: {e}"))?;
 
+            // @dev TODO: extract the gb column as a String but everything else as a numeric
             let mut casted_cols: Vec<Float64Array> = Vec::new();
             for col in batch.columns() {
                 let casted = cast(col, &DataType::Float64)
@@ -147,8 +193,6 @@ impl ParquetScatterSource {
                     continue;
                 }
 
-                // projected_cols is ordered as x_col -> y_cols
-                // per map_requested_leaves(), its values are the index of casted_cols that correspond to the user-defined column
                 x_vec.push(casted_cols[projected_cols[0]].value(row_idx));
                 for (y_idx, col_idx) in projected_cols.iter().enumerate().skip(1) {
                     y_vec[y_idx - 1].push(casted_cols[*col_idx].value(row_idx));
@@ -156,11 +200,21 @@ impl ParquetScatterSource {
             }
         }
 
+        let column_names: Vec<String> = projected_cols
+            .iter()
+            .map(|col_no| schema.field(*col_no).name().clone())
+            .collect();
+
         Ok(ParquetScatterSource {
             x_col: x_vec,
             y_cols: y_vec,
+            column_names,
         })
     }
+
+    // pub fn group_by (&self, gb_col: &ColSpec) -> Result<Vec<String, ParquetScatterSource>, String> {
+    // to do
+    // }
 }
 
 fn resolve_colspec(col: &ColSpec, schema: &SchemaDescriptor) -> Result<usize, String> {
@@ -202,9 +256,12 @@ fn resolve_colspec(col: &ColSpec, schema: &SchemaDescriptor) -> Result<usize, St
     Ok(leaf_index)
 }
 
-// When we build our parquet projection, the columns will be ordered according to the parquet storage.
-//
-// We need to map this parquet projection to the user-defined x and y columns
+/// When we build our parquet projection, the reader schema columns are ordered according to the parquet storage.
+///
+/// We need to map this parquet projection to the user-defined x and y columns.
+/// The values of the returned vector are the index of casted_cols that correspond to the user-defined columns.
+/// The vector returned is ordered as x_col + y_cols + gb_col
+/// E.g., if the vector is [2, 1, 0, 3], that means the user-defined x_col is the third column in the ParquetRecordBatchReader.schema() and gb_col is the fourth column in casted_col.
 fn map_requested_leaves(requested_leafs: &[usize]) -> Vec<usize> {
     let mut ordered_leaves = requested_leafs.to_vec();
 
