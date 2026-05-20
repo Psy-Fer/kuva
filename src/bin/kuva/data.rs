@@ -5,7 +5,7 @@ use std::str::FromStr;
 use clap::Args;
 
 /// A column selector: either a 0-based integer index or a header name.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ColSpec {
     Index(usize),
     Name(String),
@@ -64,6 +64,15 @@ impl DataTable {
             }
         };
 
+        Self::parse_str(content.as_str(), input, no_header, delim_override)
+    }
+
+    pub(crate) fn parse_str(
+        content: &str,
+        input: Option<&Path>,
+        no_header: bool,
+        delim_override: Option<char>,
+    ) -> Result<Self, String> {
         let delim = if let Some(d) = delim_override {
             d
         } else if let Some(p) = input {
