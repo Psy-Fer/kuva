@@ -385,9 +385,6 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     write_output(scene, &args.base)
 }
 
-// Do you want to move this function into data.rs as a part of the DataTable struct?
-// This is used in bin/kuva/line.rs and bin/kuva/scatter.rs
-
 /// Return a human-readable name for a column: the header name when available,
 /// or "col_N" for index-based specs with no header.
 fn col_display_name(table: &DataTable, col: &ColSpec) -> String {

@@ -13,11 +13,8 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
 #[derive(Clone)]
 pub struct ParquetScatterSource {
-    // While x axis could be a non-numeric type, in bin/kuva/scatter.rs,
-    // CLI Scatter only supports numeric X axis anyways
     pub x_col: Vec<f64>,
     pub y_cols: Vec<Vec<f64>>,
-    // @dev TODO: very inefficient to hold onto every string just to group
     pub group_by: Option<Vec<String>>,
     /// Ordered as x_col + y_cols + group_by
     pub column_names: Vec<String>,
@@ -51,7 +48,7 @@ impl ParquetScatterSource {
         return Self::parse_builder(builder, x_col, y_cols, gb_col);
     }
 
-    /// Return a vector of distinct ParquetScatterSource grouped by the unique values of the group_by column
+    /// Return a set of distinct ParquetScatterSource grouped by the unique values of the group_by column
     pub fn group_by(&self) -> Result<Vec<(String, ParquetScatterSource)>, String> {
         let gb_col: &Vec<String> = self
             .group_by
@@ -138,7 +135,8 @@ impl ParquetScatterSource {
         let mut reader = reader.peekable();
 
         for (i, field) in schema.fields().iter().enumerate() {
-            // Design decision: x/y can only support numeric datatypes for now
+            // Design decision: x/y can only support numeric datatypes for now.
+            // Matches existing functionality
             match field.data_type() {
                 DataType::Int8
                 | DataType::Int16
@@ -152,9 +150,8 @@ impl ParquetScatterSource {
                 | DataType::Float32
                 | DataType::Float64 => {}
                 _ => {
-                    // if this column is the group_by column then we can support anything
-                    // that can be cast to a String, UNLESS the user additionally wants to use
-                    // this column for data
+                    // if this column is ONLY used as the group_by column then
+                    // we can support anything that can be cast to a String
                     if gb_col.is_some()
                         && i == projected_cols[projected_cols.len() - 1]
                         && !gb_is_also_data
@@ -336,6 +333,11 @@ impl ParquetScatterSource {
     }
 }
 
+/// Helper to quickly identify if stdin input is likely to be valid parquet
+pub fn sniff_parquet(buf: &[u8]) -> bool {
+    buf.len() >= 8 && &buf[..4] == b"PAR1" && &buf[buf.len() - 4..] == b"PAR1"
+}
+
 /// Returns the index of the parquet schema that matches the provided ColSpec
 fn resolve_colspec(col: &ColSpec, schema: &SchemaDescriptor) -> Result<usize, String> {
     let leaf_index = match col {
@@ -376,12 +378,27 @@ fn resolve_colspec(col: &ColSpec, schema: &SchemaDescriptor) -> Result<usize, St
     Ok(leaf_index)
 }
 
-/// When we build our parquet reader, columns of the reader are ordered according to the parquet storage.
-/// This may not be the same order as the user-defined columns, so this function maps the user-defined columns to the columns in the reader.
+/// Map requested parquet leaf indices into positions within the projected reader schema.
 ///
-/// The values of the returned vector are the index of the Reader that correspond to the user-defined columns.
-/// The vector returned is ordered as x_col + y_cols + gb_col.
-/// E.g., if the vector is [2, 1, 0, 3], that means the user-defined x_col is the third column in the ParquetRecordBatchReader.schema() and gb_col is the fourth column in casted_col.
+/// `requested_leafs` is ordered by the user's logical request:
+/// `x_col + y_cols + group_by`.
+/// Parquet supports column selection ("projection"), which is efficient. After projection,
+/// the parquet reader returns the selected columns in parquet leaf order rather than the
+/// user's requested order.
+///
+/// This function returns, for each requested leaf, its column position in the
+/// projected reader so Kuva can maintain the original user-defined ordering.
+///
+/// Example:
+///
+/// Full parquet leaf indices:  0  1  2  3  4  5
+/// User request (`--y 3,1`):   3  1
+/// requested_leafs:           <3, 1>
+/// Projected reader columns:   1  3
+/// Returned mapping:           1  0
+///
+/// Here, requested leaf `3` is column 1 in the projected reader, and requested
+/// leaf `1` is column 0.
 fn map_requested_leaves(requested_leafs: &[usize]) -> Vec<usize> {
     let mut ordered_leaves = requested_leafs.to_vec();
     ordered_leaves.sort();
@@ -399,9 +416,4 @@ fn map_requested_leaves(requested_leafs: &[usize]) -> Vec<usize> {
     }
 
     projected_positions
-}
-
-/// Helper to quickly identify if stdin input is likely to be valid parquet
-pub fn sniff_parquet(buf: &[u8]) -> bool {
-    buf.len() >= 8 && &buf[..4] == b"PAR1" && &buf[buf.len() - 4..] == b"PAR1"
 }
