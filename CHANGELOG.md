@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **`.parquet` input** - Added ability to generate scatter plots from a parquet file, via path identification or stdin.
+
 ---
 
 ## [0.2.0] — 2026-05-07

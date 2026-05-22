@@ -1,6 +1,6 @@
 # kuva scatter
 
-Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines, and log scale.
+Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines, and log scale. Support parquet input.
 
 **Input:** any tabular file with two numeric columns.
 

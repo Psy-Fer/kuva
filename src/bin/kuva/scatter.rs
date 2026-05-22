@@ -91,8 +91,6 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     };
 
     let input_type: InputType = match args.input.input.as_deref() {
-        // @Psy-Fer: your implementation in data.rs treats None as stdin but `input` itself is an Option.
-        // Do you want None to read from stdin or shall we treat it as a real error?
         Some(p) if p.to_str() != Some("-") => {
             match p
                 .extension()
