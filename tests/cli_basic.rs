@@ -35,6 +35,31 @@ fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
     )
 }
 
+/// Feed raw `input` bytes to the binary's stdin and return (stdout, stderr, exit_code).
+#[cfg(feature = "parquet")]
+fn run_with_stdin_bytes(args: &[&str], input: &[u8]) -> (String, String, i32) {
+    let mut cmd = kuva_bin();
+    cmd.args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("failed to spawn kuva");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(input)
+        .expect("write stdin");
+
+    let out = child.wait_with_output().expect("wait");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code().unwrap_or(-1),
+    )
+}
+
 /// Run the binary with a file argument.
 fn run_with_file(args: &[&str]) -> (String, String, i32) {
     let out = kuva_bin().args(args).output().expect("failed to run kuva");
@@ -198,6 +223,27 @@ fn test_missing_feature_error() {
 }
 
 // ─── Tier 1: SVG output tests ─────────────────────────────────────────────────
+
+#[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--x",
+        "x",
+        "--y",
+        "y",
+        "--title",
+        "Parquet Scatter",
+        "--x-label",
+        "X",
+        "--y-label",
+        "Y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
 
 #[test]
 fn test_line_svg() {
@@ -736,6 +782,63 @@ fn test_scatter_has_circles() {
 }
 
 #[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_color_by_has_multiple_colors() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--x",
+        "x",
+        "--y",
+        "y",
+        "--color-by",
+        "group",
+        "--title",
+        "Parquet Groups",
+        "--x-label",
+        "X",
+        "--y-label",
+        "Y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+
+    let fills: Vec<&str> = stdout
+        .split("fill=\"")
+        .skip(1)
+        .map(|s| s.split('"').next().unwrap_or(""))
+        .filter(|s| s.starts_with('#'))
+        .collect();
+
+    let unique: std::collections::HashSet<_> = fills.iter().collect();
+    assert!(
+        unique.len() >= 2,
+        "expected at least 2 distinct fill colors for parquet groups; got: {unique:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_multi_y_legend_labels() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--y",
+        "x,y",
+        "--legend",
+        "--interactive",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains(r#"data-group="x""#),
+        "expected parquet multi-y SVG to contain data-group=\"x\"; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(r#"data-group="y""#),
+        "expected parquet multi-y SVG to contain data-group=\"y\"; stdout: {stdout}"
+    );
+}
+
+#[test]
 fn test_line_has_path() {
     let (stdout, stderr, code) = run_with_file(&[
         "line",
@@ -1188,6 +1291,23 @@ fn test_bad_column_name() {
     assert!(
         stderr.contains("nonexistent_col"),
         "error message should mention the bad column name; got: {stderr}"
+    );
+}
+
+#[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_stdin_bad_column_name_reports_parquet_error() {
+    let parquet = fs::read(data("scatter.parquet")).expect("read scatter.parquet");
+    let (_, stderr, code) =
+        run_with_stdin_bytes(&["scatter", "--x", "x", "--y", "does_not_exist"], &parquet);
+    assert_ne!(code, 0, "should fail when parquet column name does not exist");
+    assert!(
+        stderr.contains("does_not_exist"),
+        "error message should mention the bad parquet column name; got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Could not read stdin as a valid string"),
+        "stderr should report the parquet error, not a UTF-8 fallback error; got: {stderr}"
     );
 }
 
