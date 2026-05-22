@@ -1300,7 +1300,10 @@ fn test_scatter_parquet_stdin_bad_column_name_reports_parquet_error() {
     let parquet = fs::read(data("scatter.parquet")).expect("read scatter.parquet");
     let (_, stderr, code) =
         run_with_stdin_bytes(&["scatter", "--x", "x", "--y", "does_not_exist"], &parquet);
-    assert_ne!(code, 0, "should fail when parquet column name does not exist");
+    assert_ne!(
+        code, 0,
+        "should fail when parquet column name does not exist"
+    );
     assert!(
         stderr.contains("does_not_exist"),
         "error message should mention the bad parquet column name; got: {stderr}"
