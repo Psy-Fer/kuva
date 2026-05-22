@@ -52,16 +52,19 @@ impl ParquetScatterSource {
     }
 
     /// Return a vector of distinct ParquetScatterSource grouped by the unique values of the group_by column
-    ///
-    /// The order of the grouped ParquetScatterSources is guaranteed
     pub fn group_by(&self) -> Result<Vec<(String, ParquetScatterSource)>, String> {
-        let mut gb_vals = if self.group_by.is_some() {
-            self.group_by.clone().unwrap()
-        } else {
-            return Err("group_by is not set".to_string());
-        };
-        gb_vals.sort();
-        gb_vals.dedup();
+        let gb_col: &Vec<String> = self
+            .group_by
+            .as_ref()
+            .ok_or_else(|| "trying to group when the group_by column is not set.")?;
+
+        let mut gb_vals: Vec<String> = Vec::new();
+
+        for val in gb_col {
+            if !gb_vals.contains(val) {
+                gb_vals.push(val.clone());
+            }
+        }
 
         let mut groups: Vec<ParquetScatterSource> = vec![
             ParquetScatterSource {
@@ -73,16 +76,17 @@ impl ParquetScatterSource {
             gb_vals.len()
         ];
 
-        for (row, _) in self.x_col.iter().enumerate() {
+        for row in 0..self.x_col.len() {
             let pos = gb_vals
-                .binary_search(
-                    self.group_by
-                        .as_ref()
-                        .expect("have already validated group_by.is_some()")
+                .iter()
+                .position(|val| {
+                    val == gb_col
                         .get(row)
-                        .expect("gb_vals should be the same length as x_col."),
-                )
-                .map_err(|_| format!("Couldn't find a match in gb_vals"))?;
+                        .expect("gb_col should be the same length as x_col.")
+                })
+                .ok_or_else(|| {
+                    "Couldn't find a match in gb_vals, which should be impossible".to_string()
+                })?;
 
             let y_vals: Vec<f64> = self.y_cols.iter().map(|y_col| y_col[row]).collect();
             groups[pos].push(self.x_col[row], y_vals, None)?;
@@ -380,30 +384,24 @@ fn resolve_colspec(col: &ColSpec, schema: &SchemaDescriptor) -> Result<usize, St
 /// E.g., if the vector is [2, 1, 0, 3], that means the user-defined x_col is the third column in the ParquetRecordBatchReader.schema() and gb_col is the fourth column in casted_col.
 fn map_requested_leaves(requested_leafs: &[usize]) -> Vec<usize> {
     let mut ordered_leaves = requested_leafs.to_vec();
-
     ordered_leaves.sort();
     ordered_leaves.dedup();
-    // at this point, `ordered_leaves` represents the columns of the reader.schema, by underlying leaf index
 
     let mut projected_positions: Vec<usize> = Vec::new();
 
-    // go through all requested_leaves.
-    // for each leaf, find the column number that matches the requested leaf
     for leaf in requested_leafs {
         let col_idx = ordered_leaves
             .iter()
             .position(|ordered_leaf| ordered_leaf == leaf)
             .expect("ordered_leaves was built from requested_leafs, so values must match.");
 
-        // once we have the column number, we push it onto a new vec
         projected_positions.push(col_idx);
-
-        // this vec is now a list of column numbers.
-        // it is ordered in the same order as the user's requested leafs and has the same length.
-        // now we can use this by, per-row, indexing into the columns of the batch and getting the value
-
-        // assert_eq!(leafs_to_cols.clone().len(), requested_leafs.clone().len());
     }
 
     projected_positions
+}
+
+/// Helper to quickly identify if stdin input is likely to be valid parquet
+pub fn sniff_parquet(buf: &[u8]) -> bool {
+    buf.len() >= 8 && &buf[..4] == b"PAR1" && &buf[buf.len() - 4..] == b"PAR1"
 }

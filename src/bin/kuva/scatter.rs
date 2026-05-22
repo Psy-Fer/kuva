@@ -1,7 +1,8 @@
 use std::io::{self, Read};
 use std::str::from_utf8;
 
-use crate::parquet::ParquetScatterSource;
+#[cfg(feature = "parquet")]
+use crate::parquet::{sniff_parquet, ParquetScatterSource};
 use clap::Args;
 
 use kuva::plot::scatter::{ScatterPlot, TrendLine};
@@ -71,6 +72,7 @@ pub struct ScatterArgs {
 
 enum InputType {
     Dsv(DataTable),
+    #[cfg(feature = "parquet")]
     Parquet(ParquetScatterSource),
 }
 
@@ -106,23 +108,40 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                     )?;
                     InputType::Dsv(table)
                 }
+                #[cfg(feature = "parquet")]
                 Some("parquet") => {
                     let file = ParquetScatterSource::from_path(p, &x_col, &y_cols, &args.color_by)?;
                     InputType::Parquet(file)
                 }
                 _ => {
-                    if let Ok(table) = DataTable::parse(
-                        args.input.input.as_deref(),
-                        args.input.no_header,
-                        args.input.delimiter,
-                    ) {
-                        InputType::Dsv(table)
-                    } else if let Ok(file) =
-                        ParquetScatterSource::from_path(p, &x_col, &y_cols, &args.color_by)
+                    #[cfg(feature = "parquet")]
                     {
-                        InputType::Parquet(file)
-                    } else {
-                        return Err(format!("Unsupported input type from {:?}", p));
+                        if let Ok(table) = DataTable::parse(
+                            args.input.input.as_deref(),
+                            args.input.no_header,
+                            args.input.delimiter,
+                        ) {
+                            InputType::Dsv(table)
+                        } else if let Ok(file) =
+                            ParquetScatterSource::from_path(p, &x_col, &y_cols, &args.color_by)
+                        {
+                            InputType::Parquet(file)
+                        } else {
+                            return Err(format!("Unsupported input type from {:?}", p));
+                        }
+                    }
+
+                    #[cfg(not(feature = "parquet"))]
+                    {
+                        if let Ok(table) = DataTable::parse(
+                            args.input.input.as_deref(),
+                            args.input.no_header,
+                            args.input.delimiter,
+                        ) {
+                            InputType::Dsv(table)
+                        } else {
+                            return Err(format!("Unsupported input type from {:?}", p));
+                        }
                     }
                 }
             }
@@ -133,14 +152,28 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                 .read_to_end(&mut buf)
                 .map_err(|e| format!("Cannot read from stdin: {e}"))?;
 
-            if let Ok(file) = ParquetScatterSource::from_bytes(
-                bytes::Bytes::copy_from_slice(&buf),
-                &x_col,
-                &y_cols,
-                &args.color_by,
-            ) {
+            #[cfg(feature = "parquet")]
+            if sniff_parquet(&buf) {
+                let file = ParquetScatterSource::from_bytes(
+                    bytes::Bytes::copy_from_slice(&buf),
+                    &x_col,
+                    &y_cols,
+                    &args.color_by,
+                )?;
                 InputType::Parquet(file)
             } else {
+                let table = DataTable::parse_str(
+                    from_utf8(&buf)
+                        .map_err(|e| format!("Could not read stdin as a valid string. {e}"))?,
+                    args.input.input.as_deref(),
+                    args.input.no_header,
+                    args.input.delimiter,
+                )?;
+                InputType::Dsv(table)
+            }
+
+            #[cfg(not(feature = "parquet"))]
+            {
                 let table = DataTable::parse_str(
                     from_utf8(&buf)
                         .map_err(|e| format!("Could not read stdin as a valid string. {e}"))?,
@@ -153,6 +186,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
         }
     };
 
+    #[cfg(feature = "parquet")]
     if matches!(input_type, InputType::Parquet(_)) {
         if args.input.no_header {
             eprintln!("WARNING! Passed --no-header alongside .parquet input. Ignoring argument and using parquet data regardless.");
@@ -162,7 +196,6 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
         }
     }
 
-    // @dev TODO: add name when appropriate
     let mut plots: Vec<ScatterPlot> = if let Some(color_by) = args.color_by {
         if y_cols.len() > 1 {
             return Err(
@@ -201,6 +234,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                     })
                     .collect::<Result<Vec<_>, String>>()?
             }
+            #[cfg(feature = "parquet")]
             InputType::Parquet(parquet_source) => {
                 let groups = parquet_source.group_by()?;
                 let colors: Vec<String> =
@@ -260,12 +294,14 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                     })
                     .collect::<Result<Vec<_>, String>>()?
             }
+            #[cfg(feature = "parquet")]
             InputType::Parquet(parquet_source) => parquet_source
                 .y_cols
                 .iter()
                 .enumerate()
                 .map(|(i, y_col)| {
-                    let series_name = parquet_source.column_names[i].clone();
+                    // nb: column_names is packed x + ys + group_by
+                    let series_name = parquet_source.column_names[i + 1].clone();
                     let ys = y_col.clone();
                     let data: Vec<(f64, f64)> =
                         parquet_source.x_col.iter().copied().zip(ys).collect();
@@ -311,6 +347,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
 
                 vec![plot]
             }
+            #[cfg(feature = "parquet")]
             InputType::Parquet(parquet_source) => {
                 let xs = parquet_source.x_col;
                 let ys = parquet_source.y_cols[0].clone();
