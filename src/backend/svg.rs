@@ -132,6 +132,7 @@ impl SvgBackend {
         svg.push('>');
         write_newline(&mut svg, p);
 
+        #[cfg(feature = "embed_font")]
         if self.embed_font {
             write_indent(&mut svg, 1, p);
             svg.push_str(crate::fonts::dejavu_sans_style_block());

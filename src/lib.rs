@@ -51,6 +51,7 @@ pub mod plot;
 pub mod prelude;
 pub mod render;
 
+#[cfg(feature = "embed_font")]
 pub(crate) mod fonts;
 
 pub use backend::terminal::TerminalBackend;
