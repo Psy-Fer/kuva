@@ -1,5 +1,7 @@
-//! Integration tests for `$...$` math in labels: every backend lowers math
-//! regions to inline Unicode (the zero-dep lookup pass in `render::math`).
+//! Integration tests for the always-on **lookup tier**: `$...$` math in labels
+//! is lowered to inline Unicode by every backend when the `math` feature is
+//! off (SVG assertions are gated accordingly; the terminal is lookup-only
+//! regardless of features).
 //!
 //! This is the path `cargo test --features cli,full` exercises, so these
 //! guard the default rendering behaviour.
@@ -36,8 +38,9 @@ fn terminal_lowers_math_to_unicode() {
     assert!(!out.contains("\\sigma"), "no LaTeX command should remain");
 }
 
+#[cfg(not(feature = "math"))]
 #[test]
-fn svg_emits_unicode_text() {
+fn svg_lookup_tier_emits_unicode_text() {
     let scene = scatter_with_labels("Title", "Variance, $\\sigma^2$ (units)", "y");
     let svg = SvgBackend::default().render_scene(&scene);
 
@@ -50,10 +53,13 @@ fn svg_emits_unicode_text() {
         !svg.contains("$\\sigma^2$"),
         "raw math region must not appear"
     );
+    // No typst fragment markers (that's the math-feature path, not this one).
+    assert!(!svg.contains("typst-text"));
 }
 
+#[cfg(not(feature = "math"))]
 #[test]
-fn svg_fractions_and_sqrt() {
+fn svg_lookup_tier_fractions_and_sqrt() {
     let scene = scatter_with_labels("$\\frac{a}{b}$", "$\\sqrt{x}$", "y");
     let svg = SvgBackend::default().render_scene(&scene);
     assert!(svg.contains("a/b"), "fraction lowered inline");
@@ -63,6 +69,7 @@ fn svg_fractions_and_sqrt() {
 
 // An escaped `\$` is a literal dollar: the backslash is dropped and a plain
 // `$` is rendered, even when the label contains no math region.
+#[cfg(not(feature = "math"))]
 #[test]
 fn svg_escaped_dollar_is_literal() {
     let scene = scatter_with_labels("Price \\$5", "x", "y");

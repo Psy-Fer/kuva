@@ -176,6 +176,9 @@ impl SvgBackend {
         // Interactive UI is emitted AFTER scene elements (see below) so it renders on top.
 
         let mut depth: usize = 1;
+        // Unique tag per embedded math fragment, to namespace Typst's element IDs.
+        #[cfg(feature = "math")]
+        let mut math_uid: usize = 0;
         for elem in &scene.elements {
             match elem {
                 Primitive::Circle {
@@ -225,9 +228,31 @@ impl SvgBackend {
                     bold,
                     color,
                 } => {
-                    // Lower any `$...$` math regions to inline Unicode
-                    // (σ², a/b, √(…)) so they render as ordinary text.
-                    // No-op for plain labels.
+                    // Math routing: a `$...$` label is either typeset by the
+                    // typst tier (feature `math`) and embedded as a fragment,
+                    // or lowered to inline Unicode by the always-on lookup
+                    // tier and emitted as ordinary text.
+                    #[cfg(feature = "math")]
+                    if crate::render::math::contains_math(content) {
+                        if let Some(m) = crate::render::math::render_label_svg(
+                            content,
+                            *size as f64,
+                            color.as_ref(),
+                        ) {
+                            write_indent(&mut svg, depth, p);
+                            crate::backend::svg_math::embed_label(
+                                &mut svg, *x, *y, *anchor, *rotate, &m, math_uid,
+                            );
+                            math_uid += 1;
+                            write_newline(&mut svg, p);
+                            continue;
+                        }
+                        // Compile failed — fall through to the lookup tier.
+                    }
+
+                    // Lookup tier (or plain text). When the label has math but
+                    // the typst tier isn't active/failed, substitute to Unicode
+                    // (needs_rewrite also catches escaped `\$`).
                     let lowered;
                     let content: &str = if crate::render::math::needs_rewrite(content) {
                         lowered = crate::render::math::to_unicode(content);

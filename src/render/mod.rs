@@ -7,8 +7,8 @@ pub mod coverage;
 pub mod datetime;
 pub mod figure;
 pub mod layout;
-// Inline-Unicode lowering for `$...$` math in labels. Zero-dep, used by all
-// backends.
+// Always compiled: the lookup tier (`to_unicode`) is zero-dep and used by all
+// backends. The high-fidelity typst tier inside is `#[cfg(feature = "math")]`.
 pub mod math;
 pub mod palette;
 pub mod plots;

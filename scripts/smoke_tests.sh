@@ -15,6 +15,12 @@ set -euo pipefail
 BIN=""
 SAVE=0
 OUTDIR="smoke_test_outputs"
+# Optional binary built with the `math` feature, used by the typst-tier math
+# section. The default $BIN (cli,full) excludes `math` and exercises the
+# always-on lookup tier instead. Build one with, e.g.:
+#   CARGO_TARGET_DIR=target/math cargo build --bin kuva --features cli,full,math
+#   bash scripts/smoke_tests.sh --math-bin target/math/debug/kuva
+MATH_BIN="${MATH_BIN:-}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -27,6 +33,10 @@ while [[ $# -gt 0 ]]; do
                 shift
             fi
             shift
+            ;;
+        --math-bin)
+            MATH_BIN="$2"
+            shift 2
             ;;
         *)
             BIN="$1"
@@ -1126,10 +1136,11 @@ check "quiver grid on + tight bounds" \
         --tight-bounds --pivot middle \
         --title "Quiver Grid + Clip"
 
+
 # ── math in labels ──────────────────────────────────────────────────────────
-# $...$ math regions in labels are lowered to inline Unicode (σ², a/b, √(…), ∑)
-# by every backend. Exercised across plot types and label slots to confirm it
-# is not scatter-specific.
+# The CLI (cli,full — `math` is excluded from `full`) uses the always-on lookup
+# tier, lowering $...$ to inline Unicode (σ², a/b, √(…), ∑). Exercised across
+# plot types and label slots to confirm it is not scatter-specific.
 check "math superscript + sqrt" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
         --x-label 'Variance, $\sigma^2$ (units)' --y-label '$\sqrt{x^2+y^2}$'
@@ -1148,7 +1159,7 @@ check "math greek and operators" \
 
 check "math in rotated y-label" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
-        --y-label 'Energy $E = mc^2$'
+        --y-label 'Energy $E = m c^2$'
 
 check "math on line plot" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value \
@@ -1336,6 +1347,28 @@ check "coverage real CoVarPlot ARTIC data" \
 check "coverage real pools overlaid" \
     "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 --overlay-samples \
         --regions "$DATA/covar_genes.tsv" --region-name genes --x-label "MN908947.3"
+
+# ── math (typst tier) ─────────────────────────────────────────────────────────
+# Only runs if a math-enabled binary was provided via --math-bin. These render
+# real 2-D math (stacked fractions, radicals, limits) instead of inline Unicode.
+if [[ -n "$MATH_BIN" && -x "$MATH_BIN" ]]; then
+    echo ""
+    echo "Math binary: $MATH_BIN (typst tier)"
+    check "typst fraction" \
+        "$MATH_BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+            --title 'Rate $\frac{a + b}{c}$'
+
+    check "typst sqrt + sum" \
+        "$MATH_BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+            --x-label '$\sqrt{x^2 + y^2}$' --y-label '$\sum_{i=1}^{n} x_i$'
+
+    check "typst quadratic in rotated y-label" \
+        "$MATH_BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+            --y-label '$x = \frac{-b \pm \sqrt{b^2 - 4 a c}}{2 a}$'
+else
+    echo ""
+    echo "Skipping typst-tier math checks (no --math-bin; build with --features cli,full,math)."
+fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

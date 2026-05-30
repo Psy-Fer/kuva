@@ -827,9 +827,9 @@ impl Canvas {
                 // hardcoded 0.35) keeps this in lockstep with the renderer.
                 let baseline = center_offset(*size as f64, FontStyle::Regular);
                 let row = self.to_cy(y_s - baseline);
-                // Lower any `$...$` math regions to inline Unicode (σ, x²,
-                // √(…)) — the character grid renders the result directly.
-                // No-op for plain labels.
+                // Lookup tier: the terminal can't typeset, so `$...$` math is
+                // lowered to inline Unicode (σ, x², √(…)). No-op for plain
+                // labels (needs_rewrite also catches escaped `\$`).
                 let lowered;
                 let content: &str = if crate::render::math::needs_rewrite(content) {
                     lowered = crate::render::math::to_unicode(content);

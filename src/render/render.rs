@@ -395,7 +395,7 @@ impl TextSpan {
 /// Data for a `<path>` SVG element.
 ///
 /// Boxed inside `Primitive::Path` to keep the enum small.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathData {
     pub d: String,
     pub fill: Option<Color>,
@@ -405,7 +405,7 @@ pub struct PathData {
     pub stroke_dasharray: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Primitive {
     Circle {
         cx: f64,
@@ -15337,9 +15337,9 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
     }
     flush(&mut plain, &mut spans);
 
-    // Lower any `$...$` math in each span to inline Unicode, so math works
-    // inside markdown body text just like in plain labels. Math is parsed
-    // after markdown, so the styling markers are already consumed.
+    // Lower any `$...$` math in each span to inline Unicode (lookup tier), so
+    // math works inside markdown body text just like in plain labels. Math is
+    // parsed after markdown, so the styling markers are already consumed.
     for span in &mut spans {
         if crate::render::math::needs_rewrite(&span.text) {
             span.text = crate::render::math::to_unicode(&span.text);
