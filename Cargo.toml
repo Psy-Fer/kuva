@@ -10,9 +10,9 @@ keywords = ["plotting", "bioinformatics", "svg", "visualization", "science"]
 categories = ["science", "visualization", "graphics", "command-line-utilities"]
 documentation = "https://docs.rs/kuva"
 readme = "README.md"
-# The raw .ttf is kept in the repo for regenerating the .deflate asset, but is
-# not published — only the compressed form ships in the crate.
-exclude = ["assets/fonts/DejaVuSans.ttf"]
+# Raw font files are kept in the repo for regenerating the gzipped assets, but
+# are not published — only the compressed forms ship in the crate.
+exclude = ["assets/fonts/DejaVuSans.ttf", "assets/fonts/NewCMMath-Regular.otf"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -23,7 +23,24 @@ png        = ["dep:fontdue", "dep:png", "dep:flate2"]
 pdf        = ["dep:svg2pdf", "dep:flate2"]
 embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full       = ["embed_font", "png", "pdf"]
+# Typst markup output backend. Emits .typ source the user compiles externally
+# with `typst compile fig.typ` — pure string emission, no deps. The TypstBackend
+# itself handles `$...$` math via native Typst math syntax. Upstream issue #16.
+typst      = []
+# In-process math rendering for SVG/PNG/PDF output. Uses the typst compiler as
+# a Rust library to render each `$...$` region of a label to an SVG fragment,
+# which kuva embeds at the label position. Result: real math typography
+# (proper italic σ, vinculum √, fractions, sums) in every raster/vector
+# backend — no external typst CLI required. Pulls `flate2` for the bundled
+# math font (it inflates via the `fonts` module, like png/pdf/embed_font).
+#
+# NOTE: deliberately NOT part of `full`. The typst compiler is a ~200-crate,
+# ~15 MB dependency tree, and `full` is what `cargo ci-test` builds — which
+# links every dependency into ~30 example binaries. Including `math` there
+# bloats `target/` by ~10×. Build/test math on its own instead:
+#   cargo test --features math,png --test math_png
+math       = ["dep:typst", "dep:typst-svg", "dep:typst-render", "dep:typst-library", "dep:flate2"]
+full       = ["embed_font", "png", "pdf", "typst"]
 # Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
 # Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
 # Run once: cargo build --bin kuva --features cli,doom
@@ -33,13 +50,17 @@ doom = ["cli"]
 colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
-flate2      = { version = "1", optional = true }
-fontdue     = { version = "0.9",  optional = true }
-png         = { version = "0.18", optional = true }
-svg2pdf     = { version = "0.13", optional = true }
-clap        = { version = "4", features = ["derive"], optional = true }
-clap_mangen = { version = "0.2", optional = true }
-csv         = { version = "1", optional = true }
+flate2        = { version = "1", optional = true }
+fontdue       = { version = "0.9",  optional = true }
+png           = { version = "0.18", optional = true }
+svg2pdf       = { version = "0.13", optional = true }
+clap          = { version = "4", features = ["derive"], optional = true }
+clap_mangen   = { version = "0.2", optional = true }
+csv           = { version = "1", optional = true }
+typst         = { version = "0.14", optional = true }
+typst-svg     = { version = "0.14", optional = true }
+typst-render  = { version = "0.14", optional = true }
+typst-library = { version = "0.14", optional = true }
 
 [dev-dependencies]
 rand = "0.9.3"

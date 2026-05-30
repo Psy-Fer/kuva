@@ -821,6 +821,15 @@ impl Canvas {
                 // reference line/tick.
                 let baseline = *size as f64 * 0.35;
                 let row = self.to_cy(y_s - baseline);
+                // Lookup tier: the terminal can't typeset, so `$...$` math is
+                // lowered to inline Unicode (σ, x², √(…)). No-op for plain text.
+                let lowered;
+                let content: &str = if crate::render::math::contains_math(content) {
+                    lowered = crate::render::math::to_unicode(content);
+                    &lowered
+                } else {
+                    content
+                };
                 let chars: Vec<char> = content.chars().collect();
                 let len = chars.len() as isize;
 

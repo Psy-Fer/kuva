@@ -83,6 +83,11 @@ for ex in "${EXAMPLES[@]}"; do
     cargo run --features full --example "$ex" --quiet
 done
 
+# The math example needs the `math` feature (excluded from `full`) for real
+# Typst typesetting in its SVGs.
+echo "  math (with math feature)"
+cargo run --features "full,math" --example math --quiet
+
 echo "Done."
 
 # ── Benchmark charts ───────────────────────────────────────────────────────────

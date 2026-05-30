@@ -33,7 +33,24 @@
 //! | `pdf`        | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
 //! | `embed_font` | Enables [`backend::svg::SvgBackend::with_embedded_font`] — bakes DejaVu Sans into the SVG as a base64 `@font-face`. Adds `flate2` as a dependency but does **not** pull in `png` or `pdf`. |
 //! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
-//! | `full`       | Enables `embed_font` + `png` + `pdf`. |
+//! | `typst`      | Enables `TypstBackend` for emitting Typst markup (compile externally). |
+//! | `math`       | High-fidelity in-process math: each `$...$` region in a label is typeset by the Typst compiler (linked as a library) and embedded in the SVG/PNG/PDF output. Heavy deps (~200 crates) — strictly opt-in, **not** part of `full`. Enable explicitly, e.g. `--features math,png`. |
+//! | `full`       | Enables `embed_font` + `png` + `pdf` + `typst` (not `math` — see above). |
+//!
+//! ## Math in labels
+//!
+//! Any label may contain `$...$` math regions (LaTeX-ish: `$\sigma^2$`,
+//! `$\frac{a}{b}$`, `$\sqrt{x}$`). There are two rendering tiers:
+//!
+//! * **Lookup tier** (always available, zero deps): math is lowered to inline
+//!   Unicode — Greek letters, operators, super/subscripts, `\frac`→`a/b`,
+//!   `\sqrt`→`√(…)`. The only tier the terminal backend can use.
+//! * **Typst tier** (feature `math`): the whole label is typeset by Typst for
+//!   real 2-D math (stacked fractions, radicals with vinculum, large
+//!   operators) and embedded into SVG/PNG/PDF.
+//!
+//! Note: Typst math is **not** LaTeX — a multi-letter run like `mc` is one
+//! identifier, so write `$E = m c^2$`, not `$E = mc^2$`.
 //!
 //! # Fonts
 //!
@@ -52,7 +69,12 @@ pub mod plot;
 pub mod prelude;
 pub mod render;
 
-#[cfg(any(feature = "embed_font", feature = "png", feature = "pdf"))]
+#[cfg(any(
+    feature = "embed_font",
+    feature = "png",
+    feature = "pdf",
+    feature = "math"
+))]
 pub(crate) mod fonts;
 
 pub use backend::terminal::TerminalBackend;
@@ -65,6 +87,9 @@ pub use backend::raster::RasterBackend;
 
 #[cfg(feature = "pdf")]
 pub use backend::pdf::PdfBackend;
+
+#[cfg(feature = "typst")]
+pub use backend::typst::TypstBackend;
 
 pub use render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};
 /// KDE bandwidth via Silverman's rule of thumb: `h = 1.06 σ n^{-1/5}`.
