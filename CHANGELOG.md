@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pre-compiled release binaries** — pushing a `vX.Y.Z` tag now builds standalone `kuva` CLI binaries (with the `cli,full` feature set: SVG + PNG + PDF) for Linux (x86_64 gnu/musl, aarch64), macOS (Intel + Apple Silicon) and Windows (x86_64), and attaches them with SHA-256 checksums to the matching GitHub Release. Users can download a binary and run it without installing Rust. See `.github/workflows/release.yml` (resolves #17).
+
 ---
 
 ## [0.2.0] — 2026-05-07
