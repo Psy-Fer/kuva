@@ -253,6 +253,7 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | [ternary](./ternary.md) | Ternary (simplex) scatter plot |
 | [scatter3d](./scatter3d.md) | 3D scatter plot with orthographic projection |
 | [surface3d](./surface3d.md) | 3D surface mesh with depth-sorted rendering |
+| [quiver](./quiver.md) | 2-D vector field rendered as arrows |
 
 ---
 

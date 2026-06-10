@@ -1,3 +1,35 @@
+/// Build an SVG path string for a filled arrow-head triangle.
+///
+/// Tip sits at `(tip_x, tip_y)` and the head points along the unit vector
+/// `(ux, uy)`. `length` is the head's extent along the shaft; `half_width`
+/// is the perpendicular distance from the shaft axis to each base corner.
+///
+/// The caller is responsible for wrapping the returned string in a
+/// `Primitive::Path` with appropriate fill/stroke.
+pub fn arrow_head_path(
+    tip_x: f64,
+    tip_y: f64,
+    ux: f64,
+    uy: f64,
+    length: f64,
+    half_width: f64,
+) -> String {
+    let base_x = tip_x - ux * length;
+    let base_y = tip_y - uy * length;
+    // Perpendicular to the shaft direction.
+    let px = -uy;
+    let py = ux;
+    format!(
+        "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
+        tip_x,
+        tip_y,
+        base_x + px * half_width,
+        base_y + py * half_width,
+        base_x - px * half_width,
+        base_y - py * half_width,
+    )
+}
+
 /// compute ticks so things look nice
 /// compute_tick_step(min, max, target_ticks)
 pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {

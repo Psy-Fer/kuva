@@ -69,6 +69,7 @@
 - [Gantt Chart](./plots/gantt.md)
 - [Legend Plot](./plots/legend.md)
 - [Text Plot](./plots/text.md)
+- [Quiver Plot](./plots/quiver.md)
 
 # CLI
 
@@ -127,6 +128,7 @@
   - [venn](./cli/venn.md)
   - [calendar](./cli/calendar.md)
   - [gantt](./cli/gantt.md)
+  - [quiver](./cli/quiver.md)
 - [Terminal Output](./cli/terminal.md)
 
 # Reference

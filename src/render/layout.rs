@@ -609,6 +609,7 @@ impl Layout {
                 || matches!(plot, Plot::Hexbin(hb) if hb.show_colorbar)
                 || matches!(plot, Plot::Treemap(tm) if matches!(tm.color_mode, crate::plot::treemap::TreemapColorMode::ByValue(_)) && tm.show_colorbar)
                 || matches!(plot, Plot::Sunburst(sb) if matches!(sb.color_mode, crate::plot::sunburst::SunburstColorMode::ByValue(_)) && sb.show_colorbar)
+                || matches!(plot, Plot::Quiver(q) if q.color_map.is_some())
             {
                 has_colorbar = true;
             }
@@ -797,6 +798,13 @@ impl Layout {
 
             if let Plot::Lollipop(lp) = plot {
                 if let Some(ref label) = lp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
+            if let Plot::Quiver(q) = plot {
+                if let Some(ref label) = q.legend_label {
                     has_legend = true;
                     max_label_len = max_label_len.max(label.len());
                 }

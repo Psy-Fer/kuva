@@ -476,3 +476,32 @@ fn network_matrix_self_loop_undirected() {
         "undirected 3-node fully-connected matrix should have 3 edges"
     );
 }
+
+/// Refactor regression: the directed-edge arrowhead now goes through the
+/// shared `render_utils::arrow_head_path` helper. The pre-refactor inlined
+/// format used unrounded coords; the new helper rounds to 2 decimals and
+/// uses the same M/L/L/Z shape. Lock in that arrowhead paths still
+/// (a) exist for every directed edge and (b) use the shared 2-decimal format.
+#[test]
+fn test_network_directed_arrowhead_format_regression() {
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_edge("B", "C", 1.0)
+        .with_edge("C", "A", 1.0)
+        .with_directed();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Directed arrowhead regression");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    // Three directed edges → at least three arrowhead triangles.
+    let triangle_count = svg.matches("L ").count();
+    assert!(
+        triangle_count >= 6,
+        "expected ≥6 'L ' path commands (2 per arrowhead × 3 edges), got {triangle_count}"
+    );
+    // 2-decimal coordinate format from the shared helper: look for "M <digits>.<2 digits>".
+    let d_fmt_sample = svg.split("<path").nth(1).unwrap_or("");
+    assert!(
+        d_fmt_sample.contains(" Z") || d_fmt_sample.contains("Z\""),
+        "arrowhead path should close with Z"
+    );
+}

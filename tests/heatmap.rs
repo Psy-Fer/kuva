@@ -207,6 +207,42 @@ fn test_phylo_heatmap_alignment() {
     assert!(svg.contains("<svg"));
 }
 
+/// Refactor regression: ensure `colorbar_linear` produces the same colorbar
+/// output for Heatmap as the pre-refactor inlined closure. Pins a few
+/// characteristic bytes from the gradient so that silent normalization drift
+/// would be caught.
+#[test]
+fn test_heatmap_colorbar_regression() {
+    let data = vec![vec![0.0, 50.0, 100.0], vec![25.0, 75.0, 50.0]];
+    let heatmap = Heatmap::new()
+        .with_data(data)
+        .with_color_map(ColorMap::Viridis);
+    let plots = vec![Plot::Heatmap(heatmap)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Colorbar regression");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+
+    // The colorbar tick axis should show the full data range — min 0, max 100.
+    assert!(
+        svg.contains(">0<") || svg.contains(">0.0"),
+        "colorbar min tick (0) should appear"
+    );
+    assert!(
+        svg.contains(">100<") || svg.contains(">100.0"),
+        "colorbar max tick (100) should appear"
+    );
+    // Viridis endpoints — first stop should be dark-purple-ish, last should be
+    // yellow-ish. The SVG gradient inlines stops as hex colors.
+    // Viridis(0.0) = #440154, Viridis(1.0) = #fde725 (colorous crate).
+    assert!(
+        svg.contains("#440154") || svg.contains("#450154"),
+        "Viridis gradient should start near #440154"
+    );
+    assert!(
+        svg.contains("#fde725") || svg.contains("#fdea10"),
+        "Viridis gradient should end near #fde725"
+    );
+}
+
 #[test]
 fn test_heatmap_x_range() {
     let data = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];

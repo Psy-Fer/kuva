@@ -288,16 +288,17 @@ pub fn add_text_annotations(
                 // Draw arrowhead at the padded tip
                 let arrow_len = computed.annotation_arrow_len;
                 let arrow_half_w = computed.annotation_arrow_half_w;
-
-                let base_x = tip_x - ux * arrow_len;
-                let base_y = tip_y - uy * arrow_len;
-                let left_x = base_x - uy * arrow_half_w;
-                let left_y = base_y + ux * arrow_half_w;
-                let right_x = base_x + uy * arrow_half_w;
-                let right_y = base_y - ux * arrow_half_w;
+                let d = crate::render::render_utils::arrow_head_path(
+                    tip_x,
+                    tip_y,
+                    ux,
+                    uy,
+                    arrow_len,
+                    arrow_half_w,
+                );
 
                 scene.add(Primitive::Path(Box::new(PathData {
-                    d: format!("M{tip_x},{tip_y} L{left_x},{left_y} L{right_x},{right_y} Z"),
+                    d,
                     fill: Some(Color::from(&ann.color)),
                     stroke: Color::from(&ann.color),
                     stroke_width: computed.axis_stroke_width,
