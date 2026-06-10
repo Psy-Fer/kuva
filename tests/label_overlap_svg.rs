@@ -1,9 +1,9 @@
-use kuva::AxisLabelOverlap;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{BarPlot, ScatterPlot};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::{render_multiple, Primitive, Scene};
+use kuva::AxisLabelOverlap;
 
 fn text_element_count(scene: &Scene) -> usize {
     scene
@@ -75,7 +75,9 @@ fn test_stagger_splits_category_labels_into_two_rows() {
     // 8 categories with 5-char names at 300px: adjacent labels overlap, so
     // stagger should place them in alternating rows.  Allow leaves them all at
     // the same y.
-    let cats: Vec<&str> = vec!["Grp01", "Grp02", "Grp03", "Grp04", "Grp05", "Grp06", "Grp07", "Grp08"];
+    let cats: Vec<&str> = vec![
+        "Grp01", "Grp02", "Grp03", "Grp04", "Grp05", "Grp06", "Grp07", "Grp08",
+    ];
 
     let make_bar = || {
         cats.iter()

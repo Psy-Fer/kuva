@@ -1,9 +1,9 @@
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{GenomeBuild, LabelStyle, ManhattanPlot};
 use kuva::render::layout::Layout;
-use kuva::AxisLabelOverlap;
 use kuva::render::plots::Plot;
 use kuva::render::render::{render_manhattan, render_multiple};
+use kuva::AxisLabelOverlap;
 use kuva::Palette;
 
 // ── Deterministic pseudo-random helpers ──────────────────────────────────────

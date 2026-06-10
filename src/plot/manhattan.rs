@@ -749,5 +749,4 @@ impl ManhattanPlot {
         self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
         self
     }
-
 }
