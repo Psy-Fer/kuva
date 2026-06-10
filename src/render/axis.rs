@@ -679,7 +679,7 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         let lines = render_utils::wrap_or_single(title, computed.title_wrap);
         let ts = computed.title_size as f64;
         let total_height = lines.len() as f64 * ts;
-        let cx = computed.width / 2.0;
+        let cx = computed.margin_left + computed.plot_width() / 2.0;
         // Use title_y (derived from base margin before notation tiers) so that
         // BrickPlot notation labels don't push the title into the annotation zone.
         let start_y = computed.title_y - total_height / 2.0 + ts * 0.8;
