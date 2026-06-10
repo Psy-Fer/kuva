@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;
 use kuva::render::layout::{ComputedLayout, Layout};
@@ -71,7 +72,7 @@ fn test_scale_2x_svg_contains_scaled_font_size() {
     let computed = ComputedLayout::from_layout(&layout);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scale_2x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scale_2x.svg", svg.clone()).unwrap();
     // title font-size = 36
     assert!(
         svg.contains("font-size=\"36\""),
@@ -105,7 +106,7 @@ fn test_scale_0_5x_svg() {
         .with_title("Small");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scale_0_5x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scale_0_5x.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"), "SVG should be valid at scale=0.5");
     assert!(
         svg.contains("font-size=\"9\""),
@@ -124,7 +125,7 @@ fn test_scale_3x_svg() {
         .with_y_label("Y axis");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scale_3x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scale_3x.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"), "SVG should be valid at scale=3.0");
     // title_size = round(18 * 3) = 54
     assert!(
@@ -140,7 +141,7 @@ fn test_scale_0_25x_svg() {
     let layout = Layout::auto_from_plots(&plots).with_scale(0.25);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scale_0_25x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scale_0_25x.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"), "SVG should be valid at scale=0.25");
 }
 
@@ -163,7 +164,7 @@ fn test_scale_1_5x_svg() {
         .with_title("Medium Large");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scale_1_5x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scale_1_5x.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"), "SVG should be valid at scale=1.5");
     // title_size = round(18 * 1.5) = 27
     assert!(

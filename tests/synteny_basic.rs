@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::synteny::SyntenyPlot;
 use kuva::render::{layout::Layout, plots::Plot};
@@ -32,7 +33,7 @@ fn synteny_pairwise_forward() {
 
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())]);
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_pairwise_forward.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_pairwise_forward.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"), "Missing SVG root");
     assert!(svg.contains("Human chr1"), "Missing sequence label");
@@ -52,7 +53,7 @@ fn synteny_with_inversions() {
 
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())]);
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_with_inversions.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_with_inversions.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Seq A"));
@@ -77,7 +78,7 @@ fn synteny_three_sequences() {
 
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())]);
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_three_sequences.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_three_sequences.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Genome A"));
@@ -98,7 +99,7 @@ fn synteny_shared_scale() {
 
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())]);
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_shared_scale.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_shared_scale.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Long"));
@@ -117,7 +118,7 @@ fn synteny_custom_colors() {
 
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())]);
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_custom_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_custom_colors.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#4393c3"), "Missing bar color for Seq1");
@@ -162,7 +163,7 @@ fn synteny_large() {
     let layout = Layout::auto_from_plots(&[Plot::Synteny(plot.clone())])
         .with_title("Synteny — 6 chromosomes");
     let svg = render(&plot, layout);
-    std::fs::write("test_outputs/synteny_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/synteny_large.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Chr 1"));

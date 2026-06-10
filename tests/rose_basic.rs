@@ -10,6 +10,9 @@ fn render(rp: RosePlot, title: &str) -> String {
 }
 
 fn write(path: &str, svg: &str) {
+    if std::env::var_os("CI").is_some() {
+        return;
+    }
     std::fs::write(path, svg).unwrap();
 }
 

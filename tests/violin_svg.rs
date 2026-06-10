@@ -1,3 +1,4 @@
+mod common;
 // use kuva::prelude::*;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::ViolinPlot;
@@ -32,7 +33,7 @@ fn test_violin_groups_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_single_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_single_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -77,7 +78,7 @@ fn test_violin_random_data() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_groups_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_groups_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -98,7 +99,7 @@ fn test_violin_silverman_auto() {
     let layout = Layout::auto_from_plots(&plots).with_title("Auto Bandwidth");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_silverman_auto.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_silverman_auto.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
@@ -120,7 +121,7 @@ fn test_violin_manual_bandwidth() {
     let layout = Layout::auto_from_plots(&plots).with_title("Manual Bandwidth 0.5");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_manual_bandwidth.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_manual_bandwidth.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -139,7 +140,7 @@ fn test_violin_degenerate_constant() {
     let layout = Layout::auto_from_plots(&plots).with_title("Degenerate Constant");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_degenerate_constant.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_degenerate_constant.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -158,7 +159,7 @@ fn test_violin_group_colors_full() {
     let layout = Layout::auto_from_plots(&plots).with_title("Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_group_colors_full.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_group_colors_full.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("steelblue") || svg.contains("#4682b4"));
@@ -181,7 +182,7 @@ fn test_violin_group_colors_partial() {
     let layout = Layout::auto_from_plots(&plots).with_title("Partial Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_group_colors_partial.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_group_colors_partial.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));
@@ -200,7 +201,7 @@ fn test_violin_single_value() {
     let layout = Layout::auto_from_plots(&plots).with_title("Single Value");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_single_value.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_single_value.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
 }

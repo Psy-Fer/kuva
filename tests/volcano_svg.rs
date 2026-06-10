@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{LabelStyle, VolcanoPlot};
 use kuva::render::layout::Layout;
@@ -60,7 +61,7 @@ fn test_volcano_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_basic.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Dashed threshold lines should be present
     assert!(svg.contains("4 4"));
@@ -80,7 +81,7 @@ fn test_volcano_labeled_nudge() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_labeled_nudge.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_labeled_nudge.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // At least one gene name should appear
     assert!(svg.contains("EGFR") || svg.contains("AKT1") || svg.contains("P21"));
@@ -101,7 +102,7 @@ fn test_volcano_labeled_exact() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_labeled_exact.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_labeled_exact.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -123,7 +124,7 @@ fn test_volcano_labeled_arrow() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_labeled_arrow.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_labeled_arrow.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Leader lines drawn in gray
     assert!(svg.contains("#666666"));
@@ -145,7 +146,7 @@ fn test_volcano_zero_pvalues() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_zero_pvalues.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_zero_pvalues.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -163,7 +164,7 @@ fn test_volcano_pvalue_floor() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_pvalue_floor.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_pvalue_floor.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -181,7 +182,7 @@ fn test_volcano_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_legend.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Legend entries should appear
     assert!(svg.contains(">Up<") || svg.contains(">Up "));
@@ -205,7 +206,7 @@ fn test_volcano_custom_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_custom_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_custom_colors.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#ff8c00"));
     assert!(svg.contains("mediumpurple") || svg.contains("#9370db"));
@@ -227,7 +228,7 @@ fn test_volcano_custom_thresholds() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_custom_thresholds.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_custom_thresholds.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -246,6 +247,6 @@ fn test_volcano_render_volcano_fn() {
 
     let scene = render_volcano(&vp, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/volcano_render_fn.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/volcano_render_fn.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }

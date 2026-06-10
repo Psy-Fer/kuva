@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::network::{NetworkLayout, NetworkPlot, NodeShape};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -13,7 +14,7 @@ fn network_basic() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Basic Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_basic.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_basic.svg", svg).unwrap();
 }
 
 #[test]
@@ -29,7 +30,7 @@ fn network_directed() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Directed Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_directed.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_directed.svg", svg).unwrap();
 }
 
 #[test]
@@ -51,7 +52,7 @@ fn network_circle_layout() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Circle Layout");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_circle.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_circle.svg", svg).unwrap();
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn network_self_loop() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Self-Loop");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_self_loop.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_self_loop.svg", svg).unwrap();
 }
 
 #[test]
@@ -83,7 +84,7 @@ fn network_matrix() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("From Adjacency Matrix");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_matrix.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_matrix.svg", svg).unwrap();
 }
 
 #[test]
@@ -102,7 +103,7 @@ fn network_groups_legend() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Grouped Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_groups_legend.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_groups_legend.svg", svg).unwrap();
 }
 
 #[test]
@@ -117,7 +118,7 @@ fn network_weighted() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Weighted Edges");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_weighted.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_weighted.svg", svg).unwrap();
 }
 
 #[test]
@@ -137,7 +138,7 @@ fn network_node_sizes() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Variable Node Sizes");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_node_sizes.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_node_sizes.svg", svg).unwrap();
 }
 
 #[test]
@@ -170,7 +171,7 @@ fn network_disconnected() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Disconnected Components");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_disconnected.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_disconnected.svg", svg).unwrap();
 }
 
 #[test]
@@ -203,7 +204,7 @@ fn network_pinned_positions() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Pinned Positions");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_pinned.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_pinned.svg", svg).unwrap();
 }
 
 #[test]
@@ -226,7 +227,7 @@ fn network_explicit_node_colors() {
     assert!(svg.contains("#e41a1c"), "node A should use explicit red");
     assert!(svg.contains("#377eb8"), "node B should use explicit blue");
     assert!(svg.contains("#4daf4a"), "node C should use explicit green");
-    std::fs::write("test_outputs/network_explicit_colors.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_explicit_colors.svg", svg).unwrap();
 }
 
 #[test]
@@ -243,7 +244,7 @@ fn network_single_node_self_loop() {
         svg.contains("<path"),
         "single-node self-loop should produce a path"
     );
-    std::fs::write("test_outputs/network_single_self_loop.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_single_self_loop.svg", svg).unwrap();
 }
 
 #[test]
@@ -268,7 +269,7 @@ fn network_matrix_directed_order_independent() {
         arrow_count >= 3,
         "directed matrix should produce at least 3 arrowhead paths, got {arrow_count}"
     );
-    std::fs::write("test_outputs/network_matrix_directed.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_matrix_directed.svg", svg).unwrap();
 }
 
 #[test]
@@ -286,7 +287,7 @@ fn network_kamada_kawai() {
     let layout = Layout::auto_from_plots(&plots).with_title("Kamada-Kawai Layout");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("<circle"), "KK layout should produce nodes");
-    std::fs::write("test_outputs/network_kamada_kawai.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_kamada_kawai.svg", svg).unwrap();
 }
 
 #[test]
@@ -301,7 +302,7 @@ fn network_edge_labels() {
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("0.95"), "edge label should appear in SVG");
     assert!(svg.contains("0.72"), "edge label should appear in SVG");
-    std::fs::write("test_outputs/network_edge_labels.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_edge_labels.svg", svg).unwrap();
 }
 
 #[test]
@@ -323,7 +324,7 @@ fn network_node_shapes() {
     assert!(svg.contains("<circle"), "should have circle nodes");
     assert!(svg.contains("<rect"), "should have square nodes");
     // Diamond and triangle are rendered as <path>
-    std::fs::write("test_outputs/network_node_shapes.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_node_shapes.svg", svg).unwrap();
 }
 
 #[test]
@@ -343,7 +344,7 @@ fn network_antiparallel_curved() {
     );
     assert!(svg.contains("strong"), "A→B edge label should appear");
     assert!(svg.contains("weak"), "B→A edge label should appear");
-    std::fs::write("test_outputs/network_antiparallel.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_antiparallel.svg", svg).unwrap();
 }
 
 #[test]
@@ -361,7 +362,7 @@ fn network_repel_labels() {
     let layout = Layout::auto_from_plots(&plots).with_title("Label Repulsion");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("Alpha"), "labels should still be present");
-    std::fs::write("test_outputs/network_repel_labels.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_repel_labels.svg", svg).unwrap();
 }
 
 #[test]
@@ -423,7 +424,7 @@ fn network_dense_clusters() {
         group_count >= 50,
         "dense graph should have many edge groups, got {group_count}"
     );
-    std::fs::write("test_outputs/network_dense_clusters.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_dense_clusters.svg", svg).unwrap();
 }
 
 #[test]

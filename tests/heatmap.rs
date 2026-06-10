@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{ColorMap, Heatmap, PhyloTree};
 use kuva::render::figure::Figure;
@@ -27,7 +28,7 @@ fn test_heatmap_colorbar_values() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/heatmap_values.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/heatmap_values.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -51,7 +52,7 @@ fn test_heatmap_colorbar() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/heatmap_colorbar.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/heatmap_colorbar.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<rect")); // colorbar rects
@@ -100,7 +101,7 @@ fn test_heatmap_with_y_categories_reorders_data() {
         .with_title("Heatmap — C top, B mid, A bottom")
         .with_y_categories(layout_cats);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/heatmap_y_categories.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/heatmap_y_categories.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -145,7 +146,7 @@ fn test_heatmap_with_x_categories_reorders_data() {
         .with_title("Heatmap — cols reordered z, x, y")
         .with_x_categories(desired);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/heatmap_x_categories.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/heatmap_x_categories.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -202,7 +203,7 @@ fn test_phylo_heatmap_alignment() {
         .with_title("Phylo + Heatmap — aligned leaf order");
 
     let svg = SvgBackend.render_scene(&figure.render());
-    std::fs::write("test_outputs/heatmap_phylo_alignment.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/heatmap_phylo_alignment.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -248,7 +249,7 @@ fn test_heatmap_xy_range() {
         .with_y_label("Y (m)");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write("test_outputs/heatmap_xy_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/heatmap_xy_range.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -334,7 +335,7 @@ fn test_heatmap_cell_size_gap_default() {
     let layout = Layout::auto_from_plots(&plots).with_width(500.0);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write("test_outputs/heatmap_cell_size_gap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/heatmap_cell_size_gap.svg", &svg).unwrap();
 
     let all_rects = parse_rect_xw(&svg);
     let cells = extract_cell_rects_n(&all_rects, 4);
@@ -363,7 +364,7 @@ fn test_heatmap_cell_size_flush() {
     let plots = vec![Plot::Heatmap(hm)];
     let layout = Layout::auto_from_plots(&plots).with_width(500.0);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/heatmap_flush.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/heatmap_flush.svg", &svg).unwrap();
 
     let all_rects = parse_rect_xw(&svg);
     let cells = extract_cell_rects_n(&all_rects, 4);

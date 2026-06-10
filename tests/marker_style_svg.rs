@@ -1,3 +1,4 @@
+mod common;
 /// Tests for circle marker opacity and stroke across ScatterPlot, StripPlot,
 /// PolarPlot, and TernaryPlot.  Every test writes an SVG to test_outputs/ for
 /// visual inspection, and asserts that the relevant CSS attributes appear in
@@ -13,7 +14,7 @@ use kuva::render::render::render_multiple;
 
 fn write(name: &str, svg: &str) {
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write(format!("test_outputs/{name}.svg"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), svg).unwrap();
 }
 
 fn render(plots: Vec<Plot>, title: &str) -> String {

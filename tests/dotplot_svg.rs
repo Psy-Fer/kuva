@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{ColorMap, DotPlot};
 use kuva::render::layout::Layout;
@@ -28,7 +29,7 @@ fn test_dot_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -56,7 +57,7 @@ fn test_dot_matrix() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_matrix.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_matrix.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // 9 circles for a 3x3 matrix
@@ -81,7 +82,7 @@ fn test_dot_custom_colormap() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_custom_colormap.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_custom_colormap.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -104,7 +105,7 @@ fn test_dot_size_range() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_size_range.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_size_range.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -127,7 +128,7 @@ fn test_dot_color_range() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_color_range.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_color_range.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -151,7 +152,7 @@ fn test_dot_size_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_size_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_size_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Should have legend entries
@@ -176,7 +177,7 @@ fn test_dot_colorbar() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_colorbar.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_colorbar.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Colorbar draws many rects
@@ -204,7 +205,7 @@ fn test_dot_both_legends() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_both_legends.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_both_legends.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -232,7 +233,7 @@ fn test_dot_sparse() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_sparse.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_sparse.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Only 5 circles (not 9 for a 3x3 grid)
@@ -267,7 +268,7 @@ fn test_dot_large() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dot_large.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dot_large.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // 500 circles for 50x10

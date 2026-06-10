@@ -7,6 +7,7 @@
 //! - Diverging maps are symmetric: the midpoint color (t=0.5) differs from both endpoints.
 //! - Integration: `Heatmap` renders valid SVG with each diverging colormap.
 
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{ColorMap, Heatmap};
 use kuva::render::layout::Layout;
@@ -239,7 +240,8 @@ macro_rules! heatmap_diverging_test {
                 .with_x_categories(vec!["A".into(), "B".into(), "C".into()])
                 .with_y_categories(vec!["X".into(), "Y".into(), "Z".into()]);
             let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-            std::fs::write(concat!("test_outputs/colormap_", $filename, ".svg"), &svg).unwrap();
+            common::write_test_output(concat!("test_outputs/colormap_", $filename, ".svg"), &svg)
+                .unwrap();
             assert!(
                 svg.starts_with("<svg"),
                 "{} SVG must start with <svg",
@@ -298,7 +300,8 @@ macro_rules! heatmap_sequential_test {
             let layout =
                 Layout::auto_from_plots(&plots).with_title(concat!("Heatmap — ", $filename));
             let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-            std::fs::write(concat!("test_outputs/colormap_", $filename, ".svg"), &svg).unwrap();
+            common::write_test_output(concat!("test_outputs/colormap_", $filename, ".svg"), &svg)
+                .unwrap();
             assert!(
                 svg.starts_with("<svg"),
                 "{} SVG must start with <svg",

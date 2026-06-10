@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::EcdfPlot;
 use kuva::render::layout::Layout;
@@ -28,7 +29,7 @@ fn test_ecdf_basic() {
         .with_x_label("Value")
         .with_y_label("F(x)");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"), "ECDF should produce a path element");
 }
@@ -42,7 +43,7 @@ fn test_ecdf_step_function_shape() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_step.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_step.svg", &svg).unwrap();
     assert!(
         svg.contains('V'),
         "step function should use V (vertical) path commands"
@@ -66,7 +67,7 @@ fn test_ecdf_complementary() {
         .with_title("CCDF (Complementary)")
         .with_y_label("1 - F(x)");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_complementary.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_complementary.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
 }
@@ -85,7 +86,7 @@ fn test_ecdf_confidence_band() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF with DKW Band");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_confidence_band.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_confidence_band.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Band is a filled path; main line is unfilled
     let path_count = svg.matches("<path").count();
@@ -106,7 +107,7 @@ fn test_ecdf_rug() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF with Rug");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_rug.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_rug.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Rug produces line elements
     assert!(svg.contains("<line"), "rug should produce line elements");
@@ -123,7 +124,7 @@ fn test_ecdf_percentile_lines() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF with Percentiles");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_percentile_lines.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_percentile_lines.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // 25%, 50%, 75% labels
     assert!(svg.contains("25%"), "should contain 25% label");
@@ -142,7 +143,7 @@ fn test_ecdf_markers() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF with Markers");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_markers.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_markers.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<circle"),
@@ -167,7 +168,7 @@ fn test_ecdf_smooth() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Smooth ECDF");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_smooth.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_smooth.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
     // Smooth should not contain H/V (it uses L commands)
@@ -192,7 +193,7 @@ fn test_ecdf_multigroup() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF Multi-Group");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_multigroup.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_multigroup.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     let path_count = svg.matches("<path").count();
     assert!(
@@ -218,7 +219,7 @@ fn test_ecdf_multigroup_with_bands() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Multi-Group ECDF with Bands");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_multigroup_bands.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_multigroup_bands.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // 2 bands + 2 step lines = 4 paths minimum
     let path_count = svg.matches("<path").count();
@@ -248,7 +249,7 @@ fn test_ecdf_complementary_rug() {
         .with_y_label("Fraction ≥ length")
         .with_log_x();
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_ccdf_rug.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_ccdf_rug.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"), "SVG should not contain NaN");
 }
@@ -268,7 +269,7 @@ fn test_ecdf_all_features() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("ECDF All Features");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_all_features.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_all_features.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"));
 }
@@ -285,7 +286,7 @@ fn test_ecdf_empty() {
         .with_y_axis_min(0.0)
         .with_y_axis_max(1.0);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_empty.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "empty ECDF should still produce valid SVG"
@@ -299,7 +300,7 @@ fn test_ecdf_single_point() {
     let plots = vec![Plot::Ecdf(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Single Point ECDF");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/ecdf_single.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/ecdf_single.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "single-point ECDF should produce valid SVG"

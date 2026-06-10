@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::roc::{
     auc_trapz, compute_group, compute_roc_points, delong_auc, partial_auc, RocGroup, RocPlot,
@@ -10,7 +11,7 @@ use std::fs;
 fn write_svg(name: &str, plots: Vec<Plot>, layout: Layout) -> String {
     fs::create_dir_all("test_outputs").unwrap();
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    fs::write(format!("test_outputs/{name}.svg"), &svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), &svg).unwrap();
     assert!(svg.contains("<svg"));
     svg
 }

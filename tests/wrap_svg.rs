@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::legend::{LegendEntry, LegendShape};
 use kuva::plot::ScatterPlot;
@@ -27,7 +28,7 @@ fn title_wrap_splits_long_title() {
         .with_title("This is a very long title that should wrap")
         .with_title_wrap(20);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_title.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_title.svg", &out).unwrap();
 
     // Should produce multiple <text> elements for the title lines.
     // "This is a very long" (19 chars) and "title that should" (17) and "wrap" (4)
@@ -68,7 +69,7 @@ fn x_label_wrap_splits() {
         .with_x_label("A long x-axis label for testing wrapping behavior")
         .with_x_label_wrap(25);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_x_label.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_x_label.svg", &out).unwrap();
 
     // Should split into multiple lines.
     assert!(
@@ -87,7 +88,7 @@ fn y_label_wrap_produces_multiple_rotated_texts() {
         .with_y_label("Long rotated y-axis label text here")
         .with_y_label_wrap(15);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_y_label.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_y_label.svg", &out).unwrap();
 
     // Each wrapped line should be a separate rotated text.
     let rotated_count = out.matches("rotate(-90").count();
@@ -120,7 +121,7 @@ fn legend_wrap_splits_long_labels() {
         .with_legend_entries(entries)
         .with_legend_wrap(15);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_legend.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_legend.svg", &out).unwrap();
 
     // The long label should be split across multiple text elements.
     assert!(out.contains("A very long"), "first legend line");
@@ -143,7 +144,7 @@ fn legend_wrap_title() {
         .with_legend_title("A long legend title that wraps")
         .with_legend_wrap(15);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_legend_title.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_legend_title.svg", &out).unwrap();
 
     // At 15 chars: "A long legend" / "title that" / "wraps"
     assert!(out.contains("A long legend"), "first legend title line");
@@ -168,7 +169,7 @@ fn global_wrap_applies_to_all() {
         .with_legend_entries(entries)
         .with_wrap(20);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_global.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_global.svg", &out).unwrap();
 
     // Title should wrap.
     assert!(
@@ -283,7 +284,7 @@ fn y2_label_wrap_produces_multiple_rotated_texts() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let out = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/wrap_y2_label.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_y2_label.svg", &out).unwrap();
 
     let rotated_90_count = out.matches("rotate(90").count();
     assert!(
@@ -317,7 +318,7 @@ fn grouped_legend_wrap() {
         )
         .with_legend_wrap(15);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/wrap_grouped_legend.svg", &out).unwrap();
+    common::write_test_output("test_outputs/wrap_grouped_legend.svg", &out).unwrap();
 
     // Group title wraps: "A long group" / "title that" / "wraps"
     assert!(out.contains("A long group"), "group title first line");
@@ -355,7 +356,7 @@ fn outside_bottom_legend_wrap_adjusts_height() {
         .with_legend_position(LegendPosition::OutsideBottomCenter)
         .with_legend_wrap(20);
     let svg_wrap = svg(plots1, layout);
-    std::fs::write("test_outputs/wrap_outside_bottom.svg", &svg_wrap).unwrap();
+    common::write_test_output("test_outputs/wrap_outside_bottom.svg", &svg_wrap).unwrap();
 
     let plots2 = scatter_plots();
     let layout_no = Layout::auto_from_plots(&plots2)
@@ -398,7 +399,7 @@ fn outside_bottom_legend_no_wrap_renders_entries() {
         .with_legend_entries(entries)
         .with_legend_position(LegendPosition::OutsideBottomCenter);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/outside_bottom_no_wrap.svg", &out).unwrap();
+    common::write_test_output("test_outputs/outside_bottom_no_wrap.svg", &out).unwrap();
 
     // Both entries must appear.
     assert!(
@@ -433,7 +434,7 @@ fn legend_height_cap_shows_overflow_line() {
         .collect();
     let layout = Layout::auto_from_plots(&plots).with_legend_entries(entries);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_height_cap.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_height_cap.svg", &out).unwrap();
 
     // The overflow line must be present.
     assert!(

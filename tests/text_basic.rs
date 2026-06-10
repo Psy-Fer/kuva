@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{Histogram, ScatterPlot, TextAlign, TextPlot};
 use kuva::render::figure::Figure;
@@ -254,7 +255,7 @@ fn test_text_in_figure_with_scatter_and_histogram() {
         .render();
 
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/text_figure_4cell.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/text_figure_4cell.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Figure Notes"));

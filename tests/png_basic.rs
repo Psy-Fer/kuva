@@ -1,4 +1,5 @@
 #![cfg(feature = "png")]
+mod common;
 
 use kuva::plot::scatter::ScatterPlot;
 use kuva::plot::BarPlot;
@@ -29,7 +30,7 @@ fn png_scatter_basic() {
         b"\x89PNG\r\n\x1a\n",
         "output is not a valid PNG"
     );
-    std::fs::write("test_outputs/png_scatter.png", &bytes).unwrap();
+    common::write_test_output("test_outputs/png_scatter.png", &bytes).unwrap();
 }
 
 #[test]
@@ -217,5 +218,5 @@ fn png_rich_figure() {
         b"\x89PNG\r\n\x1a\n",
         "output is not a valid PNG"
     );
-    std::fs::write("test_outputs/png_rich_figure.png", &bytes).unwrap();
+    common::write_test_output("test_outputs/png_rich_figure.png", &bytes).unwrap();
 }

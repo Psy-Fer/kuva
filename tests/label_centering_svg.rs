@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::line::LinePlot;
 use kuva::plot::scatter::ScatterPlot;
@@ -47,7 +48,7 @@ fn test_title_centred_with_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/label_centering_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/label_centering_legend.svg", &svg).unwrap();
 
     let title_x = extract_text_x(&svg, "MyTitle").expect("title element not found in SVG");
     let label_x = extract_text_x(&svg, "MyLabel").expect("x-label element not found in SVG");
@@ -86,7 +87,7 @@ fn test_title_centred_twin_y() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/label_centering_twin_y.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/label_centering_twin_y.svg", &svg).unwrap();
 
     let title_x = extract_text_x(&svg, "TwinTitle").expect("title element not found in SVG");
     let label_x = extract_text_x(&svg, "X").expect("x-label element not found in SVG");
@@ -123,7 +124,7 @@ fn test_title_centred_pie_outside_labels() {
     // by reading the final canvas width from the <svg> width attribute.
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/label_centering_pie_outside.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/label_centering_pie_outside.svg", &svg).unwrap();
 
     // Extract the final canvas width from the SVG header: width="NNN"
     let canvas_width: f64 = {
@@ -183,7 +184,7 @@ fn test_x_label_offset() {
         .with_x_label_offset(dx, dy);
     let svg_off = SvgBackend.render_scene(&render_multiple(plots, layout));
 
-    std::fs::write("test_outputs/x_label_offset.svg", &svg_off).unwrap();
+    common::write_test_output("test_outputs/x_label_offset.svg", &svg_off).unwrap();
 
     let base_x = extract_text_x(&svg_base, "XLbl").expect("base x-label not found");
     let base_y = extract_text_y(&svg_base, "XLbl").expect("base y not found");
@@ -220,7 +221,7 @@ fn test_y_label_offset() {
         .with_y_label_offset(dx, dy);
     let svg_off = SvgBackend.render_scene(&render_multiple(plots, layout));
 
-    std::fs::write("test_outputs/y_label_offset.svg", &svg_off).unwrap();
+    common::write_test_output("test_outputs/y_label_offset.svg", &svg_off).unwrap();
 
     let base_x = extract_text_x(&svg_base, "YLbl").expect("base y-label x not found");
     let base_y = extract_text_y(&svg_base, "YLbl").expect("base y-label y not found");
@@ -257,7 +258,7 @@ fn test_y2_label_offset() {
         .with_y2_label_offset(dx, dy);
     let svg_off = SvgBackend.render_scene(&render_twin_y(primary, secondary, layout));
 
-    std::fs::write("test_outputs/y2_label_offset.svg", &svg_off).unwrap();
+    common::write_test_output("test_outputs/y2_label_offset.svg", &svg_off).unwrap();
 
     let base_x = extract_text_x(&svg_base, "Y2Lbl").expect("base y2-label x not found");
     let base_y = extract_text_y(&svg_base, "Y2Lbl").expect("base y2-label y not found");
@@ -292,7 +293,7 @@ fn test_y_label_centred_on_plot_area() {
     let computed = ComputedLayout::from_layout(&layout);
     let expected_no_title = computed.margin_top + computed.plot_height() / 2.0;
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/y_label_centred_no_title.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/y_label_centred_no_title.svg", &svg).unwrap();
     let label_y = extract_text_y(&svg, "YAxisLbl").expect("y-label not found (no title)");
     assert!(
         (label_y - expected_no_title).abs() < 2.0,
@@ -307,7 +308,7 @@ fn test_y_label_centred_on_plot_area() {
     let computed = ComputedLayout::from_layout(&layout);
     let expected_with_title = computed.margin_top + computed.plot_height() / 2.0;
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/y_label_centred_with_title.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/y_label_centred_with_title.svg", &svg).unwrap();
     let label_y = extract_text_y(&svg, "YAxisLbl").expect("y-label not found (with title)");
     assert!(
         (label_y - expected_with_title).abs() < 2.0,

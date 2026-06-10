@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::heatmap::ColorMap;
 use kuva::plot::scatter::MarkerShape;
@@ -23,7 +24,7 @@ fn test_scatter3d_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_basic.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Should contain circle markers
     assert!(svg.contains("<circle"), "SVG should contain circle markers");
@@ -38,7 +39,7 @@ fn test_scatter3d_wireframe() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_wireframe.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_wireframe.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Wireframe box produces line elements
     assert!(
@@ -60,7 +61,7 @@ fn test_scatter3d_custom_view() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_custom_view.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_custom_view.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
 }
@@ -82,7 +83,7 @@ fn test_scatter3d_z_colormap() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_colormap.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_colormap.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Z-colormap produces varied fill colors from viridis (rendered as hex)
     // With 20 points at different z values, there should be multiple distinct fill colors
@@ -103,7 +104,7 @@ fn test_scatter3d_depth_shade() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_depth_shade.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_depth_shade.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Depth shading produces opacity attributes
     assert!(
@@ -122,7 +123,7 @@ fn test_scatter3d_legend() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_legend.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Group A"), "SVG should contain legend label");
 }
@@ -135,7 +136,7 @@ fn test_scatter3d_empty() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_empty.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_empty.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Should not crash, just produce an empty-ish SVG
 }
@@ -153,7 +154,7 @@ fn test_scatter3d_axis_labels() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_labels.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("X Axis"), "SVG should contain X axis label");
     assert!(svg.contains("Y Axis"), "SVG should contain Y axis label");
@@ -171,7 +172,7 @@ fn test_scatter3d_marker_shapes() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_squares.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_squares.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Square markers produce rect elements
     assert!(
@@ -192,7 +193,7 @@ fn test_scatter3d_no_grid_no_box() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter3d_no_grid_box.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_no_grid_box.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"), "should still have data points");
 }
@@ -213,7 +214,7 @@ fn test_scatter3d_auto_z_axis() {
     let plots = vec![Plot::Scatter3D(default_plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg_default = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/scatter3d_auto_z_default.svg",
         svg_default.clone(),
     )
@@ -230,7 +231,7 @@ fn test_scatter3d_auto_z_axis() {
     let plots = vec![Plot::Scatter3D(mirrored_plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg_mirrored = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/scatter3d_auto_z_mirrored.svg",
         svg_mirrored.clone(),
     )
@@ -246,6 +247,6 @@ fn test_scatter3d_auto_z_axis() {
     let plots = vec![Plot::Scatter3D(forced_left)];
     let layout = Layout::auto_from_plots(&plots);
     let svg_left = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/scatter3d_z_axis_left.svg", svg_left.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter3d_z_axis_left.svg", svg_left.clone()).unwrap();
     assert!(svg_left.contains("Z"));
 }

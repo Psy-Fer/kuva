@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{BarPlot, ScatterPlot};
 use kuva::render::layout::Layout;
@@ -47,13 +48,12 @@ fn test_thin_reduces_dense_numeric_labels() {
     let layout_thin = make_layout(&plots).with_x_label_overlap(AxisLabelOverlap::Thin);
     let scene_thin = render_multiple(plots, layout_thin);
 
-    let _ = std::fs::create_dir("test_outputs");
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/label_overlap_thin_allow.svg",
         SvgBackend.render_scene(&scene_allow),
     )
     .unwrap();
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/label_overlap_thin.svg",
         SvgBackend.render_scene(&scene_thin),
     )
@@ -94,12 +94,12 @@ fn test_stagger_splits_category_labels_into_two_rows() {
         .with_x_label_overlap(AxisLabelOverlap::Stagger);
     let scene_stagger = render_multiple(plots_stagger, layout_stagger);
 
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/label_overlap_stagger_allow.svg",
         SvgBackend.render_scene(&scene_allow),
     )
     .unwrap();
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/label_overlap_stagger.svg",
         SvgBackend.render_scene(&scene_stagger),
     )

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::histogram2d::ColorMap;
 use kuva::plot::Histogram2D;
@@ -34,7 +35,7 @@ fn test_histogram2d_svg_output_builder() {
     let plots = vec![Plot::Histogram2d(hist2d)];
     let layout = Layout::auto_from_plots(&plots).with_title("Histogram2D");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_builder.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_builder.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -134,7 +135,7 @@ fn test_hist2d_explicit_range_renders_filled_bins() {
     let plots = vec![Plot::Histogram2d(hist)];
     let layout = Layout::auto_from_plots(&plots).with_title("hist2d explicit range");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_explicit_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_explicit_range.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"), "SVG should contain no NaN values");
     // Multiple coloured rects expected (one per non-empty bin).
@@ -163,13 +164,13 @@ fn test_hist2d_log_count() {
     let plots = vec![Plot::Histogram2d(hist_linear)];
     let layout = Layout::auto_from_plots(&plots).with_title("hist2d linear");
     let svg_linear = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_linear.svg", &svg_linear).unwrap();
+    common::write_test_output("test_outputs/hist2d_linear.svg", &svg_linear).unwrap();
 
     // Log render
     let plots = vec![Plot::Histogram2d(hist_log)];
     let layout = Layout::auto_from_plots(&plots).with_title("hist2d log count");
     let svg_log = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_log_count.svg", &svg_log).unwrap();
+    common::write_test_output("test_outputs/hist2d_log_count.svg", &svg_log).unwrap();
 
     assert!(svg_log.contains("<svg"));
     assert!(
@@ -210,7 +211,7 @@ fn test_hist2d_colorbar_auto_format_integers() {
     let plots = vec![Plot::Histogram2d(hist)];
     let layout = Layout::auto_from_plots(&plots).with_title("hist2d auto tick format");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_colorbar_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_colorbar_auto.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"));
     // Auto format should not produce ".0" suffixes on integer counts
@@ -233,7 +234,7 @@ fn test_hist2d_colorbar_sci_format() {
         .with_title("hist2d sci tick format")
         .with_colorbar_tick_format(TickFormat::Sci);
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_colorbar_sci.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_colorbar_sci.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"));
     // Sci format produces "e" notation
@@ -256,7 +257,7 @@ fn test_hist2d_colorbar_fixed_format() {
         .with_title("hist2d fixed tick format")
         .with_colorbar_tick_format(TickFormat::Fixed(2));
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_colorbar_fixed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_colorbar_fixed.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"));
     // Fixed(2) produces ".00" on integers
@@ -277,7 +278,7 @@ fn test_hist2d_colorbar_auto_large_counts() {
     let plots = vec![Plot::Histogram2d(hist)];
     let layout = Layout::auto_from_plots(&plots).with_title("hist2d large counts auto");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hist2d_colorbar_large_counts.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist2d_colorbar_large_counts.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"));
     // Max count is 50 000 (≥ 10 000), so Auto should produce at least one sci-notation label

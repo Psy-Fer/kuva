@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::brick::{BrickAnchor, BrickTemplate};
 use kuva::plot::BrickPlot;
@@ -46,7 +47,7 @@ fn test_brickplot_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_DNA_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_DNA_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -82,7 +83,7 @@ fn test_brickplot_per_read_offsets() {
     let layout = Layout::auto_from_plots(&plots).with_title("BrickPlot - per-read offsets");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_per_read_offsets.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_per_read_offsets.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -120,7 +121,7 @@ fn test_brickplot_per_read_offsets_fallback() {
         Layout::auto_from_plots(&plots).with_title("BrickPlot - per-read offsets with fallback");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/brickplot_per_read_offsets_fallback.svg",
         svg.clone(),
     )
@@ -187,7 +188,7 @@ fn test_brickplot_strigar_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_strigar_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_strigar_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -224,7 +225,7 @@ fn test_brick_legend_order() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_legend_order.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_legend_order.svg", svg.clone()).unwrap();
 
     // 'A' is most frequent (CAT); 'B' is next (T).
     // The legend must list them in that order: CAT before T in the SVG.
@@ -295,7 +296,7 @@ fn test_brick_stitched_format_with_gaps() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_stitched_gaps.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_stitched_gaps.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Gap bricks should be rendered (grey color in template; SVG emits as #c8c8c8)
     assert!(svg.contains("#c8c8c8"), "gap bricks should use grey color");
@@ -317,7 +318,7 @@ fn test_brick_flanked_strigars() {
     let plots = vec![Plot::Brick(brickplot)];
     let layout = Layout::auto_from_plots(&plots).with_title("BrickPlot - flanked strigars");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/brickplot_flanked.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_flanked.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // DNA A = rgb(0,150,0) → #009600 after SVG backend conversion; appears in flanks.
@@ -349,7 +350,7 @@ fn test_brick_right_anchor() {
     let plots = vec![Plot::Brick(brickplot)];
     let layout = Layout::auto_from_plots(&plots).with_title("BrickPlot - right anchor");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/brickplot_right_anchor.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_right_anchor.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -464,7 +465,8 @@ fn test_brick_stitched_per_segment_canonical() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_stitched_canonical.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_stitched_canonical.svg", svg.clone())
+        .unwrap();
 
     assert!(svg.contains("<svg"));
     // ACCCTA, TAACCC, CCCTAA all same canonical → single motif colour in SVG
@@ -588,7 +590,7 @@ fn test_brick_spec_bean1_sca31_renders() {
     let plots = vec![Plot::Brick(brickplot)];
     let layout = Layout::auto_from_plots(&plots).with_title("BEAN1/SCA31 locus (spec example)");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/brickplot_bean1_sca31.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_bean1_sca31.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "must produce valid SVG");
     // Form A gaps (AT=2nt, GAA=3nt) produce grey bricks.
@@ -677,7 +679,8 @@ fn test_brick_spec_stitched_with_traditional_notation() {
     let layout = Layout::auto_from_plots(&plots)
         .with_title("BrickPlot — bladerunner flanked+notation pipeline");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/brickplot_spec_full_pipeline.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_spec_full_pipeline.svg", svg.clone())
+        .unwrap();
 
     assert!(svg.contains("<svg"), "must produce valid SVG");
     // Per-block labels appear above consensus row (auto-generated from run-length encoding).
@@ -804,7 +807,7 @@ fn test_brickplot_figure_haplotypes_shared_x() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/brickplot_haplotypes_figure.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/brickplot_haplotypes_figure.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "expected SVG output");
 

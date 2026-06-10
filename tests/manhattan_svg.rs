@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{GenomeBuild, LabelStyle, ManhattanPlot};
 use kuva::render::layout::Layout;
@@ -125,7 +126,7 @@ fn test_manhattan_sequential() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_sequential.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_sequential.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("4 4")); // threshold lines
@@ -142,7 +143,7 @@ fn test_manhattan_bp_hg38() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_bp_hg38.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_bp_hg38.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("4 4"));
@@ -162,7 +163,7 @@ fn test_manhattan_bp_hg19() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_bp_hg19.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_bp_hg19.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -178,7 +179,7 @@ fn test_manhattan_bp_t2t() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_bp_t2t.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_bp_t2t.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -223,7 +224,7 @@ fn test_manhattan_bp_custom() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_bp_custom.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_bp_custom.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -245,7 +246,7 @@ fn test_manhattan_bp_chr_prefix() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_bp_chr_prefix.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_bp_chr_prefix.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -290,7 +291,7 @@ fn test_manhattan_custom_x() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_custom_x.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_custom_x.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -308,7 +309,7 @@ fn test_manhattan_labels_nudge() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_labels_nudge.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_labels_nudge.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("4 4"));
@@ -331,7 +332,7 @@ fn test_manhattan_labels_arrow() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_labels_arrow.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_labels_arrow.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#666666")); // leader line colour
@@ -368,7 +369,7 @@ fn test_manhattan_gene_labels() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_gene_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_gene_labels.svg", &svg).unwrap();
 
     assert!(svg.contains("BRCA1"), "gene label BRCA1 missing");
     assert!(svg.contains("TP53"), "gene label TP53 missing");
@@ -389,7 +390,7 @@ fn test_manhattan_labels_exact() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_labels_exact.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_labels_exact.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -408,7 +409,7 @@ fn test_manhattan_custom_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_custom_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_custom_colors.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#000080") || svg.contains("#6495ed"));
@@ -427,7 +428,7 @@ fn test_manhattan_palette() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_palette.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_palette.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -446,7 +447,7 @@ fn test_manhattan_thresholds() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_thresholds.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_thresholds.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#cc3333")); // genome-wide line
@@ -466,7 +467,7 @@ fn test_manhattan_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_legend.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Genome-wide") || svg.contains("Suggestive"));
@@ -487,7 +488,7 @@ fn test_manhattan_render_fn() {
 
     let scene = render_manhattan(&mp, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_render_fn.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_render_fn.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -505,7 +506,7 @@ fn test_manhattan_pvalue_floor() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/manhattan_pvalue_floor.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/manhattan_pvalue_floor.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -598,7 +599,7 @@ fn test_manhattan_labels_all_drawn_by_default() {
     let plots = vec![Plot::Manhattan(mp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Manhattan — Allow labels (default)");
     let scene = render_multiple(plots, layout);
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/manhattan_labels_allow.svg",
         SvgBackend.render_scene(&scene),
     )
@@ -625,7 +626,7 @@ fn test_manhattan_labels_thinned_when_enabled() {
         .with_x_label_overlap(AxisLabelOverlap::Thin)
         .with_title("Manhattan — Thin labels");
     let scene = render_multiple(plots, layout);
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/manhattan_labels_thin.svg",
         SvgBackend.render_scene(&scene),
     )
@@ -689,7 +690,7 @@ fn test_manhattan_labels_stagger_all_drawn_two_rows() {
         .with_x_label_overlap(AxisLabelOverlap::Stagger)
         .with_title("Manhattan — Stagger labels");
     let scene = render_multiple(plots, layout);
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/manhattan_labels_stagger.svg",
         SvgBackend.render_scene(&scene),
     )

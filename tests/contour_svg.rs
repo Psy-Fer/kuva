@@ -1,3 +1,4 @@
+mod common;
 use std::fs;
 
 use kuva::backend::svg::SvgBackend;
@@ -29,7 +30,7 @@ fn contour_grid_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    fs::write("test_outputs/contour_grid_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/contour_grid_basic.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<path"),
@@ -50,7 +51,7 @@ fn contour_filled() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    fs::write("test_outputs/contour_filled.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/contour_filled.svg", &svg).unwrap();
 
     // Filled mode produces at least as many paths as lines-only (bands + iso-lines)
     let path_count = svg.matches("<path").count();
@@ -81,7 +82,7 @@ fn contour_scatter() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    fs::write("test_outputs/contour_scatter.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/contour_scatter.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<path"),
@@ -101,7 +102,7 @@ fn contour_explicit_levels() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    fs::write("test_outputs/contour_explicit_levels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/contour_explicit_levels.svg", &svg).unwrap();
 
     assert!(svg.contains("<path"), "Expected <path elements");
 }
@@ -122,7 +123,7 @@ fn contour_colormap_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    fs::write("test_outputs/contour_colormap_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/contour_colormap_legend.svg", &svg).unwrap();
 
     assert!(svg.contains("<path"), "Expected <path elements");
     // Colorbar is rendered as rects

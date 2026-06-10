@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;
 use kuva::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
@@ -35,7 +36,7 @@ fn test_text_annotation_with_arrow() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/annotation_arrow.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/annotation_arrow.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Outlier!"));
@@ -70,7 +71,7 @@ fn test_reference_lines() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/reference_lines.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/reference_lines.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("stroke-dasharray"));
@@ -113,7 +114,7 @@ fn test_shaded_regions() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/shaded_regions.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/shaded_regions.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));
@@ -165,7 +166,7 @@ fn test_all_annotations_combined() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/annotations_combined.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/annotations_combined.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity")); // shaded region

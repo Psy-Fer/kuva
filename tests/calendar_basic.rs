@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::calendar::{CalendarAgg, CalendarPlot, WeekStart};
 use kuva::render::{layout::Layout, plots::Plot, render::render_calendar};
@@ -5,7 +6,7 @@ use std::fs;
 
 fn output(name: &str, svg: &str) {
     fs::create_dir_all("test_outputs").unwrap();
-    fs::write(format!("test_outputs/{name}"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}"), svg).unwrap();
 }
 
 // ── Basic tests (existing) ────────────────────────────────────────────────────

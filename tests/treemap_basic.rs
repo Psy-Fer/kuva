@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::treemap::{ColorMap, TreemapColorMode, TreemapLayout, TreemapNode, TreemapPlot};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -42,7 +43,7 @@ fn two_level() -> TreemapPlot {
 #[test]
 fn test_treemap_basic() {
     let svg = render(flat_leaves(8), "Treemap Basic");
-    std::fs::write("test_outputs/treemap_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_basic.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should contain rect elements");
     assert!(svg.contains("<svg"), "should be valid SVG");
 }
@@ -50,7 +51,7 @@ fn test_treemap_basic() {
 #[test]
 fn test_treemap_two_level() {
     let svg = render(two_level(), "Treemap Two-Level");
-    std::fs::write("test_outputs/treemap_two_level.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_two_level.svg", &svg).unwrap();
     let rect_count = svg.matches("<rect").count();
     // Parent rects + child rects → more than just the 2 parent rects
     assert!(
@@ -75,7 +76,7 @@ fn test_treemap_deep() {
         ],
     ));
     let svg = render(deep, "Treemap Deep");
-    std::fs::write("test_outputs/treemap_deep.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_deep.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "deep treemap should render");
 }
 
@@ -83,7 +84,7 @@ fn test_treemap_deep() {
 fn test_treemap_single_node() {
     let tm = TreemapPlot::new().with_node(TreemapNode::leaf("Only", 42.0));
     let svg = render(tm, "Treemap Single Node");
-    std::fs::write("test_outputs/treemap_single.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_single.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "single-node treemap should render");
 }
 
@@ -91,7 +92,7 @@ fn test_treemap_single_node() {
 fn test_treemap_empty() {
     let tm = TreemapPlot::new();
     let svg = render(tm, "Treemap Empty");
-    std::fs::write("test_outputs/treemap_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_empty.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "empty treemap should still produce valid SVG"
@@ -104,7 +105,7 @@ fn test_treemap_squarify() {
         flat_leaves(12).with_layout(TreemapLayout::Squarify),
         "Treemap Squarify",
     );
-    std::fs::write("test_outputs/treemap_squarify.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_squarify.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "squarify layout renders");
 }
 
@@ -114,7 +115,7 @@ fn test_treemap_slicedice() {
         flat_leaves(6).with_layout(TreemapLayout::SliceDice),
         "Treemap SliceDice",
     );
-    std::fs::write("test_outputs/treemap_slicedice.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_slicedice.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "slicedice layout renders");
 }
 
@@ -124,7 +125,7 @@ fn test_treemap_binary() {
         flat_leaves(8).with_layout(TreemapLayout::Binary),
         "Treemap Binary",
     );
-    std::fs::write("test_outputs/treemap_binary.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_binary.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "binary layout renders");
 }
 
@@ -132,7 +133,7 @@ fn test_treemap_binary() {
 fn test_treemap_color_by_parent() {
     // Each top-level group should get a category10 color (e.g. steelblue)
     let svg = render(two_level(), "Treemap By Parent");
-    std::fs::write("test_outputs/treemap_color_by_parent.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_color_by_parent.svg", &svg).unwrap();
     // Category10 colors appear as hex strings in SVG fills
     assert!(
         svg.contains("fill="),
@@ -144,7 +145,7 @@ fn test_treemap_color_by_parent() {
 fn test_treemap_color_by_value() {
     let tm = flat_leaves(10).with_color_mode(TreemapColorMode::ByValue(ColorMap::Viridis));
     let svg = render(tm, "Treemap By Value");
-    std::fs::write("test_outputs/treemap_color_by_value.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_color_by_value.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "ByValue treemap should render");
 }
 
@@ -155,7 +156,7 @@ fn test_treemap_explicit_colors() {
         .with_node(TreemapNode::leaf_colored("Blue", 20.0, "#0000ff"))
         .with_color_mode(TreemapColorMode::Explicit);
     let svg = render(tm, "Treemap Explicit Colors");
-    std::fs::write("test_outputs/treemap_explicit_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_explicit_colors.svg", &svg).unwrap();
     assert!(svg.contains("#ff0000"), "#ff0000 should appear in SVG");
 }
 
@@ -164,7 +165,7 @@ fn test_treemap_label_suppression() {
     // min_label_area = MAX → no leaf labels should appear
     let tm = flat_leaves(5).with_min_label_area(f64::MAX);
     let svg = render(tm, "Treemap No Labels");
-    std::fs::write("test_outputs/treemap_no_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_no_labels.svg", &svg).unwrap();
     // No text elements after the title
     let text_after_title = svg.split("Treemap No Labels").nth(1).unwrap_or("");
     assert!(
@@ -177,7 +178,7 @@ fn test_treemap_label_suppression() {
 fn test_treemap_padding_zero() {
     let tm = two_level().with_padding(0.0);
     let svg = render(tm, "Treemap Zero Padding");
-    std::fs::write("test_outputs/treemap_padding_zero.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_padding_zero.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "zero-padding treemap should render");
 }
 
@@ -185,7 +186,7 @@ fn test_treemap_padding_zero() {
 fn test_treemap_padding_large() {
     let tm = two_level().with_padding(12.0);
     let svg = render(tm, "Treemap Large Padding");
-    std::fs::write("test_outputs/treemap_padding_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_padding_large.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "large-padding treemap should render");
 }
 
@@ -217,8 +218,8 @@ fn test_treemap_max_depth() {
 
     let svg_full = render(deep_unlimited, "Treemap Full Depth");
     let svg_limited = render(deep_limited, "Treemap Depth 1");
-    std::fs::write("test_outputs/treemap_full_depth.svg", &svg_full).unwrap();
-    std::fs::write("test_outputs/treemap_max_depth.svg", &svg_limited).unwrap();
+    common::write_test_output("test_outputs/treemap_full_depth.svg", &svg_full).unwrap();
+    common::write_test_output("test_outputs/treemap_max_depth.svg", &svg_limited).unwrap();
 
     let full_rects = svg_full.matches("<rect").count();
     let limited_rects = svg_limited.matches("<rect").count();
@@ -232,7 +233,7 @@ fn test_treemap_max_depth() {
 fn test_treemap_tooltips() {
     let tm = flat_leaves(5);
     let svg = render(tm, "Treemap Tooltips");
-    std::fs::write("test_outputs/treemap_tooltips.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_tooltips.svg", &svg).unwrap();
     assert!(
         svg.contains("<title"),
         "tooltips should produce <title> elements"
@@ -243,7 +244,7 @@ fn test_treemap_tooltips() {
 fn test_treemap_no_tooltips() {
     let tm = flat_leaves(5).with_tooltips(false);
     let svg = render(tm, "Treemap No Tooltips");
-    std::fs::write("test_outputs/treemap_no_tooltips.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_no_tooltips.svg", &svg).unwrap();
     assert!(
         !svg.contains("<title"),
         "no-tooltips should suppress <title> elements"
@@ -256,7 +257,7 @@ fn test_treemap_colorbar() {
         .with_color_mode(TreemapColorMode::ByValue(ColorMap::Viridis))
         .with_colorbar_label("p-value");
     let svg = render(tm, "Treemap Colorbar");
-    std::fs::write("test_outputs/treemap_colorbar.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_colorbar.svg", &svg).unwrap();
     assert!(
         svg.contains("p-value"),
         "colorbar label should appear in SVG"
@@ -276,7 +277,7 @@ fn test_treemap_go_enrichment() {
         .with_go_terms(terms)
         .with_colorbar_label("p-value");
     let svg = render(tm, "Treemap GO Enrichment");
-    std::fs::write("test_outputs/treemap_go_enrichment.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_go_enrichment.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "GO enrichment treemap should render");
     assert!(!svg.is_empty(), "should produce non-empty SVG");
 }
@@ -295,7 +296,7 @@ fn test_treemap_into_plot() {
 fn test_treemap_large() {
     let tm = flat_leaves(100);
     let svg = render(tm, "Treemap Large (100 leaves)");
-    std::fs::write("test_outputs/treemap_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_large.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "large treemap should produce valid SVG"
@@ -319,7 +320,7 @@ fn test_treemap_unequal_values() {
         ],
     ));
     let svg = render(tm, "Treemap Unequal Values");
-    std::fs::write("test_outputs/treemap_unequal.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_unequal.svg", &svg).unwrap();
     assert!(
         svg.contains("<rect"),
         "unequal-value treemap should render without panic"
@@ -340,6 +341,6 @@ fn test_treemap_forest() {
         ))
         .with_node(TreemapNode::leaf("Gamma", 25.0));
     let svg = render(tm, "Treemap Forest");
-    std::fs::write("test_outputs/treemap_forest.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/treemap_forest.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "forest treemap should render");
 }
