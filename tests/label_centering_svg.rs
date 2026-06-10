@@ -277,3 +277,46 @@ fn test_y2_label_offset() {
         off_y
     );
 }
+
+/// Regression #83: y-axis label must be centred on the plot area, not the full canvas.
+/// When no title is present margin_top is smaller, so `height/2` places the label
+/// at what would be the title-present midpoint — too low. The correct anchor is
+/// `margin_top + plot_height() / 2`.
+#[test]
+fn test_y_label_centred_on_plot_area() {
+    let data = vec![(1.0f64, 2.0f64), (3.0, 4.0), (5.0, 6.0)];
+
+    // Without title: y-label must be centred on the plot area.
+    let plots = vec![Plot::Scatter(ScatterPlot::new().with_data(data.clone()))];
+    let layout = Layout::auto_from_plots(&plots).with_y_label("YAxisLbl");
+    let computed = ComputedLayout::from_layout(&layout);
+    let expected_no_title = computed.margin_top + computed.plot_height() / 2.0;
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/y_label_centred_no_title.svg", &svg).unwrap();
+    let label_y = extract_text_y(&svg, "YAxisLbl").expect("y-label not found (no title)");
+    assert!(
+        (label_y - expected_no_title).abs() < 2.0,
+        "y-label y={label_y:.1} should equal margin_top+plot_height/2={expected_no_title:.1} (no title)"
+    );
+
+    // With title: same formula must still hold.
+    let plots = vec![Plot::Scatter(ScatterPlot::new().with_data(data))];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("SomeTitle")
+        .with_y_label("YAxisLbl");
+    let computed = ComputedLayout::from_layout(&layout);
+    let expected_with_title = computed.margin_top + computed.plot_height() / 2.0;
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/y_label_centred_with_title.svg", &svg).unwrap();
+    let label_y = extract_text_y(&svg, "YAxisLbl").expect("y-label not found (with title)");
+    assert!(
+        (label_y - expected_with_title).abs() < 2.0,
+        "y-label y={label_y:.1} should equal margin_top+plot_height/2={expected_with_title:.1} (with title)"
+    );
+
+    // The two expected positions must differ — if they're equal the test isn't exercising the bug.
+    assert!(
+        (expected_no_title - expected_with_title).abs() > 2.0,
+        "title should shift the plot-area centre: no_title={expected_no_title:.1} with_title={expected_with_title:.1}"
+    );
+}

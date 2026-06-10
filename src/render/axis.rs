@@ -500,7 +500,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         let (dx, dy) = layout.y2_label_offset;
         // Base x for the rightmost (first) line; additional lines shift left.
         let base_x = axis_x + computed.y2_axis_width - ls * 0.5 + dx;
-        let base_y = computed.height / 2.0 + dy;
+        let base_y = computed.margin_top + computed.plot_height() / 2.0 + dy;
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
                 x: base_x - i as f64 * ls,
@@ -562,7 +562,7 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
                 - ls * 0.5
                 - (lines.len() as f64 - 1.0) * ls)
                 .max(ls * 0.5 + 8.0);
-            let default_y = computed.height / 2.0;
+            let default_y = computed.margin_top + computed.plot_height() / 2.0;
             let (lx, ly) = computed.dice_y_label_pos.unwrap_or((default_x, default_y));
             for (i, line) in lines.iter().enumerate() {
                 scene.add(Primitive::Text {

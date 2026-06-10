@@ -205,9 +205,10 @@ pub enum Primitive {
         stroke_width: Option<f64>,
     },
     /// A polyline stroke stored as screen-coordinate points.
-    /// The raster backend builds the stroke outline polygon once and calls
-    /// `fill_polygon` a single time, regardless of point count.
-    /// The SVG/terminal backends emit the equivalent `M L L…` path.
+    /// The raster backend renders each segment as a stadium (capsule) shape —
+    /// the exact set of pixels within `stroke_width/2` of that segment.
+    /// Adjacent stadiums overlap at joins to form round joins with no
+    /// join geometry construction. The SVG/terminal backends emit `M L L…`.
     PolyLine {
         points: Vec<(f64, f64)>,
         stroke: Color,
