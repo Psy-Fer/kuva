@@ -467,7 +467,7 @@ let layout = Layout::auto_from_plots(&plots)
 
 #### 3. PNG raster output — use DPI scale instead
 
-For raster output, `PngBackend` already has its own DPI multiplier:
+For raster output, `RasterBackend` has its own DPI multiplier:
 
 ```rust,no_run
 # use kuva::render::layout::Layout;
@@ -475,16 +475,16 @@ For raster output, `PngBackend` already has its own DPI multiplier:
 # use kuva::render::render::render_multiple;
 # let plots: Vec<Plot> = vec![];
 # let layout = Layout::auto_from_plots(&plots);
-#[cfg(feature = "raster")]
+#[cfg(feature = "png")]
 {
-    use kuva::backend::png::PngBackend;
+    use kuva::backend::raster::RasterBackend;
     let scene = render_multiple(plots, layout);
     // Render at 3× pixel density — no need for with_scale
-    let png = PngBackend::new().with_scale(3.0).render_scene(&scene);
+    let png = RasterBackend::new().with_scale(3.0).render_scene(&scene);
 }
 ```
 
-The two mechanisms are independent and can be combined, but doing so is rarely necessary. Use `Layout::with_scale` when you want a larger SVG; use `PngBackend::with_scale` when you want a higher-DPI PNG from an unchanged SVG layout.
+The two mechanisms are independent and can be combined, but doing so is rarely necessary. Use `Layout::with_scale` when you want a larger SVG; use `RasterBackend::with_scale` when you want a higher-DPI PNG from an unchanged SVG layout.
 
 ---
 

@@ -1,11 +1,14 @@
 //! Direct raster backend: Scene primitives → RGBA pixel buffer → PNG bytes.
 //!
 //! No SVG serialization round-trip. Geometry is rasterized directly:
-//!   - Thin lines via Xiaolin Wu's AA algorithm
-//!   - Thick lines via perpendicular quad tessellation + round caps
+//!   - Thin lines (≤1.5 px) via Xiaolin Wu's AA algorithm
+//!   - Thick polylines via per-segment stadium (capsule) fill — each segment
+//!     is the exact set of pixels within hw of that segment; adjacent stadiums
+//!     overlap at joins to form correct round joins with no join geometry
+//!   - Filled polygons via AET scanline fill (nonzero winding rule)
 //!   - Circles via signed-distance-field coverage (1px AA ramp)
 //!   - CircleBatch via precomputed per-radius mask (hot path for scatter)
-//!   - Paths via SVG parser → adaptive bezier tessellation → scanline fill
+//!   - Paths via SVG parser → adaptive bezier tessellation → AET scanline fill
 //!   - SVG arcs converted to cubic beziers (SVG 1.1 spec, Appendix F)
 //!   - Text via fontdue with glyph caching; rotated text via offscreen blit
 //!   - Clip rects and translate transforms fully respected
