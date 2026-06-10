@@ -146,6 +146,37 @@ let layout = Layout::auto_from_plots(&plots)
     .with_x_tick_rotate(45.0);  // degrees; 45 or 90 are common
 ```
 
+### Label overlap
+
+When x-axis tick labels are densely packed they can overprint each other.
+`with_x_label_overlap` controls how collisions are resolved:
+
+```rust,no_run
+use kuva::AxisLabelOverlap;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+
+// Thin — skip labels that would overlap the previous one
+let layout = Layout::auto_from_plots(&plots)
+    .with_x_label_overlap(AxisLabelOverlap::Thin);
+
+// Stagger — place colliding labels in an alternating second row
+let layout = Layout::auto_from_plots(&plots)
+    .with_x_label_overlap(AxisLabelOverlap::Stagger);
+```
+
+The default is `Allow` — every label is drawn regardless of overlap. `Stagger`
+expands `margin_bottom` by one `tick_size` automatically to make room for the
+second row.
+
+`AxisLabelOverlap` applies to standard numeric and category axes, and to
+Manhattan chromosome labels. On a Manhattan plot `Thin` drops narrow
+chromosomes whose labels would collide; `Stagger` keeps all of them and
+alternates the row instead.
+
+**CLI:** `--x-label-overlap allow|thin|stagger`
+
 ---
 
 ## Log scale
@@ -586,6 +617,7 @@ Wrapping splits at whitespace boundaries. A single word longer than the limit is
 | `.with_x_tick_format(fmt)` | `TickFormat` for x-axis only |
 | `.with_y_tick_format(fmt)` | `TickFormat` for y-axis only |
 | `.with_x_tick_rotate(deg)` | Rotate x tick labels by `deg` degrees |
+| `.with_x_label_overlap(s)` | `AxisLabelOverlap` strategy for dense x tick labels |
 | `.with_log_x()` | Logarithmic x-axis |
 | `.with_log_y()` | Logarithmic y-axis |
 | `.with_log_scale()` | Logarithmic on both axes |
@@ -703,6 +735,14 @@ let layout = Layout::auto_from_plots(&plots)
 | `.with_label_size(n)` | `14` | Axis label font size (px) |
 | `.with_tick_size(n)` | `12` | Tick label font size (px) |
 | `.with_body_size(n)` | `12` | Body text font size (px) |
+
+### `AxisLabelOverlap` strategies
+
+| Variant | Behaviour |
+|---------|-----------|
+| `Allow` (default) | Every label drawn; may overlap on dense axes |
+| `Thin` | Overlapping labels skipped; non-overlapping ones kept |
+| `Stagger` | All labels drawn; colliding ones offset to a second row |
 
 ### `TickFormat` variants
 
