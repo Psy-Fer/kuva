@@ -372,8 +372,7 @@ fn test_generate_ticks_small_scale_bounded() {
 /// not a ~920 MB file.
 #[test]
 fn test_line_plot_small_values_svg_size() {
-    let plot = LinePlot::new()
-        .with_data(vec![(0.0_f64, 1.0e-14), (0.5, 2.0e-14), (1.0, 1.5e-14)]);
+    let plot = LinePlot::new().with_data(vec![(0.0_f64, 1.0e-14), (0.5, 2.0e-14), (1.0, 1.5e-14)]);
     let plots = vec![Plot::Line(plot)];
     let layout = Layout::auto_from_plots(&plots)
         .with_title("Small Values")
