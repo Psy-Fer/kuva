@@ -27,12 +27,13 @@
 //!
 //! # Feature flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `png`   | Enables [`RasterBackend`] (direct pixel-buffer rasteriser) and the [`PngBackend`] compatibility shim. |
-//! | `pdf`   | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
-//! | `cli`   | Enables the `kuva` CLI binary (pulls in `clap`). |
-//! | `full`  | Enables `png` + `pdf`. |
+//! | Feature      | Description |
+//! |--------------|-------------|
+//! | `png`        | Enables [`RasterBackend`] (direct pixel-buffer rasteriser) and the [`PngBackend`] compatibility shim. |
+//! | `pdf`        | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
+//! | `embed_font` | Enables [`backend::svg::SvgBackend::with_embedded_font`] — bakes DejaVu Sans into the SVG as a base64 `@font-face`. Adds `flate2` as a dependency but does **not** pull in `png` or `pdf`. |
+//! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
+//! | `full`       | Enables `embed_font` + `png` + `pdf`. |
 //!
 //! # Fonts
 //!
@@ -51,6 +52,7 @@ pub mod plot;
 pub mod prelude;
 pub mod render;
 
+#[cfg(any(feature = "embed_font", feature = "png", feature = "pdf"))]
 pub(crate) mod fonts;
 
 pub use backend::terminal::TerminalBackend;
