@@ -1,8 +1,8 @@
 use crate::backend::raster::RasterBackend;
 use crate::render::render::Scene;
 
-/// SVG-path-through-resvg backend, now delegating to the direct raster backend.
-/// Kept for API compatibility; prefer [`RasterBackend`] directly.
+/// Compatibility shim that delegates to [`RasterBackend`].
+/// Prefer [`RasterBackend`] directly for new code.
 pub struct PngBackend {
     pub scale: f32,
 }
