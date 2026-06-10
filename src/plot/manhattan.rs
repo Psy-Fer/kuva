@@ -113,6 +113,10 @@ pub struct ManhattanPlot {
     pub legend_label: Option<String>,
     pub show_tooltips: bool,
     pub tooltip_labels: Option<Vec<String>>,
+    /// When `true`, chromosome labels that would overlap a previously drawn
+    /// label are skipped, automatically thinning the labels of crowded small
+    /// chromosomes. Default: `false` (every label within a ≥6px band is drawn).
+    pub thin_overlapping_labels: bool,
 }
 
 /// Reference genome chromosome sizes used for cumulative x-coordinate layout.
@@ -297,6 +301,7 @@ impl ManhattanPlot {
             legend_label: None,
             show_tooltips: false,
             tooltip_labels: None,
+            thin_overlapping_labels: false,
         }
     }
 
@@ -747,6 +752,27 @@ impl ManhattanPlot {
         labels: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         self.tooltip_labels = Some(labels.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Skip chromosome labels that would overlap the previously drawn one.
+    ///
+    /// By default every chromosome whose band is at least 6px wide is labelled,
+    /// which can overprint the labels of adjacent small chromosomes (e.g. 17,
+    /// 19, 21) on a genome-wide plot. With this enabled, labels are placed in a
+    /// single left-to-right pass and any label whose estimated footprint would
+    /// collide with the last one is dropped, automatically thinning crowded
+    /// regions while keeping the rest readable. Works with horizontal and
+    /// rotated ([`Layout::with_x_tick_rotate`]) labels.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::{ManhattanPlot, GenomeBuild};
+    /// let mp = ManhattanPlot::new()
+    ///     .with_data_bp(vec![("1", 1_f64, 0.01_f64)], GenomeBuild::Hg38)
+    ///     .with_thin_overlapping_labels();
+    /// ```
+    pub fn with_thin_overlapping_labels(mut self) -> Self {
+        self.thin_overlapping_labels = true;
         self
     }
 }

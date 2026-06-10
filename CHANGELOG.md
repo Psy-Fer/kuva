@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ManhattanPlot::with_thin_overlapping_labels()`** — opts the Manhattan x-axis into collision-aware chromosome labelling. By default every chromosome whose band is at least 6px wide is labelled, which can overprint the labels of adjacent small chromosomes (e.g. 17/19/21) on a genome-wide plot. When enabled, labels are placed in a single left-to-right pass and any label whose estimated footprint would overlap the previously drawn one is skipped, automatically thinning crowded regions while keeping the rest readable. Works with both horizontal and rotated (`Layout::with_x_tick_rotate`) labels. Off by default; existing behaviour is unchanged.
+
 ---
 
 ## [0.2.0] — 2026-05-07

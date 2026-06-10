@@ -508,3 +508,126 @@ fn test_manhattan_pvalue_floor() {
 
     assert!(svg.contains("<svg"));
 }
+
+// ── Chromosome label collision avoidance ─────────────────────────────────────
+
+use kuva::render::render::Primitive;
+
+/// Collect the chromosome-name labels (bottom row) drawn in a Manhattan scene.
+/// Returns (x, content) pairs for Text primitives sitting in the bottom axis row.
+fn chrom_labels(scene: &kuva::render::render::Scene) -> Vec<(f64, String)> {
+    let is_chrom_name = |s: &str| {
+        !s.is_empty()
+            && (s == "X" || s == "Y" || s == "MT" || s.chars().all(|c| c.is_ascii_digit()))
+    };
+    // Chromosome labels share one y value: the bottom-most text row, drawn
+    // below the y=0 axis tick. Collect chrom-like Text primitives, then keep
+    // only those in the lowest (largest-y) row to exclude y-axis tick labels.
+    let candidates: Vec<(f64, f64, String)> = scene
+        .elements
+        .iter()
+        .filter_map(|el| match el {
+            Primitive::Text { x, y, content, .. } if is_chrom_name(content) => {
+                Some((*x, *y, content.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let max_y = candidates
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let mut out: Vec<(f64, String)> = candidates
+        .into_iter()
+        .filter(|(_, y, _)| (max_y - y).abs() < 1.0)
+        .map(|(x, _, c)| (x, c))
+        .collect();
+    out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    out
+}
+
+// Visible chromosome bands for an hg38 plot: all autosomes plus X and Y.
+// MT is in the build but its band is far too narrow (~16 kb) to ever be
+// labelled, so it is never expected among the drawn labels.
+const HG38_LABELLED: &[&str] = &[
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
+    "18", "19", "20", "21", "22", "X", "Y",
+];
+
+#[test]
+fn test_manhattan_labels_all_drawn_by_default() {
+    // The thinning feature is OFF by default: at the default width every
+    // chromosome band wider than 6px is labelled, reproducing the original
+    // behaviour where adjacent small-chromosome labels can visually overlap.
+    let mp = ManhattanPlot::new().with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let drawn: Vec<String> = chrom_labels(&scene).into_iter().map(|(_, c)| c).collect();
+
+    assert_eq!(
+        drawn,
+        HG38_LABELLED
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "by default all autosome + X/Y labels are drawn (no thinning)"
+    );
+}
+
+#[test]
+fn test_manhattan_labels_thinned_when_enabled() {
+    // With the opt-in enabled, the same default-width plot drops labels rather
+    // than overprinting them (regression: chr 17/19/21 used to overlap 16/22).
+    let mp = ManhattanPlot::new()
+        .with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38)
+        .with_thin_overlapping_labels();
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let labels = chrom_labels(&scene);
+
+    assert!(
+        labels.len() < HG38_LABELLED.len(),
+        "expected some labels to be thinned on a narrow plot, drew {} of {}",
+        labels.len(),
+        HG38_LABELLED.len()
+    );
+    assert!(
+        !labels.is_empty(),
+        "at least some labels should still be drawn"
+    );
+
+    // Whatever labels survive must not overlap horizontally.
+    for pair in labels.windows(2) {
+        let (x0, _) = &pair[0];
+        let (x1, _) = &pair[1];
+        assert!(
+            x1 - x0 >= 6.0,
+            "adjacent chromosome labels overlap: x={} and x={}",
+            x0,
+            x1
+        );
+    }
+}
+
+#[test]
+fn test_manhattan_labels_all_drawn_when_wide() {
+    // Even with thinning enabled, a wide plot has room for every label (MT excepted).
+    let mp = ManhattanPlot::new()
+        .with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38)
+        .with_thin_overlapping_labels();
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots).with_width(4000.0);
+    let scene = render_multiple(plots, layout);
+    let drawn: Vec<String> = chrom_labels(&scene).into_iter().map(|(_, c)| c).collect();
+
+    assert_eq!(
+        drawn,
+        HG38_LABELLED
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "all autosome + X/Y labels should be drawn on a wide plot"
+    );
+}
