@@ -23,16 +23,26 @@ pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
 
 /// Generate nice ticks for an axis
 pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
-    // get a clean step size
     let step = compute_tick_step(min, max, target_ticks);
-    // ceil and floor so tick is bound by axis line
     let start = (min / step).ceil() * step;
     let end = (max / step).floor() * step;
 
     let mut ticks = Vec::new();
     let mut tick = start;
-    while tick <= end + 1e-8 {
-        ticks.push((tick * 1e6).round() / 1e6); // round to avoid float spam
+    // Use a relative tolerance (fraction of step) so the loop terminates correctly
+    // regardless of data magnitude. An absolute 1e-8 tolerance caused ~10M iterations
+    // when the entire axis range was smaller than 1e-8 (e.g. values at 1e-14 scale).
+    while tick <= end + step.abs() * 1e-6 {
+        // Round to 6 significant figures to suppress float noise from accumulated additions.
+        // Scale-invariant: works correctly at any magnitude (unlike a fixed 1e6 factor).
+        let rounded = if tick == 0.0 {
+            0.0
+        } else {
+            let d = tick.abs().log10().floor() as i32;
+            let factor = 10f64.powi(6 - d);
+            (tick * factor).round() / factor
+        };
+        ticks.push(rounded);
         tick += step;
     }
 

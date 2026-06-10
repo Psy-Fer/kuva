@@ -1,5 +1,5 @@
 use kuva::backend::svg::SvgBackend;
-use kuva::plot::ScatterPlot;
+use kuva::plot::{LinePlot, ScatterPlot};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
 fn scatter_svg(layout: Layout) -> String {
@@ -343,5 +343,47 @@ fn test_no_negative_zero_tick_label() {
     assert!(
         !svg.contains(">-0<"),
         "SVG must not contain a '-0' tick label"
+    );
+}
+
+/// Regression #80: generate_ticks with tiny values (1e-14 scale) must produce a
+/// bounded tick count. The old code used `end + 1e-8` as a loop termination
+/// tolerance; when the entire data range is smaller than 1e-8, the loop ran for
+/// millions of iterations, producing gigabyte-sized SVG output.
+#[test]
+fn test_generate_ticks_small_scale_bounded() {
+    let ticks = kuva::render::render_utils::generate_ticks(1e-14, 2e-14, 10);
+    assert!(
+        ticks.len() <= 20,
+        "generate_ticks([1e-14, 2e-14], 10) should produce ≤20 ticks, got {}",
+        ticks.len()
+    );
+    assert!(!ticks.is_empty(), "should produce at least one tick");
+    // All tick values must be within the axis range
+    for &t in &ticks {
+        assert!(
+            t >= 1e-14 * 0.999 && t <= 2e-14 * 1.001,
+            "tick {t} is outside expected range [1e-14, 2e-14]"
+        );
+    }
+}
+
+/// Regression #80: A LinePlot with very small y-values must produce a compact SVG,
+/// not a ~920 MB file.
+#[test]
+fn test_line_plot_small_values_svg_size() {
+    let plot = LinePlot::new()
+        .with_data(vec![(0.0_f64, 1.0e-14), (0.5, 2.0e-14), (1.0, 1.5e-14)]);
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Small Values")
+        .with_x_label("X")
+        .with_y_label("Y");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write("test_outputs/tick_small_scale_line.svg", &svg).unwrap();
+    assert!(
+        svg.len() < 100_000,
+        "LinePlot with 1e-14 y-values should produce a small SVG (<100 KB), got {} bytes",
+        svg.len()
     );
 }
