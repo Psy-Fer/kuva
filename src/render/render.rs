@@ -1,6 +1,6 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
-use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
+use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis, XLabelPlacer};
 use crate::render::layout::{ComputedLayout, Layout, TickFormat};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
@@ -7704,16 +7704,12 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
 fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
-    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
     let min_label_px = 6.0_f64;
-    // Minimum horizontal gap (px) to keep between adjacent labels when thinning.
-    let label_gap = 2.0_f64;
-    // Right edge of the last label that was actually drawn. Spans are in genomic
-    // (left-to-right) order, so when `thin_overlapping_labels` is set we can
-    // greedily skip any label whose footprint would collide with the previous
-    // one — automatically thinning narrow chromosomes (e.g. 17-22). When it is
-    // not set the original behaviour (label every ≥6px band) is preserved.
-    let mut last_label_right = f64::NEG_INFINITY;
+    let mut placer = XLabelPlacer::new(
+        computed.x_label_overlap.clone(),
+        computed.tick_size as f64,
+        computed.x_tick_rotate,
+    );
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
@@ -7724,36 +7720,19 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
             Some(angle) => (TextAnchor::End, Some(angle)),
             None => (TextAnchor::Middle, None),
         };
-        if mp.thin_overlapping_labels {
-            // Estimate the label's horizontal footprint to detect overlap. This
-            // stage has no font metrics, so width is approximated from the glyph
-            // count; rotation reduces the horizontal span by cos(angle).
-            let text_w = span.name.chars().count() as f64 * computed.tick_size as f64 * 0.6;
-            let h_extent = match rotate {
-                Some(angle) => text_w * angle.to_radians().cos().abs(),
-                None => text_w,
-            };
-            let (left_edge, right_edge) = match anchor {
-                // End-anchored (rotated) labels grow leftward from mid_x.
-                TextAnchor::End => (mid_x - h_extent, mid_x),
-                // Middle-anchored labels are centred on mid_x.
-                _ => (mid_x - h_extent / 2.0, mid_x + h_extent / 2.0),
-            };
-            if left_edge < last_label_right + label_gap {
-                continue;
-            }
-            last_label_right = right_edge;
+        let base_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
+        if let Some(y_off) = placer.place(mid_x, &span.name, &anchor) {
+            scene.add(Primitive::Text {
+                x: mid_x,
+                y: base_y + y_off,
+                content: span.name.clone(),
+                size: computed.tick_size,
+                anchor,
+                rotate,
+                bold: false,
+                color: None,
+            });
         }
-        scene.add(Primitive::Text {
-            x: mid_x,
-            y: label_y,
-            content: span.name.clone(),
-            size: computed.tick_size,
-            anchor,
-            rotate,
-            bold: false,
-            color: None,
-        });
     }
 }
 
