@@ -3,6 +3,7 @@ use kuva::plot::{GenomeBuild, LabelStyle, ManhattanPlot};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::{render_manhattan, render_multiple};
+use kuva::AxisLabelOverlap;
 use kuva::Palette;
 
 // ── Deterministic pseudo-random helpers ──────────────────────────────────────
@@ -507,4 +508,221 @@ fn test_manhattan_pvalue_floor() {
     std::fs::write("test_outputs/manhattan_pvalue_floor.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
+}
+
+// ── Chromosome label collision avoidance ─────────────────────────────────────
+
+use kuva::render::render::Primitive;
+
+/// Collect the chromosome-name labels (bottom row) drawn in a Manhattan scene.
+/// Returns (x, content) pairs for Text primitives sitting in the bottom axis row.
+fn chrom_labels(scene: &kuva::render::render::Scene) -> Vec<(f64, String)> {
+    let is_chrom_name = |s: &str| {
+        !s.is_empty()
+            && (s == "X" || s == "Y" || s == "MT" || s.chars().all(|c| c.is_ascii_digit()))
+    };
+    // Chromosome labels share one y value: the bottom-most text row, drawn
+    // below the y=0 axis tick. Collect chrom-like Text primitives, then keep
+    // only those in the lowest (largest-y) row to exclude y-axis tick labels.
+    let candidates: Vec<(f64, f64, String)> = scene
+        .elements
+        .iter()
+        .filter_map(|el| match el {
+            Primitive::Text { x, y, content, .. } if is_chrom_name(content) => {
+                Some((*x, *y, content.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let max_y = candidates
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let mut out: Vec<(f64, String)> = candidates
+        .into_iter()
+        .filter(|(_, y, _)| (max_y - y).abs() < 1.0)
+        .map(|(x, _, c)| (x, c))
+        .collect();
+    out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    out
+}
+
+/// Like `chrom_labels` but returns (x, y, content) for ALL rows (both stagger rows).
+/// Filters to the bottom axis zone (within 50px of the maximum y among chrom-like labels)
+/// so that y-axis tick numbers with digit-only names are excluded.
+fn chrom_labels_all_rows(scene: &kuva::render::render::Scene) -> Vec<(f64, f64, String)> {
+    let is_chrom_name = |s: &str| {
+        !s.is_empty()
+            && (s == "X" || s == "Y" || s == "MT" || s.chars().all(|c| c.is_ascii_digit()))
+    };
+    let candidates: Vec<(f64, f64, String)> = scene
+        .elements
+        .iter()
+        .filter_map(|el| match el {
+            Primitive::Text { x, y, content, .. } if is_chrom_name(content) => {
+                Some((*x, *y, content.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    // The chromosome label rows are always at the bottom of the plot.  The
+    // stagger second row is at most tick_size * 1.2 ≈ 14px below row 0.  Y-axis
+    // tick numbers (e.g. "0") that match the digit filter land ~17px above row 0,
+    // i.e. ~31px above max_y — safely outside a 25px window.
+    let max_y = candidates
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let mut out: Vec<(f64, f64, String)> = candidates
+        .into_iter()
+        .filter(|(_, y, _)| max_y - y < 25.0)
+        .collect();
+    out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    out
+}
+
+// Visible chromosome bands for an hg38 plot: all autosomes plus X and Y.
+// MT is in the build but its band is far too narrow (~16 kb) to ever be
+// labelled, so it is never expected among the drawn labels.
+const HG38_LABELLED: &[&str] = &[
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
+    "18", "19", "20", "21", "22", "X", "Y",
+];
+
+#[test]
+fn test_manhattan_labels_all_drawn_by_default() {
+    // The thinning feature is OFF by default: at the default width every
+    // chromosome band wider than 6px is labelled, reproducing the original
+    // behaviour where adjacent small-chromosome labels can visually overlap.
+    let mp = ManhattanPlot::new().with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Manhattan — Allow labels (default)");
+    let scene = render_multiple(plots, layout);
+    std::fs::write(
+        "test_outputs/manhattan_labels_allow.svg",
+        SvgBackend.render_scene(&scene),
+    )
+    .unwrap();
+    let drawn: Vec<String> = chrom_labels(&scene).into_iter().map(|(_, c)| c).collect();
+
+    assert_eq!(
+        drawn,
+        HG38_LABELLED
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "by default all autosome + X/Y labels are drawn (no thinning)"
+    );
+}
+
+#[test]
+fn test_manhattan_labels_thinned_when_enabled() {
+    // With the opt-in enabled, the same default-width plot drops labels rather
+    // than overprinting them (regression: chr 17/19/21 used to overlap 16/22).
+    let mp = ManhattanPlot::new().with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_label_overlap(AxisLabelOverlap::Thin)
+        .with_title("Manhattan — Thin labels");
+    let scene = render_multiple(plots, layout);
+    std::fs::write(
+        "test_outputs/manhattan_labels_thin.svg",
+        SvgBackend.render_scene(&scene),
+    )
+    .unwrap();
+    let labels = chrom_labels(&scene);
+
+    assert!(
+        labels.len() < HG38_LABELLED.len(),
+        "expected some labels to be thinned on a narrow plot, drew {} of {}",
+        labels.len(),
+        HG38_LABELLED.len()
+    );
+    assert!(
+        !labels.is_empty(),
+        "at least some labels should still be drawn"
+    );
+
+    // Whatever labels survive must not overlap horizontally.
+    for pair in labels.windows(2) {
+        let (x0, _) = &pair[0];
+        let (x1, _) = &pair[1];
+        assert!(
+            x1 - x0 >= 6.0,
+            "adjacent chromosome labels overlap: x={} and x={}",
+            x0,
+            x1
+        );
+    }
+}
+
+#[test]
+fn test_manhattan_labels_all_drawn_when_wide() {
+    // Even with thinning enabled, a wide plot has room for every label (MT excepted).
+    let mp = ManhattanPlot::new().with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_label_overlap(AxisLabelOverlap::Thin)
+        .with_width(4000.0);
+    let scene = render_multiple(plots, layout);
+    let drawn: Vec<String> = chrom_labels(&scene).into_iter().map(|(_, c)| c).collect();
+
+    assert_eq!(
+        drawn,
+        HG38_LABELLED
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "all autosome + X/Y labels should be drawn on a wide plot"
+    );
+}
+
+#[test]
+fn test_manhattan_labels_stagger_all_drawn_two_rows() {
+    // Stagger should draw every chromosome label (never drops any) but place
+    // colliding labels in an alternating second row.  At default width the
+    // small autosomes (17-22, X, Y) collide with each other, so we expect
+    // exactly two distinct y values among all chromosome labels.
+    let mp = ManhattanPlot::new().with_data_bp(make_gwas_bp_data(), GenomeBuild::Hg38);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_label_overlap(AxisLabelOverlap::Stagger)
+        .with_title("Manhattan — Stagger labels");
+    let scene = render_multiple(plots, layout);
+    std::fs::write(
+        "test_outputs/manhattan_labels_stagger.svg",
+        SvgBackend.render_scene(&scene),
+    )
+    .unwrap();
+
+    let labels = chrom_labels_all_rows(&scene);
+
+    // All expected labels must be present (stagger never drops).
+    let drawn: Vec<String> = labels.iter().map(|(_, _, c)| c.clone()).collect();
+    assert_eq!(
+        drawn,
+        HG38_LABELLED
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "Stagger should draw all chromosome labels (no dropping)"
+    );
+
+    // Exactly two distinct y rows.
+    let mut ys: Vec<f64> = labels.iter().map(|(_, y, _)| *y).collect();
+    ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // Deduplicate values within 2px of each other.
+    let mut distinct: Vec<f64> = Vec::new();
+    for y in ys {
+        if distinct.iter().all(|&d| (d - y).abs() >= 2.0) {
+            distinct.push(y);
+        }
+    }
+    assert_eq!(
+        distinct.len(),
+        2,
+        "Stagger should produce exactly 2 y rows, got {} distinct values: {:?}",
+        distinct.len(),
+        distinct
+    );
 }

@@ -1,5 +1,5 @@
 use clap::Args;
-use kuva::render::layout::{Layout, TickFormat};
+use kuva::render::layout::{AxisLabelOverlap, Layout, TickFormat};
 use kuva::render::palette::Palette;
 use kuva::render::theme::Theme;
 
@@ -172,6 +172,14 @@ pub struct AxisArgs {
     /// auto (default), int, sci, percent, or fixed:N (e.g. fixed:2 → "3.14").
     #[arg(long, value_name = "FORMAT")]
     pub y_tick_format: Option<String>,
+
+    /// How to handle overlapping x-axis tick labels: allow (default), thin, stagger.
+    /// allow: draw every label even if they overlap.
+    /// thin: skip labels that would overlap the previous one.
+    /// stagger: place colliding labels in an alternating second row.
+    /// On a Manhattan plot this controls chromosome label placement.
+    #[arg(long, value_name = "STRATEGY")]
+    pub x_label_overlap: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -311,6 +319,11 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
             layout = layout.with_y_tick_format(tf);
         }
     }
+    if let Some(ref s) = args.x_label_overlap {
+        if let Some(strategy) = parse_label_overlap(s) {
+            layout = layout.with_x_label_overlap(strategy);
+        }
+    }
     layout
 }
 
@@ -356,6 +369,15 @@ fn colourblind_palette(condition: &str) -> Option<Palette> {
         "deuteranopia" | "deuter" => Some(Palette::deuteranopia()),
         "protanopia" | "protan" => Some(Palette::protanopia()),
         "tritanopia" | "tritan" => Some(Palette::tritanopia()),
+        _ => None,
+    }
+}
+
+fn parse_label_overlap(s: &str) -> Option<AxisLabelOverlap> {
+    match s {
+        "allow" => Some(AxisLabelOverlap::Allow),
+        "thin" => Some(AxisLabelOverlap::Thin),
+        "stagger" => Some(AxisLabelOverlap::Stagger),
         _ => None,
     }
 }

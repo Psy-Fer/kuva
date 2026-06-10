@@ -1,6 +1,6 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
-use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
+use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis, XLabelPlacer};
 use crate::render::layout::{ComputedLayout, Layout, TickFormat};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
@@ -205,9 +205,10 @@ pub enum Primitive {
         stroke_width: Option<f64>,
     },
     /// A polyline stroke stored as screen-coordinate points.
-    /// The raster backend builds the stroke outline polygon once and calls
-    /// `fill_polygon` a single time, regardless of point count.
-    /// The SVG/terminal backends emit the equivalent `M L L…` path.
+    /// The raster backend renders each segment as a stadium (capsule) shape —
+    /// the exact set of pixels within `stroke_width/2` of that segment.
+    /// Adjacent stadiums overlap at joins to form round joins with no
+    /// join geometry construction. The SVG/terminal backends emit `M L L…`.
     PolyLine {
         points: Vec<(f64, f64)>,
         stroke: Color,
@@ -7703,19 +7704,27 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
 fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
-    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
     let min_label_px = 6.0_f64;
+    let mut placer = XLabelPlacer::new(
+        computed.x_label_overlap.clone(),
+        computed.tick_size as f64,
+        computed.x_tick_rotate,
+    );
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
-            let (anchor, rotate) = match computed.x_tick_rotate {
-                Some(angle) => (TextAnchor::End, Some(angle)),
-                None => (TextAnchor::Middle, None),
-            };
+        if mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
+            continue;
+        }
+        let (anchor, rotate) = match computed.x_tick_rotate {
+            Some(angle) => (TextAnchor::End, Some(angle)),
+            None => (TextAnchor::Middle, None),
+        };
+        let base_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
+        if let Some(y_off) = placer.place(mid_x, &span.name, &anchor) {
             scene.add(Primitive::Text {
                 x: mid_x,
-                y: label_y,
+                y: base_y + y_off,
                 content: span.name.clone(),
                 size: computed.tick_size,
                 anchor,

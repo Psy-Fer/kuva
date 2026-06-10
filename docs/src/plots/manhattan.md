@@ -164,6 +164,44 @@ All color methods accept any CSS color string. `.with_palette()` assigns colors 
 
 ---
 
+## Chromosome label overlap
+
+At the default canvas width the small autosomes (17–22, X, Y) are narrow enough
+that their chromosome labels can overlap. The `with_x_label_overlap` Layout
+builder (and the `--x-label-overlap` CLI flag) controls how collisions are
+handled:
+
+```rust,no_run
+use kuva::AxisLabelOverlap;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# use kuva::plot::manhattan::{GenomeBuild, ManhattanPlot};
+# let data: Vec<(String, f64, f64)> = vec![];
+let mp = ManhattanPlot::new().with_data_bp(data, GenomeBuild::Hg38);
+let plots = vec![Plot::Manhattan(mp)];
+
+// Thin — drop labels that would overprint their neighbour
+let layout = Layout::auto_from_plots(&plots)
+    .with_x_label_overlap(AxisLabelOverlap::Thin);
+
+// Stagger — keep every label, alternate between two rows
+let layout = Layout::auto_from_plots(&plots)
+    .with_x_label_overlap(AxisLabelOverlap::Stagger);
+```
+
+| Strategy | Behaviour |
+|----------|-----------|
+| `Allow` (default) | Every chromosome label drawn; small chroms may overlap |
+| `Thin` | Overlapping labels skipped; spacing is always clean |
+| `Stagger` | All chromosomes labeled; colliding names alternate rows |
+
+`Stagger` is generally preferable when you need all chromosome names visible —
+it expands the bottom margin automatically to accommodate the second row.
+
+**CLI:** `kuva manhattan data.tsv --genome-build hg38 --x-label-overlap stagger`
+
+---
+
 ## API reference
 
 | Method | Description |

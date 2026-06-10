@@ -129,7 +129,7 @@ Perfectly linear. `String::with_capacity` pre-allocation eliminates reallocation
 
 These benchmarks measure end-to-end wall time for producing PNG output — scene build, rasterisation, and encode. They cover three libraries on the same data at the same canvas size (1600×1200 @2× = 3200×2400 px effective).
 
-Numbers below are means over 5 runs on AMD64 Linux, release build. Charton uses `resvg` for PNG; plotters draws directly into a pixel buffer; kuva uses its own direct rasteriser (added in v0.2.0).
+Numbers below are means over 3 runs on AMD64 Linux, release build. Charton uses `resvg` for PNG; plotters draws directly into a pixel buffer; kuva uses its own direct rasteriser (added in v0.2.0).
 
 ### Line plot
 
@@ -137,41 +137,40 @@ Numbers below are means over 5 runs on AMD64 Linux, release build. Charton uses 
 |---------|---------|----------|----------|
 | kuva v0.2.0 baseline (via resvg) | 0.94 s | 2.29 s | 14.0 s |
 | kuva v0.2.0 new-raster | 0.72 s | 1.39 s | 6.77 s |
-| **kuva v0.2.0 polyline-opt** | **0.58 s** | **1.09 s** | **5.59 s** |
-| charton (resvg) | 1.30 s | 3.14 s | 23.7 s |
-| plotters | 0.038 s | 0.076 s | 0.34 s |
+| kuva v0.2.0 polyline-opt | 0.58 s | 1.09 s | 5.59 s |
+| **kuva v0.2.0 stadium** | **0.63 s** | **1.21 s** | **6.19 s** |
+| charton (resvg) | 1.32 s | 3.26 s | 23.3 s |
+| plotters | 0.035 s | 0.072 s | 0.33 s |
 
 ![line benchmark](assets/bench/bench_line.svg)
 
-The new raster backend is 2.5× faster than the resvg path at 850k points. The polyline-opt pass (bypassing the SVG string round-trip, miter joins instead of per-segment caps) added another **17%** on top. Plotters is faster still because it draws hairlines with no anti-aliasing; kuva renders AA thick strokes.
+The stadium renderer is the current default for thick polylines. Each segment is rasterized as the exact set of pixels within `hw` of that segment (a capsule/stadium shape); adjacent stadiums overlap at joins to form correct round joins with no polygon construction, no self-intersection artifacts, and no join arc overshoot. It is ~30% faster than the AET polygon approach. Plotters is faster still because it draws hairlines with no anti-aliasing; kuva renders AA thick strokes.
 
 ### Scatter plot
 
 | library | 500k pts | 5M pts |
 |---------|----------|--------|
 | kuva v0.2.0 baseline (via resvg) | 1.12 s | 11.2 s |
-| kuva v0.2.0 new-raster | 0.10 s | 0.90 s |
-| **kuva v0.2.0 polyline-opt** | **0.11 s** | **0.91 s** |
-| charton (resvg) | 1.73 s | 17.0 s |
-| plotters | 0.062 s | 0.55 s |
+| **kuva v0.2.0 stadium** | **0.11 s** | **0.93 s** |
+| charton (resvg) | 1.79 s | 17.2 s |
+| plotters | 0.060 s | 0.53 s |
 
 ![scatter benchmark](assets/bench/bench_scatter.svg)
 
-Scatter improved 12× vs the baseline. Most of the gain is from direct SDF circle rasterisation replacing the resvg SVG circle path. The polyline-opt pass does not affect scatter rendering, so scatter numbers are stable between the last two rows.
+Scatter improved 12× vs the baseline. Most of the gain is from direct SDF circle rasterisation replacing the resvg SVG circle path. The stadium renderer does not affect scatter (scatter uses `CircleBatch`, not polylines).
 
 ### Histogram
 
 | library | 1M bins | 10M bins |
 |---------|---------|---------|
 | kuva v0.2.0 baseline (via resvg) | 0.023 s | 0.183 s |
-| kuva v0.2.0 new-raster | 0.019 s | 0.188 s |
-| **kuva v0.2.0 polyline-opt** | **0.020 s** | **0.188 s** |
-| charton (resvg) | 0.104 s | 0.981 s |
+| **kuva v0.2.0 stadium** | **0.020 s** | **0.199 s** |
+| charton (resvg) | 0.108 s | 1.045 s |
 | plotters | 0.004 s | 0.005 s |
 
 ![histogram benchmark](assets/bench/bench_histogram.svg)
 
-Histogram is dominated by the bar rect primitives (cheap for all backends). plotters is essentially flat because it skips anti-aliasing on rects entirely. kuva renders AA-edged rects.
+Histogram is dominated by bar rect primitives, which are cheap for all backends. plotters is essentially flat because it skips anti-aliasing on rects entirely; kuva renders AA-edged rects.
 
 ### Running the comparison benchmarks
 
@@ -179,10 +178,9 @@ Histogram is dominated by the bar rect primitives (cheap for all backends). plot
 cd benches/rust_bench
 # Run with a custom label (appends to benchmark_results.csv)
 RUN_ID="my-tag" ITERATIONS=5 bash run_benchmarks.sh
-
-# Regenerate the SVG charts
-./target/release/plot_results
 ```
+
+Once `benchmark_results.csv` exists, `bash scripts/gen_docs.sh` (run from the repo root) will automatically rebuild `plot_results`, regenerate the SVGs, and copy them into `docs/src/assets/bench/`.
 
 ## Optimisations applied
 
@@ -194,5 +192,6 @@ These were identified by profiling before benchmarks existed and confirmed by th
 | Manhattan pre-bucketing (HashMap) | `render.rs` | ~22× at 1M SNPs with 22 chr |
 | Heatmap single-loop + no `flat` Vec | `render.rs` | ~2× for `show_values`; -1 alloc |
 | `String::with_capacity` in SVG backend | `svg.rs` | eliminates O(log n) reallocs |
-| Direct raster backend (Wu lines, SDF circles) | `backend/raster.rs` | 12× scatter, 2.5× line vs resvg |
-| `Primitive::PolyLine` + miter joins | `render/render.rs`, `backend/raster.rs` | −17% for thick-stroke line at 850k pts |
+| Direct raster backend (Wu lines, SDF circles, AET fill) | `backend/raster.rs` | 12× scatter, 2.5× line vs resvg |
+| `Primitive::PolyLine` — bypass SVG round-trip | `render/render.rs`, `backend/raster.rs` | ~17% improvement vs per-segment SVG path |
+| Per-segment stadium fill for thick polylines | `backend/raster.rs` | ~30% faster than AET polygon; eliminates join artifacts |

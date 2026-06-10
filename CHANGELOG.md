@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Pre-compiled release binaries** — pushing a `vX.Y.Z` tag now builds standalone `kuva` CLI binaries (with the `cli,full` feature set: SVG + PNG + PDF) for Linux (x86_64 gnu/musl, aarch64), macOS (Intel + Apple Silicon) and Windows (x86_64), and attaches them with SHA-256 checksums to the matching GitHub Release. Users can download a binary and run it without installing Rust. See `.github/workflows/release.yml` (resolves #17).
+- **`ManhattanPlot::with_thin_overlapping_labels()`** — opts the Manhattan x-axis into collision-aware chromosome labelling. By default every chromosome whose band is at least 6px wide is labelled, which can overprint the labels of adjacent small chromosomes (e.g. 17/19/21) on a genome-wide plot. When enabled, labels are placed in a single left-to-right pass and any label whose estimated footprint would overlap the previously drawn one is skipped, automatically thinning crowded regions while keeping the rest readable. Works with both horizontal and rotated (`Layout::with_x_tick_rotate`) labels. Off by default; existing behaviour is unchanged.
 
 ---
 
