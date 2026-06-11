@@ -10484,6 +10484,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Quiver(q) => {
+                if let Some(ref label) = q.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: q.color.clone(),
+                        shape: LegendShape::Line,
+                        dasharray: None,
+                    });
+                }
+            }
             Plot::Text(_) => {}
             Plot::LegendPlot(_) => {}
             _ => {}
@@ -13148,7 +13158,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::Survival(_)
                 | Plot::Slope(_)
                 | Plot::Ecdf(_)
-                | Plot::QQ(_) => {
+                | Plot::QQ(_)
+                | Plot::Quiver(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -13631,6 +13642,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::LegendPlot(lp) => {
                 add_legend_plot(lp, &mut scene, &computed);
+            }
+            Plot::Quiver(q) => {
+                add_quiver(q, &mut scene, &computed);
             }
         }
     }
@@ -15939,20 +15953,7 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                      stroke_w: f64,
                      color: &str| {
         let size = arr_len(stroke_w);
-        let base_x = tip_x - ux * size;
-        let base_y = tip_y - uy * size;
-        let perp_x = -uy;
-        let perp_y = ux;
-        let half_w = size * 0.4;
-        let d = format!(
-            "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
-            tip_x,
-            tip_y,
-            base_x + perp_x * half_w,
-            base_y + perp_y * half_w,
-            base_x - perp_x * half_w,
-            base_y - perp_y * half_w
-        );
+        let d = render_utils::arrow_head_path(tip_x, tip_y, ux, uy, size, size * 0.4);
         scene.add(Primitive::Path(Box::new(PathData {
             d,
             fill: Some(color.into()),
@@ -20925,6 +20926,138 @@ pub fn render_horizon(hp: HorizonPlot, layout: Layout) -> Scene {
     render_multiple(plots, layout)
 }
 
+// ── QuiverPlot (2-D vector field) ─────────────────────────────────────────────
+
+fn add_quiver(q: &crate::plot::quiver::QuiverPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if q.arrows.is_empty() {
+        return;
+    }
+
+    let scale = q.effective_scale();
+    let (mag_min, mag_max) = q.magnitude_extent();
+    let (c_min, c_max) = q.color_range.unwrap_or((mag_min, mag_max));
+    let c_span = (c_max - c_min).max(f64::EPSILON);
+
+    // With tight bounds, arrows can extend past the plot area and into the
+    // axis/title margins. Clip to the plot rectangle so they stay tidy.
+    let clipped = q.should_clip();
+    if clipped {
+        let clip_id = format!("kuva-quiver-clip-{}", scene.elements.len());
+        let clip_def = format!(
+            "<clipPath id=\"{id}\"><rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\"/></clipPath>",
+            id = clip_id,
+            x = round2(computed.margin_left),
+            y = round2(computed.margin_top),
+            w = round2(computed.plot_width()),
+            h = round2(computed.plot_height()),
+        );
+        scene.defs.push(clip_def);
+        scene.add(Primitive::ClipStart {
+            x: computed.margin_left,
+            y: computed.margin_top,
+            width: computed.plot_width(),
+            height: computed.plot_height(),
+            id: clip_id,
+        });
+    }
+
+    for arrow in &q.arrows {
+        let ((tx, ty), (px, py)) = q.endpoints_with_scale(arrow, scale);
+        let tail_x = computed.map_x(tx);
+        let tail_y = computed.map_y(ty);
+        let tip_x = computed.map_x(px);
+        let tip_y = computed.map_y(py);
+
+        let dx = tip_x - tail_x;
+        let dy = tip_y - tail_y;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-6 {
+            continue;
+        }
+
+        if computed.interactive {
+            let mag = arrow.magnitude();
+            let angle_deg = arrow.v.atan2(arrow.u).to_degrees();
+            let title = format!(
+                "x={:.2}, y={:.2}, u={:.2}, v={:.2}, |v|={:.2}, θ={:.0}°",
+                arrow.x, arrow.y, arrow.u, arrow.v, mag, angle_deg
+            );
+            let extra = format!(
+                r#"class="tt" data-x="{x}" data-y="{y}" data-u="{u}" data-v="{v}" data-mag="{mag}""#,
+                x = arrow.x,
+                y = arrow.y,
+                u = arrow.u,
+                v = arrow.v,
+                mag = mag,
+            );
+            scene.add(Primitive::GroupStart {
+                transform: None,
+                title: Some(title),
+                extra_attrs: Some(extra),
+            });
+        }
+
+        let color_str: String = if let Some(ref c) = arrow.color {
+            c.clone()
+        } else if let Some(ref cmap) = q.color_map {
+            let mag = arrow.magnitude();
+            cmap.map(((mag - c_min) / c_span).clamp(0.0, 1.0))
+        } else {
+            q.color.clone()
+        };
+        let color = Color::from(color_str.as_str());
+
+        let ux = dx / len;
+        let uy = dy / len;
+        let (head_len, half_w) = q.resolve_head(len);
+        // Shaft ends at the head base, not at the tip, so the two don't overlap.
+        let base_x = tip_x - ux * head_len;
+        let base_y = tip_y - uy * head_len;
+
+        scene.add(Primitive::Line {
+            x1: tail_x,
+            y1: tail_y,
+            x2: base_x,
+            y2: base_y,
+            stroke: color.clone(),
+            stroke_width: q.shaft_width,
+            stroke_dasharray: None,
+        });
+
+        let d = render_utils::arrow_head_path(tip_x, tip_y, ux, uy, head_len, half_w);
+        scene.add(Primitive::Path(Box::new(PathData {
+            d,
+            fill: Some(color.clone()),
+            stroke: color,
+            stroke_width: 0.0,
+            opacity: None,
+            stroke_dasharray: None,
+        })));
+
+        if computed.interactive {
+            scene.add(Primitive::GroupEnd);
+        }
+    }
+
+    if clipped {
+        scene.add(Primitive::ClipEnd);
+    }
+}
+
+/// Render a single [`crate::plot::quiver::QuiverPlot`] to a [`Scene`].
+pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_quiver(q, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
 // ── GanttPlot ─────────────────────────────────────────────────────────────────
 
 fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
