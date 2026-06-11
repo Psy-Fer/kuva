@@ -896,6 +896,9 @@ fn clone_layout(l: &Layout) -> Layout {
     new.data_y_range = l.data_y_range;
     new.ticks = l.ticks;
     new.show_grid = l.show_grid;
+    new.axis_line = l.axis_line;
+    new.tick_align = l.tick_align;
+    new.tick_pos = l.tick_pos;
     new.x_label = l.x_label.clone();
     new.y_label = l.y_label.clone();
     new.title = l.title.clone();

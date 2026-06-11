@@ -1,5 +1,5 @@
 use clap::Args;
-use kuva::render::layout::{AxisLabelOverlap, Layout, TickFormat};
+use kuva::render::layout::{AxisLabelOverlap, AxisLine, Layout, TickAlign, TickFormat, TickPos};
 use kuva::render::palette::Palette;
 use kuva::render::theme::Theme;
 
@@ -130,6 +130,18 @@ pub struct AxisArgs {
     /// Disable the background grid.
     #[arg(long)]
     pub no_grid: bool,
+
+    /// Axis line style: left or box.
+    #[arg(long, value_name = "FRAME")]
+    pub axis_line: Option<String>,
+
+    /// Tick alignment relative to the axis line: outside, inside, or center.
+    #[arg(long, value_name = "ALIGN")]
+    pub tick_align: Option<String>,
+
+    /// Tick position: primary (bottom/left) or both.
+    #[arg(long, value_name = "POS")]
+    pub tick_pos: Option<String>,
 
     /// Fix the X axis lower bound; overrides auto-range.
     #[arg(long)]
@@ -285,6 +297,21 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
     if args.no_grid {
         layout = layout.with_show_grid(false);
     }
+    if let Some(ref line) = args.axis_line {
+        if let Some(line) = parse_axis_line(line) {
+            layout = layout.with_axis_line(line);
+        }
+    }
+    if let Some(ref align) = args.tick_align {
+        if let Some(align) = parse_tick_align(align) {
+            layout = layout.with_tick_align(align);
+        }
+    }
+    if let Some(ref pos) = args.tick_pos {
+        if let Some(pos) = parse_tick_pos(pos) {
+            layout = layout.with_tick_pos(pos);
+        }
+    }
     if let Some(v) = args.x_min {
         layout = layout.with_x_axis_min(v);
     }
@@ -369,6 +396,31 @@ fn colourblind_palette(condition: &str) -> Option<Palette> {
         "deuteranopia" | "deuter" => Some(Palette::deuteranopia()),
         "protanopia" | "protan" => Some(Palette::protanopia()),
         "tritanopia" | "tritan" => Some(Palette::tritanopia()),
+        _ => None,
+    }
+}
+
+fn parse_axis_line(s: &str) -> Option<AxisLine> {
+    match s.to_ascii_lowercase().replace('_', "-").as_str() {
+        "open" | "left" | "primary" => Some(AxisLine::Open),
+        "box" | "frame" | "enclosed" => Some(AxisLine::Box),
+        _ => None,
+    }
+}
+
+fn parse_tick_align(s: &str) -> Option<TickAlign> {
+    match s.to_ascii_lowercase().replace('_', "-").as_str() {
+        "inside" | "in" => Some(TickAlign::Inside),
+        "outside" | "out" => Some(TickAlign::Outside),
+        "center" | "centre" | "middle" => Some(TickAlign::Center),
+        _ => None,
+    }
+}
+
+fn parse_tick_pos(s: &str) -> Option<TickPos> {
+    match s.to_ascii_lowercase().replace('_', "-").as_str() {
+        "primary" | "left" | "bottom" | "lower" => Some(TickPos::Primary),
+        "both" | "mirror" | "mirrored" => Some(TickPos::Both),
         _ => None,
     }
 }

@@ -1,7 +1,103 @@
 use crate::render::color::Color;
-use crate::render::layout::{AxisLabelOverlap, ComputedLayout, Layout, TickFormat};
+use crate::render::layout::{
+    AxisLabelOverlap, AxisLine, ComputedLayout, Layout, TickAlign, TickFormat, TickPos,
+};
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils;
+
+fn draw_x_tick(
+    scene: &mut Scene,
+    layout: &Layout,
+    computed: &ComputedLayout,
+    theme: &crate::render::theme::Theme,
+    x: f64,
+    is_minor: bool,
+) {
+    let tick_len = if is_minor {
+        computed.tick_mark_minor
+    } else {
+        computed.tick_mark_major
+    };
+    let y_base = computed.height - computed.margin_bottom;
+    let (y1, y2) = match layout.tick_align {
+        TickAlign::Inside => (y_base - tick_len, y_base),
+        TickAlign::Outside => (y_base, y_base + tick_len),
+        TickAlign::Center => (y_base - tick_len * 0.5, y_base + tick_len * 0.5),
+    };
+    scene.add(Primitive::Line {
+        x1: x,
+        y1,
+        x2: x,
+        y2,
+        stroke: Color::from(&theme.tick_color),
+        stroke_width: computed.tick_stroke_width,
+        stroke_dasharray: None,
+    });
+    if layout.tick_pos == TickPos::Both {
+        let y_top = computed.margin_top;
+        let (ty1, ty2) = match layout.tick_align {
+            TickAlign::Inside => (y_top, y_top + tick_len),
+            TickAlign::Outside => (y_top - tick_len, y_top),
+            TickAlign::Center => (y_top - tick_len * 0.5, y_top + tick_len * 0.5),
+        };
+        scene.add(Primitive::Line {
+            x1: x,
+            y1: ty1,
+            x2: x,
+            y2: ty2,
+            stroke: Color::from(&theme.tick_color),
+            stroke_width: computed.tick_stroke_width,
+            stroke_dasharray: None,
+        });
+    }
+}
+
+fn draw_y_tick(
+    scene: &mut Scene,
+    layout: &Layout,
+    computed: &ComputedLayout,
+    theme: &crate::render::theme::Theme,
+    y: f64,
+    is_minor: bool,
+) {
+    let tick_len = if is_minor {
+        computed.tick_mark_minor
+    } else {
+        computed.tick_mark_major
+    };
+    let x_base = computed.margin_left;
+    let (x1, x2) = match layout.tick_align {
+        TickAlign::Inside => (x_base, x_base + tick_len),
+        TickAlign::Outside => (x_base - tick_len, x_base),
+        TickAlign::Center => (x_base - tick_len * 0.5, x_base + tick_len * 0.5),
+    };
+    scene.add(Primitive::Line {
+        x1,
+        y1: y,
+        x2,
+        y2: y,
+        stroke: Color::from(&theme.tick_color),
+        stroke_width: computed.tick_stroke_width,
+        stroke_dasharray: None,
+    });
+    if layout.tick_pos == TickPos::Both && layout.y2_range.is_none() {
+        let x_right = computed.width - computed.margin_right;
+        let (tx1, tx2) = match layout.tick_align {
+            TickAlign::Inside => (x_right - tick_len, x_right),
+            TickAlign::Outside => (x_right, x_right + tick_len),
+            TickAlign::Center => (x_right - tick_len * 0.5, x_right + tick_len * 0.5),
+        };
+        scene.add(Primitive::Line {
+            x1: tx1,
+            y1: y,
+            x2: tx2,
+            y2: y,
+            stroke: Color::from(&theme.tick_color),
+            stroke_width: computed.tick_stroke_width,
+            stroke_dasharray: None,
+        });
+    }
+}
 
 /// Tracks state for x-axis label overlap handling across a tick loop.
 pub(crate) struct XLabelPlacer {
@@ -233,15 +329,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     color: None,
                 });
 
-                scene.add(Primitive::Line {
-                    x1: computed.margin_left - computed.tick_mark_major,
-                    y1: y_pos,
-                    x2: computed.margin_left,
-                    y2: y_pos,
-                    stroke: Color::from(&theme.tick_color),
-                    stroke_width: computed.tick_stroke_width,
-                    stroke_dasharray: None,
-                });
+                draw_y_tick(scene, layout, computed, theme, y_pos, false);
             }
         }
         if !layout.suppress_x_ticks {
@@ -276,15 +364,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                         });
                     }
 
-                    scene.add(Primitive::Line {
-                        x1: x_pos,
-                        y1: computed.height - computed.margin_bottom,
-                        x2: x_pos,
-                        y2: computed.height - computed.margin_bottom + computed.tick_mark_major,
-                        stroke: Color::from(&theme.tick_color),
-                        stroke_width: computed.tick_stroke_width,
-                        stroke_dasharray: None,
-                    });
+                    draw_x_tick(scene, layout, computed, theme, x_pos, false);
                 }
             } else {
                 let mut placer = XLabelPlacer::new(
@@ -295,15 +375,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 for tx in x_ticks.iter() {
                     let x = map_x(*tx);
 
-                    scene.add(Primitive::Line {
-                        x1: x,
-                        y1: computed.height - computed.margin_bottom,
-                        x2: x,
-                        y2: computed.height - computed.margin_bottom + computed.tick_mark_major,
-                        stroke: Color::from(&theme.tick_color),
-                        stroke_width: computed.tick_stroke_width,
-                        stroke_dasharray: None,
-                    });
+                    draw_x_tick(scene, layout, computed, theme, x, false);
 
                     let label = if let Some(ref dt) = layout.x_datetime {
                         dt.format_tick(*tx)
@@ -365,30 +437,14 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     });
                 }
 
-                scene.add(Primitive::Line {
-                    x1: x_pos,
-                    y1: computed.height - computed.margin_bottom,
-                    x2: x_pos,
-                    y2: computed.height - computed.margin_bottom + computed.tick_mark_major,
-                    stroke: Color::from(&theme.tick_color),
-                    stroke_width: computed.tick_stroke_width,
-                    stroke_dasharray: None,
-                });
+                draw_x_tick(scene, layout, computed, theme, x_pos, false);
             }
         }
 
         if !layout.suppress_y_ticks {
             for ty in y_ticks.iter() {
                 let y = map_y(*ty);
-                scene.add(Primitive::Line {
-                    x1: computed.margin_left - computed.tick_mark_major,
-                    y1: y,
-                    x2: computed.margin_left,
-                    y2: y,
-                    stroke: Color::from(&theme.tick_color),
-                    stroke_width: computed.tick_stroke_width,
-                    stroke_dasharray: None,
-                });
+                draw_y_tick(scene, layout, computed, theme, y, false);
 
                 let label = if let Some(ref dt) = layout.y_datetime {
                     dt.format_tick(*ty)
@@ -421,15 +477,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             for tx in x_ticks.iter() {
                 let x = map_x(*tx);
 
-                scene.add(Primitive::Line {
-                    x1: x,
-                    y1: computed.height - computed.margin_bottom,
-                    x2: x,
-                    y2: computed.height - computed.margin_bottom + computed.tick_mark_major,
-                    stroke: Color::from(&theme.tick_color),
-                    stroke_width: computed.tick_stroke_width,
-                    stroke_dasharray: None,
-                });
+                draw_x_tick(scene, layout, computed, theme, x, false);
 
                 let label = if let Some(ref dt) = layout.x_datetime {
                     dt.format_tick(*tx)
@@ -465,15 +513,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             for ty in y_ticks.iter() {
                 let y = map_y(*ty);
 
-                scene.add(Primitive::Line {
-                    x1: computed.margin_left - computed.tick_mark_major,
-                    y1: y,
-                    x2: computed.margin_left,
-                    y2: y,
-                    stroke: Color::from(&theme.tick_color),
-                    stroke_width: computed.tick_stroke_width,
-                    stroke_dasharray: None,
-                });
+                draw_y_tick(scene, layout, computed, theme, y, false);
 
                 let label = if let Some(ref dt) = layout.y_datetime {
                     dt.format_tick(*ty)
@@ -500,15 +540,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             if let Some(ref mx) = x_minor {
                 for tx in mx {
                     let x = map_x(*tx);
-                    scene.add(Primitive::Line {
-                        x1: x,
-                        y1: computed.height - computed.margin_bottom,
-                        x2: x,
-                        y2: computed.height - computed.margin_bottom + computed.tick_mark_minor,
-                        stroke: Color::from(&theme.tick_color),
-                        stroke_width: computed.tick_stroke_width,
-                        stroke_dasharray: None,
-                    });
+                    draw_x_tick(scene, layout, computed, theme, x, true);
                 }
             }
         }
@@ -516,17 +548,35 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             if let Some(ref my) = y_minor {
                 for ty in my {
                     let y = map_y(*ty);
-                    scene.add(Primitive::Line {
-                        x1: computed.margin_left - computed.tick_mark_minor,
-                        y1: y,
-                        x2: computed.margin_left,
-                        y2: y,
-                        stroke: Color::from(&theme.tick_color),
-                        stroke_width: computed.tick_stroke_width,
-                        stroke_dasharray: None,
-                    });
+                    draw_y_tick(scene, layout, computed, theme, y, true);
                 }
             }
+        }
+    }
+
+    if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
+        // Top axis
+        scene.add(Primitive::Line {
+            x1: computed.margin_left,
+            y1: computed.margin_top,
+            x2: computed.width - computed.margin_right,
+            y2: computed.margin_top,
+            stroke: Color::from(&theme.axis_color),
+            stroke_width: computed.axis_line_width,
+            stroke_dasharray: None,
+        });
+
+        // Right axis (drawn here only if y2 axis is NOT present)
+        if layout.y2_range.is_none() {
+            scene.add(Primitive::Line {
+                x1: computed.width - computed.margin_right,
+                y1: computed.margin_top,
+                x2: computed.width - computed.margin_right,
+                y2: computed.height - computed.margin_bottom,
+                stroke: Color::from(&theme.axis_color),
+                stroke_width: computed.axis_line_width,
+                stroke_dasharray: None,
+            });
         }
     }
 }
@@ -562,10 +612,19 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     for ty in y2_ticks.iter() {
         let y = computed.map_y2(*ty);
 
+        let (tx1, tx2) = match layout.tick_align {
+            TickAlign::Inside => (axis_x - computed.tick_mark_major, axis_x),
+            TickAlign::Outside => (axis_x, axis_x + computed.tick_mark_major),
+            TickAlign::Center => (
+                axis_x - computed.tick_mark_major * 0.5,
+                axis_x + computed.tick_mark_major * 0.5,
+            ),
+        };
+
         scene.add(Primitive::Line {
-            x1: axis_x,
+            x1: tx1,
             y1: y,
-            x2: axis_x + computed.tick_mark_major,
+            x2: tx2,
             y2: y,
             stroke: Color::from(&theme.tick_color),
             stroke_width: computed.tick_stroke_width,

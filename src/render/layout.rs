@@ -135,6 +135,87 @@ fn tick_format_sci(v: f64) -> String {
     }
 }
 
+/// Controls which axis border lines are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisLine {
+    /// Draw only the primary bottom and left axes (default).
+    Open,
+    /// Draw a full box around the plot area.
+    Box,
+}
+
+impl From<&str> for AxisLine {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "open" | "left" | "primary" => Self::Open,
+            "box" | "frame" | "enclosed" => Self::Box,
+            other => panic!("invalid axis line '{other}'; expected open or box"),
+        }
+    }
+}
+
+impl From<String> for AxisLine {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks point inside, outside, or across axis lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickAlign {
+    /// Ticks extend inward into the plot area (publication / pgfplots style).
+    Inside,
+    /// Ticks extend outward from the plot area (default).
+    Outside,
+    /// Ticks straddle the axis line equally on both sides.
+    Center,
+}
+
+impl From<&str> for TickAlign {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "inside" | "in" => Self::Inside,
+            "outside" | "out" => Self::Outside,
+            "center" | "centre" | "middle" => Self::Center,
+            other => {
+                panic!("invalid tick alignment '{other}'; expected inside, outside, or center")
+            }
+        }
+    }
+}
+
+impl From<String> for TickAlign {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks appear only on the primary axes or on all four sides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickPos {
+    /// Ticks on the primary bottom and left axes only (default).
+    Primary,
+    /// Ticks mirrored onto the top and right axes as well. Automatically
+    /// promotes `axis_line` to [`AxisLine::Box`].
+    Both,
+}
+
+impl From<&str> for TickPos {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "primary" | "left" | "bottom" | "lower" => Self::Primary,
+            "both" | "mirror" | "mirrored" => Self::Both,
+            other => panic!("invalid tick position '{other}'; expected primary or both"),
+        }
+    }
+}
+
+impl From<String> for TickPos {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
 /// Defines the layout of the plot
 pub struct Layout {
     pub width: Option<f64>,
@@ -146,6 +227,9 @@ pub struct Layout {
     pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
+    pub axis_line: AxisLine,
+    pub tick_align: TickAlign,
+    pub tick_pos: TickPos,
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
@@ -318,6 +402,9 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
+            axis_line: AxisLine::Open,
+            tick_align: TickAlign::Outside,
+            tick_pos: TickPos::Primary,
             x_label: None,
             y_label: None,
             title: None,
@@ -1439,6 +1526,51 @@ impl Layout {
 
     pub fn with_show_grid(mut self, show: bool) -> Self {
         self.show_grid = show;
+        self
+    }
+
+    /// Set which axis border lines are drawn around the plot area.
+    ///
+    /// - [`AxisLine::Open`] *(default)* — bottom and left axes only.
+    /// - [`AxisLine::Box`] — all four sides (publication / pgfplots style).
+    ///
+    /// See also [`with_box_axes`](Self::with_box_axes) as a shorthand for `AxisLine::Box`.
+    /// Accepts `AxisLine` or `&str` / `String` (`"open"`, `"box"`, `"frame"`, `"enclosed"`).
+    pub fn with_axis_line<L: Into<AxisLine>>(mut self, line: L) -> Self {
+        self.axis_line = line.into();
+        self
+    }
+
+    /// Shorthand for `.with_axis_line(AxisLine::Box)` — draws all four axis borders.
+    pub fn with_box_axes(self) -> Self {
+        self.with_axis_line(AxisLine::Box)
+    }
+
+    /// Set the direction tick marks extend relative to the axis line.
+    ///
+    /// - [`TickAlign::Outside`] *(default)* — ticks extend outward from the plot area.
+    /// - [`TickAlign::Inside`] — ticks extend inward into the plot area (publication style).
+    /// - [`TickAlign::Center`] — ticks straddle the axis line equally on both sides.
+    ///
+    /// Accepts `TickAlign` or `&str` / `String` (`"inside"`, `"outside"`, `"center"`).
+    pub fn with_tick_align<A: Into<TickAlign>>(mut self, align: A) -> Self {
+        self.tick_align = align.into();
+        self
+    }
+
+    /// Set whether tick marks appear on the primary axes only or on all four sides.
+    ///
+    /// - [`TickPos::Primary`] *(default)* — ticks on bottom and left axes only.
+    /// - [`TickPos::Both`] — ticks mirrored onto the top and right axes as well.
+    ///   Automatically promotes `axis_line` to [`AxisLine::Box`] so the border
+    ///   lines appear alongside the mirrored ticks.
+    ///
+    /// Accepts `TickPos` or `&str` / `String` (`"primary"`, `"both"`, `"mirror"`).
+    pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
+        self.tick_pos = pos.into();
+        if self.tick_pos == TickPos::Both {
+            self.axis_line = AxisLine::Box;
+        }
         self
     }
 
