@@ -92,8 +92,8 @@ impl DataTable {
                     return from_parquet_bytes(buf);
                 }
 
-                let content = String::from_utf8(buf)
-                    .map_err(|e| format!("stdin is not valid UTF-8: {e}"))?;
+                let content =
+                    String::from_utf8(buf).map_err(|e| format!("stdin is not valid UTF-8: {e}"))?;
                 Self::parse_str(&content, None, no_header, delim_override)
             }
         }
@@ -228,7 +228,13 @@ impl DataTable {
             .into_iter()
             .map(|name| {
                 let rows = map.remove(&name).unwrap();
-                (name, DataTable { header: self.header.clone(), rows })
+                (
+                    name,
+                    DataTable {
+                        header: self.header.clone(),
+                        rows,
+                    },
+                )
             })
             .collect())
     }
@@ -238,7 +244,11 @@ fn sniff_delim(content: &str) -> char {
     let first = content.lines().next().unwrap_or("");
     let tabs = first.chars().filter(|&c| c == '\t').count();
     let commas = first.chars().filter(|&c| c == ',').count();
-    if tabs >= commas { '\t' } else { ',' }
+    if tabs >= commas {
+        '\t'
+    } else {
+        ','
+    }
 }
 
 // ── Parquet support ───────────────────────────────────────────────────────────
@@ -251,8 +261,8 @@ fn sniff_parquet(buf: &[u8]) -> bool {
 #[cfg(feature = "parquet")]
 fn from_parquet_path(path: &Path) -> Result<DataTable, String> {
     use parquet::file::reader::SerializedFileReader;
-    let file = std::fs::File::open(path)
-        .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+    let file =
+        std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
     let reader = SerializedFileReader::new(file)
         .map_err(|e| format!("Cannot read parquet {}: {e}", path.display()))?;
     parquet_to_table(reader)
