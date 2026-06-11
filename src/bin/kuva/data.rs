@@ -211,28 +211,24 @@ impl DataTable {
     ///
     /// Groups are returned in first-seen order.
     pub fn group_by(&self, col: &ColSpec) -> Result<Vec<(String, DataTable)>, String> {
+        use std::collections::HashMap;
         let idx = self.resolve(col)?;
-        let mut groups: Vec<(String, Vec<Vec<String>>)> = Vec::new();
+        let mut order: Vec<String> = Vec::new();
+        let mut map: HashMap<String, Vec<Vec<String>>> = HashMap::new();
 
         for row in &self.rows {
             let key = row.get(idx).cloned().unwrap_or_default();
-            if let Some(g) = groups.iter_mut().find(|(k, _)| k == &key) {
-                g.1.push(row.clone());
-            } else {
-                groups.push((key, vec![row.clone()]));
+            if !map.contains_key(&key) {
+                order.push(key.clone());
             }
+            map.entry(key).or_default().push(row.clone());
         }
 
-        Ok(groups
+        Ok(order
             .into_iter()
-            .map(|(name, rows)| {
-                (
-                    name,
-                    DataTable {
-                        header: self.header.clone(),
-                        rows,
-                    },
-                )
+            .map(|name| {
+                let rows = map.remove(&name).unwrap();
+                (name, DataTable { header: self.header.clone(), rows })
             })
             .collect())
     }
