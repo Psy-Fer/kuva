@@ -31,7 +31,10 @@ fn test_y2_override_svg() {
     common::write_test_output("test_outputs/y2_override_internal.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
-    assert!(svg.contains("Secondary Axis"), "y2 axis label should appear");
+    assert!(
+        svg.contains("Secondary Axis"),
+        "y2 axis label should appear"
+    );
     // y2 tick labels — at least one of the expected values must appear.
     assert!(
         svg.contains(">500<") || svg.contains(">400<") || svg.contains(">250<"),

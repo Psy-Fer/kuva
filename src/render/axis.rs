@@ -1,5 +1,7 @@
 use crate::render::color::Color;
-use crate::render::layout::{AxisLabelOverlap, AxisLine, ComputedLayout, Layout, TickAlign, TickFormat, TickPos};
+use crate::render::layout::{
+    AxisLabelOverlap, AxisLine, ComputedLayout, Layout, TickAlign, TickFormat, TickPos,
+};
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils;
 

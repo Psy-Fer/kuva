@@ -11,7 +11,9 @@ fn make_scatter() -> Vec<(f64, f64)> {
 
 #[test]
 fn test_enclosed_internal_svg() {
-    let plot = ScatterPlot::new().with_data(make_scatter()).with_color("steelblue");
+    let plot = ScatterPlot::new()
+        .with_data(make_scatter())
+        .with_color("steelblue");
     let plots = vec![Plot::Scatter(plot)];
     let layout = Layout::auto_from_plots(&plots)
         .with_title("Enclosed Internal")
@@ -24,7 +26,9 @@ fn test_enclosed_internal_svg() {
 
     // Box mode adds a top and right border. Count <line> elements in box vs
     // the identical plot rendered with the default Open axis line.
-    let plot_open = ScatterPlot::new().with_data(make_scatter()).with_color("steelblue");
+    let plot_open = ScatterPlot::new()
+        .with_data(make_scatter())
+        .with_color("steelblue");
     let plots_open = vec![Plot::Scatter(plot_open)];
     let layout_open = Layout::auto_from_plots(&plots_open).with_title("Enclosed Internal");
     let svg_open = SvgBackend.render_scene(&render_multiple(plots_open, layout_open));

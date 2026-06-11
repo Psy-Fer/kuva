@@ -11,7 +11,9 @@ fn make_scatter() -> Vec<(f64, f64)> {
 
 #[test]
 fn test_enclosed_mirrored_svg() {
-    let plot = ScatterPlot::new().with_data(make_scatter()).with_color("seagreen");
+    let plot = ScatterPlot::new()
+        .with_data(make_scatter())
+        .with_color("seagreen");
     let plots = vec![Plot::Scatter(plot)];
     let layout = Layout::auto_from_plots(&plots)
         .with_title("Enclosed Mirrored")
@@ -24,7 +26,9 @@ fn test_enclosed_mirrored_svg() {
 
     // with_tick_pos(Both) should auto-promote to AxisLine::Box — verify by
     // comparing line count against the same plot with Primary ticks only.
-    let plot_primary = ScatterPlot::new().with_data(make_scatter()).with_color("seagreen");
+    let plot_primary = ScatterPlot::new()
+        .with_data(make_scatter())
+        .with_color("seagreen");
     let plots_primary = vec![Plot::Scatter(plot_primary)];
     let layout_primary = Layout::auto_from_plots(&plots_primary)
         .with_title("Enclosed Mirrored")
