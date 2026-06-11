@@ -313,10 +313,8 @@ impl QuiverPlot {
     /// auto-scaling behavior.
     ///
     /// # Panics
-    /// In debug builds, panics if `s` is not finite. Release builds accept
-    /// NaN / ±inf silently — the resulting arrows will all map to non-finite
-    /// pixel coordinates and be skipped by the render guard, producing an
-    /// empty plot.
+    /// Panics in debug builds if `s` is not finite. Pass a positive, finite
+    /// value; zero is allowed but produces zero-length arrows.
     pub fn with_scale(mut self, s: impl Into<f64>) -> Self {
         let s = s.into();
         debug_assert!(
@@ -392,6 +390,52 @@ impl QuiverPlot {
         } else {
             1.0
         }
+    }
+
+    /// Compute effective scale **and** the data-coordinate origin extent in one
+    /// pass. Returns `(scale, x_min, x_max, y_min, y_max)`. Used by `bounds()`
+    /// so the arrow collection is only iterated once instead of twice when
+    /// auto-scaling is active.
+    pub(crate) fn effective_scale_and_data_extent(&self) -> (f64, f64, f64, f64, f64) {
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        if self.arrows.is_empty() {
+            return (1.0, x_min, x_max, y_min, y_max);
+        }
+        let mut max_mag = 0.0_f64;
+        for a in &self.arrows {
+            x_min = x_min.min(a.x);
+            x_max = x_max.max(a.x);
+            y_min = y_min.min(a.y);
+            y_max = y_max.max(a.y);
+            max_mag = max_mag.max(a.magnitude());
+        }
+        let scale = if let Some(s) = self.scale {
+            s
+        } else {
+            let n = self.arrows.len();
+            if n < 2 {
+                1.0
+            } else {
+                let x_span = x_max - x_min;
+                let y_span = y_max - y_min;
+                let span = match (x_span > 0.0, y_span > 0.0) {
+                    (true, true) => x_span.min(y_span),
+                    (true, false) => x_span,
+                    (false, true) => y_span,
+                    (false, false) => 0.0,
+                };
+                if max_mag > 0.0 && span.is_finite() && span > 0.0 {
+                    let cell = span / (n as f64).sqrt();
+                    self.auto_scale_fraction * cell / max_mag
+                } else {
+                    1.0
+                }
+            }
+        };
+        (scale, x_min, x_max, y_min, y_max)
     }
 
     /// Set the shaft stroke width in pixels. Default `1.2`.

@@ -1393,23 +1393,26 @@ impl Plot {
                 if q.arrows.is_empty() {
                     return None;
                 }
-                let scale = q.effective_scale();
+                // One pass for scale + origin extent; a second pass for
+                // endpoint-expanded bounds only when !tight_bounds.
+                let (scale, x_min_d, x_max_d, y_min_d, y_max_d) =
+                    q.effective_scale_and_data_extent();
+                if !x_min_d.is_finite() {
+                    return None;
+                }
+                if q.tight_bounds {
+                    return Some(((x_min_d, x_max_d), (y_min_d, y_max_d)));
+                }
                 let mut x_min = f64::INFINITY;
                 let mut x_max = f64::NEG_INFINITY;
                 let mut y_min = f64::INFINITY;
                 let mut y_max = f64::NEG_INFINITY;
                 for a in &q.arrows {
-                    x_min = x_min.min(a.x);
-                    x_max = x_max.max(a.x);
-                    y_min = y_min.min(a.y);
-                    y_max = y_max.max(a.y);
-                    if !q.tight_bounds {
-                        let (tail, tip) = q.endpoints_with_scale(a, scale);
-                        x_min = x_min.min(tail.0).min(tip.0);
-                        x_max = x_max.max(tail.0).max(tip.0);
-                        y_min = y_min.min(tail.1).min(tip.1);
-                        y_max = y_max.max(tail.1).max(tip.1);
-                    }
+                    let (tail, tip) = q.endpoints_with_scale(a, scale);
+                    x_min = x_min.min(tail.0).min(tip.0);
+                    x_max = x_max.max(tail.0).max(tip.0);
+                    y_min = y_min.min(tail.1).min(tip.1);
+                    y_max = y_max.max(tail.1).max(tip.1);
                 }
                 if !x_min.is_finite() {
                     return None;
