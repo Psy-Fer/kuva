@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::hexbin::{ColorMap, HexbinPlot, ZReduce};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -44,7 +45,7 @@ fn test_hexbin_basic() {
         .with_x_label("X")
         .with_y_label("Y");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_basic.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "should contain hex path elements");
     assert!(svg.contains("<svg"), "should be valid SVG");
 }
@@ -56,7 +57,7 @@ fn test_hexbin_log_color() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Log Color");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_log_color.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_log_color.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "should render hexes");
 }
 
@@ -80,8 +81,8 @@ fn test_hexbin_min_count() {
 
     let svg_low = render_svg(plots_low, layout_low);
     let svg_high = render_svg(plots_high, layout_high);
-    std::fs::write("test_outputs/hexbin_min_count_1.svg", &svg_low).unwrap();
-    std::fs::write("test_outputs/hexbin_min_count_8.svg", &svg_high).unwrap();
+    common::write_test_output("test_outputs/hexbin_min_count_1.svg", &svg_low).unwrap();
+    common::write_test_output("test_outputs/hexbin_min_count_8.svg", &svg_high).unwrap();
 
     let count_low = svg_low.matches("<path").count();
     let count_high = svg_high.matches("<path").count();
@@ -99,7 +100,7 @@ fn test_hexbin_flat_top() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Flat-Top");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_flat_top.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_flat_top.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "flat-top hexes should render");
 }
 
@@ -112,7 +113,7 @@ fn test_hexbin_inferno_colormap() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Inferno");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_inferno.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_inferno.svg", &svg).unwrap();
     assert!(
         svg.contains("<path"),
         "inferno colormap hexes should render"
@@ -129,7 +130,7 @@ fn test_hexbin_with_stroke() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Stroke");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_stroke.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_stroke.svg", &svg).unwrap();
     assert!(svg.contains("#333333"), "stroke color should appear in SVG");
 }
 
@@ -143,7 +144,7 @@ fn test_hexbin_normalize() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Normalized");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_normalize.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_normalize.svg", &svg).unwrap();
     assert!(
         svg.contains("Density"),
         "colorbar label 'Density' should appear"
@@ -158,7 +159,7 @@ fn test_hexbin_z_mean() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Z Mean");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_z_mean.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_z_mean.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "z-mean hexes should render");
     assert!(svg.contains("Mean"), "colorbar should show 'Mean' label");
 }
@@ -171,7 +172,7 @@ fn test_hexbin_z_median() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Z Median");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_z_median.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_z_median.svg", &svg).unwrap();
     assert!(svg.contains("Median"), "colorbar label should be 'Median'");
 }
 
@@ -183,7 +184,7 @@ fn test_hexbin_z_sum() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Z Sum");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_z_sum.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_z_sum.svg", &svg).unwrap();
     assert!(svg.contains("Sum"), "colorbar label should be 'Sum'");
 }
 
@@ -194,7 +195,7 @@ fn test_hexbin_color_range() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Color Range");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_color_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_color_range.svg", &svg).unwrap();
     assert!(
         svg.contains("<path"),
         "hexes should render with clamped color scale"
@@ -221,7 +222,7 @@ fn test_hexbin_large() {
         .with_x_label("X")
         .with_y_label("Y");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_large.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "large dataset should produce valid SVG"
@@ -236,7 +237,7 @@ fn test_hexbin_n_bins_coarse() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin n_bins=10");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_n_bins_10.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_n_bins_10.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "coarse bins should render");
 }
 
@@ -247,7 +248,7 @@ fn test_hexbin_n_bins_fine() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin n_bins=40");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_n_bins_40.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_n_bins_40.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "fine bins should render");
 }
 
@@ -258,7 +259,7 @@ fn test_hexbin_x_range() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin x_range clipped");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_x_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_x_range.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "x_range clip should still produce valid SVG"
@@ -272,7 +273,7 @@ fn test_hexbin_no_colorbar() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin No Colorbar");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_no_colorbar.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_no_colorbar.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "hexes should still render");
     assert!(!svg.contains("Count"), "colorbar label should be absent");
 }
@@ -294,8 +295,8 @@ fn test_hexbin_z_min_max() {
 
     let svg_min = render_svg(plots_min, layout_min);
     let svg_max = render_svg(plots_max, layout_max);
-    std::fs::write("test_outputs/hexbin_z_min.svg", &svg_min).unwrap();
-    std::fs::write("test_outputs/hexbin_z_max.svg", &svg_max).unwrap();
+    common::write_test_output("test_outputs/hexbin_z_min.svg", &svg_min).unwrap();
+    common::write_test_output("test_outputs/hexbin_z_max.svg", &svg_max).unwrap();
     assert!(svg_min.contains("Min"), "Min label");
     assert!(svg_max.contains("Max"), "Max label");
 }
@@ -309,7 +310,7 @@ fn test_hexbin_grayscale_colormap() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Grayscale");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_grayscale.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_grayscale.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "grayscale hexes should render");
 }
 
@@ -322,7 +323,7 @@ fn test_hexbin_custom_colorbar_label() {
     let plots = vec![Plot::Hexbin(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Custom Label");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/hexbin_custom_label.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hexbin_custom_label.svg", &svg).unwrap();
     assert!(
         svg.contains("My Custom Label"),
         "custom colorbar label should appear"

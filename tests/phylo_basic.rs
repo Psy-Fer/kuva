@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{PhyloTree, TreeBranchStyle, TreeOrientation};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -21,7 +22,7 @@ fn test_phylo_newick_basic() {
     .with_support_threshold(80.0);
 
     let svg = svg_with_title(tree, Some("Rectangular tree (Left) — 5 leaves"));
-    std::fs::write("test_outputs/phylo_newick_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_newick_basic.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"), "output should be SVG");
     assert!(svg.contains("TaxonA"), "leaf label should appear");
@@ -39,7 +40,7 @@ fn test_phylo_slanted() {
         .with_branch_color("#555");
 
     let svg = svg_with_title(tree, Some("Slanted branches (Right)"));
-    std::fs::write("test_outputs/phylo_slanted.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_slanted.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "output should be SVG");
 }
 
@@ -50,7 +51,7 @@ fn test_phylo_circular() {
         .with_branch_style(TreeBranchStyle::Circular);
 
     let svg = svg_with_title(tree, Some("Circular / radial layout"));
-    std::fs::write("test_outputs/phylo_circular.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_circular.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "circular should render without panic");
 }
 
@@ -62,7 +63,7 @@ fn test_phylo_top_phylogram() {
         .with_phylogram();
 
     let svg = svg_with_title(tree, Some("Phylogram — Top orientation"));
-    std::fs::write("test_outputs/phylo_top_phylogram.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_top_phylogram.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "top orientation should render");
     assert!(svg.contains("A"), "leaf A label should appear");
     assert!(svg.contains("B"), "leaf B label should appear");
@@ -77,7 +78,7 @@ fn test_phylo_bottom() {
         .with_orientation(TreeOrientation::Bottom);
 
     let svg = svg_with_title(tree, Some("Bottom orientation"));
-    std::fs::write("test_outputs/phylo_bottom.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_bottom.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("A"), "leaf A label should appear");
     assert!(svg.contains("B"), "leaf B label should appear");
@@ -104,7 +105,7 @@ fn test_phylo_upgma() {
     );
 
     let svg = svg_with_title(tree, Some("UPGMA tree"));
-    std::fs::write("test_outputs/phylo_upgma.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_upgma.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "UPGMA tree should render");
     assert!(
         svg.contains("Wolf") || svg.contains("Cat"),
@@ -130,7 +131,7 @@ fn test_phylo_clade_color() {
         .with_legend("Domains");
 
     let svg = svg_with_title(tree, Some("Clade coloring by domain"));
-    std::fs::write("test_outputs/phylo_clade_color.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_clade_color.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "clade color tree should render");
     assert!(
         svg.contains("#e41a1c"),
@@ -149,7 +150,7 @@ fn test_phylo_render_standalone() {
     let plots = vec![Plot::PhyloTree(tree.clone())];
     let layout = Layout::auto_from_plots(&plots).with_title("Standalone render");
     let svg = SvgBackend.render_scene(&render_phylo_tree(&tree, &layout));
-    std::fs::write("test_outputs/phylo_standalone.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_standalone.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Alpha"));
 }
@@ -170,7 +171,7 @@ fn test_phylo_big_tree() {
     assert_eq!(leaf_count, 20, "should have 20 leaves");
 
     let svg = svg_with_title(tree, Some("20-taxon phylogenetic tree (phylogram)"));
-    std::fs::write("test_outputs/phylo_big_tree.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_big_tree.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Sp_A"));
     assert!(svg.contains("Sp_T"));
@@ -192,7 +193,7 @@ fn test_phylo_big_circular() {
         .with_phylogram();
 
     let svg = svg_with_title(tree, Some("20-taxon radial tree"));
-    std::fs::write("test_outputs/phylo_big_circular.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/phylo_big_circular.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
 

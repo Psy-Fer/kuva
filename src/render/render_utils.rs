@@ -1,3 +1,35 @@
+/// Build an SVG path string for a filled arrow-head triangle.
+///
+/// Tip sits at `(tip_x, tip_y)` and the head points along the unit vector
+/// `(ux, uy)`. `length` is the head's extent along the shaft; `half_width`
+/// is the perpendicular distance from the shaft axis to each base corner.
+///
+/// The caller is responsible for wrapping the returned string in a
+/// `Primitive::Path` with appropriate fill/stroke.
+pub fn arrow_head_path(
+    tip_x: f64,
+    tip_y: f64,
+    ux: f64,
+    uy: f64,
+    length: f64,
+    half_width: f64,
+) -> String {
+    let base_x = tip_x - ux * length;
+    let base_y = tip_y - uy * length;
+    // Perpendicular to the shaft direction.
+    let px = -uy;
+    let py = ux;
+    format!(
+        "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
+        tip_x,
+        tip_y,
+        base_x + px * half_width,
+        base_y + py * half_width,
+        base_x - px * half_width,
+        base_y - py * half_width,
+    )
+}
+
 /// compute ticks so things look nice
 /// compute_tick_step(min, max, target_ticks)
 pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
@@ -23,16 +55,26 @@ pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
 
 /// Generate nice ticks for an axis
 pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
-    // get a clean step size
     let step = compute_tick_step(min, max, target_ticks);
-    // ceil and floor so tick is bound by axis line
     let start = (min / step).ceil() * step;
     let end = (max / step).floor() * step;
 
     let mut ticks = Vec::new();
     let mut tick = start;
-    while tick <= end + 1e-8 {
-        ticks.push((tick * 1e6).round() / 1e6); // round to avoid float spam
+    // Use a relative tolerance (fraction of step) so the loop terminates correctly
+    // regardless of data magnitude. An absolute 1e-8 tolerance caused ~10M iterations
+    // when the entire axis range was smaller than 1e-8 (e.g. values at 1e-14 scale).
+    while tick <= end + step.abs() * 1e-6 {
+        // Round to 6 significant figures to suppress float noise from accumulated additions.
+        // Scale-invariant: works correctly at any magnitude (unlike a fixed 1e6 factor).
+        let rounded = if tick == 0.0 {
+            0.0
+        } else {
+            let d = tick.abs().log10().floor() as i32;
+            let factor = 10f64.powi(6 - d);
+            (tick * factor).round() / factor
+        };
+        ticks.push(rounded);
         tick += step;
     }
 

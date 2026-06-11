@@ -20,11 +20,12 @@ target/
 
 /target
 /smoke_test_outputs
+/raster_test
 /docs/book
 
 # Internal / maintainer-only files
 CLAUDE.md
-TODO.md
+TODO*.md
 /terminal.md
 /font_sampler*
 /*.svg
@@ -33,5 +34,9 @@ TODO.md
 !examples/data/sankey_alluvium.tsv
 !examples/data/sankey_got.tsv
 
+
 # doom feature asset cache
 /doom-assets/
+
+# Benchmarks — data and results are local only
+/benches/

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::legend::{LegendEntry, LegendShape};
 use kuva::plot::{LegendPosition, LinePlot, ScatterPlot};
@@ -43,7 +44,7 @@ fn test_manual_entries_override() {
 
     let layout = Layout::auto_from_plots(&plots).with_legend_entries(entries);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_override.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_override.svg", &out).unwrap();
 
     let beta_pos = out.find("Beta").expect("'Beta' not in SVG");
     let alpha_pos = out.find("Alpha").expect("'Alpha' not in SVG");
@@ -72,7 +73,7 @@ fn test_manual_entries_bypasses_auto() {
 
     let layout = Layout::auto_from_plots(&plots).with_legend_entries(entries);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_bypass_auto.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_bypass_auto.svg", &out).unwrap();
 
     assert!(
         !out.contains("auto-label"),
@@ -121,7 +122,7 @@ fn test_legend_at_no_margin() {
         .with_legend_entries(entries)
         .with_legend_at(50.0, 50.0);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_at.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_at.svg", &out).unwrap();
 
     // Extract SVG width from `<svg ... width="NNN"` attribute.
     fn extract_width(s: &str) -> f64 {
@@ -154,7 +155,7 @@ fn test_right_middle_preset() {
     let layout =
         Layout::auto_from_plots(&plots).with_legend_position(LegendPosition::OutsideRightMiddle);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_right_middle.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_right_middle.svg", &out).unwrap();
 
     assert!(out.contains("Series A"), "'Series A' not found in SVG");
 
@@ -229,7 +230,7 @@ fn test_figure_shared_legend_at() {
         .with_shared_legend_at(20.0, 20.0);
 
     let out = SvgBackend.render_scene(&figure.render());
-    std::fs::write("test_outputs/legend_api_figure_at.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_figure_at.svg", &out).unwrap();
 
     assert!(out.contains("Alpha"), "'Alpha' not found in SVG");
     assert!(out.contains("Beta"), "'Beta' not found in SVG");
@@ -284,7 +285,7 @@ fn inside_left_legend_clears_tick_labels() {
             .with_legend_entries(entries.clone())
             .with_legend_position(pos);
         let out = svg(plots, layout);
-        std::fs::write(format!("test_outputs/legend_inside_left_{name}.svg"), &out).ok();
+        common::write_test_output(format!("test_outputs/legend_inside_left_{name}.svg"), &out).ok();
 
         // Find the legend box rect (fill="#ffffff") and extract its x.
         let legend_box_x = out
@@ -331,7 +332,7 @@ fn test_legend_box_suppress() {
     let plots = vec![Plot::Scatter(scatter)];
     let layout = Layout::auto_from_plots(&plots).with_legend_box(false);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_no_box.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_no_box.svg", &out).unwrap();
 
     assert!(out.contains("Alpha"), "'Alpha' should appear in SVG");
     // The legend border rect is the only element with fill="none"; with show_box=false it is absent.
@@ -352,7 +353,7 @@ fn test_legend_title() {
     let plots = vec![Plot::Scatter(scatter)];
     let layout = Layout::auto_from_plots(&plots).with_legend_title("Groups");
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_title.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_title.svg", &out).unwrap();
 
     assert!(
         out.contains("Groups"),
@@ -397,7 +398,7 @@ fn test_legend_groups() {
         .with_legend_group("Fruits A", group_a)
         .with_legend_group("Fruits B", group_b);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_groups.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_groups.svg", &out).unwrap();
 
     assert!(
         out.contains("Fruits A"),
@@ -432,7 +433,7 @@ fn test_inside_top_right() {
     // Canvas width without legend (InsideTopRight adds no right margin)
     let layout = layout_ref.with_legend_position(LegendPosition::InsideTopRight);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_inside_top_right.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_inside_top_right.svg", &out).unwrap();
 
     assert!(out.contains("Series A"), "'Series A' should appear in SVG");
 
@@ -464,7 +465,7 @@ fn test_outside_left() {
     let layout =
         Layout::auto_from_plots(&plots).with_legend_position(LegendPosition::OutsideLeftTop);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_outside_left.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_outside_left.svg", &out).unwrap();
 
     assert!(
         out.contains("Left Label"),
@@ -493,7 +494,7 @@ fn test_custom_position() {
 
     let layout = Layout::auto_from_plots(&plots).with_legend_at(50.0, 50.0);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_custom_position.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_custom_position.svg", &out).unwrap();
 
     assert!(
         out.contains("Custom"),
@@ -530,7 +531,7 @@ fn test_data_coords_position() {
 
     let layout = Layout::auto_from_plots(&plots).with_legend_at_data(2.0, 4.0);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_api_data_coords.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_api_data_coords.svg", &out).unwrap();
 
     assert!(
         out.contains("Data Coords"),
@@ -620,7 +621,7 @@ fn legend_position_inside_top_right() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideTopRight);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_top_right.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_top_right.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -640,7 +641,7 @@ fn legend_position_inside_top_left() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideTopLeft);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_top_left.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_top_left.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -660,7 +661,7 @@ fn legend_position_inside_bottom_right() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideBottomRight);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_bottom_right.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_bottom_right.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -680,7 +681,7 @@ fn legend_position_inside_bottom_left() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideBottomLeft);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_bottom_left.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_bottom_left.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -700,7 +701,7 @@ fn legend_position_inside_top_center() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideTopCenter);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_top_center.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_top_center.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -720,7 +721,7 @@ fn legend_position_inside_bottom_center() {
     let (bw, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::InsideBottomCenter);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_inside_bottom_center.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_inside_bottom_center.svg", &out).unwrap();
     check_entries_present(&out);
     assert_eq!(
         extract_width(&out) as u64,
@@ -742,7 +743,7 @@ fn legend_position_outside_right_top() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideRightTop);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_right_top.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_right_top.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -756,7 +757,7 @@ fn legend_position_outside_right_middle() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideRightMiddle);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_right_middle.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_right_middle.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -770,7 +771,7 @@ fn legend_position_outside_right_bottom() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideRightBottom);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_right_bottom.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_right_bottom.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -786,7 +787,7 @@ fn legend_position_outside_left_top() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideLeftTop);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_left_top.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_left_top.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -800,7 +801,7 @@ fn legend_position_outside_left_middle() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideLeftMiddle);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_left_middle.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_left_middle.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -814,7 +815,7 @@ fn legend_position_outside_left_bottom() {
     let (bw, _) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideLeftBottom);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_left_bottom.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_left_bottom.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_width(&out) > bw,
@@ -830,7 +831,7 @@ fn legend_position_outside_top_left() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideTopLeft);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_top_left.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_top_left.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -844,7 +845,7 @@ fn legend_position_outside_top_center() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideTopCenter);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_top_center.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_top_center.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -858,7 +859,7 @@ fn legend_position_outside_top_right() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideTopRight);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_top_right.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_top_right.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -874,7 +875,7 @@ fn legend_position_outside_bottom_left() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideBottomLeft);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_bottom_left.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_bottom_left.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -888,7 +889,7 @@ fn legend_position_outside_bottom_center() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideBottomCenter);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_bottom_center.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_bottom_center.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -902,7 +903,7 @@ fn legend_position_outside_bottom_right() {
     let (_, bh) = preset_baseline();
     let layout = preset_layout(&plots, LegendPosition::OutsideBottomRight);
     let out = svg(plots, layout);
-    std::fs::write("test_outputs/legend_pos_outside_bottom_right.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_pos_outside_bottom_right.svg", &out).unwrap();
     check_entries_present(&out);
     assert!(
         extract_height_val(&out) > bh,
@@ -1003,7 +1004,7 @@ fn check_twin_entries(out: &str) {
 #[test]
 fn twin_y_outside_right_top_clears_y2_axis() {
     let out = twin_y_svg(LegendPosition::OutsideRightTop);
-    std::fs::write("test_outputs/twin_y_legend_right_top.svg", &out).unwrap();
+    common::write_test_output("test_outputs/twin_y_legend_right_top.svg", &out).unwrap();
 
     check_twin_entries(&out);
     let box_x = legend_box_x(&out).expect("legend box rect not found");
@@ -1017,7 +1018,7 @@ fn twin_y_outside_right_top_clears_y2_axis() {
 #[test]
 fn twin_y_outside_right_middle_clears_y2_axis() {
     let out = twin_y_svg(LegendPosition::OutsideRightMiddle);
-    std::fs::write("test_outputs/twin_y_legend_right_middle.svg", &out).unwrap();
+    common::write_test_output("test_outputs/twin_y_legend_right_middle.svg", &out).unwrap();
 
     check_twin_entries(&out);
     let box_x = legend_box_x(&out).expect("legend box rect not found");
@@ -1031,7 +1032,7 @@ fn twin_y_outside_right_middle_clears_y2_axis() {
 #[test]
 fn twin_y_outside_right_bottom_clears_y2_axis() {
     let out = twin_y_svg(LegendPosition::OutsideRightBottom);
-    std::fs::write("test_outputs/twin_y_legend_right_bottom.svg", &out).unwrap();
+    common::write_test_output("test_outputs/twin_y_legend_right_bottom.svg", &out).unwrap();
 
     check_twin_entries(&out);
     let box_x = legend_box_x(&out).expect("legend box rect not found");

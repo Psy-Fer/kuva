@@ -120,6 +120,14 @@ Thank you to everyone who has contributed to kuva!
 
 ---
 
+## Ecosystem
+
+Other Rust plotting libraries worth knowing about:
+
+- [charton](https://github.com/wangjiawen2013/charton): A general-purpose plotting library implementing the Grammar of Graphics in Rust. It offers a declarative API (similar to ggplot2/Altair) that builds complex charts through layer composition. It provides first-class native support for Polars, integrates with the Jupyter/evcxr ecosystem, and can even interoperate with Matplotlib/Altair for hybrid workflows.
+
+---
+
 ## Development note
 
 kuva was initially built by hand, with a working library and several plot types

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{UpSetPlot, UpSetSort};
 use kuva::render::layout::Layout;
@@ -17,7 +18,7 @@ fn test_upset_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -38,7 +39,7 @@ fn test_upset_four_sets() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_four_sets.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_four_sets.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -69,7 +70,7 @@ fn test_upset_precomputed() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_precomputed.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_precomputed.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("20")); // largest intersection count should appear
@@ -90,7 +91,7 @@ fn test_upset_sort_degree() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_sort_degree.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_sort_degree.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -112,7 +113,7 @@ fn test_upset_max_visible() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_max_visible.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_max_visible.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // With 4 sets there are up to 15 non-empty intersections, but we cap at 5 columns.
@@ -136,7 +137,7 @@ fn test_upset_no_set_sizes() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_no_set_sizes.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_no_set_sizes.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -160,7 +161,7 @@ fn test_upset_custom_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_custom_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_custom_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#2563eb"));
@@ -180,7 +181,7 @@ fn test_upset_two_sets() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_two_sets.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_two_sets.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // 3 intersections × 2 rows = 6 circles minimum
@@ -210,7 +211,7 @@ fn test_upset_natural_sort() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_natural_sort.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_natural_sort.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -245,7 +246,7 @@ fn test_upset_large() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_large.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_large.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -263,7 +264,7 @@ fn test_upset_title_and_labels() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/upset_title.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/upset_title.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("UpSet With Title"));
     assert!(svg.contains("Intersection size"));

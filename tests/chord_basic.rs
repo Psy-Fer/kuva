@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::ChordPlot;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -16,7 +17,7 @@ fn chord_basic() {
     let plots = vec![Plot::Chord(chord)];
     let layout = Layout::auto_from_plots(&plots).with_title("Chord Diagram");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/chord_basic.svg", svg).unwrap();
+    common::write_test_output("test_outputs/chord_basic.svg", svg).unwrap();
 }
 
 #[test]
@@ -37,5 +38,5 @@ fn chord_asymmetric() {
     let plots = vec![Plot::Chord(chord)];
     let layout = Layout::auto_from_plots(&plots).with_title("Asymmetric Chord Diagram");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/chord_asymmetric.svg", svg).unwrap();
+    common::write_test_output("test_outputs/chord_asymmetric.svg", svg).unwrap();
 }

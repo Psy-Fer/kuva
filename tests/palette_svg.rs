@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::line::LinePlot;
 use kuva::plot::scatter::ScatterPlot;
@@ -27,7 +28,7 @@ fn test_palette_dark_theme_with_colorblind() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/palette_dark_colorblind.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/palette_dark_colorblind.svg", &svg).unwrap();
 
     // Wong palette colors appear in the SVG
     assert!(svg.contains("#e69f00"), "expected wong color 0");
@@ -60,7 +61,7 @@ fn test_palette_auto_cycle() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/palette_auto_cycle.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/palette_auto_cycle.svg", &svg).unwrap();
 
     // First three Wong colors assigned automatically
     assert!(svg.contains("#e69f00"), "expected wong[0]");
@@ -118,7 +119,7 @@ fn test_palette_tritanopia() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/palette_tritanopia.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/palette_tritanopia.svg", &svg).unwrap();
 
     assert!(svg.contains("#4477aa"), "expected tol_bright[0]");
     assert!(svg.contains("#ee6677"), "expected tol_bright[1]");

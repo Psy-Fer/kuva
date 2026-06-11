@@ -33,6 +33,7 @@ mod polar;
 mod pr;
 mod pyramid;
 mod qq;
+mod quiver;
 mod radar;
 mod raincloud;
 mod ridgeline;
@@ -158,6 +159,8 @@ enum Commands {
     Calendar(calendar::CalendarArgs),
     /// Gantt chart — horizontal task bars with groups, progress, and milestones.
     Gantt(gantt::GanttArgs),
+    /// Quiver plot — 2-D vector field rendered as arrows.
+    Quiver(quiver::QuiverArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -229,6 +232,7 @@ fn main() {
         Commands::Venn(args) => venn::run(args),
         Commands::Calendar(args) => calendar::run(args),
         Commands::Gantt(args) => gantt::run(args),
+        Commands::Quiver(args) => quiver::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::radar::RadarPlot;
 #[allow(unused_imports)]
@@ -15,7 +16,7 @@ fn test_radar_basic() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Basic");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_basic.svg", &svg).unwrap();
     assert!(svg.contains("Speed"), "should contain axis label");
     assert!(svg.contains("Agility"), "should contain axis label");
     assert!(svg.contains(" Z"), "should contain closed polygon path");
@@ -29,7 +30,7 @@ fn test_radar_two_series() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Two Series");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_two_series.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_two_series.svg", &svg).unwrap();
     assert!(svg.contains("A"));
     assert!(svg.contains("B"));
 }
@@ -43,7 +44,7 @@ fn test_radar_filled() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Filled");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_filled.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_filled.svg", &svg).unwrap();
     assert!(svg.contains("Alpha"));
     assert!(svg.contains(" Z"));
 }
@@ -57,7 +58,7 @@ fn test_radar_with_legend() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Legend");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_legend.svg", &svg).unwrap();
     assert!(svg.contains("Method A"), "legend entry A");
     assert!(svg.contains("Method B"), "legend entry B");
 }
@@ -72,7 +73,7 @@ fn test_radar_normalize() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Normalized");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_normalize.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_normalize.svg", &svg).unwrap();
     assert!(svg.contains("%"), "normalize mode should show % labels");
 }
 
@@ -88,7 +89,7 @@ fn test_radar_explicit_range() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Explicit Range");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_explicit_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_explicit_range.svg", &svg).unwrap();
     assert!(svg.contains("Memory"));
     assert!(svg.contains("Tool A"));
     assert!(svg.contains("Tool B"));
@@ -102,7 +103,7 @@ fn test_radar_with_dots() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Dots");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_dots.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_dots.svg", &svg).unwrap();
     assert!(svg.contains("<circle"), "should render vertex dots");
 }
 
@@ -114,7 +115,7 @@ fn test_radar_no_grid() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar No Grid");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_no_grid.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_no_grid.svg", &svg).unwrap();
     assert!(!svg.contains("4,3"), "dashed grid rings should be absent");
 }
 
@@ -141,7 +142,7 @@ fn test_radar_six_axes() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Six Axes");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_six_axes.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_six_axes.svg", &svg).unwrap();
     assert!(svg.contains("Sensitivity"));
     assert!(svg.contains("MCC"));
     assert!(svg.contains("Classifier A"));
@@ -153,7 +154,7 @@ fn test_radar_three_axes_minimum() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Three Axes");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_three_axes.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_three_axes.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains(" Z"));
 }
@@ -166,7 +167,7 @@ fn test_radar_custom_stroke_width() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Radar Stroke Width");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_stroke_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_stroke_width.svg", &svg).unwrap();
     assert!(svg.contains("stroke-width=\"3\"") || svg.contains("stroke-width=\"3.0\""));
 }
 
@@ -197,7 +198,7 @@ fn test_radar_benchmarking_use_case() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Tool Comparison");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_benchmarking.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_benchmarking.svg", &svg).unwrap();
     assert!(svg.contains("Precision"));
     assert!(svg.contains("Tool A"));
     assert!(svg.contains("Tool C"));
@@ -215,7 +216,7 @@ fn test_radar_inverted_axis() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Inverted Axis");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_inverted_axis.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_inverted_axis.svg", &svg).unwrap();
     assert!(svg.contains("Latency"));
     assert!(svg.contains("System A"));
 }
@@ -229,7 +230,7 @@ fn test_radar_inverted_multiple_axes() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Inverted Axes");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_inverted_axes.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_inverted_axes.svg", &svg).unwrap();
     assert!(svg.contains("Error Rate"));
     assert!(svg.contains(" Z"));
 }
@@ -248,7 +249,7 @@ fn test_radar_per_axis_range() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Per-Axis Ranges");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_per_axis_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_per_axis_range.svg", &svg).unwrap();
     assert!(svg.contains("Speed"));
     assert!(svg.contains("Model A"));
 }
@@ -263,7 +264,7 @@ fn test_radar_error_band() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Error Bands");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_error_band.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_error_band.svg", &svg).unwrap();
     assert!(svg.contains("Sensitivity"));
     assert!(svg.contains(" Z"), "should have filled polygons");
 }
@@ -277,7 +278,7 @@ fn test_radar_vertex_labels() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Vertex Labels");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_vertex_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_vertex_labels.svg", &svg).unwrap();
     assert!(
         svg.contains("0.80") || svg.contains("0.8"),
         "vertex value label present"
@@ -293,7 +294,7 @@ fn test_radar_circular_grid() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Circular Grid");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_circular_grid.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_circular_grid.svg", &svg).unwrap();
     assert!(svg.contains("Alpha"));
     // Circular grid uses arc paths; polygon grid uses "4,3" but both are dashed
     assert!(svg.contains("4,3"), "dashed ring should be present");
@@ -308,7 +309,7 @@ fn test_radar_reference_polygon() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Reference Polygon");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_reference.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_reference.svg", &svg).unwrap();
     assert!(svg.contains("Baseline"), "reference label in legend");
     assert!(svg.contains("6,3"), "reference polygon uses 6,3 dasharray");
 }
@@ -322,7 +323,7 @@ fn test_radar_reference_with_color() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Reference With Color");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_reference_color.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_reference_color.svg", &svg).unwrap();
     assert!(svg.contains("#ff7f00"), "custom reference color");
     assert!(svg.contains("Target"));
 }
@@ -335,7 +336,7 @@ fn test_radar_start_angle() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Start Angle East");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_start_angle.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_start_angle.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains(" Z"));
 }
@@ -348,7 +349,7 @@ fn test_radar_start_axis() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Start Axis");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_start_axis.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_start_axis.svg", &svg).unwrap();
     assert!(svg.contains("Gamma"));
     assert!(svg.contains("Alpha"));
 }
@@ -362,7 +363,7 @@ fn test_radar_per_series_dasharray() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Series Dash Patterns");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_dasharray.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_dasharray.svg", &svg).unwrap();
     assert!(svg.contains("6,3"), "dashed series stroke-dasharray");
 }
 
@@ -375,7 +376,7 @@ fn test_radar_axis_ticks() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Axis Ticks");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_axis_ticks.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_axis_ticks.svg", &svg).unwrap();
     assert!(svg.contains("<line"), "tick marks are line primitives");
 }
 
@@ -392,7 +393,7 @@ fn test_radar_long_label_wrap() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Long Label Wrap");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_long_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_long_labels.svg", &svg).unwrap();
     assert!(svg.contains("Positive"), "label text present");
     assert!(svg.contains("Predictive"), "wrapped line present");
 }
@@ -416,7 +417,7 @@ fn test_radar_full_features() {
     let plots = vec![Plot::Radar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Full Feature Demo");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/radar_full_features.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/radar_full_features.svg", &svg).unwrap();
     assert!(svg.contains("Model A"));
     assert!(svg.contains("Model B"));
     assert!(svg.contains("Threshold"));

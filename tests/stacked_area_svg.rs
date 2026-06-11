@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::StackedAreaPlot;
 use kuva::render::layout::Layout;
@@ -27,7 +28,7 @@ fn stacked_area_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/stacked_area_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/stacked_area_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
@@ -62,7 +63,7 @@ fn stacked_area_normalized() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/stacked_area_normalized.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/stacked_area_normalized.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
@@ -91,7 +92,7 @@ fn stacked_area_palette() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/stacked_area_palette.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/stacked_area_palette.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));

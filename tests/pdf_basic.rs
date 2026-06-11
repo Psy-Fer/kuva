@@ -1,4 +1,5 @@
 #![cfg(feature = "pdf")]
+mod common;
 
 use kuva::plot::scatter::ScatterPlot;
 use kuva::plot::BarPlot;
@@ -25,7 +26,7 @@ fn pdf_scatter_basic() {
     assert!(result.is_ok(), "render_scene failed: {:?}", result.err());
     let bytes = result.unwrap();
     assert_eq!(&bytes[..5], b"%PDF-", "output is not a valid PDF");
-    std::fs::write("test_outputs/pdf_scatter.pdf", &bytes).unwrap();
+    common::write_test_output("test_outputs/pdf_scatter.pdf", &bytes).unwrap();
 }
 
 #[test]
@@ -188,5 +189,5 @@ fn pdf_rich_figure() {
         .expect("PDF render failed");
 
     assert_eq!(&bytes[..5], b"%PDF-", "output is not a valid PDF");
-    std::fs::write("test_outputs/pdf_rich_figure.pdf", &bytes).unwrap();
+    common::write_test_output("test_outputs/pdf_rich_figure.pdf", &bytes).unwrap();
 }

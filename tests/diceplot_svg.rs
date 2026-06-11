@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::diceplot::DicePlot;
 use kuva::render::layout::Layout;
@@ -33,7 +34,7 @@ fn test_dice_categorical_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_categorical_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_categorical_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // 4 tile rects (2 miRNAs x 2 compounds)
@@ -80,7 +81,7 @@ fn test_dice_continuous_tile() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_continuous_tile.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_continuous_tile.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // 4 tiles + circles for present dots + hollow paths for absent dots
@@ -112,7 +113,7 @@ fn test_dice_per_dot_continuous() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_per_dot.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_per_dot.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // White tiles with black border
@@ -139,7 +140,7 @@ fn test_dice_position_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_position_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_position_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Legend title present
@@ -168,7 +169,7 @@ fn test_dice_dot_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_dot_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_dot_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Down"));
@@ -193,7 +194,7 @@ fn test_dice_size_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_size_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_size_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("-log10(FDR)"));
@@ -216,7 +217,7 @@ fn test_dice_colorbar() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_colorbar.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_colorbar.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Colorbar label
@@ -290,7 +291,7 @@ fn test_dice_stacked_legends() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_stacked_legends.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_stacked_legends.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Category"));
@@ -503,7 +504,7 @@ fn test_dice_large_grid_with_position_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/dice_large_grid.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/dice_large_grid.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<rect"));

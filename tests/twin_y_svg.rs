@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::bar::BarPlot;
 use kuva::plot::histogram::Histogram;
@@ -59,7 +60,7 @@ fn test_twin_y_basic() {
     let layout = Layout::auto_from_twin_y_plots(&primary, &secondary);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG should start with <svg element");
     // Right-side axis line should exist (add_y2_axis draws a vertical line at the right edge)
@@ -77,7 +78,7 @@ fn test_twin_y_labels() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_labels.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("Rain"),
@@ -98,7 +99,7 @@ fn test_twin_y_auto() {
     let layout = Layout::auto_from_twin_y_plots(&primary, &secondary);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_auto.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_auto.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG output should be valid");
 }
@@ -112,7 +113,7 @@ fn test_twin_y_palette() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_palette.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_palette.svg", svg.clone()).unwrap();
 
     // Wong palette first two colors: #e69f00, #56b4e9 (Color outputs lowercase hex)
     assert!(
@@ -149,7 +150,7 @@ fn test_twin_y_log_y2() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_log_y2.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_log_y2.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG should be valid");
     // Log ticks like 1, 100 should appear as text elements in the right-side axis labels
@@ -167,7 +168,7 @@ fn test_twin_y_multiplot() {
         .with_legend_position(kuva::plot::LegendPosition::OutsideRightTop);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_multiplot.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_multiplot.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG should contain an <svg element");
     assert!(
@@ -195,7 +196,7 @@ fn test_twin_y_y_label_position() {
     let computed = ComputedLayout::from_layout(&layout);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_y_label_pos.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_y_label_pos.svg", svg.clone()).unwrap();
 
     let label_x = extract_text_x(&svg, "Temp").expect("y-label 'Temp' not found in SVG");
     // Y label is placed just left of tick labels: margin_left - 8 - y_tick_label_px - 5 - label_size/2.
@@ -225,7 +226,7 @@ fn test_twin_y_bar_primary() {
     let layout = Layout::auto_from_twin_y_plots(&primary, &secondary);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_bar_primary.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_bar_primary.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -247,7 +248,7 @@ fn test_twin_y_bar_secondary() {
     let layout = Layout::auto_from_twin_y_plots(&primary, &secondary);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_bar_secondary.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_bar_secondary.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -265,7 +266,7 @@ fn test_twin_y_histogram_primary() {
     let layout = Layout::auto_from_twin_y_plots(&primary, &secondary);
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_histogram_primary.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_histogram_primary.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -398,7 +399,7 @@ fn test_twin_y_showcase() {
 
     let scene = render_twin_y(primary, secondary, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/twin_y_showcase.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/twin_y_showcase.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG should be valid");
     assert!(svg.contains("GC Bias"), "SVG should contain the title");

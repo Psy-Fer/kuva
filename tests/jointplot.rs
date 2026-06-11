@@ -1,3 +1,4 @@
+mod common;
 use kuva::plot::scatter::{MarkerShape, TrendLine};
 use kuva::prelude::*;
 use std::fs;
@@ -24,7 +25,7 @@ fn sample_data(n: usize, seed: u64) -> (Vec<f64>, Vec<f64>) {
 
 fn write(name: &str, svg: &str) {
     fs::create_dir_all("test_outputs").ok();
-    fs::write(format!("test_outputs/{name}"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}"), svg).unwrap();
 }
 
 #[test]

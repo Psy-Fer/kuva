@@ -184,6 +184,9 @@ fn range_span(vals: &[f64]) -> f64 {
 }
 
 fn write_test_output(name: &str, content: &str) {
+    if std::env::var_os("CI").is_some() {
+        return;
+    }
     let dir = std::path::Path::new("test_outputs");
     let _ = std::fs::create_dir_all(dir);
     let _ = std::fs::write(dir.join(name), content);

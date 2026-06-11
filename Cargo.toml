@@ -18,11 +18,12 @@ exclude = ["assets/fonts/DejaVuSans.ttf"]
 all-features = true
 
 [features]
-default = []
-png  = ["dep:resvg"]
-pdf  = ["dep:svg2pdf"]
-cli  = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full = ["png", "pdf"]
+default    = []
+png        = ["dep:fontdue", "dep:png", "dep:flate2"]
+pdf        = ["dep:svg2pdf", "dep:flate2"]
+embed_font = ["dep:flate2"]
+cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
+full       = ["embed_font", "png", "pdf"]
 # Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
 # Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
 # Run once: cargo build --bin kuva --features cli,doom
@@ -32,8 +33,9 @@ doom = ["cli"]
 colorous = "=1.0.16"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
-flate2 = "1"
-resvg       = { version = "0.44", optional = true }
+flate2      = { version = "1", optional = true }
+fontdue     = { version = "0.9",  optional = true }
+png         = { version = "0.18", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }

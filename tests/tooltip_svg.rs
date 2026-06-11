@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::waterfall::WaterfallPlot;
 use kuva::prelude::*;
@@ -17,7 +18,7 @@ fn test_scatter_auto_tooltips() {
         .with_tooltips()
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_scatter_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_scatter_auto.svg", &svg).unwrap();
     assert!(svg.contains("<title>"), "expected <title> in SVG");
     assert!(svg.contains("x=1.00, y=2.00"), "expected auto tooltip text");
     assert!(svg.contains("x=3.00, y=4.00"));
@@ -30,7 +31,7 @@ fn test_scatter_custom_tooltip_labels() {
         .with_tooltip_labels(["Sample A", "Sample B"])
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_scatter_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_scatter_labels.svg", &svg).unwrap();
     assert!(svg.contains("<title>Sample A</title>"));
     assert!(svg.contains("<title>Sample B</title>"));
 }
@@ -55,7 +56,7 @@ fn test_bar_auto_tooltips() {
         .with_tooltips()
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_bar.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_bar.svg", &svg).unwrap();
     assert!(svg.contains("<title>"), "expected <title> in bar SVG");
     assert!(svg.contains("A: 10.00"));
     assert!(svg.contains("B: 20.00"));
@@ -71,7 +72,7 @@ fn test_histogram_auto_tooltips() {
         .with_tooltips()
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_histogram.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_histogram.svg", &svg).unwrap();
     assert!(svg.contains("<title>"), "expected <title> in histogram SVG");
 }
 
@@ -85,7 +86,7 @@ fn test_pie_auto_tooltips() {
         .with_tooltips()
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_pie.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_pie.svg", &svg).unwrap();
     assert!(svg.contains("<title>"), "expected <title> in pie SVG");
     assert!(svg.contains("Cat: 30.00 (30.0%)"));
     assert!(svg.contains("Dog: 70.00 (70.0%)"));
@@ -102,7 +103,7 @@ fn test_waterfall_auto_tooltips() {
         .with_tooltips()
         .into()];
     let svg = render_plots(plots);
-    std::fs::write("test_outputs/tooltip_waterfall.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tooltip_waterfall.svg", &svg).unwrap();
     assert!(svg.contains("<title>"), "expected <title> in waterfall SVG");
     assert!(svg.contains("Q1: 100.00"));
 }

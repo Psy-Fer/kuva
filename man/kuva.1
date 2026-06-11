@@ -1,16 +1,19 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH kuva 1  "kuva " 
+.TH kuva 1  "kuva 0.1.7" 
 .SH NAME
 kuva \- Scientific plotting from the command line
 .SH SYNOPSIS
-\fBkuva\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+\fBkuva\fR [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Scientific plotting from the command line
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
 .SH SUBCOMMANDS
 .TP
 kuva\-scatter(1)
@@ -82,6 +85,15 @@ Genome synteny ribbons from sequence and block files
 kuva\-density(1)
 Kernel density estimate curve from a numeric column
 .TP
+kuva\-ecdf(1)
+Empirical cumulative distribution function (ECDF)
+.TP
+kuva\-qq(1)
+Q\-Q plot: normal or genomic (GWAS) quantile\-quantile
+.TP
+kuva\-streamgraph(1)
+Streamgraph (flowing stacked area with displaced baseline)
+.TP
 kuva\-ridgeline(1)
 Ridgeline (joyplot) — stacked KDE density curves, one per group
 .TP
@@ -103,5 +115,70 @@ kuva\-surface3d(1)
 kuva\-network(1)
 Network / graph diagram from an edge list or adjacency matrix
 .TP
+kuva\-radar(1)
+Radar / spider chart — multivariate data on radial axes
+.TP
+kuva\-hexbin(1)
+Hexbin density plot — aggregate scatter points into hexagonal bins
+.TP
+kuva\-treemap(1)
+Treemap — tile a rectangle proportionally to values, with optional hierarchical grouping
+.TP
+kuva\-sunburst(1)
+Sunburst chart — radial hierarchy diagram
+.TP
+kuva\-bump(1)
+Bump chart — rank of series across discrete time points
+.TP
+kuva\-funnel(1)
+Funnel chart — attrition / conversion through ordered stages
+.TP
+kuva\-rose(1)
+Nightingale rose / coxcomb chart — polar bar chart
+.TP
+kuva\-slope(1)
+Slope chart — paired before/after comparisons on two axes
+.TP
+kuva\-lollipop(1)
+Lollipop chart — dot\-and\-stem alternative to bar charts
+.TP
+kuva\-raincloud(1)
+Raincloud plot — half\-violin + box + jittered raw points
+.TP
+kuva\-mosaic(1)
+Mosaic / Marimekko chart — two\-way contingency table
+.TP
+kuva\-waffle(1)
+Waffle chart — proportional grid of filled squares
+.TP
+kuva\-pyramid(1)
+Population pyramid — back\-to\-back horizontal bar chart
+.TP
+kuva\-roc(1)
+ROC curve — receiver operating characteristic
+.TP
+kuva\-pr(1)
+Precision\-recall curve
+.TP
+kuva\-survival(1)
+Kaplan\-Meier survival curve
+.TP
+kuva\-horizon(1)
+Horizon chart — stacked folded time\-series
+.TP
+kuva\-parallel(1)
+Parallel coordinates plot — multivariate comparison
+.TP
+kuva\-venn(1)
+Venn diagram — 2–4 set overlaps
+.TP
+kuva\-calendar(1)
+Calendar heatmap — GitHub\-style contribution grid
+.TP
+kuva\-quiver(1)
+Quiver plot — 2\-D vector field rendered as arrows
+.TP
 kuva\-help(1)
 Print this message or the help of the given subcommand(s)
+.SH VERSION
+v0.1.7

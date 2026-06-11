@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::bump::{BumpPlot, BumpTieBreak, CurveStyle};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -61,7 +62,7 @@ fn simple_bump() -> BumpPlot {
 #[test]
 fn test_bump_basic() {
     let svg = render(simple_bump(), "Bump Basic");
-    std::fs::write("test_outputs/bump_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "should be valid SVG");
     assert!(
         svg.contains("<path"),
@@ -76,7 +77,7 @@ fn test_bump_basic() {
 #[test]
 fn test_bump_x_labels() {
     let svg = render(simple_bump(), "Bump X Labels");
-    std::fs::write("test_outputs/bump_x_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_x_labels.svg", &svg).unwrap();
     assert!(svg.contains("2021"), "x-axis label 2021 should appear");
     assert!(svg.contains("2024"), "x-axis label 2024 should appear");
 }
@@ -84,7 +85,7 @@ fn test_bump_x_labels() {
 #[test]
 fn test_bump_y_rank_labels() {
     let svg = render(simple_bump(), "Bump Rank Labels");
-    std::fs::write("test_outputs/bump_y_rank_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_y_rank_labels.svg", &svg).unwrap();
     // y-axis should show rank numbers 1, 2, 3
     assert!(
         svg.contains(">1<") || svg.contains(">1 <") || svg.matches(">1").count() > 0,
@@ -96,7 +97,7 @@ fn test_bump_y_rank_labels() {
 fn test_bump_straight_curves() {
     let bp = simple_bump().with_curve_style(CurveStyle::Straight);
     let svg = render(bp, "Bump Straight");
-    std::fs::write("test_outputs/bump_straight.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_straight.svg", &svg).unwrap();
     assert!(
         svg.contains("<path"),
         "straight lines should render as paths"
@@ -113,7 +114,7 @@ fn test_bump_straight_curves() {
 fn test_bump_sigmoid_curves() {
     let bp = simple_bump().with_curve_style(CurveStyle::Sigmoid);
     let svg = render(bp, "Bump Sigmoid");
-    std::fs::write("test_outputs/bump_sigmoid.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_sigmoid.svg", &svg).unwrap();
     // Sigmoid uses cubic Bézier (C command)
     assert!(
         svg.contains(" C "),
@@ -125,7 +126,7 @@ fn test_bump_sigmoid_curves() {
 fn test_bump_show_rank_labels() {
     let bp = simple_bump().with_show_rank_labels(true);
     let svg = render(bp, "Bump Rank Labels Inside Dots");
-    std::fs::write("test_outputs/bump_rank_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_rank_labels.svg", &svg).unwrap();
     let text_count_with = svg.matches("<text").count();
 
     let bp2 = simple_bump().with_show_rank_labels(false);
@@ -142,7 +143,7 @@ fn test_bump_show_rank_labels() {
 fn test_bump_no_series_labels() {
     let bp = simple_bump().with_show_series_labels(false);
     let svg = render(bp, "Bump No Series Labels");
-    std::fs::write("test_outputs/bump_no_series_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_no_series_labels.svg", &svg).unwrap();
     // With series labels off, series names should not appear as endpoint labels
     let text_count_off = svg.matches("<text").count();
 
@@ -160,7 +161,7 @@ fn test_bump_no_series_labels() {
 fn test_bump_highlight() {
     let bp = simple_bump().with_highlight("Alpha");
     let svg = render(bp, "Bump Highlight Alpha");
-    std::fs::write("test_outputs/bump_highlight.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_highlight.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "highlight mode should produce valid SVG"
@@ -173,7 +174,7 @@ fn test_bump_highlight() {
 fn test_bump_no_legend() {
     let bp = simple_bump().with_legend(false);
     let svg = render(bp, "Bump No Legend");
-    std::fs::write("test_outputs/bump_no_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_no_legend.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "valid SVG");
 }
 
@@ -181,7 +182,7 @@ fn test_bump_no_legend() {
 fn test_bump_with_legend() {
     let bp = simple_bump().with_legend(true);
     let svg = render(bp, "Bump With Legend");
-    std::fs::write("test_outputs/bump_with_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_with_legend.svg", &svg).unwrap();
     assert!(svg.contains("Alpha"), "legend should contain series name");
 }
 
@@ -189,7 +190,7 @@ fn test_bump_with_legend() {
 fn test_bump_dot_radius() {
     let bp = simple_bump().with_dot_radius(10.0);
     let svg = render(bp, "Bump Large Dots");
-    std::fs::write("test_outputs/bump_dot_radius.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_dot_radius.svg", &svg).unwrap();
     assert!(
         svg.contains("r=\"10\"") || svg.contains("r=\"10."),
         "large dot radius should appear in SVG"
@@ -200,7 +201,7 @@ fn test_bump_dot_radius() {
 fn test_bump_stroke_width() {
     let bp = simple_bump().with_stroke_width(5.0);
     let svg = render(bp, "Bump Thick Lines");
-    std::fs::write("test_outputs/bump_stroke_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_stroke_width.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "thick lines should render");
 }
 
@@ -212,7 +213,7 @@ fn test_bump_raw_series() {
         .with_raw_series("C", vec![70.0, 85.0, 100.0])
         .with_x_labels(["Q1", "Q2", "Q3"]);
     let svg = render(bp, "Bump Raw Series");
-    std::fs::write("test_outputs/bump_raw_series.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_raw_series.svg", &svg).unwrap();
     assert!(
         svg.contains("<circle"),
         "auto-ranked series should render dots"
@@ -227,7 +228,7 @@ fn test_bump_rank_ascending() {
         .with_raw_series("High", vec![90.0, 80.0, 70.0])
         .with_rank_ascending(true);
     let svg = render(bp, "Bump Rank Ascending");
-    std::fs::write("test_outputs/bump_rank_ascending.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_rank_ascending.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "ascending rank mode should produce valid SVG"
@@ -241,7 +242,7 @@ fn test_bump_tie_break_min() {
         .with_raw_series("B", vec![50.0, 50.0])
         .with_tie_break(BumpTieBreak::Min);
     let svg = render(bp, "Bump Tie Min");
-    std::fs::write("test_outputs/bump_tie_min.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_tie_min.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "tie break min should produce valid SVG"
@@ -256,7 +257,7 @@ fn test_bump_tie_break_max() {
         .with_raw_series("C", vec![50.0])
         .with_tie_break(BumpTieBreak::Max);
     let svg = render(bp, "Bump Tie Max");
-    std::fs::write("test_outputs/bump_tie_max.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_tie_max.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "tie break max should produce valid SVG"
@@ -270,7 +271,7 @@ fn test_bump_tie_break_stable() {
         .with_raw_series("B", vec![50.0, 50.0])
         .with_tie_break(BumpTieBreak::Stable);
     let svg = render(bp, "Bump Tie Stable");
-    std::fs::write("test_outputs/bump_tie_stable.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_tie_stable.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "tie break stable should produce valid SVG"
@@ -285,7 +286,7 @@ fn test_bump_missing_values() {
         .with_ranked_series("Beta", vec![Some(2.0), Some(1.0), Some(1.0), None])
         .with_x_labels(["A", "B", "C", "D"]);
     let svg = render(bp, "Bump Missing Values");
-    std::fs::write("test_outputs/bump_missing.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_missing.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "missing values should produce valid SVG"
@@ -298,7 +299,7 @@ fn test_bump_single_series() {
         .with_series("Solo", vec![1, 1, 1])
         .with_x_labels(["X", "Y", "Z"]);
     let svg = render(bp, "Bump Single Series");
-    std::fs::write("test_outputs/bump_single.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_single.svg", &svg).unwrap();
     assert!(svg.contains("<circle"), "single series should render dots");
 }
 
@@ -306,7 +307,7 @@ fn test_bump_single_series() {
 fn test_bump_empty() {
     let bp = BumpPlot::new();
     let svg = render(bp, "Bump Empty");
-    std::fs::write("test_outputs/bump_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_empty.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "empty bump chart should produce valid SVG"
@@ -323,7 +324,7 @@ fn test_bump_large() {
     }
     bp = bp.with_x_labels(["T1", "T2", "T3", "T4", "T5", "T6"]);
     let svg = render(bp, "Bump Large");
-    std::fs::write("test_outputs/bump_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_large.svg", &svg).unwrap();
     assert!(
         svg.contains("<circle"),
         "large bump chart should render dots"
@@ -347,7 +348,7 @@ fn test_bump_mixed_ranked_and_raw() {
         .with_ranked_series("Pre-ranked", vec![Some(1.0), Some(2.0), Some(1.0)])
         .with_raw_series("Auto-ranked", vec![10.0, 5.0, 8.0]);
     let svg = render(bp, "Bump Mixed");
-    std::fs::write("test_outputs/bump_mixed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_mixed.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "mixed series should produce valid SVG"
@@ -371,7 +372,7 @@ fn test_bump_long_labels_fit_auto() {
     let plots = vec![Plot::Bump(bp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Long Labels Auto");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bump_long_labels_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_long_labels_auto.svg", &svg).unwrap();
 
     let (clip_x, clip_w) = clip_rect(&svg).expect("should have clip rect");
 
@@ -411,7 +412,7 @@ fn test_bump_long_labels_with_legend_fit_auto() {
     let plots = vec![Plot::Bump(bp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Long Labels + Legend");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bump_long_labels_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_long_labels_legend.svg", &svg).unwrap();
 
     let (clip_x, _clip_w) = clip_rect(&svg).expect("should have clip rect");
     for name in &["SuperLongSeriesNameHere", "AnotherSuperLongName"] {
@@ -440,7 +441,7 @@ fn test_bump_right_labels_fit_auto() {
     let plots = vec![Plot::Bump(bp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Right Labels Auto");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bump_right_labels_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bump_right_labels_auto.svg", &svg).unwrap();
 
     let (clip_x, clip_w) = clip_rect(&svg).expect("should have clip rect");
     let clip_right = clip_x + clip_w;

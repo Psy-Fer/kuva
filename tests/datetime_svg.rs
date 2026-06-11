@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::line::LinePlot;
 use kuva::plot::scatter::ScatterPlot;
@@ -21,7 +22,7 @@ fn test_datetime_days() {
 
     let scene = render_multiple(vec![Plot::Scatter(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_days.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_days.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("2024-01"),
@@ -49,7 +50,7 @@ fn test_datetime_months() {
 
     let scene = render_multiple(vec![Plot::Line(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_months.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_months.svg", svg.clone()).unwrap();
 
     // Should contain an abbreviated month name
     assert!(
@@ -75,7 +76,7 @@ fn test_datetime_years() {
 
     let scene = render_multiple(vec![Plot::Scatter(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_years.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_years.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("2022") || svg.contains("2021"),
@@ -100,7 +101,7 @@ fn test_datetime_auto() {
 
     let scene = render_multiple(vec![Plot::Scatter(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_auto.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_auto.svg", svg.clone()).unwrap();
 
     // With a 180-day range auto picks Month / "%b %Y" → abbreviated months
     assert!(
@@ -125,7 +126,7 @@ fn test_datetime_rotated() {
 
     let scene = render_multiple(vec![Plot::Scatter(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_rotated.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_rotated.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("rotate"),
@@ -173,7 +174,7 @@ fn test_datetime_y_axis() {
 
     let scene = render_multiple(vec![Plot::Scatter(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/datetime_y_axis.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/datetime_y_axis.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("<svg"),

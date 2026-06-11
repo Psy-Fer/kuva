@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::CandlestickPlot;
 use kuva::render::layout::Layout;
@@ -29,7 +30,7 @@ fn candlestick_basic() {
     let scene = render_multiple(vec![Plot::Candlestick(plot2)], layout);
     let svg = SvgBackend.render_scene(&scene);
 
-    std::fs::write("test_outputs/candlestick_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/candlestick_basic.svg", &svg).unwrap();
 
     // Should have body rects (at least 5 bodies + 5 wicks as lines)
     assert!(
@@ -77,7 +78,7 @@ fn candlestick_volume() {
     let svg_vol = SvgBackend.render_scene(&scene_vol);
     let rect_count_vol = svg_vol.matches("<rect").count();
 
-    std::fs::write("test_outputs/candlestick_volume.svg", svg_vol).unwrap();
+    common::write_test_output("test_outputs/candlestick_volume.svg", svg_vol).unwrap();
 
     assert!(
         rect_count_vol > rect_count_plain,
@@ -109,7 +110,7 @@ fn candlestick_continuous() {
     let scene = render_multiple(vec![Plot::Candlestick(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
 
-    std::fs::write("test_outputs/candlestick_continuous.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/candlestick_continuous.svg", &svg).unwrap();
 
     assert!(svg.contains("<rect"), "Expected rect elements");
     assert!(svg.contains("<line"), "Expected line elements");
@@ -135,7 +136,7 @@ fn candlestick_legend() {
     let scene = render_multiple(vec![Plot::Candlestick(plot)], layout);
     let svg = SvgBackend.render_scene(&scene);
 
-    std::fs::write("test_outputs/candlestick_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/candlestick_legend.svg", &svg).unwrap();
 
     assert!(
         svg.contains("AAPL"),
@@ -169,8 +170,8 @@ fn candlestick_with_gap() {
     let svg_narrow = render_gap(0.6); // candle_width = 0.4  → narrow candles
     let svg_wide = render_gap(0.1); // candle_width = 0.9  → wide candles
 
-    std::fs::write("test_outputs/candlestick_bar_narrow.svg", &svg_narrow).unwrap();
-    std::fs::write("test_outputs/candlestick_bar_wide.svg", &svg_wide).unwrap();
+    common::write_test_output("test_outputs/candlestick_bar_narrow.svg", &svg_narrow).unwrap();
+    common::write_test_output("test_outputs/candlestick_bar_wide.svg", &svg_wide).unwrap();
 
     // Extract the width of the first <rect> element that looks like a candle body:
     // > 10px (not a tick/wick artifact) and < 300px (not the clip/background rect).

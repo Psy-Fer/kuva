@@ -425,4 +425,10 @@ Click any image to go to the full documentation page.
 <div class="gallery-desc">KDE half-violin, box, and jittered strip combined for full distributional detail.</div>
 </a></div>
 
+<div class="gallery-card"><a href="./plots/quiver.html">
+<img src="./assets/quiver/basic.svg" alt="Quiver Plot">
+<div class="gallery-caption">Quiver Plot</div>
+<div class="gallery-desc">2-D vector field rendered as arrows with proportional heads, three pivot modes, and magnitude-driven colormap.</div>
+</a></div>
+
 </div>

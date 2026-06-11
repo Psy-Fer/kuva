@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::streamgraph::{StreamBaseline, StreamOrder, StreamgraphPlot};
 use kuva::render::layout::Layout;
@@ -39,7 +40,7 @@ fn test_streamgraph_wiggle_default() {
     assert!(svg.contains("<svg"), "should produce SVG");
     assert!(svg.contains("<path"), "should contain paths");
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write("test_outputs/streamgraph_wiggle.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_wiggle.svg", &svg).unwrap();
 }
 
 #[test]
@@ -47,7 +48,7 @@ fn test_streamgraph_symmetric() {
     let sg = make_three_series().with_baseline(StreamBaseline::Symmetric);
     let svg = render(sg);
     assert!(svg.contains("<path"));
-    std::fs::write("test_outputs/streamgraph_symmetric.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_symmetric.svg", &svg).unwrap();
 }
 
 #[test]
@@ -55,7 +56,7 @@ fn test_streamgraph_zero() {
     let sg = make_three_series().with_baseline(StreamBaseline::Zero);
     let svg = render(sg);
     assert!(svg.contains("<path"));
-    std::fs::write("test_outputs/streamgraph_zero.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_zero.svg", &svg).unwrap();
 }
 
 // ── Ordering ──────────────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ fn test_streamgraph_linear() {
         !svg.contains(" C "),
         "linear path should not use cubic bezier"
     );
-    std::fs::write("test_outputs/streamgraph_linear.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_linear.svg", &svg).unwrap();
 }
 
 // ── Visual options ────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ fn test_streamgraph_stroke() {
     let sg = make_three_series().with_stroke();
     let svg = render(sg);
     assert!(svg.contains("<path"));
-    std::fs::write("test_outputs/streamgraph_stroke.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_stroke.svg", &svg).unwrap();
 }
 
 #[test]
@@ -131,7 +132,7 @@ fn test_streamgraph_with_labels() {
     // At least one label should appear
     let has_label = svg.contains(">Alpha<") || svg.contains(">Beta<") || svg.contains(">Gamma<");
     assert!(has_label, "at least one inline label should appear");
-    std::fs::write("test_outputs/streamgraph_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_labels.svg", &svg).unwrap();
 }
 
 // ── Legend ────────────────────────────────────────────────────────────────────
@@ -144,7 +145,7 @@ fn test_streamgraph_legend() {
         svg.contains("Alpha") && svg.contains("Beta") && svg.contains("Gamma"),
         "legend should contain series names"
     );
-    std::fs::write("test_outputs/streamgraph_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_legend.svg", &svg).unwrap();
 }
 
 // ── Normalization ─────────────────────────────────────────────────────────────
@@ -154,7 +155,7 @@ fn test_streamgraph_normalized() {
     let sg = make_three_series().with_normalized();
     let svg = render(sg);
     assert!(svg.contains("<path"));
-    std::fs::write("test_outputs/streamgraph_normalized.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_normalized.svg", &svg).unwrap();
 }
 
 // ── Bounds ────────────────────────────────────────────────────────────────────
@@ -197,7 +198,7 @@ fn test_streamgraph_single_series() {
         .with_label("Solo");
     let svg = render(sg);
     assert!(svg.contains("<path"));
-    std::fs::write("test_outputs/streamgraph_single.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/streamgraph_single.svg", &svg).unwrap();
 }
 
 #[test]

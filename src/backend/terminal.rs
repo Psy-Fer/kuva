@@ -555,6 +555,29 @@ impl Canvas {
                 }
             }
 
+            Primitive::PolyLine { points, stroke, .. } => {
+                let rgb = css_to_rgb(&stroke.to_svg_string());
+                for w in points.windows(2) {
+                    let (x1, y1) = (w[0].0 + tx, w[0].1 + ty);
+                    let (x2, y2) = (w[1].0 + tx, w[1].1 + ty);
+                    let is_h = (y1 - y2).abs() < 0.5;
+                    let is_v = (x1 - x2).abs() < 0.5;
+                    if is_h {
+                        self.draw_hline(self.to_cx(x1), self.to_cy(y1), self.to_cx(x2), rgb);
+                    } else if is_v {
+                        self.draw_vline(self.to_cx(x1), self.to_cy(y1), self.to_cy(y2), rgb);
+                    } else {
+                        self.bresenham(
+                            self.to_bx(x1),
+                            self.to_by(y1),
+                            self.to_bx(x2),
+                            self.to_by(y2),
+                            rgb,
+                        );
+                    }
+                }
+            }
+
             Primitive::Path(pd) => {
                 let has_stroke = !matches!(pd.stroke, crate::render::color::Color::None);
                 let fill_str_owned = pd
