@@ -226,4 +226,13 @@ run scatter "$DATA/scatter.tsv" --x x --y y \
     --y-label-wrap 20 \
     --terminal $W $H
 
+# ── math in labels ────────────────────────────────────────────────────────────
+# Terminal output uses the always-on lookup tier: $...$ regions are lowered to
+# inline Unicode (σ², a/b, √, ∑) since a character grid can't embed Typst.
+header "math labels"
+run scatter "$DATA/scatter.tsv" --x x --y y \
+    --title 'Decay $\lambda$ vs $\sigma^2$' \
+    --x-label 'Time ($\mu s$)' --y-label '$\sqrt{x^2 + y^2}$' \
+    --terminal $W $H
+
 echo

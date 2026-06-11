@@ -176,6 +176,9 @@ impl SvgBackend {
         // Interactive UI is emitted AFTER scene elements (see below) so it renders on top.
 
         let mut depth: usize = 1;
+        // Unique tag per embedded math fragment, to namespace Typst's element IDs.
+        #[cfg(feature = "math")]
+        let mut math_uid: usize = 0;
         for elem in &scene.elements {
             match elem {
                 Primitive::Circle {
@@ -225,6 +228,40 @@ impl SvgBackend {
                     bold,
                     color,
                 } => {
+                    // Math routing: a `$...$` label is either typeset by the
+                    // typst tier (feature `math`) and embedded as a fragment,
+                    // or lowered to inline Unicode by the always-on lookup
+                    // tier and emitted as ordinary text.
+                    let has_math = crate::render::math::contains_math(content);
+
+                    #[cfg(feature = "math")]
+                    if has_math {
+                        if let Some(m) = crate::render::math::render_label_svg(
+                            content,
+                            *size as f64,
+                            color.as_ref(),
+                        ) {
+                            write_indent(&mut svg, depth, p);
+                            crate::backend::svg_math::embed_label(
+                                &mut svg, *x, *y, *anchor, *rotate, &m, math_uid,
+                            );
+                            math_uid += 1;
+                            write_newline(&mut svg, p);
+                            continue;
+                        }
+                        // Compile failed — fall through to the lookup tier.
+                    }
+
+                    // Lookup tier (or plain text). When the label has math but
+                    // the typst tier isn't active/failed, substitute to Unicode.
+                    let substituted;
+                    let content: &str = if has_math {
+                        substituted = crate::render::math::to_unicode(content);
+                        &substituted
+                    } else {
+                        content
+                    };
+
                     let anchor_str = match anchor {
                         TextAnchor::Start => "start",
                         TextAnchor::Middle => "middle",

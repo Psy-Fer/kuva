@@ -14,9 +14,8 @@
 //!   - Clip rects and translate transforms fully respected
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
-use fontdue::{Font, FontSettings, Metrics};
+use fontdue::{Font, Metrics};
 
 use crate::render::color::Color as KColor;
 use crate::render::render::{Primitive, Scene, TextAnchor};
@@ -95,6 +94,39 @@ impl Canvas {
             p[1] = c.g;
             p[2] = c.b;
             p[3] = c.a;
+        }
+    }
+
+    /// Alpha-blend a premultiplied-RGBA pixmap (as produced by typst-render)
+    /// into the canvas with its top-left corner at device pixel (dx, dy),
+    /// clipped to `clip`. Used by the math feature to composite rendered
+    /// `$...$` regions.
+    #[cfg(feature = "math")]
+    fn blit_pixmap(&mut self, src: &crate::render::math::MathPixmap, dx: i32, dy: i32, clip: Clip) {
+        let sw = src.width_px as i32;
+        let sh = src.height_px as i32;
+        for row in 0..sh {
+            let py = dy + row;
+            if py < clip.y0 || py >= clip.y1 {
+                continue;
+            }
+            for col in 0..sw {
+                let px = dx + col;
+                if px < clip.x0 || px >= clip.x1 {
+                    continue;
+                }
+                let si = ((row * sw + col) * 4) as usize;
+                let a = src.rgba[si + 3];
+                if a == 0 {
+                    continue;
+                }
+                // typst-render outputs premultiplied RGBA; un-premultiply to
+                // straight color for blend() (which expects straight rgb +
+                // coverage). For fully/partly transparent black math this
+                // keeps edges anti-aliased correctly.
+                let (r, g, b) = unpremultiply(src.rgba[si], src.rgba[si + 1], src.rgba[si + 2], a);
+                self.blend(px, py, Rgba { r, g, b, a: 255 }, a as f32 * (1.0 / 255.0));
+            }
         }
     }
 
@@ -897,6 +929,94 @@ impl Canvas {
         }
     }
 
+    /// Blit a whole-label math pixmap at an arbitrary rotation.
+    ///
+    /// The pixmap (premultiplied RGBA from typst-render) already *is* the
+    /// rendered label, so we treat it as the source buffer directly:
+    /// inverse-rotation bilinear-sample it into the canvas around the anchor
+    /// point `(anchor_x, anchor_y)`. The pixmap's anchor is at
+    /// `(off_ax, baseline_offset_px)`, where `off_ax` depends on text anchor.
+    #[cfg(feature = "math")]
+    fn blit_pixmap_rotated(
+        &mut self,
+        pm: &crate::render::math::MathPixmap,
+        anchor_x: f32,
+        anchor_y: f32,
+        anchor: TextAnchor,
+        angle_deg: f32,
+        clip: Clip,
+    ) {
+        let w = pm.width_px as f32;
+        let h = pm.height_px as f32;
+        let off_ax = match anchor {
+            TextAnchor::Start => 0.0,
+            TextAnchor::Middle => w * 0.5,
+            TextAnchor::End => w,
+        };
+        let off_ay = pm.baseline_offset_px as f32;
+
+        let rad = angle_deg * std::f32::consts::PI / 180.0;
+        let cos_a = rad.cos();
+        let sin_a = rad.sin();
+
+        // Bounding box of the rotated pixmap in canvas space.
+        let corners = [(0.0f32, 0.0f32), (w, 0.0f32), (w, h), (0.0f32, h)];
+        let mut min_x = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for (cx, cy) in &corners {
+            let dx = cx - off_ax;
+            let dy = cy - off_ay;
+            let wx = anchor_x + cos_a * dx - sin_a * dy;
+            let wy = anchor_y + sin_a * dx + cos_a * dy;
+            min_x = min_x.min(wx);
+            max_x = max_x.max(wx);
+            min_y = min_y.min(wy);
+            max_y = max_y.max(wy);
+        }
+
+        // Keep the rotated label inside the clip. A tall math label (e.g. a
+        // rotated y-axis title with a superscript) can have a cross-extent
+        // wider than the reserved margin and would otherwise clip glyphs at
+        // the canvas edge — nudge it inward instead.
+        let shift_x = (clip.x0 as f32 - min_x).max(0.0);
+        let shift_y = (clip.y0 as f32 - min_y).max(0.0);
+        let anchor_x = anchor_x + shift_x;
+        let anchor_y = anchor_y + shift_y;
+        min_x += shift_x;
+        max_x += shift_x;
+        min_y += shift_y;
+        max_y += shift_y;
+
+        let dx0 = (min_x.floor() as i32).max(clip.x0);
+        let dx1 = (max_x.ceil() as i32).min(clip.x1 - 1);
+        let dy0 = (min_y.floor() as i32).max(clip.y0);
+        let dy1 = (max_y.ceil() as i32).min(clip.y1 - 1);
+
+        for dy in dy0..=dy1 {
+            for dx in dx0..=dx1 {
+                let dxw = dx as f32 + 0.5 - anchor_x;
+                let dyw = dy as f32 + 0.5 - anchor_y;
+                let src_x = off_ax + cos_a * dxw + sin_a * dyw;
+                let src_y = off_ay - sin_a * dxw + cos_a * dyw;
+                // Bilinear over premultiplied RGBA, then un-premultiply for blend.
+                let s = bilinear_rgba(
+                    &pm.rgba,
+                    pm.width_px,
+                    pm.height_px,
+                    src_x - 0.5,
+                    src_y - 0.5,
+                );
+                if s.a == 0 {
+                    continue;
+                }
+                let (r, g, b) = unpremultiply(s.r, s.g, s.b, s.a);
+                self.blend(dx, dy, Rgba { r, g, b, a: 255 }, s.a as f32 * (1.0 / 255.0));
+            }
+        }
+    }
+
     // ── PNG encode ────────────────────────────────────────────────────────────
 
     fn encode_png(self) -> Result<Vec<u8>, String> {
@@ -958,11 +1078,7 @@ fn anchor_pen_x(
 // ── Shared font ───────────────────────────────────────────────────────────────
 
 fn shared_font() -> &'static Font {
-    static FONT: OnceLock<Font> = OnceLock::new();
-    FONT.get_or_init(|| {
-        Font::from_bytes(crate::fonts::dejavu_sans(), FontSettings::default())
-            .expect("bundled DejaVu Sans TTF is valid")
-    })
+    crate::fonts::shared_font()
 }
 
 // ── SVG path parsing ──────────────────────────────────────────────────────────
@@ -1416,6 +1532,24 @@ fn parse_dasharray(s: &str) -> Vec<f32> {
 }
 
 /// Bilinear RGBA sample from a pixel buffer. Returns (0,0,0,0) for out-of-bounds.
+/// Un-premultiply a premultiplied-alpha pixel to straight RGB. typst-render
+/// outputs premultiplied RGBA; `blend()` expects straight color + coverage.
+/// Callers must ensure `a > 0`.
+#[cfg(feature = "math")]
+#[inline]
+fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8) {
+    if a == 255 {
+        (r, g, b)
+    } else {
+        let af = a as u32;
+        (
+            (r as u32 * 255 / af).min(255) as u8,
+            (g as u32 * 255 / af).min(255) as u8,
+            (b as u32 * 255 / af).min(255) as u8,
+        )
+    }
+}
+
 fn bilinear_rgba(pixels: &[u8], w: u32, h: u32, x: f32, y: f32) -> Rgba {
     let x0 = x.floor() as i32;
     let y0 = y.floor() as i32;
@@ -1879,6 +2013,61 @@ impl RasterBackend {
                         .as_ref()
                         .and_then(kcolor_to_rgba)
                         .unwrap_or(default_text);
+
+                    // Math routing: typst tier (feature `math`) renders the
+                    // whole label to a pixmap and composites it; otherwise the
+                    // always-on lookup tier lowers `$...$` to inline Unicode
+                    // text drawn through the normal glyph path.
+                    let has_math = crate::render::math::contains_math(content);
+
+                    #[cfg(feature = "math")]
+                    if has_math {
+                        if let Some(pm) = crate::render::math::render_label_pixmap(
+                            content,
+                            *size as f64,
+                            color.as_ref(),
+                            s,
+                        ) {
+                            if let Some(angle) = rotate {
+                                canvas.blit_pixmap_rotated(
+                                    &pm,
+                                    sx!(*x),
+                                    sy!(*y),
+                                    *anchor,
+                                    *angle as f32,
+                                    clip,
+                                );
+                            } else {
+                                // Anchor horizontally by pixmap width; align
+                                // baseline to the label's y.
+                                let shift = match anchor {
+                                    TextAnchor::Start => 0.0,
+                                    TextAnchor::Middle => -(pm.width_px as f32) * 0.5,
+                                    TextAnchor::End => -(pm.width_px as f32),
+                                };
+                                let dx = (sx!(*x) + shift).round() as i32;
+                                let dy = (sy!(*y) - pm.baseline_offset_px as f32).round() as i32;
+                                // Nudge inward if the label would overflow the
+                                // top/left clip edge, matching the rotated and
+                                // SVG paths (otherwise a wide label near the
+                                // edge clips instead of shifting).
+                                let dx = dx.max(clip.x0);
+                                let dy = dy.max(clip.y0);
+                                canvas.blit_pixmap(&pm, dx, dy, clip);
+                            }
+                            continue;
+                        }
+                        // Compile failed — fall through to the lookup tier.
+                    }
+
+                    let lowered;
+                    let content: &str = if has_math {
+                        lowered = crate::render::math::to_unicode(content);
+                        &lowered
+                    } else {
+                        content
+                    };
+
                     canvas.draw_text(
                         sx!(*x),
                         sy!(*y),
