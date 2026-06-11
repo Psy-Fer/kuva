@@ -148,8 +148,11 @@ impl From<String> for AxisLine {
 /// Controls whether tick marks point inside, outside, or across axis lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TickAlign {
+    /// Ticks extend inward into the plot area (publication / pgfplots style).
     Inside,
+    /// Ticks extend outward from the plot area (default).
     Outside,
+    /// Ticks straddle the axis line equally on both sides.
     Center,
 }
 
@@ -172,12 +175,13 @@ impl From<String> for TickAlign {
     }
 }
 
-/// Controls whether tick marks appear only on the primary axes or on both sides.
+/// Controls whether tick marks appear only on the primary axes or on all four sides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TickPos {
-    /// Draw ticks only on the primary bottom and left axes.
+    /// Ticks on the primary bottom and left axes only (default).
     Primary,
-    /// Mirror ticks onto the top and right axes.
+    /// Ticks mirrored onto the top and right axes as well. Automatically
+    /// promotes `axis_line` to [`AxisLine::Box`].
     Both,
 }
 
@@ -1499,20 +1503,43 @@ impl Layout {
         self
     }
 
+    /// Set which axis border lines are drawn around the plot area.
+    ///
+    /// - [`AxisLine::Open`] *(default)* — bottom and left axes only.
+    /// - [`AxisLine::Box`] — all four sides (publication / pgfplots style).
+    ///
+    /// See also [`with_box_axes`](Self::with_box_axes) as a shorthand for `AxisLine::Box`.
+    /// Accepts `AxisLine` or `&str` / `String` (`"open"`, `"box"`, `"frame"`, `"enclosed"`).
     pub fn with_axis_line<L: Into<AxisLine>>(mut self, line: L) -> Self {
         self.axis_line = line.into();
         self
     }
 
+    /// Shorthand for `.with_axis_line(AxisLine::Box)` — draws all four axis borders.
     pub fn with_box_axes(self) -> Self {
         self.with_axis_line(AxisLine::Box)
     }
 
+    /// Set the direction tick marks extend relative to the axis line.
+    ///
+    /// - [`TickAlign::Outside`] *(default)* — ticks extend outward from the plot area.
+    /// - [`TickAlign::Inside`] — ticks extend inward into the plot area (publication style).
+    /// - [`TickAlign::Center`] — ticks straddle the axis line equally on both sides.
+    ///
+    /// Accepts `TickAlign` or `&str` / `String` (`"inside"`, `"outside"`, `"center"`).
     pub fn with_tick_align<A: Into<TickAlign>>(mut self, align: A) -> Self {
         self.tick_align = align.into();
         self
     }
 
+    /// Set whether tick marks appear on the primary axes only or on all four sides.
+    ///
+    /// - [`TickPos::Primary`] *(default)* — ticks on bottom and left axes only.
+    /// - [`TickPos::Both`] — ticks mirrored onto the top and right axes as well.
+    ///   Automatically promotes `axis_line` to [`AxisLine::Box`] so the border
+    ///   lines appear alongside the mirrored ticks.
+    ///
+    /// Accepts `TickPos` or `&str` / `String` (`"primary"`, `"both"`, `"mirror"`).
     pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
         self.tick_pos = pos.into();
         if self.tick_pos == TickPos::Both {
