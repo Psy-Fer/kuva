@@ -1,9 +1,9 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{ColorMap, QuiverPlot};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
 fn render(q: QuiverPlot, title: &str) -> String {
-    std::fs::create_dir_all("test_outputs").ok();
     let plots = vec![Plot::Quiver(q)];
     let layout = Layout::auto_from_plots(&plots)
         .with_title(title)
@@ -18,7 +18,7 @@ fn rotational_grid() -> QuiverPlot {
 #[test]
 fn test_quiver_basic_renders_arrows() {
     let svg = render(rotational_grid(), "Quiver Basic");
-    std::fs::write("test_outputs/quiver_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/quiver_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "should be valid SVG");
     let lines = svg.matches("<line").count();
     let paths = svg.matches("<path").count();
@@ -45,7 +45,7 @@ fn test_quiver_from_function_endpoints_inclusive() {
 fn test_quiver_colormap_triggers_colorbar() {
     let q = rotational_grid().with_magnitude_colormap(ColorMap::Viridis, "Speed");
     let svg = render(q, "Quiver Colormap");
-    std::fs::write("test_outputs/quiver_colormap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/quiver_colormap.svg", &svg).unwrap();
     assert!(svg.contains("Speed"), "colorbar label should be in the SVG");
     // Colorbar adds a vertical gradient/rect column on the right margin.
     assert!(
@@ -58,7 +58,7 @@ fn test_quiver_colormap_triggers_colorbar() {
 fn test_quiver_tight_bounds_wraps_in_clippath() {
     let q = rotational_grid().with_tight_bounds();
     let svg = render(q, "Quiver Tight");
-    std::fs::write("test_outputs/quiver_tight.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/quiver_tight.svg", &svg).unwrap();
     assert!(
         svg.contains("clipPath") || svg.contains("clip-path"),
         "tight bounds should emit a clip path"
