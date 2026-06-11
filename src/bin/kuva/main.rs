@@ -27,8 +27,6 @@ mod mosaic;
 mod network;
 mod output;
 mod parallel;
-#[cfg(feature = "parquet")]
-mod parquet;
 mod phylo;
 mod pie;
 mod polar;

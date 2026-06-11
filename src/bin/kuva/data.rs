@@ -25,7 +25,7 @@ impl FromStr for ColSpec {
 #[derive(Args, Debug)]
 #[command(next_help_heading = "Input")]
 pub struct InputArgs {
-    /// Input file (TSV or CSV). Omit or pass "-" to read from stdin.
+    /// Input file (TSV, CSV, or Parquet). Omit or pass "-" to read from stdin.
     pub input: Option<std::path::PathBuf>,
 
     /// Treat the first row as data even if it looks like a header.
@@ -47,24 +47,56 @@ pub struct DataTable {
 
 impl DataTable {
     /// Read and parse input from a file path or stdin.
+    ///
+    /// When the `parquet` feature is enabled, `.parquet` files and parquet
+    /// piped via stdin (detected by magic bytes) are read automatically.
     pub fn parse(
         input: Option<&Path>,
         no_header: bool,
         delim_override: Option<char>,
     ) -> Result<Self, String> {
-        let content = match input {
-            Some(p) if p.to_str() != Some("-") => std::fs::read_to_string(p)
-                .map_err(|e| format!("Cannot read {}: {e}", p.display()))?,
-            _ => {
-                let mut s = String::new();
-                io::stdin()
-                    .read_to_string(&mut s)
-                    .map_err(|e| format!("Cannot read stdin: {e}"))?;
-                s
+        match input {
+            Some(p) if p.to_str() != Some("-") => {
+                #[cfg(feature = "parquet")]
+                if p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.eq_ignore_ascii_case("parquet"))
+                    .unwrap_or(false)
+                {
+                    if no_header {
+                        eprintln!("warning: --no-header is ignored for parquet input");
+                    }
+                    if delim_override.is_some() {
+                        eprintln!("warning: --delimiter is ignored for parquet input");
+                    }
+                    return from_parquet_path(p);
+                }
+                let content = std::fs::read_to_string(p)
+                    .map_err(|e| format!("Cannot read {}: {e}", p.display()))?;
+                Self::parse_str(&content, input, no_header, delim_override)
             }
-        };
+            _ => {
+                let mut buf = Vec::new();
+                io::stdin()
+                    .read_to_end(&mut buf)
+                    .map_err(|e| format!("Cannot read stdin: {e}"))?;
 
-        Self::parse_str(content.as_str(), input, no_header, delim_override)
+                #[cfg(feature = "parquet")]
+                if sniff_parquet(&buf) {
+                    if no_header {
+                        eprintln!("warning: --no-header is ignored for parquet input");
+                    }
+                    if delim_override.is_some() {
+                        eprintln!("warning: --delimiter is ignored for parquet input");
+                    }
+                    return from_parquet_bytes(buf);
+                }
+
+                let content = String::from_utf8(buf)
+                    .map_err(|e| format!("stdin is not valid UTF-8: {e}"))?;
+                Self::parse_str(&content, None, no_header, delim_override)
+            }
+        }
     }
 
     pub(crate) fn parse_str(
@@ -79,10 +111,10 @@ impl DataTable {
             match p.extension().and_then(|e| e.to_str()).unwrap_or("") {
                 "csv" => ',',
                 "tsv" | "txt" => '\t',
-                _ => sniff_delim(&content),
+                _ => sniff_delim(content),
             }
         } else {
-            sniff_delim(&content)
+            sniff_delim(content)
         };
 
         let mut rdr = csv::ReaderBuilder::new()
@@ -210,12 +242,83 @@ fn sniff_delim(content: &str) -> char {
     let first = content.lines().next().unwrap_or("");
     let tabs = first.chars().filter(|&c| c == '\t').count();
     let commas = first.chars().filter(|&c| c == ',').count();
-    if tabs >= commas {
-        '\t'
-    } else {
-        ','
+    if tabs >= commas { '\t' } else { ',' }
+}
+
+// ── Parquet support ───────────────────────────────────────────────────────────
+
+#[cfg(feature = "parquet")]
+fn sniff_parquet(buf: &[u8]) -> bool {
+    buf.len() >= 8 && &buf[..4] == b"PAR1" && &buf[buf.len() - 4..] == b"PAR1"
+}
+
+#[cfg(feature = "parquet")]
+fn from_parquet_path(path: &Path) -> Result<DataTable, String> {
+    use parquet::file::reader::SerializedFileReader;
+    let file = std::fs::File::open(path)
+        .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+    let reader = SerializedFileReader::new(file)
+        .map_err(|e| format!("Cannot read parquet {}: {e}", path.display()))?;
+    parquet_to_table(reader)
+}
+
+#[cfg(feature = "parquet")]
+fn from_parquet_bytes(buf: Vec<u8>) -> Result<DataTable, String> {
+    use bytes::Bytes;
+    use parquet::file::reader::SerializedFileReader;
+    let reader = SerializedFileReader::new(Bytes::from(buf))
+        .map_err(|e| format!("Cannot read parquet from stdin: {e}"))?;
+    parquet_to_table(reader)
+}
+
+#[cfg(feature = "parquet")]
+fn parquet_to_table<R>(
+    reader: parquet::file::reader::SerializedFileReader<R>,
+) -> Result<DataTable, String>
+where
+    R: parquet::file::reader::ChunkReader + 'static,
+{
+    use parquet::file::reader::FileReader;
+    let schema = reader.metadata().file_metadata().schema();
+    let header: Vec<String> = schema
+        .get_fields()
+        .iter()
+        .map(|f| f.name().to_string())
+        .collect();
+
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let iter = reader
+        .get_row_iter(None)
+        .map_err(|e| format!("Failed to read parquet rows: {e}"))?;
+
+    for result in iter {
+        let row = result.map_err(|e| format!("Failed to read parquet row: {e}"))?;
+        let vals: Vec<String> = row
+            .get_column_iter()
+            .map(|(_, field)| field_to_string(field))
+            .collect();
+        rows.push(vals);
+    }
+
+    Ok(DataTable {
+        header: Some(header),
+        rows,
+    })
+}
+
+#[cfg(feature = "parquet")]
+fn field_to_string(field: &parquet::record::Field) -> String {
+    use parquet::record::Field;
+    match field {
+        Field::Null => String::new(),
+        Field::Str(s) => s.clone(),
+        Field::Bytes(b) => String::from_utf8_lossy(b.data()).into_owned(),
+        Field::ListInternal(_) | Field::MapInternal(_) | Field::Group(_) => String::new(),
+        other => other.to_string(),
     }
 }
+
+// ── Colormap helper (used by heatmap, hexbin, etc.) ──────────────────────────
 
 /// Parse a colormap name string into a `ColorMap` enum.
 /// Unrecognized names default to Viridis with a warning on stderr.
