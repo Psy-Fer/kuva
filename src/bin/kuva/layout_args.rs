@@ -389,7 +389,7 @@ fn colourblind_palette(condition: &str) -> Option<Palette> {
 
 fn parse_axis_line(s: &str) -> Option<AxisLine> {
     match s.to_ascii_lowercase().replace('_', "-").as_str() {
-        "left" | "primary" => Some(AxisLine::Left),
+        "open" | "left" | "primary" => Some(AxisLine::Open),
         "box" | "frame" | "enclosed" => Some(AxisLine::Box),
         _ => None,
     }

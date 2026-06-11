@@ -123,8 +123,8 @@ fn tick_format_sci(v: f64) -> String {
 /// Controls which axis border lines are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisLine {
-    /// Draw only the primary bottom and left axes.
-    Left,
+    /// Draw only the primary bottom and left axes (default).
+    Open,
     /// Draw a full box around the plot area.
     Box,
 }
@@ -132,9 +132,9 @@ pub enum AxisLine {
 impl From<&str> for AxisLine {
     fn from(value: &str) -> Self {
         match value.to_ascii_lowercase().replace('_', "-").as_str() {
-            "left" | "primary" => Self::Left,
+            "open" | "left" | "primary" => Self::Open,
             "box" | "frame" | "enclosed" => Self::Box,
-            other => panic!("invalid axis line '{other}'; expected left or box"),
+            other => panic!("invalid axis line '{other}'; expected open or box"),
         }
     }
 }
@@ -381,7 +381,7 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
-            axis_line: AxisLine::Left,
+            axis_line: AxisLine::Open,
             tick_align: TickAlign::Outside,
             tick_pos: TickPos::Primary,
             x_label: None,
@@ -1513,20 +1513,12 @@ impl Layout {
         self
     }
 
-    pub fn with_tick_alignment<A: Into<TickAlign>>(self, align: A) -> Self {
-        self.with_tick_align(align)
-    }
-
     pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
         self.tick_pos = pos.into();
         if self.tick_pos == TickPos::Both {
             self.axis_line = AxisLine::Box;
         }
         self
-    }
-
-    pub fn with_tick_position<P: Into<TickPos>>(self, pos: P) -> Self {
-        self.with_tick_pos(pos)
     }
 
     fn with_show_legend(mut self) -> Self {
