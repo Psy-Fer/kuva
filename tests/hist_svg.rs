@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::Histogram;
 use kuva::render::layout::Layout;
@@ -28,7 +29,7 @@ fn test_histogram_svg_output_builder() {
     // let scene = render_histogram(&hist, &layout);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/hist_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/hist_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -48,7 +49,7 @@ fn test_normalized_histogram_y_axis_clamp() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_normalized_clamp.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_normalized_clamp.svg", &svg).unwrap();
 
     // clamp_y_axis should be triggered automatically: axis must stop at 1 not 1.1
     assert!(
@@ -72,7 +73,7 @@ fn test_non_normalized_histogram_y_axis_free() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_non_normalized.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_non_normalized.svg", &svg).unwrap();
 
     // y-axis should reflect actual counts (max count = 3), well above 1
     assert!(
@@ -98,7 +99,7 @@ fn test_histogram_bin_aligned_ticks() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_bin_aligned_ticks.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_bin_aligned_ticks.svg", &svg).unwrap();
 
     // The rightmost bin edge (4.8) must appear as a tick label
     assert!(
@@ -123,7 +124,7 @@ fn test_histogram_from_bins_basic() {
     // Must not panic — range is not required for precomputed histograms
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_from_bins.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_from_bins.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -148,7 +149,7 @@ fn test_histogram_from_bins_normalize() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_from_bins_normalized.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_from_bins_normalized.svg", &svg).unwrap();
 
     assert!(
         !svg.contains(">1.1<"),
@@ -172,7 +173,7 @@ fn test_histogram_zero_count_bins_skipped() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_zero_count_gap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_zero_count_gap.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -194,7 +195,7 @@ fn test_histogram_from_bins_zero_counts_skipped() {
     let plots = vec![Plot::Histogram(hist)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/hist_from_bins_zero_gap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_from_bins_zero_gap.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<rect"),
@@ -233,7 +234,7 @@ fn test_histogram_last_tick_no_overflow() {
         .with_x_label("Count");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/hist_last_tick_no_overflow.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/hist_last_tick_no_overflow.svg", &svg).unwrap();
 
     assert!(
         svg.contains(">15000<"),

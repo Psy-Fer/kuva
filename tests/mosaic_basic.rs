@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::mosaic::MosaicPlot;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -22,7 +23,7 @@ fn test_mosaic_basic() {
         .with_cell("High Dose", "Mild", 200.0)
         .with_cell("High Dose", "Severe", 200.0);
     let svg = render(mp, "Exposure vs Severity");
-    std::fs::write("test_outputs/mosaic_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_basic.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "SVG should contain rects");
     assert!(svg.contains('%'), "SVG should contain percent labels");
 }
@@ -38,7 +39,7 @@ fn test_mosaic_two_cols_unequal() {
     let plots = vec![Plot::Mosaic(mp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Unequal Column Widths");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/mosaic_two_cols_unequal.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_two_cols_unequal.svg", &svg).unwrap();
     // Find width attributes — column B should have a larger width value than A.
     // Since the SVG uses rect elements, check that we have rects and they render.
     assert!(svg.contains("<rect"));
@@ -57,7 +58,7 @@ fn test_mosaic_no_percents() {
         .with_percents(false)
         .with_values(false);
     let svg = render(mp, "No Labels");
-    std::fs::write("test_outputs/mosaic_no_percents.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_no_percents.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should still have rects");
     // No percent sign in cell labels
     assert!(
@@ -76,7 +77,7 @@ fn test_mosaic_show_values() {
         .with_percents(false)
         .with_values(true);
     let svg = render(mp, "Raw Values");
-    std::fs::write("test_outputs/mosaic_show_values.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_show_values.svg", &svg).unwrap();
     assert!(svg.contains("<rect"));
     // Raw values should appear as text
     assert!(
@@ -94,7 +95,7 @@ fn test_mosaic_normalize_false() {
         .with_cell("Large", "B", 45.0)
         .with_normalize(false);
     let svg = render(mp, "Non-normalized");
-    std::fs::write("test_outputs/mosaic_normalize_false.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_normalize_false.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should render without panic");
 }
 
@@ -110,7 +111,7 @@ fn test_mosaic_explicit_ordering() {
         .with_col_order(["B", "A"])
         .with_row_order(["Z", "Y", "X"]);
     let svg = render(mp, "Explicit Ordering");
-    std::fs::write("test_outputs/mosaic_explicit_ordering.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_explicit_ordering.svg", &svg).unwrap();
     assert!(svg.contains("<rect"));
     // Both column names should appear
     assert!(svg.contains('A'));
@@ -128,7 +129,7 @@ fn test_mosaic_custom_colors() {
         .with_cell("Beta", "B", 30.0)
         .with_group_colors(["#ff0000", "#00ff00", "#0000ff"]);
     let svg = render(mp, "Custom Colors");
-    std::fs::write("test_outputs/mosaic_custom_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_custom_colors.svg", &svg).unwrap();
     assert!(
         svg.contains("ff0000"),
         "SVG should contain custom color ff0000"
@@ -146,7 +147,7 @@ fn test_mosaic_legend() {
     let plots = vec![Plot::Mosaic(mp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Treatment vs Response");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/mosaic_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_legend.svg", &svg).unwrap();
     // Legend row labels should appear in SVG
     assert!(svg.contains("Positive"), "legend label Positive");
     assert!(svg.contains("Negative"), "legend label Negative");
@@ -161,7 +162,7 @@ fn test_mosaic_gap() {
         .with_cell("Q", "b", 70.0)
         .with_gap(5.0);
     let svg = render(mp, "Wide Gap");
-    std::fs::write("test_outputs/mosaic_gap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_gap.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should render without panic");
 }
 
@@ -173,7 +174,7 @@ fn test_mosaic_single_column() {
         .with_cell("Only", "Cat3", 25.0)
         .with_cell("Only", "Cat4", 25.0);
     let svg = render(mp, "Single Column");
-    std::fs::write("test_outputs/mosaic_single_column.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_single_column.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should render without panic");
 }
 
@@ -183,7 +184,7 @@ fn test_mosaic_empty() {
     let plots = vec![Plot::Mosaic(mp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Empty");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/mosaic_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_empty.svg", &svg).unwrap();
     // Should render without panicking — empty mosaic just emits nothing
     assert!(svg.contains("<svg"), "should still produce an SVG element");
 }
@@ -208,7 +209,7 @@ fn test_mosaic_market_share() {
         ])
         .with_legend("Product");
     let svg = render(mp, "Market Share by Region");
-    std::fs::write("test_outputs/mosaic_market_share.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/mosaic_market_share.svg", &svg).unwrap();
     assert!(svg.contains("<rect"));
     assert!(
         svg.contains("North")

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::line::LinePlot;
 use kuva::plot::scatter::ScatterPlot;
@@ -19,7 +20,7 @@ fn test_theme_dark() {
 
     let scene = render_scatter(&plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/theme_dark.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/theme_dark.svg", &svg).unwrap();
 
     // Dark background
     assert!(
@@ -56,7 +57,7 @@ fn test_theme_minimal() {
 
     let scene = render_line(&plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/theme_minimal.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/theme_minimal.svg", &svg).unwrap();
 
     // Minimal has show_grid=false, so no grid lines (grid color should not appear)
     assert!(
@@ -83,7 +84,7 @@ fn test_theme_solarized() {
 
     let scene = render_scatter(&plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/theme_solarized.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/theme_solarized.svg", &svg).unwrap();
 
     // Solarized background
     assert!(
@@ -111,7 +112,7 @@ fn test_theme_override() {
 
     let scene = render_scatter(&plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/theme_override.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/theme_override.svg", &svg).unwrap();
 
     // Override wins
     assert!(

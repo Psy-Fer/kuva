@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::ternary::TernaryPlot;
 use kuva::render::layout::Layout;
@@ -18,7 +19,7 @@ fn render_titled(plot: TernaryPlot, title: &str) -> String {
 
 fn write(name: &str, svg: &str) {
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write(format!("test_outputs/{name}.svg"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), svg).unwrap();
 }
 
 // ── basic ──────────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::SankeyPlot;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -118,7 +119,7 @@ fn sankey_basic() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Sankey Basic");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_basic.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_basic.svg", svg).unwrap();
 }
 
 /// Same clean topology with gradient ribbons.
@@ -136,7 +137,7 @@ fn sankey_gradient() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Sankey Gradient");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_gradient.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_gradient.svg", svg).unwrap();
 }
 
 /// Explicit node colors and legend.
@@ -157,7 +158,7 @@ fn sankey_legend() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Sankey Legend");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_legend.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_legend.svg", svg).unwrap();
 }
 
 /// Dead-end nodes: "Discard A" and "Discard B" receive flow but have no
@@ -178,7 +179,7 @@ fn sankey_dead_end() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Sankey Dead Ends");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_dead_end.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_dead_end.svg", svg).unwrap();
 }
 
 /// Wide 4-stage variant-filtering pipeline representative of a bioinformatics use-case.
@@ -211,7 +212,7 @@ fn sankey_variant_filter() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Variant Filtering Pipeline");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_variant_filter.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_variant_filter.svg", svg).unwrap();
 }
 
 /// Per-link coloring mode.
@@ -232,7 +233,7 @@ fn sankey_per_link_color() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Sankey Per-Link Color");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_per_link_color.svg", svg).unwrap();
+    common::write_test_output("test_outputs/sankey_per_link_color.svg", svg).unwrap();
 }
 
 #[test]
@@ -297,7 +298,7 @@ fn sankey_alluvium_mode_supports_reused_labels_across_axes() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Alluvium Mode");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_alluvium_mode.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_alluvium_mode.svg", &svg).unwrap();
 
     assert!(svg.contains(">A</text>"));
     assert!(svg.contains(">B</text>"));
@@ -362,7 +363,7 @@ fn sankey_alluvium_crossing_reduction_can_reorder_columns() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Alluvium Column Reorder");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_alluvium_column_reorder.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_alluvium_column_reorder.svg", &svg).unwrap();
 
     let x_a1 = label_x(&svg, "A1");
     let x_b1 = label_x(&svg, "B1");
@@ -433,7 +434,7 @@ fn sankey_alluvium_crossing_reduction_matches_expected_rendered_order() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Alluvium TSP Regression");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_alluvium_tsp_regression.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_alluvium_tsp_regression.svg", &svg).unwrap();
 
     assert_top_to_bottom(&svg, &["STOMACH", "HEART", "BRAIN", "T CELL", "B CELL"]);
     assert_top_to_bottom(&svg, &["2", "3", "1", "4"]);
@@ -456,7 +457,7 @@ fn sankey_flow_labels_basic() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Flow Labels — Absolute");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_labels_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_labels_basic.svg", &svg).unwrap();
     // Values 50, 30, 40, 10, 10, 20 should appear as text
     assert!(svg.contains(">50<"), "link value 50 should appear");
     assert!(svg.contains(">30<"), "link value 30 should appear");
@@ -475,7 +476,7 @@ fn sankey_flow_percent_basic() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Flow Labels — Percent");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_percent_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_percent_basic.svg", &svg).unwrap();
     // 75/(75+25)*100 = 75.0%
     assert!(svg.contains("75.0%"), "75% label should appear");
     assert!(svg.contains("25.0%"), "25% label should appear");
@@ -495,7 +496,7 @@ fn sankey_flow_labels_unit() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Flow Labels — Unit Suffix");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_labels_unit.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_labels_unit.svg", &svg).unwrap();
     assert!(svg.contains("reads"), "unit suffix 'reads' should appear");
     assert!(svg.contains("82 reads"), "82 reads label should appear");
 }
@@ -517,7 +518,7 @@ fn sankey_flow_labels_sci() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Flow Labels — Scientific Notation");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_labels_sci.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_labels_sci.svg", &svg).unwrap();
     // Scientific notation uses 'e'
     assert!(
         svg.contains('e'),
@@ -538,7 +539,7 @@ fn sankey_flow_labels_min_height_zero() {
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Flow Labels — min_height 0");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_labels_min_height_zero.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_labels_min_height_zero.svg", &svg).unwrap();
     // Both "90" and "1" labels should appear
     assert!(svg.contains(">90<"), "large ribbon label should appear");
     assert!(svg.contains(">1<"), "small ribbon label should appear");
@@ -571,7 +572,7 @@ fn sankey_flow_percent_variant_filter() {
     let layout =
         Layout::auto_from_plots(&plots).with_title("Variant Filtering — % of source outflow");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/sankey_flow_percent_variant_filter.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sankey_flow_percent_variant_filter.svg", &svg).unwrap();
     // QC Pass gets 80% of raw variants
     assert!(svg.contains("80.0%"), "80% QC pass label should appear");
     // QC Fail gets 20%

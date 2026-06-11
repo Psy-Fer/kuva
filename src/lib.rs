@@ -27,12 +27,13 @@
 //!
 //! # Feature flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `png`   | Enables [`PngBackend`] for rasterising SVG scenes via `resvg`. |
-//! | `pdf`   | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
-//! | `cli`   | Enables the `kuva` CLI binary (pulls in `clap`). |
-//! | `full`  | Enables `png` + `pdf`. |
+//! | Feature      | Description |
+//! |--------------|-------------|
+//! | `png`        | Enables [`RasterBackend`] (direct pixel-buffer rasteriser) and the [`PngBackend`] compatibility shim. |
+//! | `pdf`        | Enables [`PdfBackend`] for vector PDF output via `svg2pdf`. |
+//! | `embed_font` | Enables [`backend::svg::SvgBackend::with_embedded_font`] — bakes DejaVu Sans into the SVG as a base64 `@font-face`. Adds `flate2` as a dependency but does **not** pull in `png` or `pdf`. |
+//! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
+//! | `full`       | Enables `embed_font` + `png` + `pdf`. |
 //!
 //! # Fonts
 //!
@@ -51,6 +52,7 @@ pub mod plot;
 pub mod prelude;
 pub mod render;
 
+#[cfg(any(feature = "embed_font", feature = "png", feature = "pdf"))]
 pub(crate) mod fonts;
 
 pub use backend::terminal::TerminalBackend;
@@ -81,7 +83,7 @@ pub use render::render_utils::silverman_bandwidth;
 /// [`simple_kde_reflect`] instead.
 pub use render::render_utils::simple_kde;
 
-pub use render::layout::TickFormat;
+pub use render::layout::{AxisLabelOverlap, AxisLine, TickAlign, TickFormat, TickPos};
 pub use render::palette::Palette;
 pub use render::render::render_calendar;
 pub use render::render::render_phylo_tree;
@@ -123,13 +125,14 @@ pub fn render_to_svg(plots: Vec<render::plots::Plot>, layout: render::layout::La
 
 /// Render a collection of plots to a PNG byte vector in one call (requires feature `png`).
 ///
-/// `scale` is the pixel density multiplier: `1.0` matches the SVG logical size,
-/// `2.0` (the [`PngBackend`] default) gives retina/HiDPI quality.
+/// Delegates to [`RasterBackend`] via the [`PngBackend`] compatibility shim.
+/// Prefer [`render_to_raster`] for new code.
 ///
-/// Returns `Err(String)` if SVG parsing or rasterisation fails.
+/// `scale` is the pixel density multiplier: `1.0` matches the SVG logical size,
+/// `2.0` gives retina/HiDPI quality.
 ///
 /// For fine-grained control use [`render::render::render_multiple`] and
-/// [`backend::png::PngBackend`] directly.
+/// [`backend::raster::RasterBackend`] directly.
 #[cfg(feature = "png")]
 pub fn render_to_png(
     plots: Vec<render::plots::Plot>,
@@ -142,15 +145,13 @@ pub fn render_to_png(
         .render_scene(&scene)
 }
 
-/// Render a collection of plots directly to a PNG byte vector via `tiny_skia`,
-/// bypassing SVG serialization and re-parsing (requires feature `png`).
+/// Render a collection of plots directly to a PNG byte vector (requires feature `png`).
 ///
-/// This is significantly faster than [`render_to_png`] for data-heavy plots
-/// (scatter, manhattan, heatmap) because it skips the SVG round-trip.
-/// Text elements (axis labels, titles) are still rendered via resvg for
-/// correct font shaping.
+/// Uses [`RasterBackend`]: geometry is rasterized directly to a pixel buffer
+/// with no SVG round-trip. All text is rendered via `fontdue` (bundled DejaVu Sans).
+/// This is the preferred high-performance path for PNG output.
 ///
-/// `scale` is the pixel density multiplier.
+/// `scale` is the pixel density multiplier: `2.0` gives retina/HiDPI quality.
 #[cfg(feature = "png")]
 pub fn render_to_raster(
     plots: Vec<render::plots::Plot>,

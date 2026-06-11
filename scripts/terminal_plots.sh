@@ -207,6 +207,12 @@ run ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
     --title "Ternary Plot" \
     --terminal $W $H
 
+# ── quiver ────────────────────────────────────────────────────────────────────
+header "quiver"
+run quiver "$DATA/quiver.tsv" --pivot middle \
+    --title "Vector Field" --x-label "x" --y-label "y" \
+    --terminal $W $H
+
 # ── text wrapping ─────────────────────────────────────────────────────────────
 header "wrap title"
 run scatter "$DATA/scatter.tsv" --x x --y y \

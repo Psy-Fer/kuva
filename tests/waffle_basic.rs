@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::waffle::{CellShape, FillOrder, WafflePlot};
 use kuva::render::render::render_waffle;
@@ -11,7 +12,7 @@ fn render(wp: WafflePlot, title: &str) -> String {
 
 fn write(name: &str, svg: &str) {
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write(format!("test_outputs/{name}"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}"), svg).unwrap();
 }
 
 // ─── Basic correctness ───────────────────────────────────────────────────────

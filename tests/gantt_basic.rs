@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::GanttPlot;
 use kuva::render::layout::Layout;
@@ -257,7 +258,7 @@ fn test_gantt_write_svg() {
         .with_height(400.0);
     let out = svg(plots, layout);
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write("test_outputs/gantt_roadmap.svg", &out).unwrap();
+    common::write_test_output("test_outputs/gantt_roadmap.svg", &out).unwrap();
     assert!(out.contains("<svg"));
     assert!(out.contains("Launch"));
 }
@@ -283,7 +284,7 @@ fn test_gantt_clinical_timeline() {
         .with_height(380.0);
     let out = svg(plots, layout);
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write("test_outputs/gantt_clinical.svg", &out).unwrap();
+    common::write_test_output("test_outputs/gantt_clinical.svg", &out).unwrap();
     assert!(out.contains("<svg"));
 }
 
@@ -301,6 +302,6 @@ fn test_gantt_software_sprints() {
         .with_now_line(3.2);
     let out = gantt_svg(gp);
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write("test_outputs/gantt_sprints.svg", &out).unwrap();
+    common::write_test_output("test_outputs/gantt_sprints.svg", &out).unwrap();
     assert!(out.contains("<svg"));
 }

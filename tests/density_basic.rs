@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::DensityPlot;
 use kuva::render::layout::Layout;
@@ -28,7 +29,7 @@ fn test_density_basic() {
         .with_x_label("Value")
         .with_y_label("Density");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "output should contain <svg tag");
     assert!(
         svg.contains("<path"),
@@ -48,7 +49,7 @@ fn test_density_filled() {
     let plots = vec![Plot::Density(dp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Density Filled");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_filled.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_filled.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // The filled path should include a Z (close path) command
     assert!(
@@ -68,7 +69,7 @@ fn test_density_bandwidth() {
     let plots = vec![Plot::Density(dp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Density Custom Bandwidth");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_bandwidth.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_bandwidth.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
 }
@@ -86,7 +87,7 @@ fn test_density_legend() {
         .with_title("Density Legend")
         .with_legend_position(kuva::plot::LegendPosition::OutsideRightTop);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_legend.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("Group A"),
@@ -126,7 +127,7 @@ fn test_density_multigroup() {
         .with_title("Density Multigroup")
         .with_legend_position(kuva::plot::LegendPosition::OutsideRightTop);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_multigroup.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_multigroup.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Should have multiple path elements
     let path_count = svg.matches("<path").count();
@@ -145,7 +146,7 @@ fn test_density_precomputed() {
     let plots = vec![Plot::Density(dp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Density Precomputed");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_precomputed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_precomputed.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<path"),
@@ -211,7 +212,7 @@ fn test_density_x_range_renders_cleanly() {
         .with_x_label("β-value")
         .with_y_label("Density");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_x_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_x_range.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<path"),
@@ -274,7 +275,7 @@ fn test_density_multigroup_x_range() {
     ];
     let layout = Layout::auto_from_plots(&plots).with_title("Density multigroup bounded");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_multigroup_x_range.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_multigroup_x_range.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(!svg.contains("NaN"), "no NaN in multigroup bounded density");
     let path_count = svg.matches("<path").count();
@@ -342,7 +343,7 @@ fn test_density_x_lo_only() {
     let plots = vec![plot];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_x_lo_only.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_x_lo_only.svg", &svg).unwrap();
     assert!(!svg.contains("NaN"));
     assert!(svg.contains("<path"));
 }
@@ -366,7 +367,7 @@ fn test_density_x_hi_only() {
     let plots = vec![plot];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_x_hi_only.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_x_hi_only.svg", &svg).unwrap();
     assert!(!svg.contains("NaN"));
     assert!(svg.contains("<path"));
 }
@@ -391,7 +392,7 @@ fn test_density_bounded_bimodal_identity_scores() {
     let plots = vec![plot];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_bounded_bimodal.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_bounded_bimodal.svg", &svg).unwrap();
     assert!(!svg.contains("NaN"));
     assert!(svg.contains("<path"));
 }
@@ -484,7 +485,7 @@ fn test_density_fit_renders_cleanly() {
     let plots = vec![Plot::Density(dp)];
     let layout = Layout::auto_from_plots(&plots).with_title("Density fit-to-data");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/density_fit.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/density_fit.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
     assert!(!svg.contains("NaN"), "SVG should not contain NaN");

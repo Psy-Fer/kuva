@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::sunburst::{SunburstColorMode, SunburstPlot};
 use kuva::plot::treemap::{ColorMap, TreemapNode};
@@ -35,7 +36,7 @@ fn two_level() -> SunburstPlot {
 #[test]
 fn test_sunburst_basic() {
     let svg = render(simple_sunburst(), "Sunburst Basic");
-    std::fs::write("test_outputs/sunburst_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_basic.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "should contain path elements");
     assert!(svg.contains("<svg"), "should be valid SVG");
 }
@@ -43,7 +44,7 @@ fn test_sunburst_basic() {
 #[test]
 fn test_sunburst_two_level() {
     let svg = render(two_level(), "Sunburst Two-Level");
-    std::fs::write("test_outputs/sunburst_two_level.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_two_level.svg", &svg).unwrap();
     // Should have arcs for both roots and their children
     let path_count = svg.matches("<path").count();
     assert!(
@@ -68,7 +69,7 @@ fn test_sunburst_deep() {
         ],
     ));
     let svg = render(deep, "Sunburst Deep");
-    std::fs::write("test_outputs/sunburst_deep.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_deep.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "deep sunburst should render arcs");
 }
 
@@ -76,7 +77,7 @@ fn test_sunburst_deep() {
 fn test_sunburst_single_node() {
     let sb = SunburstPlot::new().with_node(TreemapNode::leaf("Solo", 100.0));
     let svg = render(sb, "Sunburst Single Node");
-    std::fs::write("test_outputs/sunburst_single_node.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_single_node.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "single node sunburst should produce valid SVG"
@@ -88,7 +89,7 @@ fn test_sunburst_single_node() {
 fn test_sunburst_empty() {
     let sb = SunburstPlot::new();
     let svg = render(sb, "Sunburst Empty");
-    std::fs::write("test_outputs/sunburst_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_empty.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "empty sunburst should produce valid SVG"
@@ -102,7 +103,7 @@ fn test_sunburst_multiple_roots() {
         .with_node(TreemapNode::leaf("Beta", 35.0))
         .with_node(TreemapNode::leaf("Gamma", 25.0));
     let svg = render(sb, "Sunburst Multiple Roots");
-    std::fs::write("test_outputs/sunburst_multiple_roots.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_multiple_roots.svg", &svg).unwrap();
     let path_count = svg.matches("<path").count();
     assert!(path_count >= 3, "should have at least 3 arcs for 3 roots");
 }
@@ -111,7 +112,7 @@ fn test_sunburst_multiple_roots() {
 fn test_sunburst_color_by_parent() {
     let sb = two_level().with_color_mode(SunburstColorMode::ByParent);
     let svg = render(sb, "Sunburst Color By Parent");
-    std::fs::write("test_outputs/sunburst_color_by_parent.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_color_by_parent.svg", &svg).unwrap();
     // category10 uses hex colors like #1f77b4
     assert!(
         svg.contains("#1f77b4") || svg.contains("fill="),
@@ -123,7 +124,7 @@ fn test_sunburst_color_by_parent() {
 fn test_sunburst_color_by_value() {
     let sb = two_level().with_color_mode(SunburstColorMode::ByValue(ColorMap::Viridis));
     let svg = render(sb, "Sunburst Color By Value");
-    std::fs::write("test_outputs/sunburst_color_by_value.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_color_by_value.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "ByValue mode should render arcs");
 }
 
@@ -139,7 +140,7 @@ fn test_sunburst_explicit_colors() {
         ))
         .with_color_mode(SunburstColorMode::Explicit);
     let svg = render(sb, "Sunburst Explicit Colors");
-    std::fs::write("test_outputs/sunburst_explicit_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_explicit_colors.svg", &svg).unwrap();
     assert!(
         svg.contains("#ff0000"),
         "explicit red color should appear in SVG"
@@ -150,7 +151,7 @@ fn test_sunburst_explicit_colors() {
 fn test_sunburst_donut() {
     let sb = simple_sunburst().with_inner_radius(0.4);
     let svg = render(sb, "Sunburst Donut");
-    std::fs::write("test_outputs/sunburst_donut.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_donut.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "donut sunburst should render arcs");
 }
 
@@ -158,7 +159,7 @@ fn test_sunburst_donut() {
 fn test_sunburst_no_labels() {
     let sb = simple_sunburst().with_show_labels(false);
     let svg = render(sb, "Sunburst No Labels");
-    std::fs::write("test_outputs/sunburst_no_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_no_labels.svg", &svg).unwrap();
     // With no labels there should be no <text> elements (except possibly title/axis)
     let text_count_with_labels = {
         let sb2 = simple_sunburst().with_show_labels(true);
@@ -176,7 +177,7 @@ fn test_sunburst_no_labels() {
 fn test_sunburst_tooltips() {
     let sb = simple_sunburst().with_tooltips(true);
     let svg = render(sb, "Sunburst Tooltips");
-    std::fs::write("test_outputs/sunburst_tooltips.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_tooltips.svg", &svg).unwrap();
     assert!(
         svg.contains("<title"),
         "tooltips should produce <title> elements"
@@ -187,7 +188,7 @@ fn test_sunburst_tooltips() {
 fn test_sunburst_no_tooltips() {
     let sb = simple_sunburst().with_tooltips(false);
     let svg = render(sb, "Sunburst No Tooltips");
-    std::fs::write("test_outputs/sunburst_no_tooltips.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_no_tooltips.svg", &svg).unwrap();
     assert!(
         !svg.contains("<title"),
         "no tooltips should not produce <title> elements"
@@ -201,7 +202,7 @@ fn test_sunburst_colorbar() {
         .with_colorbar(true)
         .with_colorbar_label("Score");
     let svg = render(sb, "Sunburst Colorbar");
-    std::fs::write("test_outputs/sunburst_colorbar.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_colorbar.svg", &svg).unwrap();
     assert!(svg.contains("Score"), "colorbar label should appear in SVG");
 }
 
@@ -224,7 +225,7 @@ fn test_sunburst_max_depth() {
     let unlimited = deep;
 
     let svg_limited = render(limited, "Sunburst Max Depth 1");
-    std::fs::write("test_outputs/sunburst_max_depth.svg", &svg_limited).unwrap();
+    common::write_test_output("test_outputs/sunburst_max_depth.svg", &svg_limited).unwrap();
     let svg_unlimited = render(unlimited, "Sunburst Unlimited");
 
     let paths_limited = svg_limited.matches("<path").count();
@@ -242,7 +243,7 @@ fn test_sunburst_start_angle() {
     let sb90 = simple_sunburst().with_start_angle(90.0);
     let svg0 = render(sb0, "Sunburst Start 0");
     let svg90 = render(sb90, "Sunburst Start 90");
-    std::fs::write("test_outputs/sunburst_start_angle.svg", &svg90).unwrap();
+    common::write_test_output("test_outputs/sunburst_start_angle.svg", &svg90).unwrap();
     assert_ne!(
         svg0, svg90,
         "different start angles should produce different SVG"
@@ -253,7 +254,7 @@ fn test_sunburst_start_angle() {
 fn test_sunburst_ring_gap() {
     let sb = simple_sunburst().with_ring_gap(4.0);
     let svg = render(sb, "Sunburst Ring Gap");
-    std::fs::write("test_outputs/sunburst_ring_gap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_ring_gap.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "ring gap sunburst should render");
 }
 
@@ -275,7 +276,7 @@ fn test_sunburst_large() {
         .collect();
     let sb = SunburstPlot::new().with_node(TreemapNode::new("Root", leaves));
     let svg = render(sb, "Sunburst Large");
-    std::fs::write("test_outputs/sunburst_large.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_large.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "large sunburst should render");
 }
 
@@ -293,7 +294,7 @@ fn test_sunburst_color_values() {
         .with_color_mode(SunburstColorMode::ByValue(ColorMap::Viridis))
         .with_color_values(vec![0.1, 0.5, 0.9]);
     let svg = render(sb, "Sunburst Color Values");
-    std::fs::write("test_outputs/sunburst_color_values.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_color_values.svg", &svg).unwrap();
     assert!(svg.contains("<path"), "color_values mode should render");
 }
 
@@ -304,7 +305,7 @@ fn test_sunburst_no_rotate_labels() {
 
     let svg_rotated = render(rotated, "Sunburst Rotated Labels");
     let svg_upright = render(upright, "Sunburst Upright Labels");
-    std::fs::write("test_outputs/sunburst_no_rotate_labels.svg", &svg_upright).unwrap();
+    common::write_test_output("test_outputs/sunburst_no_rotate_labels.svg", &svg_upright).unwrap();
 
     // Rotated labels produce transform="rotate(...)" on text elements
     assert!(
@@ -330,7 +331,7 @@ fn test_sunburst_with_children_builder() {
             vec![TreemapNode::leaf("P", 25.0), TreemapNode::leaf("Q", 75.0)],
         );
     let svg = render(sb, "Sunburst with_children");
-    std::fs::write("test_outputs/sunburst_with_children.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/sunburst_with_children.svg", &svg).unwrap();
     assert!(
         svg.contains("<path"),
         "with_children builder should render arcs"

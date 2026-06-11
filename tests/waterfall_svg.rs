@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::WaterfallPlot;
 use kuva::render::layout::Layout;
@@ -20,7 +21,7 @@ fn test_waterfall_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/waterfall_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#44aa44"));
@@ -44,7 +45,7 @@ fn test_waterfall_with_totals() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/waterfall_with_totals.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_with_totals.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#4682b4"));
@@ -69,7 +70,7 @@ fn test_waterfall_connectors_and_values() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/waterfall_connectors_values.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_connectors_values.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("4,3")); // dasharray from connectors
@@ -86,7 +87,7 @@ fn test_waterfall_difference() {
     let plots = vec![Plot::Waterfall(wf_pos)];
     let layout = Layout::auto_from_plots(&plots).with_title("Difference +5");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/waterfall_difference_pos.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_difference_pos.svg", svg.clone()).unwrap();
     assert!(svg.contains("#44aa44")); // green
 
     let wf_neg = WaterfallPlot::new()
@@ -96,7 +97,7 @@ fn test_waterfall_difference() {
     let plots2 = vec![Plot::Waterfall(wf_neg)];
     let layout2 = Layout::auto_from_plots(&plots2).with_title("Difference -10");
     let svg2 = SvgBackend.render_scene(&render_multiple(plots2, layout2));
-    std::fs::write("test_outputs/waterfall_difference_neg.svg", svg2.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_difference_neg.svg", svg2.clone()).unwrap();
     assert!(svg2.contains("#cc4444")); // red
 }
 
@@ -115,7 +116,7 @@ fn test_waterfall_custom_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/waterfall_custom_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_custom_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#006400"));
@@ -137,7 +138,7 @@ fn test_waterfall_all_negative() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/waterfall_all_negative.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/waterfall_all_negative.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#cc4444"));
@@ -164,8 +165,8 @@ fn test_waterfall_with_gap() {
     let svg_narrow = render_gap(0.6); // bar_width = 0.4  → narrow bars
     let svg_wide = render_gap(0.1); // bar_width = 0.9  → wide bars
 
-    std::fs::write("test_outputs/waterfall_bar_narrow.svg", &svg_narrow).unwrap();
-    std::fs::write("test_outputs/waterfall_bar_wide.svg", &svg_wide).unwrap();
+    common::write_test_output("test_outputs/waterfall_bar_narrow.svg", &svg_narrow).unwrap();
+    common::write_test_output("test_outputs/waterfall_bar_wide.svg", &svg_wide).unwrap();
 
     // Extract the width of the first <rect> element that looks like a bar:
     // > 10px (not a tick artifact) and < 300px (not the clip/background rect).

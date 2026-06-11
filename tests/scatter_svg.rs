@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::{MarkerShape, ScatterPlot, TrendLine};
 use kuva::render::layout::Layout;
@@ -21,7 +22,7 @@ fn test_scatter_svg_output_builder() {
 
     let scene = render_scatter(&plot, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -44,7 +45,7 @@ fn test_scatter_svg_output_layout() {
 
     let scene = render_scatter(&plot, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_layout.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_layout.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -80,7 +81,7 @@ fn test_scatter_trend_svg() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_trend_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_trend_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -111,7 +112,7 @@ fn test_scatter_trend_error_svg() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_trend_error_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_trend_error_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -148,7 +149,7 @@ fn test_scatter_log_scale() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_log.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_log.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -198,7 +199,7 @@ fn test_scatter_markers() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_markers.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_markers.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle")); // Circle markers
@@ -231,7 +232,7 @@ fn test_bubble_plot() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/bubble_plot.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bubble_plot.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -266,7 +267,7 @@ fn test_scatter_log_x_only() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_log_x.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_log_x.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -304,7 +305,7 @@ fn test_scatter_log_y_only() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_log_y.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_log_y.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -339,7 +340,7 @@ fn test_scatter_log_small_values() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_log_small.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_log_small.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<circle"));
@@ -373,7 +374,7 @@ fn test_scatter_per_point_colors() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_per_point_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_per_point_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains(r##"fill="#ff0000""##));
@@ -406,7 +407,7 @@ fn test_scatter_log_narrow_range() {
 
     let scene = render_multiple(plot, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_log_narrow.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/scatter_log_narrow.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Narrow range should have 2x/5x sub-ticks (e.g. "20", "50")
@@ -424,7 +425,7 @@ fn test_scatter_empty_data() {
     let plots = vec![Plot::Scatter(ScatterPlot::new().with_data(empty.clone()))];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/scatter_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/scatter_empty.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "empty scatter should still produce SVG"
@@ -442,7 +443,7 @@ fn test_scatter_empty_data() {
     ];
     let layout2 = Layout::auto_from_plots(&plots2);
     let svg2 = SvgBackend.render_scene(&render_multiple(plots2, layout2));
-    std::fs::write("test_outputs/scatter_empty_mixed.svg", &svg2).unwrap();
+    common::write_test_output("test_outputs/scatter_empty_mixed.svg", &svg2).unwrap();
     assert!(
         svg2.contains("<svg"),
         "mixed empty+populated should produce SVG"

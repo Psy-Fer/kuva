@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::BoxPlot;
 use kuva::render::layout::Layout;
@@ -22,7 +23,7 @@ fn test_boxplot_groups_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_groups_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_groups_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -42,7 +43,7 @@ fn test_boxplot_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -61,7 +62,7 @@ fn test_boxplot_group_colors_full() {
     let layout = Layout::auto_from_plots(&plots).with_title("Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_group_colors_full.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_group_colors_full.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Each group color must appear; the fallback "black" must not be used as a fill
@@ -84,7 +85,8 @@ fn test_boxplot_group_colors_partial() {
     let layout = Layout::auto_from_plots(&plots).with_title("Partial Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_group_colors_partial.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_group_colors_partial.svg", svg.clone())
+        .unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));

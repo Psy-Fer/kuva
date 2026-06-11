@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::horizon::HorizonPlot;
 use kuva::render::layout::Layout;
@@ -15,7 +16,7 @@ fn svg_with_layout(hp: HorizonPlot, layout: Layout) -> String {
 
 fn save(name: &str, content: &str) {
     std::fs::create_dir_all("test_outputs").unwrap();
-    std::fs::write(format!("test_outputs/{name}.svg"), content).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), content).unwrap();
 }
 
 // --- structural tests ---

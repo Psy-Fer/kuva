@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::clustermap::{AnnotationTrack, Clustermap, ClustermapNorm};
 use kuva::plot::{ColorMap, PhyloTree};
@@ -9,7 +10,7 @@ use std::fs;
 fn write_svg(name: &str, plots: Vec<Plot>, layout: Layout) {
     fs::create_dir_all("test_outputs").unwrap();
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    fs::write(format!("test_outputs/{name}.svg"), &svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), &svg).unwrap();
     assert!(!svg.is_empty());
 }
 

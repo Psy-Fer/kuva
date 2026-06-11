@@ -1,3 +1,4 @@
+mod common;
 use std::vec;
 
 use kuva::backend::svg::SvgBackend;
@@ -27,7 +28,7 @@ fn test_line_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/series_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/series_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));

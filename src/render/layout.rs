@@ -13,6 +13,21 @@ use std::sync::Arc;
 /// systems including HPC clusters), falls back through common sans-serif fonts.
 pub(crate) const DEFAULT_FONT_FAMILY: &str = "DejaVu Sans, Liberation Sans, Arial, sans-serif";
 
+/// Controls how overlapping x-axis tick labels are handled.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum AxisLabelOverlap {
+    /// Draw every label regardless of overlap (default).
+    #[default]
+    Allow,
+    /// Skip labels that would overlap the previously drawn one (greedy left-to-right).
+    /// Good for dense numeric axes and chromosome labels on Manhattan plots.
+    Thin,
+    /// Stagger labels into two alternating rows when they would otherwise collide.
+    /// Labels are placed collision-aware: row 0 first, row 1 only when needed.
+    /// The bottom margin is automatically expanded to accommodate the second row.
+    Stagger,
+}
+
 /// Controls how tick labels are formatted on an axis.
 pub enum TickFormat {
     /// Smart default: integers as "5", minimal decimals, scientific notation for extremes.
@@ -120,6 +135,87 @@ fn tick_format_sci(v: f64) -> String {
     }
 }
 
+/// Controls which axis border lines are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisLine {
+    /// Draw only the primary bottom and left axes (default).
+    Open,
+    /// Draw a full box around the plot area.
+    Box,
+}
+
+impl From<&str> for AxisLine {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "open" | "left" | "primary" => Self::Open,
+            "box" | "frame" | "enclosed" => Self::Box,
+            other => panic!("invalid axis line '{other}'; expected open or box"),
+        }
+    }
+}
+
+impl From<String> for AxisLine {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks point inside, outside, or across axis lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickAlign {
+    /// Ticks extend inward into the plot area (publication / pgfplots style).
+    Inside,
+    /// Ticks extend outward from the plot area (default).
+    Outside,
+    /// Ticks straddle the axis line equally on both sides.
+    Center,
+}
+
+impl From<&str> for TickAlign {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "inside" | "in" => Self::Inside,
+            "outside" | "out" => Self::Outside,
+            "center" | "centre" | "middle" => Self::Center,
+            other => {
+                panic!("invalid tick alignment '{other}'; expected inside, outside, or center")
+            }
+        }
+    }
+}
+
+impl From<String> for TickAlign {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks appear only on the primary axes or on all four sides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickPos {
+    /// Ticks on the primary bottom and left axes only (default).
+    Primary,
+    /// Ticks mirrored onto the top and right axes as well. Automatically
+    /// promotes `axis_line` to [`AxisLine::Box`].
+    Both,
+}
+
+impl From<&str> for TickPos {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "primary" | "left" | "bottom" | "lower" => Self::Primary,
+            "both" | "mirror" | "mirrored" => Self::Both,
+            other => panic!("invalid tick position '{other}'; expected primary or both"),
+        }
+    }
+}
+
+impl From<String> for TickPos {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
 /// Defines the layout of the plot
 pub struct Layout {
     pub width: Option<f64>,
@@ -131,6 +227,9 @@ pub struct Layout {
     pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
+    pub axis_line: AxisLine,
+    pub tick_align: TickAlign,
+    pub tick_pos: TickPos,
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
@@ -200,6 +299,8 @@ pub struct Layout {
     pub x_datetime: Option<DateTimeAxis>,
     pub y_datetime: Option<DateTimeAxis>,
     pub x_tick_rotate: Option<f64>,
+    /// How to handle x-axis tick labels that would overlap each other.
+    pub x_label_overlap: AxisLabelOverlap,
     /// When true, the computed axis range snaps to the tick boundary that just
     /// contains the data — no extra breathing-room step is added.  Useful for
     /// cases like `TickFormat::Percent` where you want the axis to stop exactly
@@ -301,6 +402,9 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
+            axis_line: AxisLine::Open,
+            tick_align: TickAlign::Outside,
+            tick_pos: TickPos::Primary,
             x_label: None,
             y_label: None,
             title: None,
@@ -351,6 +455,7 @@ impl Layout {
             x_datetime: None,
             y_datetime: None,
             x_tick_rotate: None,
+            x_label_overlap: AxisLabelOverlap::Allow,
             clamp_axis: false,
             clamp_y_axis: false,
             x_bin_width: None,
@@ -591,6 +696,7 @@ impl Layout {
                 || matches!(plot, Plot::Hexbin(hb) if hb.show_colorbar)
                 || matches!(plot, Plot::Treemap(tm) if matches!(tm.color_mode, crate::plot::treemap::TreemapColorMode::ByValue(_)) && tm.show_colorbar)
                 || matches!(plot, Plot::Sunburst(sb) if matches!(sb.color_mode, crate::plot::sunburst::SunburstColorMode::ByValue(_)) && sb.show_colorbar)
+                || matches!(plot, Plot::Quiver(q) if q.color_map.is_some())
             {
                 has_colorbar = true;
             }
@@ -779,6 +885,13 @@ impl Layout {
 
             if let Plot::Lollipop(lp) = plot {
                 if let Some(ref label) = lp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
+            if let Plot::Quiver(q) = plot {
+                if let Some(ref label) = q.legend_label {
                     has_legend = true;
                     max_label_len = max_label_len.max(label.len());
                 }
@@ -1416,6 +1529,51 @@ impl Layout {
         self
     }
 
+    /// Set which axis border lines are drawn around the plot area.
+    ///
+    /// - [`AxisLine::Open`] *(default)* — bottom and left axes only.
+    /// - [`AxisLine::Box`] — all four sides (publication / pgfplots style).
+    ///
+    /// See also [`with_box_axes`](Self::with_box_axes) as a shorthand for `AxisLine::Box`.
+    /// Accepts `AxisLine` or `&str` / `String` (`"open"`, `"box"`, `"frame"`, `"enclosed"`).
+    pub fn with_axis_line<L: Into<AxisLine>>(mut self, line: L) -> Self {
+        self.axis_line = line.into();
+        self
+    }
+
+    /// Shorthand for `.with_axis_line(AxisLine::Box)` — draws all four axis borders.
+    pub fn with_box_axes(self) -> Self {
+        self.with_axis_line(AxisLine::Box)
+    }
+
+    /// Set the direction tick marks extend relative to the axis line.
+    ///
+    /// - [`TickAlign::Outside`] *(default)* — ticks extend outward from the plot area.
+    /// - [`TickAlign::Inside`] — ticks extend inward into the plot area (publication style).
+    /// - [`TickAlign::Center`] — ticks straddle the axis line equally on both sides.
+    ///
+    /// Accepts `TickAlign` or `&str` / `String` (`"inside"`, `"outside"`, `"center"`).
+    pub fn with_tick_align<A: Into<TickAlign>>(mut self, align: A) -> Self {
+        self.tick_align = align.into();
+        self
+    }
+
+    /// Set whether tick marks appear on the primary axes only or on all four sides.
+    ///
+    /// - [`TickPos::Primary`] *(default)* — ticks on bottom and left axes only.
+    /// - [`TickPos::Both`] — ticks mirrored onto the top and right axes as well.
+    ///   Automatically promotes `axis_line` to [`AxisLine::Box`] so the border
+    ///   lines appear alongside the mirrored ticks.
+    ///
+    /// Accepts `TickPos` or `&str` / `String` (`"primary"`, `"both"`, `"mirror"`).
+    pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
+        self.tick_pos = pos.into();
+        if self.tick_pos == TickPos::Both {
+            self.axis_line = AxisLine::Box;
+        }
+        self
+    }
+
     fn with_show_legend(mut self) -> Self {
         self.show_legend = true;
         self
@@ -1813,6 +1971,16 @@ impl Layout {
         self
     }
 
+    /// Set the strategy for handling overlapping x-axis tick labels.
+    ///
+    /// - [`AxisLabelOverlap::Allow`] — draw every label (default).
+    /// - [`AxisLabelOverlap::Thin`] — skip labels that would overlap the previous one.
+    /// - [`AxisLabelOverlap::Stagger`] — place colliding labels in an alternating second row.
+    pub fn with_x_label_overlap(mut self, overlap: AxisLabelOverlap) -> Self {
+        self.x_label_overlap = overlap;
+        self
+    }
+
     /// Snap both axes to the tick boundary that just contains the data,
     /// with no extra breathing-room step.  Useful for `TickFormat::Percent`
     /// (so the axis stops at 100 % instead of 110 %) or any domain where the
@@ -2028,6 +2196,8 @@ pub struct ComputedLayout {
     pub y2_axis_width: f64,
     /// Rotation angle for x-axis tick labels (degrees, typically -45.0). None = no rotation.
     pub x_tick_rotate: Option<f64>,
+    /// Strategy for handling overlapping x-axis tick labels.
+    pub x_label_overlap: AxisLabelOverlap,
     /// Pixel spacing between legend entries, quantised to a whole terminal-row
     /// multiple when `term_rows` is set.  Always >= 18.0 (the SVG default).
     pub legend_line_height: f64,
@@ -2157,6 +2327,12 @@ impl ComputedLayout {
         } else {
             tick_size + label_size + tick_mark_major_px + 20.0 * s
         };
+        // Stagger adds a second row of tick labels below the first.
+        // Also applies when suppress_x_ticks is true (e.g. Manhattan, which
+        // draws its own chromosome labels via add_manhattan_chr_labels).
+        if matches!(layout.x_label_overlap, AxisLabelOverlap::Stagger) {
+            margin_bottom += tick_size;
+        }
         // Extra bottom margin for wrapped x-axis label.
         if let (Some(ref xlabel), Some(max_chars)) = (&layout.x_label, layout.x_label_wrap) {
             let x_label_lines = render_utils::wrap_text(xlabel, max_chars).len();
@@ -2536,6 +2712,7 @@ impl ComputedLayout {
             y2_tick_format: layout.y2_tick_format.clone(),
             y2_axis_width,
             x_tick_rotate: layout.x_tick_rotate,
+            x_label_overlap: layout.x_label_overlap.clone(),
             legend_line_height,
             x_tick_step: layout.x_tick_step,
             y_tick_step: layout.y_tick_step,

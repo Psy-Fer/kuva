@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::heatmap::ColorMap;
 use kuva::plot::surface3d::Surface3DPlot;
@@ -27,7 +28,7 @@ fn test_surface3d_basic() {
     let layout = Layout::auto_from_plots(&plots).with_title("Surface3D Basic");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_basic.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<path"),
@@ -43,7 +44,7 @@ fn test_surface3d_colormap() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_colormap.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_colormap.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     let path_count = svg.matches("<path").count();
     // Should have many paths: back panes + grid + surface faces
@@ -63,7 +64,7 @@ fn test_surface3d_no_wireframe() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_no_wireframe.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_no_wireframe.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Wireframe off: stroke should be "none" on surface faces
     assert!(svg.contains("stroke=\"none\""));
@@ -79,7 +80,7 @@ fn test_surface3d_alpha() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_alpha.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_alpha.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("opacity"),
@@ -94,7 +95,7 @@ fn test_surface3d_empty() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_empty.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_empty.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -109,7 +110,7 @@ fn test_surface3d_axis_labels() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_labels.svg", svg.clone()).unwrap();
     assert!(svg.contains("X Axis"));
     assert!(svg.contains("Y Axis"));
     assert!(svg.contains("Z Axis"));
@@ -133,7 +134,7 @@ fn test_surface3d_explicit_coords() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_coords.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_coords.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -148,7 +149,7 @@ fn test_surface3d_custom_view() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_custom_view.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_custom_view.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -171,7 +172,7 @@ fn test_surface3d_with_data_fn() {
     let layout = Layout::auto_from_plots(&plots).with_title("with_data_fn");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_data_fn.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_data_fn.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // 30x30 grid = 29x29 = 841 faces + back panes → lots of paths
     let path_count = svg.matches("<path").count();
@@ -193,7 +194,7 @@ fn test_surface3d_with_data_fn_low_vs_high_res() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg_low = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_low_res.svg", svg_low.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_low_res.svg", svg_low.clone()).unwrap();
 
     // High res
     let high = Surface3DPlot::new(vec![]).with_data_fn(
@@ -210,7 +211,7 @@ fn test_surface3d_with_data_fn_low_vs_high_res() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg_high = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/surface3d_high_res.svg", svg_high.clone()).unwrap();
+    common::write_test_output("test_outputs/surface3d_high_res.svg", svg_high.clone()).unwrap();
 
     // High res should produce significantly more SVG content
     assert!(

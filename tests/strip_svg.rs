@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::StripPlot;
 use kuva::plot::{BoxPlot, LegendEntry, LegendPosition, LegendShape, ViolinPlot};
@@ -21,7 +22,7 @@ fn test_strip_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_basic.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -47,7 +48,7 @@ fn test_strip_swarm() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_swarm.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_swarm.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -67,7 +68,7 @@ fn test_strip_center() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_center.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_center.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -89,7 +90,7 @@ fn test_strip_legend_palette() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_legend_palette.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_legend_palette.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -109,7 +110,7 @@ fn test_box_with_strip_overlay() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/box_with_strip_overlay.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/box_with_strip_overlay.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -136,7 +137,7 @@ fn test_box_with_swarm_overlay() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/box_with_swarm_overlay.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/box_with_swarm_overlay.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -157,7 +158,7 @@ fn test_violin_with_strip_overlay() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/violin_with_strip_overlay.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/violin_with_strip_overlay.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -177,7 +178,7 @@ fn test_strip_group_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_group_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_group_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains(r##"fill="#ff0000""##));
@@ -209,7 +210,7 @@ fn test_strip_and_box_composed() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_and_box_composed.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_and_box_composed.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -249,7 +250,7 @@ fn test_strip_point_colors_full() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_point_colors_full.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_point_colors_full.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(
@@ -290,7 +291,7 @@ fn test_strip_point_colors_mixed() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_point_colors_mixed.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_point_colors_mixed.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(
@@ -355,7 +356,7 @@ fn test_strip_point_colors_with_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/strip_point_colors_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_point_colors_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("STR Motif"), "SVG should contain the title");
@@ -408,7 +409,7 @@ fn test_strip_shaped_group() {
         .with_y_label("Value");
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/strip_shaped.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_shaped.svg", svg.clone()).unwrap();
 
     // Shapes render as: Circle→<circle>, Square→<rect>, Triangle/Diamond→<path>,
     // Cross/Plus→<line>.  Verify each shape type is present.
@@ -483,7 +484,7 @@ fn test_strip_styled_group() {
         .with_legend_entries(legend_entries);
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/strip_styled.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_styled.svg", svg.clone()).unwrap();
 
     // Circles (control) and triangles (treatment) both present.
     assert!(
@@ -520,7 +521,7 @@ fn test_strip_shaped_fallback_to_circle() {
     let layout = Layout::auto_from_plots(&plots);
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/strip_shaped_fallback.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_shaped_fallback.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("<circle"),
@@ -550,7 +551,7 @@ fn test_strip_group_colors_legend_width() {
     let plots = vec![Plot::Strip(strip)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/strip_group_legend_width.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/strip_group_legend_width.svg", svg.clone()).unwrap();
 
     // --- Parse the legend box rect (white fill) ---
     // Format: <rect x="NNN" ... width="NNN" ... fill="#ffffff" .../>

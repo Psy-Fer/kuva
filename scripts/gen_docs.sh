@@ -70,6 +70,10 @@ EXAMPLES=(
     volcano
     waffle
     waterfall
+    pyramid
+    mosaic
+    parallel
+    quiver
     all_plots_simple
     all_plots_complex
 )
@@ -84,3 +88,20 @@ for ex in "${EXAMPLES[@]}"; do
 done
 
 echo "Done."
+
+# ── Benchmark charts ───────────────────────────────────────────────────────────
+# If a benchmark_results.csv exists, rebuild plot_results and regenerate the
+# comparison SVGs, then copy them into docs/src/assets/bench/.
+BENCH_DIR="benches/rust_bench"
+BENCH_CSV="$BENCH_DIR/benchmark_results.csv"
+BENCH_ASSET_DIR="docs/src/assets/bench"
+
+if [[ -f "$BENCH_CSV" ]]; then
+    echo "Regenerating benchmark charts from $BENCH_CSV..."
+    (cd "$BENCH_DIR" && cargo build --release --bin plot_results --quiet && ./target/release/plot_results)
+    mkdir -p "$BENCH_ASSET_DIR"
+    cp "$BENCH_DIR"/output/bench_*.svg "$BENCH_DIR"/output/kuva_delta_*.svg "$BENCH_ASSET_DIR/"
+    echo "Copied benchmark SVGs → $BENCH_ASSET_DIR/"
+else
+    echo "Skipping benchmark charts ($BENCH_CSV not found; run benches/rust_bench/run_benchmarks.sh first)."
+fi
