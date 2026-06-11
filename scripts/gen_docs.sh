@@ -34,6 +34,7 @@ EXAMPLES=(
     line
     lollipop
     manhattan
+    math
     mosaic
     network
     parallel

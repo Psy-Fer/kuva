@@ -5,6 +5,9 @@ pub mod color;
 pub mod datetime;
 pub mod figure;
 pub mod layout;
+// Inline-Unicode lowering for `$...$` math in labels. Zero-dep, used by all
+// backends.
+pub mod math;
 pub mod palette;
 pub mod plots;
 pub mod projection;

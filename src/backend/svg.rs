@@ -225,6 +225,17 @@ impl SvgBackend {
                     bold,
                     color,
                 } => {
+                    // Lower any `$...$` math regions to inline Unicode
+                    // (σ², a/b, √(…)) so they render as ordinary text.
+                    // No-op for plain labels.
+                    let lowered;
+                    let content: &str = if crate::render::math::needs_rewrite(content) {
+                        lowered = crate::render::math::to_unicode(content);
+                        &lowered
+                    } else {
+                        content
+                    };
+
                     let anchor_str = match anchor {
                         TextAnchor::Start => "start",
                         TextAnchor::Middle => "middle",

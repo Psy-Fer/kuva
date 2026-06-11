@@ -141,6 +141,7 @@
 - [SVG Interactivity](./reference/interactive.md)
 - [Date & Time Axes](./reference/datetime.md)
 - [Stats Box](./reference/stats_box.md)
+- [Math in Labels](./reference/math.md)
 
 # Performance
 
