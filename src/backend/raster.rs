@@ -1879,6 +1879,16 @@ impl RasterBackend {
                         .as_ref()
                         .and_then(kcolor_to_rgba)
                         .unwrap_or(default_text);
+                    // Lower any `$...$` math regions to inline Unicode
+                    // (σ², a/b, √(…)) so they draw through the normal glyph
+                    // path. No-op for plain labels.
+                    let lowered;
+                    let content: &str = if crate::render::math::needs_rewrite(content) {
+                        lowered = crate::render::math::to_unicode(content);
+                        &lowered
+                    } else {
+                        content
+                    };
                     canvas.draw_text(
                         sx!(*x),
                         sy!(*y),

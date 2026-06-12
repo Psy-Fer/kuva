@@ -985,6 +985,38 @@ check "quiver grid on + tight bounds" \
         --tight-bounds --pivot middle \
         --title "Quiver Grid + Clip"
 
+# ── math in labels ──────────────────────────────────────────────────────────
+# $...$ math regions in labels are lowered to inline Unicode (σ², a/b, √(…), ∑)
+# by every backend. Exercised across plot types and label slots to confirm it
+# is not scatter-specific.
+check "math superscript + sqrt" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label 'Variance, $\sigma^2$ (units)' --y-label '$\sqrt{x^2+y^2}$'
+
+check "math fraction title" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title 'Rate $\frac{a + b}{c}$'
+
+check "math sum with limits" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\sum_{i=1}^{n} x_i$' --title 'Summation'
+
+check "math greek and operators" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\alpha \leq \beta \neq \gamma$' --y-label '$\mu \pm \sigma$'
+
+check "math in rotated y-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-label 'Energy $E = mc^2$'
+
+check "math on line plot" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value \
+        --x-label 'Time $t$ ($\mu s$)' --y-label 'Amplitude $A_0$'
+
+check "math on bar plot" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --y-label 'Count $\times 10^3$'
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

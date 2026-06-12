@@ -274,3 +274,47 @@ fn test_dot_large() {
     // 500 circles for 50x10
     assert_eq!(svg.matches("<circle").count(), 504); // 500 data + 4 legend
 }
+
+#[test]
+fn test_dot_colorbar_below_many_legend_entries() {
+    // Regression: DotPlot non-stacked colorbar path used `height - bar_y - 20.0`
+    // without subtracting margin_bottom, potentially drawing the colorbar into the
+    // x-axis label area.  This test stacks enough size-legend entries to push
+    // `available_below` below the 120 px threshold so the fallback path fires,
+    // then verifies the output is valid SVG and that the colorbar rect appears.
+    let mut data = Vec::new();
+    for ci in 0..6usize {
+        for gi in 0..8usize {
+            data.push((
+                format!("CT{ci}"),
+                format!("Gene{gi:02}"),
+                ((ci * 13 + gi * 7) % 100) as f64,
+                ((ci + gi * 3) % 50) as f64 / 10.0,
+            ));
+        }
+    }
+    let data_refs: Vec<(&str, &str, f64, f64)> = data
+        .iter()
+        .map(|(c, g, s, v)| (c.as_str(), g.as_str(), *s, *v))
+        .collect();
+
+    let dot = DotPlot::new()
+        .with_data(data_refs)
+        .with_size_legend("% Expressing")
+        .with_colorbar("Mean expression");
+
+    let plots = vec![Plot::DotPlot(dot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Dot colorbar overflow regression")
+        .with_x_label("Cell Type")
+        .with_y_label("Gene")
+        .with_height(420.0); // compact height to exercise the overflow path
+
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/dot_colorbar_overflow.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle"));
+    assert!(svg.contains("<rect")); // colorbar present
+}

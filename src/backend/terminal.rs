@@ -821,6 +821,16 @@ impl Canvas {
                 // reference line/tick.
                 let baseline = *size as f64 * 0.35;
                 let row = self.to_cy(y_s - baseline);
+                // Lower any `$...$` math regions to inline Unicode (σ, x²,
+                // √(…)) — the character grid renders the result directly.
+                // No-op for plain labels.
+                let lowered;
+                let content: &str = if crate::render::math::needs_rewrite(content) {
+                    lowered = crate::render::math::to_unicode(content);
+                    &lowered
+                } else {
+                    content
+                };
                 let chars: Vec<char> = content.chars().collect();
                 let len = chars.len() as isize;
 
