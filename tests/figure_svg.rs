@@ -959,11 +959,7 @@ fn figure_legend_height_scales_with_body_size() {
         .with_shared_legend_position(FigureLegendPosition::TopCenter)
         .render();
     let svg = SvgBackend.render_scene(&scene);
-    common::write_test_output(
-        "test_outputs/figure_legend_scaled_body_size.svg",
-        &svg,
-    )
-    .unwrap();
+    common::write_test_output("test_outputs/figure_legend_scaled_body_size.svg", &svg).unwrap();
     assert!(svg.contains("Alpha") && svg.contains("Beta"));
     assert_eq!(
         svg_dim(&svg, "height"),

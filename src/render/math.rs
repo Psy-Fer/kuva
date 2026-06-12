@@ -554,7 +554,6 @@ fn read_script_group(s: &str, pos: usize) -> Option<(&str, usize)> {
     Some((&s[pos..pos + ch_len], pos + ch_len))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -714,7 +713,7 @@ mod tests {
     fn sqrt_with_index() {
         assert_eq!(to_unicode("$\\sqrt[3]{x}$"), "³√x"); // cube root index
         assert_eq!(to_unicode("$\\sqrt[n]{x}$"), "ⁿ√x"); // n has a superscript
-        // A command index must be lowered, never leak its backslash.
+                                                         // A command index must be lowered, never leak its backslash.
         assert_eq!(to_unicode("$\\sqrt[\\alpha]{x}$"), "α√x");
     }
 
