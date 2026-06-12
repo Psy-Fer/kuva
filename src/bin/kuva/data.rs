@@ -48,12 +48,20 @@ pub struct DataTable {
 impl DataTable {
     /// Read and parse input from a file path or stdin.
     ///
+    /// `project` lists the columns to read.  For parquet files only the
+    /// requested columns are decoded from disk (projected Arrow read), keeping
+    /// memory and time proportional to the selected columns rather than the
+    /// full schema.  Pass an empty slice to read every column.  For CSV/TSV
+    /// the parameter is accepted but ignored — the whole file is always read.
+    ///
     /// When the `parquet` feature is enabled, `.parquet` files and parquet
-    /// piped via stdin (detected by magic bytes) are read automatically.
+    /// piped via stdin (detected by magic bytes `PAR1`) are handled
+    /// automatically; no flag is needed.
     pub fn parse(
         input: Option<&Path>,
         no_header: bool,
         delim_override: Option<char>,
+        project: &[ColSpec],
     ) -> Result<Self, String> {
         match input {
             Some(p) if p.to_str() != Some("-") => {
@@ -69,7 +77,9 @@ impl DataTable {
                     if delim_override.is_some() {
                         eprintln!("warning: --delimiter is ignored for parquet input");
                     }
-                    return from_parquet_path(p);
+                    let file = std::fs::File::open(p)
+                        .map_err(|e| format!("Cannot open {}: {e}", p.display()))?;
+                    return from_parquet_projected(file, project);
                 }
                 let content = std::fs::read_to_string(p)
                     .map_err(|e| format!("Cannot read {}: {e}", p.display()))?;
@@ -89,7 +99,7 @@ impl DataTable {
                     if delim_override.is_some() {
                         eprintln!("warning: --delimiter is ignored for parquet input");
                     }
-                    return from_parquet_bytes(buf);
+                    return from_parquet_projected(bytes::Bytes::from(buf), project);
                 }
 
                 let content =
@@ -258,69 +268,208 @@ fn sniff_parquet(buf: &[u8]) -> bool {
     buf.len() >= 8 && &buf[..4] == b"PAR1" && &buf[buf.len() - 4..] == b"PAR1"
 }
 
+/// Read a parquet source, decoding only the columns listed in `project`.
+///
+/// Works for both `std::fs::File` (random-access, enables column-chunk skip)
+/// and `bytes::Bytes` (stdin buffer).  An empty `project` slice reads every
+/// column.
 #[cfg(feature = "parquet")]
-fn from_parquet_path(path: &Path) -> Result<DataTable, String> {
-    use parquet::file::reader::SerializedFileReader;
-    let file =
-        std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    let reader = SerializedFileReader::new(file)
-        .map_err(|e| format!("Cannot read parquet {}: {e}", path.display()))?;
-    parquet_to_table(reader)
-}
-
-#[cfg(feature = "parquet")]
-fn from_parquet_bytes(buf: Vec<u8>) -> Result<DataTable, String> {
-    use bytes::Bytes;
-    use parquet::file::reader::SerializedFileReader;
-    let reader = SerializedFileReader::new(Bytes::from(buf))
-        .map_err(|e| format!("Cannot read parquet from stdin: {e}"))?;
-    parquet_to_table(reader)
-}
-
-#[cfg(feature = "parquet")]
-fn parquet_to_table<R>(
-    reader: parquet::file::reader::SerializedFileReader<R>,
-) -> Result<DataTable, String>
+fn from_parquet_projected<R>(reader: R, project: &[ColSpec]) -> Result<DataTable, String>
 where
     R: parquet::file::reader::ChunkReader + 'static,
 {
-    use parquet::file::reader::FileReader;
-    let schema = reader.metadata().file_metadata().schema();
-    let header: Vec<String> = schema
-        .get_fields()
-        .iter()
-        .map(|f| f.name().to_string())
-        .collect();
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use parquet::arrow::ProjectionMask;
+
+    let builder = ParquetRecordBatchReaderBuilder::try_new(reader)
+        .map_err(|e| format!("Cannot open parquet: {e}"))?;
+
+    let arrow_schema = builder.schema().clone();
+    let parquet_schema = builder.parquet_schema().clone();
+    let fields = arrow_schema.fields();
+
+    let (col_indices, header): (Vec<usize>, Vec<String>) = if project.is_empty() {
+        (
+            (0..fields.len()).collect(),
+            fields.iter().map(|f| f.name().clone()).collect(),
+        )
+    } else {
+        // Resolve specs to (col_index, name), then deduplicate by col_index
+        // (first occurrence wins).  Duplicates arise when --x default=Index(0)
+        // and --y includes the same column by name; Arrow's ProjectionMask is
+        // idempotent but the batch column count would mismatch our header.
+        let mut seen = std::collections::HashSet::new();
+        let mut indices = Vec::with_capacity(project.len());
+        let mut names = Vec::with_capacity(project.len());
+        for spec in project {
+            let (idx, name) = match spec {
+                ColSpec::Index(i) => {
+                    if *i >= fields.len() {
+                        return Err(format!(
+                            "Column index {i} out of range (file has {} columns)",
+                            fields.len()
+                        ));
+                    }
+                    (*i, fields[*i].name().clone())
+                }
+                ColSpec::Name(n) => {
+                    let idx = fields.iter().position(|f| f.name() == n).ok_or_else(|| {
+                        format!(
+                            "Column '{n}' not found in parquet file. Available: {}",
+                            fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>().join(", ")
+                        )
+                    })?;
+                    (idx, n.clone())
+                }
+            };
+            if seen.insert(idx) {
+                indices.push(idx);
+                names.push(name);
+            }
+        }
+        (indices, names)
+    };
+
+    let mask = ProjectionMask::roots(&parquet_schema, col_indices);
+
+    let batch_reader = builder
+        .with_projection(mask)
+        .with_batch_size(65536)
+        .build()
+        .map_err(|e| format!("Cannot build parquet reader: {e}"))?;
 
     let mut rows: Vec<Vec<String>> = Vec::new();
-    let iter = reader
-        .get_row_iter(None)
-        .map_err(|e| format!("Failed to read parquet rows: {e}"))?;
-
-    for result in iter {
-        let row = result.map_err(|e| format!("Failed to read parquet row: {e}"))?;
-        let vals: Vec<String> = row
-            .get_column_iter()
-            .map(|(_, field)| field_to_string(field))
+    for batch_result in batch_reader {
+        let batch = batch_result.map_err(|e| format!("Failed to read parquet batch: {e}"))?;
+        let n_rows = batch.num_rows();
+        let n_cols = batch.num_columns();
+        // Convert each projected column to strings, then transpose into rows.
+        let col_strs: Vec<Vec<String>> = (0..n_cols)
+            .map(|ci| {
+                let col = batch.column(ci);
+                (0..n_rows).map(|ri| arrow_value_to_string(col.as_ref(), ri)).collect()
+            })
             .collect();
-        rows.push(vals);
+        for ri in 0..n_rows {
+            rows.push(col_strs.iter().map(|c| c[ri].clone()).collect());
+        }
     }
 
-    Ok(DataTable {
-        header: Some(header),
-        rows,
-    })
+    Ok(DataTable { header: Some(header), rows })
 }
 
 #[cfg(feature = "parquet")]
-fn field_to_string(field: &parquet::record::Field) -> String {
-    use parquet::record::Field;
-    match field {
-        Field::Null => String::new(),
-        Field::Str(s) => s.clone(),
-        Field::Bytes(b) => String::from_utf8_lossy(b.data()).into_owned(),
-        Field::ListInternal(_) | Field::MapInternal(_) | Field::Group(_) => String::new(),
-        other => other.to_string(),
+fn arrow_value_to_string(col: &dyn arrow_array::Array, i: usize) -> String {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    if col.is_null(i) {
+        return String::new();
+    }
+
+    macro_rules! prim {
+        ($T:ty) => {
+            col.as_any()
+                .downcast_ref::<$T>()
+                .map(|a| a.value(i).to_string())
+                .unwrap_or_default()
+        };
+    }
+
+    match col.data_type() {
+        DataType::Float32 => prim!(Float32Array),
+        DataType::Float64 => prim!(Float64Array),
+        DataType::Int8 => prim!(Int8Array),
+        DataType::Int16 => prim!(Int16Array),
+        DataType::Int32 => prim!(Int32Array),
+        DataType::Int64 => prim!(Int64Array),
+        DataType::UInt8 => prim!(UInt8Array),
+        DataType::UInt16 => prim!(UInt16Array),
+        DataType::UInt32 => prim!(UInt32Array),
+        DataType::UInt64 => prim!(UInt64Array),
+        DataType::Boolean => col
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .map(|a| a.value(i).to_string())
+            .unwrap_or_default(),
+        DataType::Utf8 => col
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .map(|a| a.value(i).to_string())
+            .unwrap_or_default(),
+        DataType::LargeUtf8 => col
+            .as_any()
+            .downcast_ref::<LargeStringArray>()
+            .map(|a| a.value(i).to_string())
+            .unwrap_or_default(),
+        DataType::Date32 => col
+            .as_any()
+            .downcast_ref::<Date32Array>()
+            .and_then(|a| {
+                let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1)?;
+                epoch
+                    .checked_add_signed(chrono::Duration::days(a.value(i) as i64))
+                    .map(|d| d.to_string())
+            })
+            .unwrap_or_default(),
+        DataType::Date64 => col
+            .as_any()
+            .downcast_ref::<Date64Array>()
+            .and_then(|a| {
+                chrono::DateTime::from_timestamp_millis(a.value(i))
+                    .map(|dt| dt.date_naive().to_string())
+            })
+            .unwrap_or_default(),
+        DataType::Dictionary(key_dt, _) => arrow_dict_to_string(col, i, key_dt),
+        _ => String::new(),
+    }
+}
+
+#[cfg(feature = "parquet")]
+fn arrow_dict_to_string(
+    col: &dyn arrow_array::Array,
+    i: usize,
+    key_dt: &arrow_schema::DataType,
+) -> String {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    macro_rules! dict_str {
+        ($K:ty) => {{
+            col.as_any()
+                .downcast_ref::<DictionaryArray<$K>>()
+                .and_then(|dict| {
+                    if dict.keys().is_null(i) {
+                        return Some(String::new());
+                    }
+                    let key = dict.keys().value(i) as usize;
+                    let values = dict.values();
+                    match values.data_type() {
+                        DataType::Utf8 => values
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .map(|s| s.value(key).to_string()),
+                        DataType::LargeUtf8 => values
+                            .as_any()
+                            .downcast_ref::<LargeStringArray>()
+                            .map(|s| s.value(key).to_string()),
+                        _ => Some(arrow_value_to_string(values.as_ref(), key)),
+                    }
+                })
+                .unwrap_or_default()
+        }};
+    }
+
+    match key_dt {
+        DataType::Int8 => dict_str!(types::Int8Type),
+        DataType::Int16 => dict_str!(types::Int16Type),
+        DataType::Int32 => dict_str!(types::Int32Type),
+        DataType::Int64 => dict_str!(types::Int64Type),
+        DataType::UInt8 => dict_str!(types::UInt8Type),
+        DataType::UInt16 => dict_str!(types::UInt16Type),
+        DataType::UInt32 => dict_str!(types::UInt32Type),
+        DataType::UInt64 => dict_str!(types::UInt64Type),
+        _ => String::new(),
     }
 }
 

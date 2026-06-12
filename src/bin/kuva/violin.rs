@@ -51,10 +51,15 @@ pub struct ViolinArgs {
 }
 
 pub fn run(args: ViolinArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.group_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let group_col = args.group_col.unwrap_or(ColSpec::Index(0));

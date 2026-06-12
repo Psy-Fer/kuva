@@ -66,10 +66,18 @@ pub struct ForestArgs {
 }
 
 pub fn run(args: ForestArgs) -> Result<(), String> {
+    let mut proj: Vec<ColSpec> = vec![
+        args.label_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.estimate_col.clone().unwrap_or(ColSpec::Index(1)),
+        args.ci_lower_col.clone().unwrap_or(ColSpec::Index(2)),
+        args.ci_upper_col.clone().unwrap_or(ColSpec::Index(3)),
+    ];
+    if let Some(ref c) = args.weight_col { proj.push(c.clone()); }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let label_col = args.label_col.unwrap_or(ColSpec::Index(0));

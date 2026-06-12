@@ -76,10 +76,16 @@ pub struct FunnelArgs {
 }
 
 pub fn run(args: FunnelArgs) -> Result<(), String> {
+    let mut proj: Vec<ColSpec> = vec![
+        args.label.clone().unwrap_or(ColSpec::Index(0)),
+        args.value.clone().unwrap_or(ColSpec::Index(1)),
+    ];
+    if let Some(ref c) = args.mirror_col { proj.push(c.clone()); }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let label_col = args.label.unwrap_or(ColSpec::Index(0));

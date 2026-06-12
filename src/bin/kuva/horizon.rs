@@ -54,10 +54,16 @@ pub struct HorizonArgs {
 }
 
 pub fn run(args: HorizonArgs) -> Result<(), String> {
+    let mut proj: Vec<ColSpec> = vec![
+        args.x_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
+    if let Some(ref c) = args.group_col { proj.push(c.clone()); }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let x_col = args.x_col.unwrap_or(ColSpec::Index(0));

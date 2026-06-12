@@ -69,6 +69,16 @@ pub fn run(args: PhyloArgs) -> Result<(), String> {
         _ => TreeBranchStyle::Rectangular,
     };
 
+    let proj: Vec<ColSpec> = if args.newick.is_some() {
+        vec![]
+    } else {
+        vec![
+            args.parent_col.clone().unwrap_or(ColSpec::Index(0)),
+            args.child_col.clone().unwrap_or(ColSpec::Index(1)),
+            args.length_col.clone().unwrap_or(ColSpec::Index(2)),
+        ]
+    };
+
     let mut tree = if let Some(ref nwk) = args.newick {
         PhyloTree::from_newick(nwk)
     } else {
@@ -76,6 +86,7 @@ pub fn run(args: PhyloArgs) -> Result<(), String> {
             args.input.input.as_deref(),
             args.input.no_header,
             args.input.delimiter,
+            &proj,
         )?;
 
         let parent_col = args.parent_col.unwrap_or(ColSpec::Index(0));

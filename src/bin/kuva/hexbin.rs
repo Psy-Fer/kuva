@@ -96,10 +96,16 @@ fn cli_to_z_reduce(c: &CliZReduce) -> ZReduce {
 }
 
 pub fn run(args: HexbinArgs) -> Result<(), String> {
+    let mut proj: Vec<ColSpec> = vec![
+        args.x.clone().unwrap_or(ColSpec::Index(0)),
+        args.y.clone().unwrap_or(ColSpec::Index(1)),
+    ];
+    if let Some(ref c) = args.z { proj.push(c.clone()); }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let x_col = args.x.unwrap_or(ColSpec::Index(0));

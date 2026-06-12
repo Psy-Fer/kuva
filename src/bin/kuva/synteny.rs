@@ -48,6 +48,7 @@ pub fn run(args: SyntenyArgs) -> Result<(), String> {
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &[],
     )?;
 
     // Blocks file.
@@ -55,6 +56,7 @@ pub fn run(args: SyntenyArgs) -> Result<(), String> {
         Some(args.blocks_file.as_path()),
         false,
         args.input.delimiter,
+        &[],
     )?;
 
     // Parse sequences: (name, length as f64) and build name→index map.

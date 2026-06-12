@@ -44,10 +44,15 @@ pub struct VennArgs {
 }
 
 pub fn run(args: VennArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.element_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.set_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let element_col = args.element_col.unwrap_or(ColSpec::Index(0));

@@ -24,7 +24,7 @@ pdf        = ["dep:svg2pdf", "dep:flate2"]
 embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
 full       = ["embed_font", "png", "pdf"]
-parquet    = ["cli", "dep:parquet", "dep:bytes"]
+parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
 # Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
 # Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
 # Run once: cargo build --bin kuva --features cli,doom
@@ -38,7 +38,9 @@ ryu = "1"
 flate2      = { version = "1", optional = true }
 fontdue     = { version = "0.9",  optional = true }
 png         = { version = "0.18", optional = true }
-parquet = { version = "58.3", optional = true }
+parquet      = { version = "58.3", features = ["arrow"], optional = true }
+arrow-array  = { version = "58.3", optional = true }
+arrow-schema = { version = "58.3", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }

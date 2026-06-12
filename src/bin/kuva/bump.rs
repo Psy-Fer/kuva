@@ -106,10 +106,16 @@ pub enum CliCurveStyle {
 }
 
 pub fn run(args: BumpArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.series.clone().unwrap_or(ColSpec::Index(0)),
+        args.time.clone().unwrap_or(ColSpec::Index(1)),
+        args.rank.clone().unwrap_or(ColSpec::Index(2)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let series_col = args.series.unwrap_or(ColSpec::Index(0));

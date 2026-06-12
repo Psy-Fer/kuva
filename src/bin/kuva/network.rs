@@ -69,10 +69,22 @@ pub struct NetworkArgs {
 }
 
 pub fn run(args: NetworkArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = if args.matrix {
+        vec![]  // matrix mode reads all
+    } else {
+        let mut v = vec![
+            args.source_col.clone().unwrap_or(ColSpec::Index(0)),
+            args.target_col.clone().unwrap_or(ColSpec::Index(1)),
+        ];
+        if let Some(ref c) = args.weight_col { v.push(c.clone()); }
+        if let Some(ref c) = args.group_col { v.push(c.clone()); }
+        v
+    };
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let mut plot = NetworkPlot::new();

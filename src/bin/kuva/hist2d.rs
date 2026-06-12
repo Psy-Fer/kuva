@@ -73,10 +73,15 @@ fn parse_colorbar_tick_format(name: &str) -> TickFormat {
 use crate::data::parse_colormap;
 
 pub fn run(args: Hist2dArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.x.clone().unwrap_or(ColSpec::Index(0)),
+        args.y.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let x_col = args.x.unwrap_or(ColSpec::Index(0));

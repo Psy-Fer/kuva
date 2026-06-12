@@ -55,10 +55,20 @@ pub struct HeatmapArgs {
 use crate::data::parse_colormap;
 
 pub fn run(args: HeatmapArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = if args.long_format {
+        vec![
+            args.row_col.clone().unwrap_or(ColSpec::Index(0)),
+            args.col_col.clone().unwrap_or(ColSpec::Index(1)),
+            args.value_col.clone().unwrap_or(ColSpec::Index(2)),
+        ]
+    } else {
+        vec![]  // wide matrix: read all columns
+    };
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     if table.rows.is_empty() {

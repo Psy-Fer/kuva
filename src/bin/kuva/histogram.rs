@@ -42,10 +42,14 @@ pub struct HistogramArgs {
 }
 
 pub fn run(args: HistogramArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.value_col.clone().unwrap_or(ColSpec::Index(0)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let value_col = args.value_col.unwrap_or(ColSpec::Index(0));
