@@ -9366,7 +9366,7 @@ fn add_dice_legends(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout)
         } else {
             y + 8.0
         };
-        let bar_height = (computed.height - bar_y - 20.0).max(60.0);
+        let bar_height = (computed.height - computed.margin_bottom - bar_y - 8.0).max(60.0);
         add_colorbar_at(&info, scene, computed, bar_x, bar_y, bar_height);
         return true;
     }
@@ -10521,7 +10521,7 @@ pub fn render_legend_at(
     theme: &Theme,
 ) {
     let legend_padding = 10.0;
-    let line_height = 18.0;
+    let line_height = body_size as f64 * 1.5;
 
     let entry_rows = if let Some(groups) = groups {
         groups.iter().map(|g| g.entries.len() + 1).sum::<usize>()

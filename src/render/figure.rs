@@ -480,7 +480,8 @@ impl Figure {
             } else {
                 let max_label_len = entries.iter().map(|e| e.label.len()).max().unwrap_or(0);
                 let w = (max_label_len as f64 * 7.0 + 35.0).max(80.0);
-                let h = entries.len() as f64 * 18.0 + 20.0;
+                let line_h = user_layouts.first().map_or(12, |l| l.body_size) as f64 * 1.5;
+                let h = entries.len() as f64 * line_h + 20.0;
                 (w, h)
             }
         } else {
