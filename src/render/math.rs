@@ -14,7 +14,7 @@
 
 /// One segment of a label string: literal text or a math region (the body of
 /// a `$...$`, without the dollar signs).
-pub enum Segment<'a> {
+pub(crate) enum Segment<'a> {
     Text(&'a str),
     Math(&'a str),
 }
@@ -28,7 +28,7 @@ pub fn needs_rewrite(s: &str) -> bool {
 
 /// Cheap pre-check: does the string contain at least one `$...$` region?
 /// Requires two unescaped `$`. Avoids the segment-split cost for plain labels.
-pub fn contains_math(s: &str) -> bool {
+pub(crate) fn contains_math(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
     let mut count = 0usize;
@@ -50,7 +50,7 @@ pub fn contains_math(s: &str) -> bool {
 
 /// Split a label on `$...$` regions, honoring `\$` as a literal dollar.
 /// An unclosed `$` makes the remainder a literal text segment.
-pub fn split_segments(s: &str) -> Vec<Segment<'_>> {
+pub(crate) fn split_segments(s: &str) -> Vec<Segment<'_>> {
     let bytes = s.as_bytes();
     let mut out = Vec::new();
     let mut cursor = 0usize;
@@ -95,8 +95,9 @@ pub fn split_segments(s: &str) -> Vec<Segment<'_>> {
     out
 }
 
-/// Map a LaTeX-style command name (no leading `\`) to a Unicode symbol.
-pub fn command_to_unicode(name: &str) -> Option<char> {
+/// Map a LaTeX-style command name (no leading `\`) to a single Unicode symbol.
+/// For multi-character operator names (`\log`, `\sin`, …) see [`command_to_str`].
+pub(crate) fn command_to_unicode(name: &str) -> Option<char> {
     Some(match name {
         // Greek lowercase
         "alpha" => 'α',
@@ -135,6 +136,7 @@ pub fn command_to_unicode(name: &str) -> Option<char> {
         "Omega" => 'Ω',
         // Operators / relations
         "cdot" => '·',
+        "circ" => '∘',
         "times" => '×',
         "div" => '÷',
         "pm" => '±',
@@ -173,6 +175,49 @@ pub fn command_to_unicode(name: &str) -> Option<char> {
         "Rightarrow" => '⇒',
         "Leftarrow" => '⇐',
         "leftrightarrow" => '↔',
+        _ => return None,
+    })
+}
+
+/// Map a LaTeX-style operator name to its plain-text form.
+/// These are the standard LaTeX "operator names" that render as upright roman
+/// text. Returning a `&str` lets us handle multi-character names (`log`, `sin`)
+/// without needing a separate Unicode character.
+pub(crate) fn command_to_str(name: &str) -> Option<&'static str> {
+    Some(match name {
+        // Trigonometric
+        "sin" => "sin",
+        "cos" => "cos",
+        "tan" => "tan",
+        "cot" => "cot",
+        "sec" => "sec",
+        "csc" => "csc",
+        "arcsin" => "arcsin",
+        "arccos" => "arccos",
+        "arctan" => "arctan",
+        // Exponential / logarithm
+        "exp" => "exp",
+        "log" => "log",
+        "ln" => "ln",
+        "lg" => "lg",
+        // Limits / extrema
+        "lim" => "lim",
+        "limsup" => "lim sup",
+        "liminf" => "lim inf",
+        "min" => "min",
+        "max" => "max",
+        "sup" => "sup",
+        "inf" => "inf",
+        // Algebra / analysis
+        "arg" => "arg",
+        "det" => "det",
+        "dim" => "dim",
+        "ker" => "ker",
+        "gcd" => "gcd",
+        "lcm" => "lcm",
+        "Pr" => "Pr",
+        "hom" => "hom",
+        "deg" => "deg",
         _ => return None,
     })
 }
@@ -240,6 +285,11 @@ fn clean_math(body: &str, out: &mut String) {
                 _ => {
                     if let Some(u) = command_to_unicode(name) {
                         out.push(u);
+                        i = next;
+                        continue;
+                    }
+                    if let Some(s) = command_to_str(name) {
+                        out.push_str(s);
                         i = next;
                         continue;
                     }
@@ -683,5 +733,29 @@ mod tests {
             to_unicode("$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$"),
             "(-b ± √(b² - 4ac))/(2a)"
         );
+    }
+
+    #[test]
+    fn circ_composition_operator() {
+        assert_eq!(to_unicode("$f \\circ g$"), "f ∘ g");
+    }
+
+    #[test]
+    fn operator_names_preserved() {
+        assert_eq!(to_unicode("$\\log x$"), "log x");
+        assert_eq!(to_unicode("$\\ln x$"), "ln x");
+        assert_eq!(to_unicode("$\\sin(\\theta)$"), "sin(θ)");
+        assert_eq!(to_unicode("$\\cos(\\phi)$"), "cos(φ)");
+        assert_eq!(to_unicode("$\\exp(-x^2)$"), "exp(-x²)");
+        assert_eq!(to_unicode("$\\min(a, b)$"), "min(a, b)");
+        assert_eq!(to_unicode("$\\max(a, b)$"), "max(a, b)");
+        assert_eq!(to_unicode("$\\lim_{x \\to 0}$"), "lim_(x → 0)"); // space has no sub → fallback
+    }
+
+    #[test]
+    fn operator_name_with_subscript() {
+        // Common case in bioscience: log₁₀ p-value axis
+        assert_eq!(to_unicode("$-\\log_{10}(p)$"), "-log₁₀(p)");
+        assert_eq!(to_unicode("$\\log_2 n$"), "log₂ n");
     }
 }

@@ -10,6 +10,7 @@
 //! SVGs are written to `docs/src/assets/math/`.
 
 use kuva::backend::svg::SvgBackend;
+use kuva::plot::line::LinePlot;
 use kuva::plot::scatter::ScatterPlot;
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
@@ -24,7 +25,6 @@ fn write(name: &str, plots: Vec<Plot>, layout: Layout) {
     fs::write(format!("{OUT}/{name}.svg"), svg).unwrap();
 }
 
-/// A scatter with a fixed dataset; only the labels vary between scenarios.
 fn scatter(title: &str, x_label: &str, y_label: &str) -> (Vec<Plot>, Layout) {
     let plot = ScatterPlot::new()
         .with_data(vec![(1.0_f64, 1.0), (2.0, 4.0), (3.0, 9.0)])
@@ -45,7 +45,7 @@ fn main() {
     let (p, l) = scatter("Power law", "$x^2 + y^2 = r^2$", "$f(x)$");
     write("superscript", p, l);
 
-    // ── Fractions & radicals (lowered to inline a/b and √(…)) ────────────
+    // ── Fractions & radicals ──────────────────────────────────────────────
     let (p, l) = scatter("Fraction", "$\\frac{a + b}{c}$", "rate");
     write("fraction", p, l);
 
@@ -73,6 +73,62 @@ fn main() {
         "$\\nabla \\cdot F$",
     );
     write("mixed", p, l);
+
+    // ── Operator names (\log, \sin, etc.) — realistic scientific use cases ─
+
+    // Volcano-plot-style axes: very common in RNA-seq / GWAS
+    {
+        let pts: Vec<(f64, f64)> = vec![
+            (-4.1, 8.2),
+            (-2.3, 5.1),
+            (-1.2, 1.8),
+            (0.1, 0.4),
+            (0.9, 1.2),
+            (1.8, 3.7),
+            (2.5, 4.9),
+            (3.6, 7.8),
+            (4.4, 11.1),
+        ];
+        let plot = ScatterPlot::new().with_data(pts).with_color("steelblue");
+        let layout = Layout::new((-5.0, 5.0), (0.0, 12.0))
+            .with_title("Differential expression")
+            .with_x_label("$\\log_2$ fold change")
+            .with_y_label("$-\\log_{10}(p)$");
+        write("log_axes", vec![Plot::Scatter(plot)], layout);
+    }
+
+    // Sinusoidal line: shows \sin, \theta, \pi in axis labels
+    {
+        use std::f64::consts::PI;
+        let data: Vec<(f64, f64)> = (0..=60)
+            .map(|i| {
+                let x = i as f64 * PI / 30.0;
+                (x, x.sin())
+            })
+            .collect();
+        let plot = LinePlot::new().with_data(data).with_color("steelblue");
+        let layout = Layout::new((0.0, 2.0 * PI), (-1.1, 1.1))
+            .with_title("$\\sin(\\theta)$")
+            .with_x_label("$\\theta$ (radians)")
+            .with_y_label("$\\sin(\\theta)$");
+        write("trig", vec![Plot::Line(plot)], layout);
+    }
+
+    // Exponential decay: shows \exp in a label
+    {
+        let data: Vec<(f64, f64)> = (0..=40)
+            .map(|i| {
+                let x = i as f64 * 0.1;
+                (x, (-x).exp())
+            })
+            .collect();
+        let plot = LinePlot::new().with_data(data).with_color("steelblue");
+        let layout = Layout::new((0.0, 4.0), (0.0, 1.05))
+            .with_title("Exponential decay")
+            .with_x_label("time (s)")
+            .with_y_label("$\\exp(-t)$");
+        write("exp_decay", vec![Plot::Line(plot)], layout);
+    }
 
     println!("Math SVGs written to {OUT}/");
 }

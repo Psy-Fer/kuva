@@ -1,77 +1,227 @@
 # Math in Labels
 
-Any label — axis titles, the plot title, `TextPlot` bodies — may embed math
-inside `$...$` using LaTeX-ish syntax:
+Any label — plot title, axis labels, `TextPlot` markdown bodies — may embed math
+inside `$...$` using LaTeX-ish syntax. Math regions are lowered to inline
+**Unicode** text at render time: zero dependencies, no feature flag, always on,
+in every backend including the terminal.
 
 ```rust
 Layout::new((0.0, 3.0), (0.0, 10.0))
-    .with_x_label("Variance, $\\sigma^2$ (units)")
-    .with_y_label("Energy $E = mc^2$");
+    .with_x_label("$\\log_2$ fold change")
+    .with_y_label("$-\\log_{10}(p)$")
+    .with_title("Differential expression ($\\alpha = 0.05$)");
 ```
 
-Math regions are lowered to inline **Unicode** text — zero dependencies,
-always on, in every backend including the terminal:
+A literal dollar sign is written `\$`. A `$` without a closing partner is left
+untouched as plain text.
+
+## Quick examples
 
 | Input | Output |
 |-------|--------|
 | `$\sigma^2$` | σ² |
 | `$x_i$` | xᵢ |
+| `$\mu \pm \sigma$` | μ ± σ |
 | `$a \leq b \cdot c$` | a ≤ b · c |
-| `$\frac{a}{b}$` | a/b |
 | `$\frac{a+b}{c}$` | (a+b)/c |
 | `$\sqrt{x^2+y^2}$` | √(x²+y²) |
 | `$\sum_{i=1}^{n} x_i$` | ∑ᵢ₌₁ⁿ xᵢ |
-
-The lowering never emits a stray `\` or `$`. A literal dollar sign is written
-`\$` (e.g. `Price \$5`), and a `$` without a closing partner is left untouched.
+| `$-\log_{10}(p)$` | -log₁₀(p) |
+| `$\sin(\theta)$` | sin(θ) |
+| `$\exp(-t)$` | exp(-t) |
+| `$f \circ g$` | f ∘ g |
 
 ## Supported syntax
 
-- **Greek letters** — `\alpha`…`\Omega`, including variants like `\varepsilon`
-  and `\varphi`.
-- **Operators, relations, arrows** — `\pm`, `\times`, `\cdot`, `\div`,
-  `\leq`, `\geq`, `\neq`, `\approx`, `\propto`, `\in`, `\partial`, `\nabla`,
-  `\infty`, `\to`, `\degree`, and friends.
-- **Superscripts / subscripts** — `x^2` → x², `x_i` → xᵢ, with `{...}` groups
-  (`x^{2n}` → x²ⁿ). These are **all-or-nothing**: if every character in the
-  group has a Unicode super/subscript form you get `x²ⁿ`; if any doesn't
-  (e.g. `q`, most capitals) the whole group falls back to a clean `x^(2q)` —
-  never a half-substituted mix.
-- **Fractions** — `\frac{a}{b}` → `a/b`; multi-term parts are parenthesised:
-  `\frac{a+b}{c}` → `(a+b)/c`.
-- **Radicals** — `\sqrt{x}` → `√x`, `\sqrt{x+y}` → `√(x+y)`,
-  `\sqrt[3]{x}` → `³√x`.
+### Greek letters
 
-Fractions and radicals are rendered **inline** (`a/b`, `√(…)`), never
-stacked — the output is plain text that flows anywhere a label can go,
-including rotated y-axis titles and terminal character grids. Unknown
-commands are dropped cleanly (the argument is kept, the backslash never
-leaks into output).
+Both cases: `\alpha`…`\omega` (lowercase) and `\Gamma`, `\Delta`, `\Theta`,
+`\Lambda`, `\Xi`, `\Pi`, `\Sigma`, `\Phi`, `\Psi`, `\Omega` (uppercase).
+Variants: `\varepsilon` → ε, `\varphi` → φ.
 
-## Examples
+### Operators, relations, arrows
+
+`\pm` ±, `\mp` ∓, `\times` ×, `\cdot` ·, `\div` ÷, `\circ` ∘,
+`\leq` ≤, `\geq` ≥, `\neq` ≠, `\approx` ≈, `\equiv` ≡, `\sim` ∼,
+`\propto` ∝, `\ll` ≪, `\gg` ≫,
+`\in` ∈, `\notin` ∉, `\subset` ⊂, `\cup` ∪, `\cap` ∩,
+`\infty` ∞, `\partial` ∂, `\nabla` ∇, `\degree` °, `\angle` ∠,
+`\forall` ∀, `\exists` ∃, `\ldots` …, `\cdots` ⋯,
+`\sum` ∑, `\prod` ∏, `\int` ∫,
+`\to`/`\rightarrow` →, `\leftarrow` ←, `\Rightarrow` ⇒, `\Leftarrow` ⇐,
+`\leftrightarrow` ↔.
+
+### Operator names
+
+Standard LaTeX function names pass through as plain text — their arguments and
+subscripts lower normally:
+
+| Command | Output | Typical use |
+|---------|--------|-------------|
+| `\log` | log | `$\log_{10} x$` → log₁₀ x |
+| `\ln` | ln | `$\ln(n)$` → ln(n) |
+| `\exp` | exp | `$\exp(-t)$` → exp(-t) |
+| `\sin` | sin | `$\sin(\theta)$` → sin(θ) |
+| `\cos` | cos | `$\cos(\phi)$` → cos(φ) |
+| `\tan` | tan | `$\tan(\alpha)$` → tan(α) |
+| `\arcsin` | arcsin | `$\arcsin(x)$` → arcsin(x) |
+| `\arccos` | arccos | |
+| `\arctan` | arctan | |
+| `\min` | min | `$\min(a,b)$` → min(a,b) |
+| `\max` | max | |
+| `\lim` | lim | `$\lim_{x \to 0}$` → lim_(x → 0) |
+| `\limsup` | lim sup | |
+| `\liminf` | lim inf | |
+| `\sup` | sup | |
+| `\inf` | inf | (infimum, not infinity — use `\infty` for ∞) |
+| `\arg` | arg | |
+| `\det` | det | |
+| `\dim` | dim | |
+| `\ker` | ker | |
+| `\gcd` | gcd | |
+| `\lcm` | lcm | |
+| `\Pr` | Pr | |
+| `\deg` | deg | |
+
+### Superscripts and subscripts
+
+`^` and `_` take a single character or a `{...}` group. These are
+**all-or-nothing**: every character in the group must have a Unicode
+super/subscript form, otherwise the whole group falls back to a clean
+`x^(…)` or `x_(…)` — never a half-substituted mix.
+
+```
+x^2       → x²         (digit, maps cleanly)
+x^{2n}    → x²ⁿ        (both have superscript forms)
+x^{2q}    → x^(2q)     (q has no superscript — clean fallback)
+x_i       → xᵢ
+x_{i+1}   → xᵢ₊₁
+```
+
+Braceless command operands work too: `x^\alpha` → x^(α), `x_\beta` → x_(β).
+
+### Fractions and radicals
+
+`\frac{a}{b}` → `a/b`; multi-term parts are parenthesised: `\frac{a+b}{c}` →
+`(a+b)/c`. Rendering is always **inline** — the output is plain text that flows
+anywhere a label can go, including rotated y-axis titles and terminal grids.
+
+`\sqrt{x}` → `√x`, `\sqrt{x+y}` → `√(x+y)`, `\sqrt[3]{x}` → `³√x`.
+
+## Plot examples
 
 Generated by `cargo run --example math`:
 
-<img src="../assets/math/greek.svg" alt="Greek letters in an axis label" width="420">
-<img src="../assets/math/superscript.svg" alt="Superscripts in an axis label" width="420">
-<img src="../assets/math/fraction.svg" alt="Fraction in an axis label" width="420">
-<img src="../assets/math/sqrt.svg" alt="Square root in an axis label" width="420">
-<img src="../assets/math/sum.svg" alt="Summation with limits in an axis label" width="420">
-<img src="../assets/math/quadratic.svg" alt="Quadratic formula in an axis label" width="420">
-<img src="../assets/math/rotated_ylabel.svg" alt="Math in a rotated y-axis title" width="420">
-<img src="../assets/math/mixed.svg" alt="Mixed text and math in labels" width="420">
+### Scientific axes
+
+`$\log_2$ fold change` / `$-\log_{10}(p)$` — the standard RNA-seq and GWAS
+axis pair:
+
+<img src="../assets/math/log_axes.svg" alt="log2 fold change vs -log10(p) axes" width="500">
+
+### Trigonometric labels
+
+`$\sin(\theta)$` in the title and y-axis label:
+
+<img src="../assets/math/trig.svg" alt="sin(theta) line plot" width="500">
+
+### Exponential decay
+
+`$\exp(-t)$` on the y-axis:
+
+<img src="../assets/math/exp_decay.svg" alt="exp(-t) decay curve" width="500">
+
+### Greek letters and symbols
+
+`$\mu \pm \sigma$` on the x-axis:
+
+<img src="../assets/math/greek.svg" alt="Greek letters in an axis label" width="500">
+
+### Superscripts
+
+`$x^2 + y^2 = r^2$` as the x-axis label:
+
+<img src="../assets/math/superscript.svg" alt="Superscripts in an axis label" width="500">
+
+### Fractions
+
+`$\frac{a+b}{c}$` → `(a+b)/c`:
+
+<img src="../assets/math/fraction.svg" alt="Fraction in an axis label" width="500">
+
+### Square root
+
+`$\sqrt{x^2+y^2}$` → `√(x²+y²)`:
+
+<img src="../assets/math/sqrt.svg" alt="Square root in an axis label" width="500">
+
+### Summation with limits
+
+`$\sum_{i=1}^{n} x_i$` → `∑ᵢ₌₁ⁿ xᵢ`:
+
+<img src="../assets/math/sum.svg" alt="Summation with limits" width="500">
+
+### Quadratic formula
+
+`$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$` → `x = (-b ± √(b² - 4ac))/(2a)`:
+
+<img src="../assets/math/quadratic.svg" alt="Quadratic formula in an axis label" width="500">
+
+### Mixed text and math
+
+<img src="../assets/math/mixed.svg" alt="Mixed text and math in labels" width="500">
+
+### Rotated y-axis title
+
+`Energy $E = mc^2$` — math works in rotated labels too:
+
+<img src="../assets/math/rotated_ylabel.svg" alt="Math in a rotated y-axis title" width="500">
 
 ## CLI
 
 Math works in any label flag — no extra flags needed:
 
 ```bash
-kuva scatter data.tsv --x x --y y \
-    --x-label 'Variance, $\sigma^2$ (units)' \
-    --y-label '$\sqrt{x^2 + y^2}$' \
-    --title 'Rate $\frac{a + b}{c}$' \
-    -o plot.svg
+kuva scatter data.tsv \
+    --x log2fc --y neg_log10_pvalue \
+    --x-label '$\log_2$ fold change' \
+    --y-label '$-\log_{10}(p)$' \
+    --title 'Differential expression ($\alpha = 0.05$)' \
+    -o volcano.svg
 ```
 
-The same labels render in the terminal with `--terminal` — the lowered
+The same labels render in the terminal backend with `--terminal` — the lowered
 Unicode lands directly on the character grid.
+
+### Shell quoting
+
+`$` and `\` are special characters in most shells. **Single quotes** are the
+simplest way to pass math labels literally — the shell treats everything between
+`'...'` as plain text:
+
+```bash
+--x-label '$\log_2$ fold change'   # single quotes: $ and \ are literal
+```
+
+If you need to interpolate a shell variable into a label that also contains
+math, mix quote styles:
+
+```bash
+SAMPLE="$(basename "$file" .tsv)"
+--title '$\sigma^2$ for '"$SAMPLE"
+#        ^^^^^^^^^^^^^^^^ literal  ^^^^^^^^^ variable expands
+```
+
+Or use double quotes and escape both `$` and `\`:
+
+```bash
+--title "\$\\sigma^2\$ for $SAMPLE"
+#        \$ → $,  \\ → \,  $SAMPLE → expands
+```
+
+On **Windows** (cmd.exe / PowerShell), `$` and `\` have no special meaning in
+double-quoted strings, so no escaping is needed:
+
+```powershell
+kuva scatter data.tsv --x-label "$\log_2$ fold change"
+```
