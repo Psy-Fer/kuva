@@ -937,6 +937,37 @@ fn figure_legend_bottom_right() {
     assert_eq!(svg_dim(&svg, "height"), 476.0);
 }
 
+// ── Legend height scales with body_size ─────────────────────────────────────
+//
+// Regression for the hardcoded `18.0` in render_legend_at and figure.rs.
+// With body_size=16: line_height = 16*1.5 = 24 (not 18).
+// Legend entries "Alpha"/"Beta" (2 entries):
+//   legend_height = 2*24+20 = 68   (was 2*18+20 = 56 at default body_size=12)
+//   legend_spacing = 20
+// Top legend: total height = 400 + 68 + 20 = 488  (was 476 at body_size=12)
+
+#[test]
+fn figure_legend_height_scales_with_body_size() {
+    let plots = legend_plots();
+    let layouts = vec![
+        Layout::auto_from_plots(&plots[0]).with_body_size(16),
+        Layout::auto_from_plots(&plots[1]).with_body_size(16),
+    ];
+    let scene = Figure::new(1, 2)
+        .with_plots(plots)
+        .with_layouts(layouts)
+        .with_shared_legend_position(FigureLegendPosition::TopCenter)
+        .render();
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/figure_legend_scaled_body_size.svg", &svg).unwrap();
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(
+        svg_dim(&svg, "height"),
+        488.0,
+        "legend height must scale with body_size (16*1.5=24 per entry, 2*24+20=68 + 20 spacing)"
+    );
+}
+
 // ── Backward-compat aliases still work ───────────────────────────────────────
 
 #[test]
