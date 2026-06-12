@@ -95,8 +95,12 @@ pub fn run(args: TreemapArgs) -> Result<(), String> {
         args.label.clone().unwrap_or(ColSpec::Index(0)),
         args.value.clone().unwrap_or(ColSpec::Index(1)),
     ];
-    if let Some(ref c) = args.parent { proj.push(c.clone()); }
-    if let Some(ref c) = args.color_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.parent {
+        proj.push(c.clone());
+    }
+    if let Some(ref c) = args.color_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

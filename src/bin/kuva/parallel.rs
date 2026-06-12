@@ -56,7 +56,9 @@ pub struct ParallelArgs {
 
 pub fn run(args: ParallelArgs) -> Result<(), String> {
     let mut proj: Vec<ColSpec> = args.value_cols.to_vec();
-    if let Some(ref c) = args.group_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.group_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

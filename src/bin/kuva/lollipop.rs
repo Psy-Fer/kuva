@@ -63,7 +63,9 @@ pub fn run(args: LollipopArgs) -> Result<(), String> {
         args.x_col.clone().unwrap_or(ColSpec::Index(0)),
         args.y_col.clone().unwrap_or(ColSpec::Index(1)),
     ];
-    if let Some(ref c) = args.label_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.label_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

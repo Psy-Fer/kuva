@@ -62,7 +62,7 @@ pub fn run(args: HeatmapArgs) -> Result<(), String> {
             args.value_col.clone().unwrap_or(ColSpec::Index(2)),
         ]
     } else {
-        vec![]  // wide matrix: read all columns
+        vec![] // wide matrix: read all columns
     };
     let table = DataTable::parse(
         args.input.input.as_deref(),

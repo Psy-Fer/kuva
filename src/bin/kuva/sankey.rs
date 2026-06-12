@@ -113,7 +113,7 @@ fn parse_node_coloring(name: &str) -> Result<SankeyNodeColoring, String> {
 
 pub fn run(args: SankeyArgs) -> Result<(), String> {
     let proj: Vec<ColSpec> = if !args.axis_cols.is_empty() {
-        args.axis_cols.to_vec()  // alluvium mode
+        args.axis_cols.to_vec() // alluvium mode
     } else {
         vec![
             args.source_col.clone().unwrap_or(ColSpec::Index(0)),

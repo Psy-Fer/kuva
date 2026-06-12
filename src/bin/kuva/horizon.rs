@@ -58,7 +58,9 @@ pub fn run(args: HorizonArgs) -> Result<(), String> {
         args.x_col.clone().unwrap_or(ColSpec::Index(0)),
         args.value_col.clone().unwrap_or(ColSpec::Index(1)),
     ];
-    if let Some(ref c) = args.group_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.group_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

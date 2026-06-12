@@ -67,9 +67,15 @@ pub struct ScatterArgs {
 
 pub fn run(args: ScatterArgs) -> Result<(), String> {
     let x_spec = args.x.clone().unwrap_or(ColSpec::Index(0));
-    let y_specs: Vec<ColSpec> = if args.y.is_empty() { vec![ColSpec::Index(1)] } else { args.y.clone() };
+    let y_specs: Vec<ColSpec> = if args.y.is_empty() {
+        vec![ColSpec::Index(1)]
+    } else {
+        args.y.clone()
+    };
     let mut proj: Vec<ColSpec> = std::iter::once(x_spec).chain(y_specs).collect();
-    if let Some(ref c) = args.color_by { proj.push(c.clone()); }
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

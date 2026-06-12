@@ -66,8 +66,12 @@ pub struct RadarArgs {
 
 pub fn run(args: RadarArgs) -> Result<(), String> {
     let mut proj: Vec<ColSpec> = args.axes.to_vec();
-    if let Some(ref c) = args.label_col { proj.push(c.clone()); }
-    if let Some(ref c) = args.color_by { proj.push(c.clone()); }
+    if let Some(ref c) = args.label_col {
+        proj.push(c.clone());
+    }
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

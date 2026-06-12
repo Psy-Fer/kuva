@@ -67,9 +67,15 @@ pub fn run(args: GanttArgs) -> Result<(), String> {
         args.start_col.clone().unwrap_or(ColSpec::Index(1)),
         args.end_col.clone().unwrap_or(ColSpec::Index(2)),
     ];
-    if let Some(ref c) = args.group_col { proj.push(c.clone()); }
-    if let Some(ref c) = args.progress_col { proj.push(c.clone()); }
-    if let Some(ref c) = args.milestone_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.group_col {
+        proj.push(c.clone());
+    }
+    if let Some(ref c) = args.progress_col {
+        proj.push(c.clone());
+    }
+    if let Some(ref c) = args.milestone_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

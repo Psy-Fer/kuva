@@ -51,7 +51,9 @@ pub fn run(args: PrArgs) -> Result<(), String> {
         args.score_col.clone().unwrap_or(ColSpec::Index(0)),
         args.label_col.clone().unwrap_or(ColSpec::Index(1)),
     ];
-    if let Some(ref c) = args.color_by { proj.push(c.clone()); }
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

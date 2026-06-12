@@ -100,7 +100,9 @@ pub fn run(args: HexbinArgs) -> Result<(), String> {
         args.x.clone().unwrap_or(ColSpec::Index(0)),
         args.y.clone().unwrap_or(ColSpec::Index(1)),
     ];
-    if let Some(ref c) = args.z { proj.push(c.clone()); }
+    if let Some(ref c) = args.z {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

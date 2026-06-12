@@ -77,7 +77,9 @@ pub fn run(args: CandlestickArgs) -> Result<(), String> {
         args.low_col.clone().unwrap_or(ColSpec::Index(3)),
         args.close_col.clone().unwrap_or(ColSpec::Index(4)),
     ];
-    if let Some(ref c) = args.volume_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.volume_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

@@ -53,7 +53,9 @@ pub struct QQArgs {
 
 pub fn run(args: QQArgs) -> Result<(), String> {
     let mut proj: Vec<ColSpec> = vec![args.value.clone()];
-    if let Some(ref c) = args.color_by { proj.push(c.clone()); }
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

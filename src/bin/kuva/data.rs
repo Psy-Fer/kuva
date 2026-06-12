@@ -57,6 +57,7 @@ impl DataTable {
     /// When the `parquet` feature is enabled, `.parquet` files and parquet
     /// piped via stdin (detected by magic bytes `PAR1`) are handled
     /// automatically; no flag is needed.
+    #[cfg_attr(not(feature = "parquet"), allow(unused_variables))]
     pub fn parse(
         input: Option<&Path>,
         no_header: bool,
@@ -316,7 +317,11 @@ where
                     let idx = fields.iter().position(|f| f.name() == n).ok_or_else(|| {
                         format!(
                             "Column '{n}' not found in parquet file. Available: {}",
-                            fields.iter().map(|f| f.name().as_str()).collect::<Vec<_>>().join(", ")
+                            fields
+                                .iter()
+                                .map(|f| f.name().as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         )
                     })?;
                     (idx, n.clone())
@@ -347,7 +352,9 @@ where
         let col_strs: Vec<Vec<String>> = (0..n_cols)
             .map(|ci| {
                 let col = batch.column(ci);
-                (0..n_rows).map(|ri| arrow_value_to_string(col.as_ref(), ri)).collect()
+                (0..n_rows)
+                    .map(|ri| arrow_value_to_string(col.as_ref(), ri))
+                    .collect()
             })
             .collect();
         for ri in 0..n_rows {
@@ -355,7 +362,10 @@ where
         }
     }
 
-    Ok(DataTable { header: Some(header), rows })
+    Ok(DataTable {
+        header: Some(header),
+        rows,
+    })
 }
 
 #[cfg(feature = "parquet")]

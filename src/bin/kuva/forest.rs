@@ -72,7 +72,9 @@ pub fn run(args: ForestArgs) -> Result<(), String> {
         args.ci_lower_col.clone().unwrap_or(ColSpec::Index(2)),
         args.ci_upper_col.clone().unwrap_or(ColSpec::Index(3)),
     ];
-    if let Some(ref c) = args.weight_col { proj.push(c.clone()); }
+    if let Some(ref c) = args.weight_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,

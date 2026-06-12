@@ -130,7 +130,9 @@ fn apply_options(
 
 pub fn run(args: Scatter3DArgs) -> Result<(), String> {
     let mut proj: Vec<ColSpec> = vec![args.x.clone(), args.y.clone(), args.z.clone()];
-    if let Some(ref c) = args.color_by { proj.push(c.clone()); }
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
