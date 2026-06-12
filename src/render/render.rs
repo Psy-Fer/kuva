@@ -12824,6 +12824,16 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
         }
     }
     flush(&mut plain, &mut spans);
+
+    // Lower any `$...$` math in each span to inline Unicode, so math works
+    // inside markdown body text just like in plain labels. Math is parsed
+    // after markdown, so the styling markers are already consumed.
+    for span in &mut spans {
+        if crate::render::math::needs_rewrite(&span.text) {
+            span.text = crate::render::math::to_unicode(&span.text);
+        }
+    }
+
     spans
 }
 

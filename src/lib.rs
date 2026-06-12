@@ -35,6 +35,15 @@
 //! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
 //! | `full`       | Enables `embed_font` + `png` + `pdf`. |
 //!
+//! # Math in labels
+//!
+//! Any label (title, axis labels, annotations, markdown body text) may contain
+//! `$...$` math regions written in LaTeX-ish syntax: `$\sigma^2$`,
+//! `$\frac{a}{b}$`, `$\sqrt{x^2 + y^2}$`. They are lowered to inline Unicode —
+//! Greek letters, operators, super/subscripts, `\frac`→`a/b`, `\sqrt`→`√(…)` —
+//! by every backend, including the terminal. Zero dependencies; always on.
+//! Write a literal dollar as `\$`. See [`render::math::to_unicode`].
+//!
 //! # Fonts
 //!
 //! DejaVu Sans is bundled inside the crate. The PNG and PDF backends always load
