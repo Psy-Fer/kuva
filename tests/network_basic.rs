@@ -231,6 +231,42 @@ fn network_explicit_node_colors() {
 }
 
 #[test]
+fn network_legend_swatch_uses_explicit_color() {
+    // When a node has both a group and an explicit color, the legend swatch
+    // for that group should show the explicit color, not the palette default.
+    // Palette defaults: Group1 → #1f77b4, Group2 → #ff7f0e.
+    let net = NetworkPlot::new()
+        .with_edge("Spine", "Other", 1.0)
+        .with_node_color("Spine", "#2166ac")
+        .with_node_color("Other", "#aaaaaa")
+        .with_node_group("Spine", "Group1")
+        .with_node_group("Other", "Group2")
+        .with_labels()
+        .with_legend("Groups");
+    let plots = vec![Plot::Network(net)];
+    let layout =
+        Layout::auto_from_plots(&plots).with_title("Legend swatch honors explicit color");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains("#2166ac"),
+        "explicit color #2166ac should appear in the SVG (node or legend swatch)"
+    );
+    assert!(
+        svg.contains("#aaaaaa"),
+        "explicit color #aaaaaa should appear in the SVG (node or legend swatch)"
+    );
+    assert!(
+        !svg.contains("#1f77b4"),
+        "palette default #1f77b4 should not appear when an explicit color overrides it"
+    );
+    assert!(
+        !svg.contains("#ff7f0e"),
+        "palette default #ff7f0e should not appear when an explicit color overrides it"
+    );
+    common::write_test_output("test_outputs/network_legend_swatch_explicit.svg", svg).unwrap();
+}
+
+#[test]
 fn network_single_node_self_loop() {
     let net = NetworkPlot::new()
         .with_edge("X", "X", 1.0)
@@ -475,6 +511,124 @@ fn network_matrix_self_loop_undirected() {
         3,
         "undirected 3-node fully-connected matrix should have 3 edges"
     );
+}
+
+// ── curve field tests ─────────────────────────────────────────────────────
+
+#[test]
+fn network_edge_curve_field_default_none() {
+    // Edges added via the standard builders must have curve = None.
+    let mut net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_edge_color("B", "C", 1.0, "#ff0000")
+        .with_edge_label("C", "A", 1.0, "back")
+        .with_edge_styled("A", "C", 1.0, "#00ff00", "diag");
+    net.resolve_matrix();
+    for edge in &net.edges {
+        assert!(
+            edge.curve.is_none(),
+            "standard builder edges should have curve = None, got {:?}",
+            edge.curve
+        );
+    }
+}
+
+#[test]
+fn network_edge_curved_field_set() {
+    // with_edge_curved sets curve = Some(value) on the edge.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.3)
+        .with_edge_curved("B", "A", 1.0, -0.3);
+    assert_eq!(net.edges.len(), 2);
+    assert_eq!(
+        net.edges[0].curve,
+        Some(0.3),
+        "first curved edge should store its curve value"
+    );
+    assert_eq!(
+        net.edges[1].curve,
+        Some(-0.3),
+        "second curved edge (negative) should store its curve value"
+    );
+}
+
+#[test]
+fn network_edge_curved_svg() {
+    // with_edge_curved produces a quadratic-bezier path in the SVG.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.25)
+        .with_edge("B", "C", 1.0) // straight control
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Edge");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains(" Q "),
+        "a curved edge should emit a quadratic-bezier path (Q command)"
+    );
+    common::write_test_output("test_outputs/network_edge_curved.svg", svg).unwrap();
+}
+
+#[test]
+fn network_edge_curved_directed_arrowhead() {
+    // Curved directed edges must still carry arrowheads.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.2)
+        .with_edge_curved("B", "A", 1.0, 0.2) // parallel pair, both manually curved
+        .with_directed()
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Directed Edges");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains(" Q "),
+        "curved directed edges should use quadratic bezier"
+    );
+    // Two directed edges → two arrowhead triangles (each has two L commands).
+    let l_count = svg.matches("L ").count();
+    assert!(
+        l_count >= 4,
+        "two directed edges should have ≥4 'L ' path commands (2 per arrowhead), got {l_count}"
+    );
+    common::write_test_output("test_outputs/network_curved_directed.svg", svg).unwrap();
+}
+
+#[test]
+fn network_poa_graph() {
+    // Partial-order alignment graph: linear backbone A→B→C→D→E with arcs
+    // that skip nodes (insertions/deletions), visualised with explicit curves.
+    let net = NetworkPlot::new()
+        // Backbone
+        .with_edge("A", "B", 3.0)
+        .with_edge("B", "C", 3.0)
+        .with_edge("C", "D", 3.0)
+        .with_edge("D", "E", 3.0)
+        // Skip arcs above the backbone (positive = left = visually above)
+        .with_edge_curved("A", "C", 1.0, 0.25)
+        .with_edge_curved("B", "D", 1.0, 0.25)
+        .with_edge_curved("A", "E", 0.5, 0.4)
+        // Skip arc below
+        .with_edge_curved("C", "E", 1.0, -0.2)
+        .with_directed()
+        .with_node_position("A", 0.0, 0.5)
+        .with_node_position("B", 0.25, 0.5)
+        .with_node_position("C", 0.5, 0.5)
+        .with_node_position("D", 0.75, 0.5)
+        .with_node_position("E", 1.0, 0.5)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout =
+        Layout::auto_from_plots(&plots).with_title("POA Graph (backbone + skip arcs)");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    // Four curved skip arcs → at least four Q commands.
+    let q_count = svg.matches(" Q ").count();
+    assert!(
+        q_count >= 4,
+        "POA graph should have ≥4 quadratic-bezier arcs, got {q_count}"
+    );
+    common::write_test_output("test_outputs/network_poa_graph.svg", svg).unwrap();
 }
 
 /// Refactor regression: the directed-edge arrowhead now goes through the

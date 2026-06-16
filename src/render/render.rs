@@ -9990,7 +9990,8 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 if net.legend_label.is_some() {
                     use crate::render::palette::Palette;
                     let fallback = Palette::category10();
-                    // One entry per unique group.
+                    // One entry per unique group, seeded with palette then
+                    // overwritten by any explicit node color in that group.
                     let mut seen: Vec<String> = Vec::new();
                     let mut gi = 0usize;
                     for node in &net.nodes {
@@ -10005,6 +10006,14 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                                 });
                                 seen.push(g.clone());
                                 gi += 1;
+                            }
+                        }
+                    }
+                    // Overwrite palette swatches with explicit per-node colors.
+                    for node in &net.nodes {
+                        if let (Some(ref g), Some(ref c)) = (&node.group, &node.color) {
+                            if let Some(entry) = entries.iter_mut().rev().find(|e| &e.label == g) {
+                                entry.color = c.clone();
                             }
                         }
                     }
@@ -16040,8 +16049,8 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
 
     let fallback = Palette::category10();
 
-    // Build group→colour map.  Groups always get palette colors;
-    // per-node explicit colors are a node-level override only.
+    // Build group→colour map, seeding with palette colors then overwriting
+    // with any explicit node color set for that group.
     let mut group_map: Vec<(String, String)> = Vec::new();
     {
         let mut gi = 0usize;
@@ -16050,6 +16059,13 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 if !group_map.iter().any(|(gn, _)| gn == g) {
                     group_map.push((g.clone(), fallback[gi % fallback.len()].to_string()));
                     gi += 1;
+                }
+            }
+        }
+        for node in &net.nodes {
+            if let (Some(ref g), Some(ref c)) = (&node.group, &node.color) {
+                if let Some(pos) = group_map.iter().position(|(gn, _)| gn == g) {
+                    group_map[pos].1 = c.clone();
                 }
             }
         }
@@ -16213,10 +16229,15 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
         let r_tgt = net.nodes[ti].size.unwrap_or(net.node_radius)
             * net.nodes[ti].shape.circumradius_factor();
 
-        let is_antiparallel = net.directed && antiparallel.contains(&(si, ti));
-        let curve_offset = if is_antiparallel { dist * 0.15 } else { 0.0 };
+        let curve_offset = if let Some(c) = edge.curve {
+            dist * c
+        } else if net.directed && antiparallel.contains(&(si, ti)) {
+            dist * 0.15
+        } else {
+            0.0
+        };
 
-        if curve_offset > 0.0 {
+        if curve_offset.abs() > 1e-9 {
             // Curved edge via quadratic bezier to separate antiparallel pair.
             let perp_x = -uy;
             let perp_y = ux;
