@@ -12936,7 +12936,20 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
     let plot_top = computed.margin_top;
     let avail_w = plot_right - plot_left;
 
-    let n_entries = lp.entries.len();
+    let n_total = lp.entries.len();
+
+    // Apply entry limit: show (max-1) real entries + 1 overflow row.
+    let overflow = if let Some(limit) = lp.max_entries {
+        if n_total > limit { n_total - (limit - 1) } else { 0 }
+    } else {
+        0
+    };
+    let entries_to_show = if overflow > 0 {
+        lp.max_entries.unwrap() - 1
+    } else {
+        n_total
+    };
+    let n_display = entries_to_show + if overflow > 0 { 1 } else { 0 };
 
     // Auto-compute columns if not set, then bump up columns to fit within cell height.
     let mut n_cols = lp.cols.unwrap_or_else(|| {
@@ -12945,16 +12958,17 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
         let col_w = 18.0 + max_chars * char_px + 20.0;
         ((avail_w / col_w).floor() as usize).max(1)
     });
-    let mut n_rows = n_entries.div_ceil(n_cols);
+    let mut n_rows = n_display.max(1).div_ceil(n_cols);
 
     // Title row consumes one line_height; account for it when checking fit.
     let title_h = if lp.title.is_some() { line_height } else { 0.0 };
     let avail_h = computed.height - plot_top - title_h - legend_padding * 2.0;
-    // Increase columns until all rows fit within the cell, without splitting entries
-    // across more columns than there are entries.
-    while n_cols < n_entries && (n_rows as f64 * line_height) > avail_h {
+    // Increase columns until all rows fit within the cell, capped by max_cols
+    // so long labels are never squeezed into columns that are too narrow.
+    let col_cap = lp.max_cols.unwrap_or(usize::MAX);
+    while n_cols < n_display && n_cols < col_cap && (n_rows as f64 * line_height) > avail_h {
         n_cols += 1;
-        n_rows = n_entries.div_ceil(n_cols);
+        n_rows = n_display.max(1).div_ceil(n_cols);
     }
 
     // Optional title
@@ -12976,7 +12990,7 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
     let legend_y = cur_y;
     let col_w = avail_w / n_cols as f64;
 
-    if lp.show_box && n_entries > 0 {
+    if lp.show_box && n_display > 0 {
         let box_h = n_rows as f64 * line_height + legend_padding * 2.0;
         scene.add(Primitive::Rect {
             x: plot_left - legend_padding + 5.0,
@@ -13000,12 +13014,29 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
         });
     }
 
-    for (i, entry) in lp.entries.iter().enumerate() {
+    for (i, entry) in lp.entries.iter().take(entries_to_show).enumerate() {
         let col = i % n_cols;
         let row = i / n_cols;
         let ex = plot_left + col as f64 * col_w;
         let ey = legend_y + row as f64 * line_height;
         render_legend_entry(entry, scene, ex, ey, computed);
+    }
+    if overflow > 0 {
+        let i = entries_to_show;
+        let col = i % n_cols;
+        let row = i / n_cols;
+        let ex = plot_left + col as f64 * col_w;
+        let ey = legend_y + row as f64 * line_height;
+        scene.add(Primitive::Text {
+            x: ex + computed.legend_text_x,
+            y: ey + computed.body_size as f64 * 0.8,
+            content: format!("… (+{overflow} more)"),
+            size: computed.body_size,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
     }
 }
 
