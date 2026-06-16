@@ -926,6 +926,8 @@ fn clone_layout(l: &Layout) -> Layout {
     new.legend_groups = l.legend_groups.clone();
     new.legend_box = l.legend_box;
     new.legend_height = l.legend_height;
+    new.legend_col_limit = l.legend_col_limit;
+    new.legend_entry_limit = l.legend_entry_limit;
     new.stats_entries = l.stats_entries.clone();
     new.stats_title = l.stats_title.clone();
     new.stats_position = l.stats_position;

@@ -6789,8 +6789,21 @@ fn add_legend_with_offset(
         let plot_right = computed.width - computed.margin_right;
         // Legend sits in the reserved band below the x-axis content.
         // The x-axis labels end at (height - legend_bottom_extra); add a 5px gap.
-        let n_entries = legend.entries.len().max(1);
-        let n_rows = n_entries.div_ceil(n_cols);
+        let n_total = legend.entries.len();
+        let entry_limit = computed.legend_entry_limit;
+        // Apply entry limit: show up to (limit-1) entries + 1 overflow row.
+        let overflow = if entry_limit > 0 && n_total > entry_limit {
+            n_total - (entry_limit - 1)
+        } else {
+            0
+        };
+        let entries_to_show = if overflow > 0 {
+            entry_limit - 1
+        } else {
+            n_total
+        };
+        let n_display = entries_to_show + if overflow > 0 { 1 } else { 0 };
+        let n_rows = n_display.max(1).div_ceil(n_cols);
         let legend_y = computed.height - computed.legend_bottom_extra + 5.0;
         let avail_w = plot_right - plot_left;
         let col_w = avail_w / n_cols as f64;
@@ -6820,12 +6833,29 @@ fn add_legend_with_offset(
             });
         }
 
-        for (i, entry) in legend.entries.iter().enumerate() {
+        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
             let col = i % n_cols;
             let row = i / n_cols;
             let ex = plot_left + col as f64 * col_w;
             let ey = legend_y + row as f64 * line_height;
             render_legend_entry(entry, scene, ex, ey, computed);
+        }
+        if overflow > 0 {
+            let i = entries_to_show;
+            let col = i % n_cols;
+            let row = i / n_cols;
+            let ex = plot_left + col as f64 * col_w;
+            let ey = legend_y + row as f64 * line_height;
+            scene.add(Primitive::Text {
+                x: ex + computed.legend_text_x,
+                y: ey + computed.body_size as f64 * 0.8,
+                content: format!("… (+{overflow} more)"),
+                size: computed.body_size,
+                anchor: TextAnchor::Start,
+                rotate: None,
+                bold: false,
+                color: None,
+            });
         }
         return;
     }

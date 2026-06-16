@@ -255,6 +255,13 @@ pub struct Layout {
     pub(crate) legend_entry_count: usize,
     /// Longest legend label character count — set by `auto_from_plots` for column layout.
     pub(crate) legend_max_label_chars: usize,
+    /// Maximum number of columns for `OutsideBottomColumns` layout.
+    /// `0` means no limit (columns fill available width). Override with `with_legend_col_limit`.
+    pub legend_col_limit: usize,
+    /// Maximum number of entries shown in an `OutsideBottomColumns` legend.
+    /// Entries beyond this are replaced with a "… (+N more)" line.
+    /// `0` means unlimited. Defaults to 20 for BrickPlot via `auto_from_plots`.
+    pub legend_entry_limit: usize,
     // Stats box
     /// Pre-formatted text lines to display in a stats box (e.g. "R² = 0.847").
     pub stats_entries: Vec<String>,
@@ -421,6 +428,8 @@ impl Layout {
             legend_height: None,
             legend_entry_count: 0,
             legend_max_label_chars: 0,
+            legend_col_limit: 0,
+            legend_entry_limit: 0,
             stats_entries: Vec::new(),
             stats_title: None,
             stats_position: LegendPosition::InsideTopLeft,
@@ -523,6 +532,7 @@ impl Layout {
         let mut max_label_len: usize = 0;
         let mut legend_entry_count: usize = 0;
         let mut brick_has_notations: bool = false;
+        let mut has_brick: bool = false;
         let mut pyramid_normalize: Option<bool> = None;
         let mut horizon_right_annot_px: f64 = 0.0;
         let mut gantt_right_annot_px: f64 = 0.0;
@@ -650,6 +660,7 @@ impl Layout {
                 }
             }
             if let Plot::Brick(bp) = plot {
+                has_brick = true;
                 // Reverse labels so that names[0] appears at the TOP of the plot.
                 // map_y maps larger y-data values to the top; row 0 is rendered at
                 // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
@@ -1279,6 +1290,9 @@ impl Layout {
             layout.legend_max_label_chars = max_label_len;
             let dynamic_width = max_label_len as f64 * 8.0 + 40.0;
             layout.legend_width = dynamic_width.max(80.0);
+            if has_brick {
+                layout.legend_entry_limit = 20;
+            }
 
             // Position legend die face needs 3 cells wide — ensure legend_width fits.
             for plot in plots.iter() {
@@ -1652,6 +1666,21 @@ impl Layout {
     /// Override the auto-computed legend width. Use when labels overflow the default box.
     pub fn with_legend_width(mut self, px: f64) -> Self {
         self.legend_width = px;
+        self
+    }
+
+    /// Cap the number of columns for `OutsideBottomColumns` legend layout.
+    /// `0` means no limit (auto from available width).
+    pub fn with_legend_col_limit(mut self, n: usize) -> Self {
+        self.legend_col_limit = n;
+        self
+    }
+
+    /// Cap the number of entries shown in an `OutsideBottomColumns` legend.
+    /// Entries beyond this are replaced with a "… (+N more)" line.
+    /// `0` means unlimited. Defaults to 20 for BrickPlot.
+    pub fn with_legend_entry_limit(mut self, n: usize) -> Self {
+        self.legend_entry_limit = n;
         self
     }
 
@@ -2271,6 +2300,8 @@ pub struct ComputedLayout {
     pub legend_bottom_extra: f64,
     /// Number of columns for `OutsideBottomColumns` legend layout; 0 for all other positions.
     pub legend_col_count: usize,
+    /// Entry limit carried through from `Layout::legend_entry_limit`; 0 means unlimited.
+    pub legend_entry_limit: usize,
 }
 
 impl ComputedLayout {
@@ -2561,11 +2592,23 @@ impl ComputedLayout {
                         layout.legend_max_label_chars.max(8) as f64
                     };
                     let col_w = (18.0 + max_chars * char_px / s + 20.0) * s;
-                    let n_cols = ((avail_w / col_w).floor() as usize).max(1);
-                    let n_entries = if let Some(ref entries) = layout.legend_entries {
+                    let n_cols_uncapped = ((avail_w / col_w).floor() as usize).max(1);
+                    let n_cols = if layout.legend_col_limit > 0 {
+                        n_cols_uncapped.min(layout.legend_col_limit)
+                    } else {
+                        n_cols_uncapped
+                    };
+                    let n_entries_raw = if let Some(ref entries) = layout.legend_entries {
                         entries.len()
                     } else {
                         layout.legend_entry_count.max(1)
+                    };
+                    // Cap entries for margin computation: when clipping, we show
+                    // (limit-1) real entries + 1 overflow row = limit slots total.
+                    let n_entries = if layout.legend_entry_limit > 0 {
+                        n_entries_raw.min(layout.legend_entry_limit)
+                    } else {
+                        n_entries_raw
                     };
                     let n_rows = n_entries.div_ceil(n_cols);
                     let legend_h = n_rows as f64 * legend_line_h + 20.0 * s;
@@ -2754,6 +2797,7 @@ impl ComputedLayout {
             legend_wrap: layout.legend_wrap,
             legend_bottom_extra,
             legend_col_count,
+            legend_entry_limit: layout.legend_entry_limit,
         };
         s.recompute_transforms();
         s
