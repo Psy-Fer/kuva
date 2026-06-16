@@ -70,10 +70,16 @@ pub struct ManhattanArgs {
 }
 
 pub fn run(args: ManhattanArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.chr_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.pos_col.clone().unwrap_or(ColSpec::Index(1)),
+        args.pvalue_col.clone().unwrap_or(ColSpec::Index(2)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let chr_col = args.chr_col.unwrap_or(ColSpec::Index(0));

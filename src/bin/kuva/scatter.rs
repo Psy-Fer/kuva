@@ -66,72 +66,70 @@ pub struct ScatterArgs {
 }
 
 pub fn run(args: ScatterArgs) -> Result<(), String> {
+    let x_spec = args.x.clone().unwrap_or(ColSpec::Index(0));
+    let y_specs: Vec<ColSpec> = if args.y.is_empty() {
+        vec![ColSpec::Index(1)]
+    } else {
+        args.y.clone()
+    };
+    let mut proj: Vec<ColSpec> = std::iter::once(x_spec).chain(y_specs).collect();
+    if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
-    let x_col = args.x.unwrap_or(ColSpec::Index(0));
-    let y_cols: Vec<ColSpec> = if args.y.is_empty() {
-        vec![ColSpec::Index(1)]
-    } else {
-        args.y
-    };
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
     let size = args.size.unwrap_or(3.0);
     let trend = args.trend;
     let equation = args.equation;
     let correlation = args.correlation;
     let legend = args.legend;
+    let x_col = args.x.unwrap_or(ColSpec::Index(0));
+    let y_cols: Vec<ColSpec> = if args.y.is_empty() {
+        vec![ColSpec::Index(1)]
+    } else {
+        args.y
+    };
 
-    let plots: Vec<Plot> = if let Some(color_by) = args.color_by {
+    let mut plots: Vec<ScatterPlot> = if let Some(color_by) = args.color_by {
         if y_cols.len() > 1 {
             return Err(
                 "--color-by and multiple --y columns are mutually exclusive. \
-                        Use one or the other to create multiple series."
+                 Use one or the other to create multiple series."
                     .to_string(),
             );
         }
         let y_col = &y_cols[0];
         let groups = table.group_by(&color_by)?;
         let palette = Palette::category10();
-        let colors: Vec<String> = (0..groups.len()).map(|i| palette[i].to_string()).collect();
-
         groups
             .into_iter()
-            .zip(colors)
-            .map(|((name, subtable), grp_color)| {
+            .enumerate()
+            .map(|(i, (name, subtable))| {
                 let xs = subtable.col_f64(&x_col)?;
                 let ys = subtable.col_f64(y_col)?;
                 let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
-
+                let grp_color = palette[i].to_string();
                 let mut plot = ScatterPlot::new()
                     .with_data(data)
                     .with_color(&grp_color)
                     .with_size(size)
                     .with_group_name(name.clone());
-
-                if trend {
-                    plot = plot.with_trend(TrendLine::Linear);
-                    if equation {
-                        plot = plot.with_equation();
-                    }
-                    if correlation {
-                        plot = plot.with_correlation();
-                    }
-                }
                 if legend {
                     plot = plot.with_legend(name);
                 }
-                Ok(Plot::Scatter(plot))
+                Ok(plot)
             })
             .collect::<Result<Vec<_>, String>>()?
     } else if y_cols.len() > 1 {
         // Multi-column mode: one series per y column, auto-colored by palette.
         let palette = Palette::category10();
         let xs = table.col_f64(&x_col)?;
-
         y_cols
             .iter()
             .enumerate()
@@ -140,26 +138,15 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
                 let ys = table.col_f64(y_col)?;
                 let data: Vec<(f64, f64)> = xs.iter().copied().zip(ys).collect();
                 let grp_color = palette[i].to_string();
-
                 let mut plot = ScatterPlot::new()
                     .with_data(data)
                     .with_color(&grp_color)
                     .with_size(size)
                     .with_group_name(series_name.clone());
-
-                if trend {
-                    plot = plot.with_trend(TrendLine::Linear);
-                    if equation {
-                        plot = plot.with_equation();
-                    }
-                    if correlation {
-                        plot = plot.with_correlation();
-                    }
-                }
                 if legend {
                     plot = plot.with_legend(series_name);
                 }
-                Ok(Plot::Scatter(plot))
+                Ok(plot)
             })
             .collect::<Result<Vec<_>, String>>()?
     } else {
@@ -167,25 +154,27 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
         let xs = table.col_f64(&x_col)?;
         let ys = table.col_f64(y_col)?;
         let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
-
-        let mut plot = ScatterPlot::new()
+        let plot = ScatterPlot::new()
             .with_data(data)
             .with_color(&color)
             .with_size(size);
-
-        if trend {
-            plot = plot.with_trend(TrendLine::Linear);
-            if equation {
-                plot = plot.with_equation();
-            }
-            if correlation {
-                plot = plot.with_correlation();
-            }
-        }
-
-        vec![Plot::Scatter(plot)]
+        vec![plot]
     };
 
+    if trend {
+        plots = plots
+            .into_iter()
+            .map(|p| p.with_trend(TrendLine::Linear))
+            .collect();
+    }
+    if equation {
+        plots = plots.into_iter().map(|p| p.with_equation()).collect();
+    }
+    if correlation {
+        plots = plots.into_iter().map(|p| p.with_correlation()).collect();
+    }
+
+    let plots: Vec<Plot> = plots.into_iter().map(Plot::Scatter).collect();
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);

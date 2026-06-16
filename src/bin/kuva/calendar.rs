@@ -48,10 +48,15 @@ pub struct CalendarArgs {
 }
 
 pub fn run(args: CalendarArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.date_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let date_col = args.date_col.unwrap_or(ColSpec::Index(0));

@@ -67,10 +67,16 @@ pub struct StreamgraphArgs {
 }
 
 pub fn run(args: StreamgraphArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.x_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.group_col.clone().unwrap_or(ColSpec::Index(1)),
+        args.y_col.clone().unwrap_or(ColSpec::Index(2)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let x_col = args.x_col.unwrap_or(ColSpec::Index(0));

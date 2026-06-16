@@ -51,10 +51,18 @@ pub struct SurvivalArgs {
 }
 
 pub fn run(args: SurvivalArgs) -> Result<(), String> {
+    let mut proj: Vec<ColSpec> = vec![
+        args.time_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.event_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
+    if let Some(ref c) = args.group_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let time_col = args.time_col.unwrap_or(ColSpec::Index(0));

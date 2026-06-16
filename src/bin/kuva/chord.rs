@@ -36,6 +36,7 @@ pub fn run(args: ChordArgs) -> Result<(), String> {
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &[],
     )?;
 
     if table.rows.is_empty() {

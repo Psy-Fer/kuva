@@ -94,10 +94,16 @@ pub struct Surface3DArgs {
 }
 
 pub fn run(args: Surface3DArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = if args.matrix {
+        vec![]
+    } else {
+        vec![args.x.clone(), args.y.clone(), args.z.clone()]
+    };
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let mut plot = if args.matrix {

@@ -55,10 +55,15 @@ pub struct WaterfallArgs {
 }
 
 pub fn run(args: WaterfallArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.label_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let label_col = args.label_col.unwrap_or(ColSpec::Index(0));

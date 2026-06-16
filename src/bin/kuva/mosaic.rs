@@ -51,10 +51,16 @@ pub struct MosaicArgs {
 }
 
 pub fn run(args: MosaicArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.col_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.row_col.clone().unwrap_or(ColSpec::Index(1)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(2)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let col_col = args.col_col.unwrap_or(ColSpec::Index(0));
