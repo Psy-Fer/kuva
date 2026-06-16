@@ -332,7 +332,16 @@ where
                 names.push(name);
             }
         }
-        (indices, names)
+        // Sort by physical on-disk column index so the header order matches
+        // the order Arrow returns columns in the projected batch.
+        // ProjectionMask always delivers columns in on-disk order regardless
+        // of the order specs were passed, so without this sort the header and
+        // data rows would be misaligned for out-of-order requests.
+        let mut pairs: Vec<(usize, String)> = indices.into_iter().zip(names).collect();
+        pairs.sort_unstable_by_key(|(i, _)| *i);
+        let col_indices: Vec<usize> = pairs.iter().map(|(i, _)| *i).collect();
+        let header: Vec<String> = pairs.into_iter().map(|(_, n)| n).collect();
+        (col_indices, header)
     };
 
     let mask = ProjectionMask::roots(&parquet_schema, col_indices);
@@ -550,5 +559,65 @@ pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
             );
             ColorMap::Viridis
         }
+    }
+}
+
+#[cfg(all(test, feature = "parquet"))]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// Build a minimal two-column parquet in memory with `b` stored first on
+    /// disk and `a` second, then return the raw bytes.
+    fn make_parquet_b_then_a(b_val: f64, a_val: f64) -> Vec<u8> {
+        use arrow_array::{Float64Array, RecordBatch};
+        use arrow_schema::{DataType, Field, Schema};
+        use parquet::arrow::ArrowWriter;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("b", DataType::Float64, false),
+            Field::new("a", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Float64Array::from(vec![b_val])),
+                Arc::new(Float64Array::from(vec![a_val])),
+            ],
+        )
+        .unwrap();
+        let mut buf = Vec::new();
+        let mut writer = ArrowWriter::try_new(&mut buf, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+        buf
+    }
+
+    /// Regression test: requesting columns in reverse order from their on-disk
+    /// layout must not silently swap the data.
+    ///
+    /// On-disk order: b (index 0), a (index 1).
+    /// Requested order: a first, then b.
+    /// Before the fix the header was built in request order ["a","b"] but the
+    /// batch came back in on-disk order [b_data, a_data], so col_f64("a")
+    /// returned b's value and vice-versa.
+    #[test]
+    fn test_parquet_column_order_not_swapped() {
+        let bytes = make_parquet_b_then_a(99.0, 1.0);
+        let tmp = std::env::temp_dir().join("kuva_col_order_test.parquet");
+        std::fs::write(&tmp, &bytes).unwrap();
+
+        let project = vec![
+            ColSpec::Name("a".to_string()),
+            ColSpec::Name("b".to_string()),
+        ];
+        let table = DataTable::parse(Some(&tmp), false, None, &project).unwrap();
+        std::fs::remove_file(&tmp).ok();
+
+        let a = table.col_f64(&ColSpec::Name("a".to_string())).unwrap();
+        let b = table.col_f64(&ColSpec::Name("b".to_string())).unwrap();
+
+        assert_eq!(a, vec![1.0], "col 'a' returned b's value — on-disk order bug");
+        assert_eq!(b, vec![99.0], "col 'b' returned a's value — on-disk order bug");
     }
 }
