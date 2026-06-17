@@ -144,27 +144,27 @@ pub struct AxisArgs {
     pub tick_pos: Option<String>,
 
     /// Fix the X axis lower bound; overrides auto-range.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub x_min: Option<f64>,
 
     /// Fix the X axis upper bound; overrides auto-range.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub x_max: Option<f64>,
 
     /// Fix the Y axis lower bound; overrides auto-range.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub y_min: Option<f64>,
 
     /// Fix the Y axis upper bound; overrides auto-range.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub y_max: Option<f64>,
 
     /// Exact major tick step for the X axis. Overrides auto-calculation.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub x_tick_step: Option<f64>,
 
     /// Exact major tick step for the Y axis. Overrides auto-calculation.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub y_tick_step: Option<f64>,
 
     /// Subdivisions between major ticks, e.g. 5 draws 4 minor marks per interval.
