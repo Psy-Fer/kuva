@@ -1008,118 +1008,211 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let mut flat_i: usize = 0;
     for (i, group) in bar.groups.iter().enumerate() {
-        let group_x = i as f64 + 1.0;
+        let group_cat = i as f64 + 1.0;
         let total_width = bar.width;
 
-        if bar.stacked {
-            let mut y_accum = 0.0;
-            for (j, bar_val) in group.bars.iter().enumerate() {
-                let x0 = computed.map_x(group_x - total_width / 2.0);
-                let x1 = computed.map_x(group_x + total_width / 2.0);
-                let y0 = computed.map_y(y_accum);
-                let y1 = computed.map_y(y_accum + bar_val.value);
-
-                let series_label = bar
-                    .legend_label
-                    .as_ref()
-                    .and_then(|ll| ll.get(j))
-                    .map(|s| s.as_str())
-                    .unwrap_or(&group.label);
-                let tip = tooltip(
-                    bar.show_tooltips || computed.interactive,
-                    &bar.tooltip_labels,
-                    flat_i,
-                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
-                );
-                let extra = if computed.interactive {
-                    Some(format!(
-                        "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
-                        series_label, group.label, bar_val.value
-                    ))
-                } else {
-                    None
-                };
-                if tip.is_some() || extra.is_some() {
-                    scene.add(Primitive::GroupStart {
-                        transform: None,
-                        title: tip,
-                        extra_attrs: extra,
-                    });
-                }
-                scene.add(Primitive::Rect {
-                    x: x0,
-                    y: y1.min(y0),
-                    width: (x1 - x0).abs(),
-                    height: (y0 - y1).abs(),
-                    fill: Color::from(&bar_val.color),
-                    stroke: None,
-                    stroke_width: None,
-                    opacity: None,
-                });
-                if bar.show_tooltips || computed.interactive {
-                    scene.add(Primitive::GroupEnd);
-                }
-
-                y_accum += bar_val.value;
-                flat_i += 1;
-            }
-        } else {
-            let n = group.bars.len();
-            let single_width = total_width / n as f64;
-
-            for (j, bar_val) in group.bars.iter().enumerate() {
-                let x = group_x - total_width / 2.0 + single_width * (j as f64 + 0.5);
-                let x0 = computed.map_x(x - single_width / 2.0);
-                let x1 = computed.map_x(x + single_width / 2.0);
-                let y0 = computed.map_y(0.0);
-                let y1 = computed.map_y(bar_val.value);
-
-                // In simple mode (1 bar per group), identify by the group's own label.
-                // In grouped mode (n>1 bars per group), identify by the series legend label.
-                let series_label = if n == 1 {
-                    group.label.as_str()
-                } else {
-                    bar.legend_label
+        if bar.horizontal {
+            // Categories on Y-axis, values on X-axis; bars extend rightward from x=0.
+            if bar.stacked {
+                let mut x_accum = 0.0;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let y0 = computed.map_y(group_cat - total_width / 2.0);
+                    let y1 = computed.map_y(group_cat + total_width / 2.0);
+                    let x0 = computed.map_x(x_accum);
+                    let x1 = computed.map_x(x_accum + bar_val.value);
+                    let series_label = bar
+                        .legend_label
                         .as_ref()
                         .and_then(|ll| ll.get(j))
                         .map(|s| s.as_str())
-                        .unwrap_or(&group.label)
-                };
-                let tip = tooltip(
-                    bar.show_tooltips || computed.interactive,
-                    &bar.tooltip_labels,
-                    flat_i,
-                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
-                );
-                let extra = if computed.interactive {
-                    Some(format!(
-                        "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
-                        series_label, group.label, bar_val.value
-                    ))
-                } else {
-                    None
-                };
-                if tip.is_some() || extra.is_some() {
-                    scene.add(Primitive::GroupStart {
-                        transform: None,
-                        title: tip,
-                        extra_attrs: extra,
+                        .unwrap_or(&group.label);
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    if let Some(ref t) = tip {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: Some(t.clone()),
+                            extra_attrs: None,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0.min(x1),
+                        y: y0.min(y1),
+                        width: (x1 - x0).abs(),
+                        height: (y1 - y0).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
                     });
+                    if tip.is_some() {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    x_accum += bar_val.value;
+                    flat_i += 1;
                 }
-                scene.add(Primitive::Rect {
-                    x: x0,
-                    y: y1.min(y0),
-                    width: (x1 - x0).abs(),
-                    height: (y0 - y1).abs(),
-                    fill: Color::from(&bar_val.color),
-                    stroke: None,
-                    stroke_width: None,
-                    opacity: None,
-                });
-                if bar.show_tooltips || computed.interactive {
-                    scene.add(Primitive::GroupEnd);
+            } else {
+                let n = group.bars.len();
+                let single_width = total_width / n as f64;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let y_center = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                    let y0 = computed.map_y(y_center - single_width / 2.0);
+                    let y1 = computed.map_y(y_center + single_width / 2.0);
+                    let x0 = computed.map_x(0.0);
+                    let x1 = computed.map_x(bar_val.value);
+                    let series_label = if n == 1 {
+                        group.label.as_str()
+                    } else {
+                        bar.legend_label
+                            .as_ref()
+                            .and_then(|ll| ll.get(j))
+                            .map(|s| s.as_str())
+                            .unwrap_or(&group.label)
+                    };
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    if let Some(ref t) = tip {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: Some(t.clone()),
+                            extra_attrs: None,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0.min(x1),
+                        y: y0.min(y1),
+                        width: (x1 - x0).abs(),
+                        height: (y1 - y0).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if tip.is_some() {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    flat_i += 1;
                 }
-                flat_i += 1;
+            }
+        } else {
+            // Default vertical: categories on X-axis, values on Y-axis.
+            if bar.stacked {
+                let mut y_accum = 0.0;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let x0 = computed.map_x(group_cat - total_width / 2.0);
+                    let x1 = computed.map_x(group_cat + total_width / 2.0);
+                    let y0 = computed.map_y(y_accum);
+                    let y1 = computed.map_y(y_accum + bar_val.value);
+
+                    let series_label = bar
+                        .legend_label
+                        .as_ref()
+                        .and_then(|ll| ll.get(j))
+                        .map(|s| s.as_str())
+                        .unwrap_or(&group.label);
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    let extra = if computed.interactive {
+                        Some(format!(
+                            "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                            series_label, group.label, bar_val.value
+                        ))
+                    } else {
+                        None
+                    };
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip,
+                            extra_attrs: extra,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y: y1.min(y0),
+                        width: (x1 - x0).abs(),
+                        height: (y0 - y1).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if bar.show_tooltips || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
+
+                    y_accum += bar_val.value;
+                    flat_i += 1;
+                }
+            } else {
+                let n = group.bars.len();
+                let single_width = total_width / n as f64;
+
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let x =
+                        group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                    let x0 = computed.map_x(x - single_width / 2.0);
+                    let x1 = computed.map_x(x + single_width / 2.0);
+                    let y0 = computed.map_y(0.0);
+                    let y1 = computed.map_y(bar_val.value);
+
+                    let series_label = if n == 1 {
+                        group.label.as_str()
+                    } else {
+                        bar.legend_label
+                            .as_ref()
+                            .and_then(|ll| ll.get(j))
+                            .map(|s| s.as_str())
+                            .unwrap_or(&group.label)
+                    };
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    let extra = if computed.interactive {
+                        Some(format!(
+                            "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                            series_label, group.label, bar_val.value
+                        ))
+                    } else {
+                        None
+                    };
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip,
+                            extra_attrs: extra,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y: y1.min(y0),
+                        width: (x1 - x0).abs(),
+                        height: (y0 - y1).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if bar.show_tooltips || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    flat_i += 1;
+                }
             }
         }
     }

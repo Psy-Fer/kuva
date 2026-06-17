@@ -43,6 +43,10 @@ pub struct BarArgs {
     #[arg(long)]
     pub color_by: Option<ColSpec>,
 
+    /// Render categories on the Y-axis and values on the X-axis.
+    #[arg(long)]
+    pub horizontal: bool,
+
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -175,11 +179,14 @@ pub fn run(args: BarArgs) -> Result<(), String> {
             plot = plot.with_legend(series_order.iter().map(|s| s.as_str()).collect());
         }
 
+        if args.horizontal {
+            plot = plot.with_horizontal(true);
+        }
         let plots = vec![Plot::Bar(plot)];
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let layout = apply_axis_args(layout, &args.axis);
-        let layout = layout.with_x_tick_rotate(-45.0);
+        let layout = if args.horizontal { layout } else { layout.with_x_tick_rotate(-45.0) };
         let scene = render_multiple(plots, layout);
         return write_output(scene, &args.base);
     }
@@ -241,12 +248,15 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     if let Some(w) = args.bar_width {
         plot = plot.with_width(w);
     }
+    if args.horizontal {
+        plot = plot.with_horizontal(true);
+    }
 
     let plots = vec![Plot::Bar(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
-    let layout = layout.with_x_tick_rotate(-45.0);
+    let layout = if args.horizontal { layout } else { layout.with_x_tick_rotate(-45.0) };
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
 }

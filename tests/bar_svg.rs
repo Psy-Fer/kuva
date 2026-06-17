@@ -272,3 +272,75 @@ fn test_colored_bar_does_not_affect_other_bars() {
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Red bar") || svg.contains("crimson") || svg.contains("#dc143c"));
 }
+
+#[test]
+fn test_bar_horizontal_simple() {
+    let plot = BarPlot::new()
+        .with_bar("Apples", 42.0)
+        .with_bar("Bananas", 58.0)
+        .with_bar("Cherries", 31.0)
+        .with_bar("Dates", 75.0)
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Bar Chart")
+        .with_x_label("Count")
+        .with_y_label("Fruit");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_simple.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Categories should appear as y-axis labels
+    assert!(svg.contains("Apples"));
+    assert!(svg.contains("Bananas"));
+}
+
+#[test]
+fn test_bar_horizontal_grouped() {
+    let plot = BarPlot::new()
+        .with_group("Q1", vec![(30.0, "steelblue"), (20.0, "tomato")])
+        .with_group("Q2", vec![(45.0, "steelblue"), (35.0, "tomato")])
+        .with_group("Q3", vec![(38.0, "steelblue"), (42.0, "tomato")])
+        .with_legend(vec!["Product A", "Product B"])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Grouped Bar Chart")
+        .with_x_label("Revenue")
+        .with_y_label("Quarter");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_grouped.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Q1"));
+    assert!(svg.contains("Q2"));
+}
+
+#[test]
+fn test_bar_horizontal_stacked() {
+    let plot = BarPlot::new()
+        .with_group("Alpha", vec![(40.0, "steelblue"), (25.0, "tomato"), (15.0, "seagreen")])
+        .with_group("Beta",  vec![(30.0, "steelblue"), (35.0, "tomato"), (20.0, "seagreen")])
+        .with_group("Gamma", vec![(50.0, "steelblue"), (15.0, "tomato"), (25.0, "seagreen")])
+        .with_legend(vec!["X", "Y", "Z"])
+        .with_stacked()
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Stacked Bar Chart")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_stacked.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+}

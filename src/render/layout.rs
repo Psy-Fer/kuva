@@ -642,7 +642,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if bp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
                 if let Some(ref ll) = bp.legend_label {
                     has_legend = true;
                     for l in ll {

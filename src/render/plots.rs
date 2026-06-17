@@ -624,25 +624,29 @@ impl Plot {
                 if bp.groups.is_empty() {
                     None
                 } else {
-                    let x_min = 0.5;
-                    let x_max = bp.groups.len() as f64 + 0.5;
-                    let y_min = 0.0;
+                    let cat_min = 0.5;
+                    let cat_max = bp.groups.len() as f64 + 0.5;
+                    let data_min = 0.0;
 
-                    let mut y_max = f64::NEG_INFINITY;
+                    let mut data_max = f64::NEG_INFINITY;
                     if bp.stacked {
                         for group in &bp.groups {
                             let sum: f64 = group.bars.iter().map(|b| b.value).sum();
-                            y_max = y_max.max(sum);
+                            data_max = data_max.max(sum);
                         }
                     } else {
                         for group in &bp.groups {
                             for bar in &group.bars {
-                                y_max = y_max.max(bar.value);
+                                data_max = data_max.max(bar.value);
                             }
                         }
                     }
 
-                    Some(((x_min, x_max), (y_min, y_max)))
+                    if bp.horizontal {
+                        Some(((data_min, data_max), (cat_min, cat_max)))
+                    } else {
+                        Some(((cat_min, cat_max), (data_min, data_max)))
+                    }
                 }
             }
             Plot::Histogram(h) => {
