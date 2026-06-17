@@ -695,11 +695,11 @@ impl Plot {
                 if bp.groups.is_empty() {
                     None
                 } else {
-                    let x_min = 0.5;
-                    let x_max = bp.groups.len() as f64 + 0.5;
+                    let cat_min = 0.5;
+                    let cat_max = bp.groups.len() as f64 + 0.5;
 
-                    let mut y_min = f64::INFINITY;
-                    let mut y_max = f64::NEG_INFINITY;
+                    let mut data_min = f64::INFINITY;
+                    let mut data_max = f64::NEG_INFINITY;
                     for g in &bp.groups {
                         if g.values.is_empty() {
                             continue;
@@ -711,22 +711,26 @@ impl Plot {
                         let iqr = q3 - q1;
                         let lo = q1 - 1.5 * iqr;
                         let hi = q3 + 1.5 * iqr;
-                        y_min = y_min.min(lo);
-                        y_max = y_max.max(hi);
+                        data_min = data_min.min(lo);
+                        data_max = data_max.max(hi);
                     }
 
-                    Some(((x_min, x_max), (y_min, y_max)))
+                    if bp.horizontal {
+                        Some(((data_min, data_max), (cat_min, cat_max)))
+                    } else {
+                        Some(((cat_min, cat_max), (data_min, data_max)))
+                    }
                 }
             }
             Plot::Violin(vp) => {
                 if vp.groups.is_empty() {
                     None
                 } else {
-                    let x_min = 0.5;
-                    let x_max = vp.groups.len() as f64 + 0.5;
+                    let cat_min = 0.5;
+                    let cat_max = vp.groups.len() as f64 + 0.5;
 
-                    let mut y_min = f64::INFINITY;
-                    let mut y_max = f64::NEG_INFINITY;
+                    let mut data_min = f64::INFINITY;
+                    let mut data_max = f64::NEG_INFINITY;
 
                     for group in &vp.groups {
                         if group.values.is_empty() {
@@ -741,11 +745,15 @@ impl Plot {
                         let h = vp
                             .bandwidth
                             .unwrap_or_else(|| render_utils::silverman_bandwidth(&group.values));
-                        y_min = y_min.min(g_min - 3.0 * h);
-                        y_max = y_max.max(g_max + 3.0 * h);
+                        data_min = data_min.min(g_min - 3.0 * h);
+                        data_max = data_max.max(g_max + 3.0 * h);
                     }
 
-                    Some(((x_min, x_max), (y_min, y_max)))
+                    if vp.horizontal {
+                        Some(((data_min, data_max), (cat_min, cat_max)))
+                    } else {
+                        Some(((cat_min, cat_max), (data_min, data_max)))
+                    }
                 }
             }
             Plot::Pie(_) => {
@@ -1180,10 +1188,14 @@ impl Plot {
                 if all_vals.is_empty() {
                     return None;
                 }
-                let y_min = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
-                let y_max = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let pad = (y_max - y_min) * 0.05 + 0.5;
-                Some(((0.5, n as f64 + 0.5), (y_min - pad, y_max + pad)))
+                let data_min = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
+                let data_max = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let pad = (data_max - data_min) * 0.05 + 0.5;
+                if r.horizontal {
+                    Some(((data_min - pad, data_max + pad), (0.5, n as f64 + 0.5)))
+                } else {
+                    Some(((0.5, n as f64 + 0.5), (data_min - pad, data_max + pad)))
+                }
             }
             Plot::Survival(sp) => {
                 if sp.groups.is_empty() {

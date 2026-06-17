@@ -19,7 +19,7 @@ fn test_violin_groups_svg_output_builder() {
             ],
         )
         // .with_group("B", vec![2.0, 2.1, 3.5, 3.8, 4.0, 4.2])
-        .with_width(10.0)
+        .with_width(0.3)
         .with_color("purple");
 
     // let x_labels: Vec<String> = boxplot.groups.iter().map(|g| g.label.clone()).collect();
@@ -68,7 +68,7 @@ fn test_violin_random_data() {
         .with_group("Bimodal", b_values)
         .with_group("Skewed", c_values)
         .with_color("purple")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
 
@@ -93,7 +93,7 @@ fn test_violin_silverman_auto() {
     let violin = ViolinPlot::new()
         .with_group("Auto", values)
         .with_color("steelblue")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
     let layout = Layout::auto_from_plots(&plots).with_title("Auto Bandwidth");
@@ -114,7 +114,7 @@ fn test_violin_manual_bandwidth() {
     let violin = ViolinPlot::new()
         .with_group("Manual", values)
         .with_color("coral")
-        .with_width(30.0)
+        .with_width(0.8)
         .with_bandwidth(0.5);
 
     let plots = vec![Plot::Violin(violin)];
@@ -134,7 +134,7 @@ fn test_violin_degenerate_constant() {
     let violin = ViolinPlot::new()
         .with_group("Constant", values)
         .with_color("green")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
     let layout = Layout::auto_from_plots(&plots).with_title("Degenerate Constant");
@@ -153,7 +153,7 @@ fn test_violin_group_colors_full() {
         .with_group("C", vec![3.0, 3.2, 3.8, 4.0, 4.2, 4.8, 5.0, 5.8])
         .with_color("black")
         .with_group_colors(["steelblue", "tomato", "seagreen"])
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
     let layout = Layout::auto_from_plots(&plots).with_title("Per-group Colors");
@@ -176,7 +176,7 @@ fn test_violin_group_colors_partial() {
         .with_group("C", vec![3.0, 3.2, 3.8, 4.0, 4.2, 4.8, 5.0, 5.8])
         .with_color("black")
         .with_group_colors(["tomato"])
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
     let layout = Layout::auto_from_plots(&plots).with_title("Partial Per-group Colors");
@@ -195,7 +195,7 @@ fn test_violin_single_value() {
     let violin = ViolinPlot::new()
         .with_group("Single", vec![std::f64::consts::PI])
         .with_color("orange")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(violin)];
     let layout = Layout::auto_from_plots(&plots).with_title("Single Value");
@@ -204,4 +204,28 @@ fn test_violin_single_value() {
     common::write_test_output("test_outputs/violin_single_value.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
+}
+
+#[test]
+fn test_violin_horizontal() {
+    let plot = ViolinPlot::new()
+        .with_group("Alpha", vec![1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0])
+        .with_group("Beta", vec![3.0, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0])
+        .with_group("Gamma", vec![5.0, 6.0, 6.5, 7.0, 7.5, 8.0, 9.0])
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Violin(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Violin Plot")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/violin_horizontal.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+    assert!(svg.contains("Gamma"));
 }

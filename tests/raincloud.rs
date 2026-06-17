@@ -313,3 +313,26 @@ fn test_raincloud_large_dataset() {
         "expected 3000+ rain circles for 3×1000 pts, got {circle_count}"
     );
 }
+
+#[test]
+fn test_raincloud_horizontal() {
+    let plot = RaincloudPlot::new()
+        .with_group("Alpha", vec![1.0, 2.0, 2.5, 3.0, 4.0, 5.0])
+        .with_group("Beta", vec![3.0, 4.0, 4.5, 5.0, 5.5, 6.0])
+        .with_group("Gamma", vec![5.0, 6.0, 7.0, 7.5, 8.0, 9.0])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Raincloud(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Raincloud")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/raincloud_horizontal.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+    assert!(svg.contains("Gamma"));
+}

@@ -592,7 +592,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if bp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
             }
 
             if let Plot::Violin(vp) = plot {
@@ -601,7 +605,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if vp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
             }
 
             if let Plot::Raincloud(rp) = plot {
@@ -610,7 +618,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if rp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
                 if rp.legend_label.is_some() {
                     has_legend = true;
                     for g in &rp.groups {

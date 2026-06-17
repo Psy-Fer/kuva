@@ -93,3 +93,28 @@ fn test_boxplot_group_colors_partial() {
     // Fallback color must appear for the uncolored groups
     assert!(svg.contains("black"));
 }
+
+#[test]
+fn test_boxplot_horizontal() {
+    let plot = BoxPlot::new()
+        .with_group("Alpha", vec![1.0, 2.0, 3.0, 4.0, 5.0])
+        .with_group("Beta", vec![2.0, 3.5, 4.0, 4.5, 6.0])
+        .with_group("Gamma", vec![3.0, 4.0, 5.0, 6.0, 8.0])
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Box(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Box Plot")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/boxplot_horizontal.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Groups should appear as y-axis tick labels
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+    assert!(svg.contains("Gamma"));
+}

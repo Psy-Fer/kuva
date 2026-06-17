@@ -66,7 +66,7 @@ fn basic() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 500, 2))
         .with_group("Skewed", skewed_samples(500, 3))
         .with_color("steelblue")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(plot)];
     let layout = Layout::auto_from_plots(&plots)
@@ -85,7 +85,7 @@ fn bandwidth() {
         let mut plot = ViolinPlot::new()
             .with_group("", data.clone())
             .with_color("steelblue")
-            .with_width(30.0);
+            .with_width(0.8);
         if name == "auto" {
             // leave bandwidth unset — Silverman's rule
         } else {
@@ -111,7 +111,7 @@ fn group_colors() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 300, 2))
         .with_group("Skewed", skewed_samples(300, 3))
         .with_group_colors(["steelblue", "tomato", "seagreen"])
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(plot)];
     let layout = Layout::auto_from_plots(&plots)
@@ -129,7 +129,7 @@ fn swarm_overlay() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 120, 2))
         .with_group("Skewed", skewed_samples(120, 3))
         .with_color("steelblue")
-        .with_width(30.0)
+        .with_width(0.8)
         .with_swarm_overlay()
         .with_overlay_color("rgba(0,0,0,0.35)")
         .with_overlay_size(2.5);

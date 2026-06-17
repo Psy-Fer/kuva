@@ -41,6 +41,10 @@ pub struct ViolinArgs {
     #[arg(long)]
     pub overlay_swarm: bool,
 
+    /// Render groups on the Y-axis and values on the X-axis.
+    #[arg(long)]
+    pub horizontal: bool,
+
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -87,6 +91,10 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
         plot = plot.with_swarm_overlay();
     } else if args.overlay_points {
         plot = plot.with_strip(0.3);
+    }
+
+    if args.horizontal {
+        plot = plot.with_horizontal(true);
     }
 
     let plots = vec![Plot::Violin(plot)];
