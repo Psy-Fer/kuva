@@ -513,6 +513,83 @@ fn network_matrix_self_loop_undirected() {
     );
 }
 
+// ── label_inside tests ───────────────────────────────────────────────────
+
+#[test]
+fn network_labels_inside_sets_flags() {
+    // with_labels_inside() enables both show_labels and label_inside.
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_labels_inside();
+    assert!(net.show_labels, "with_labels_inside should set show_labels");
+    assert!(net.label_inside, "with_labels_inside should set label_inside");
+}
+
+#[test]
+fn network_labels_inside_svg() {
+    // Labels rendered inside nodes should appear with white fill and be
+    // centred on the node position (no outward offset).
+    let net = NetworkPlot::new()
+        .with_edge("X", "Y", 1.0)
+        .with_edge("Y", "Z", 1.0)
+        .with_layout(NetworkLayout::Circle)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Labels Inside Nodes");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("white"), "inside labels should use white fill");
+    assert!(svg.contains("X"), "label X should appear");
+    assert!(svg.contains("Y"), "label Y should appear");
+    assert!(svg.contains("Z"), "label Z should appear");
+    common::write_test_output("test_outputs/network_labels_inside.svg", svg).unwrap();
+}
+
+#[test]
+fn network_labels_inside_large_nodes() {
+    // Larger nodes give more room; the font size auto-scales but is capped
+    // at the layout default.  White text should still be present.
+    let net = NetworkPlot::new()
+        .with_edge("Alpha", "Beta", 1.0)
+        .with_edge("Beta", "Gamma", 1.0)
+        .with_node_size("Alpha", 28.0)
+        .with_node_size("Beta", 28.0)
+        .with_node_size("Gamma", 28.0)
+        .with_layout(NetworkLayout::Circle)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Inside Labels – Large Nodes");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("white"), "large-node inside labels should use white fill");
+    assert!(svg.contains("Alpha"), "label Alpha should appear");
+    common::write_test_output("test_outputs/network_labels_inside_large.svg", svg).unwrap();
+}
+
+#[test]
+fn network_poa_graph_labels_inside() {
+    // POA graph with inside labels — the primary use case for this feature.
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 3.0)
+        .with_edge("B", "C", 3.0)
+        .with_edge("C", "D", 3.0)
+        .with_edge("D", "E", 3.0)
+        .with_edge_curved("A", "C", 1.0, 0.3)
+        .with_edge_curved("B", "D", 1.0, 0.3)
+        .with_directed()
+        .with_node_radius(16.0)
+        .with_node_position("A", 0.0, 0.5)
+        .with_node_position("B", 0.25, 0.5)
+        .with_node_position("C", 0.5, 0.5)
+        .with_node_position("D", 0.75, 0.5)
+        .with_node_position("E", 1.0, 0.5)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("POA Graph – Labels Inside");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("white"), "POA inside labels should use white fill");
+    assert!(svg.contains(" Q "), "curved arcs should still be present");
+    common::write_test_output("test_outputs/network_poa_labels_inside.svg", svg).unwrap();
+}
+
 // ── curve field tests ─────────────────────────────────────────────────────
 
 #[test]

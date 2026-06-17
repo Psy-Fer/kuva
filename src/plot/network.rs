@@ -119,6 +119,10 @@ pub struct NetworkPlot {
     pub label_size: Option<u32>,
     /// Apply label repulsion to avoid overlap (default `false`).
     pub repel_labels: bool,
+    /// Render node labels centred inside the node circle instead of beside it
+    /// (default `false`). Font size is auto-scaled to fit within the node
+    /// radius; white text is used for contrast.
+    pub label_inside: bool,
     /// Deferred adjacency matrix (expanded into edges by `resolve_matrix`).
     pending_matrix: Option<(Vec<Vec<f64>>, Vec<usize>)>,
     /// O(1) label→index lookup, kept in sync with `nodes`.
@@ -144,6 +148,7 @@ impl NetworkPlot {
             legend_label: None,
             label_size: None,
             repel_labels: false,
+            label_inside: false,
             pending_matrix: None,
             node_map: HashMap::new(),
         }
@@ -442,6 +447,15 @@ impl NetworkPlot {
     /// Enable label repulsion so overlapping labels push apart.
     pub fn with_repel_labels(mut self) -> Self {
         self.repel_labels = true;
+        self
+    }
+
+    /// Render node labels centred inside each node.  Also enables
+    /// `show_labels`.  Font size is auto-scaled to fit the node radius;
+    /// white text is used for contrast against the node fill.
+    pub fn with_labels_inside(mut self) -> Self {
+        self.show_labels = true;
+        self.label_inside = true;
         self
     }
 
