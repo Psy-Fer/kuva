@@ -7,12 +7,14 @@ Bar chart from label/value pairs.
 | Flag | Default | Description |
 |---|---|---|
 | `--label-col <COL>` | `0` | Label column |
-| `--value-col <COL>` | `1` | Value column |
+| `--value-col <COL>` | `1` | Value column (single-series mode) |
+| `--y <COL>[,<COL>…]` | — | Comma-separated value columns; rows are aggregated by `--label-col` (mean by default) and each column becomes a palette-colored series with an automatic legend |
 | `--count-by <COL>` | — | Count occurrences per unique value in this column (ignores `--value-col`) |
-| `--agg <FUNC>` | — | Aggregate `--value-col` by `--label-col`: `mean`, `median`, `sum`, `min`, `max` |
+| `--agg <FUNC>` | — | Aggregate by `--label-col`: `mean`, `median`, `sum`, `min`, `max`. Applies to both `--value-col` and `--y` multi-column mode |
 | `--color <CSS>` | `steelblue` | Bar fill color |
 | `--bar-width <F>` | `0.8` | Bar width as a fraction of the slot |
 | `--color-by <COL>` | — | Group rows by this column and color each series by palette, producing a grouped bar chart with an automatic legend |
+| `--horizontal` | off | Render categories on the Y-axis, values on the X-axis |
 
 ### Grouped bar chart (`--color-by`)
 
@@ -38,9 +40,11 @@ kuva bar expr.tsv --label-col gene --value-col tpm --agg mean \
 kuva bar data.tsv --label-col species --value-col abundance \
     --color-by condition -o grouped.svg
 
-# interactive grouped bar with legend toggle
-kuva bar data.tsv --label-col species --value-col abundance \
-    --color-by condition --interactive -o grouped_interactive.svg
+# multi-column --y: two series from wide-format data, aggregated by group
+kuva bar data.tsv --label-col group --y metric_a,metric_b --agg mean
+
+# horizontal bar chart
+kuva bar bar.tsv --label-col category --value-col count --horizontal
 ```
 
 ---
