@@ -218,6 +218,20 @@ impl DataTable {
             .collect()
     }
 
+    /// Return a human-readable name for a column: the header name when available,
+    /// or `"col_N"` for index-based specs with no header.
+    pub fn col_display_name(&self, col: &ColSpec) -> String {
+        match col {
+            ColSpec::Name(n) => n.clone(),
+            ColSpec::Index(i) => self
+                .header
+                .as_ref()
+                .and_then(|h| h.get(*i))
+                .cloned()
+                .unwrap_or_else(|| format!("col_{i}")),
+        }
+    }
+
     /// Split the table into groups by the distinct values in `col`.
     ///
     /// Groups are returned in first-seen order.

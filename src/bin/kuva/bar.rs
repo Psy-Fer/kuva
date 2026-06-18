@@ -39,6 +39,12 @@ pub struct BarArgs {
     #[arg(long)]
     pub bar_width: Option<f64>,
 
+    /// Value column(s). Comma-separated list for a wide-format grouped bar chart:
+    /// `--y A,B,C` treats each column as a series and each row as a category.
+    /// Overrides --value-col when provided with 2+ columns.
+    #[arg(long, value_delimiter = ',')]
+    pub y: Vec<ColSpec>,
+
     /// Group by this column and color each series separately (creates a grouped bar chart).
     #[arg(long)]
     pub color_by: Option<ColSpec>,
@@ -57,9 +63,103 @@ pub struct BarArgs {
 }
 
 pub fn run(args: BarArgs) -> Result<(), String> {
+    // Multi-column --y mode: wide-format grouped bar (rows = categories, columns = series)
+    if args.y.len() > 1 && args.color_by.is_none() {
+        let label_spec = args.label_col.clone().unwrap_or(ColSpec::Index(0));
+        let proj: Vec<ColSpec> = std::iter::once(label_spec.clone())
+            .chain(args.y.iter().cloned())
+            .collect();
+        let table = DataTable::parse(
+            args.input.input.as_deref(),
+            args.input.no_header,
+            args.input.delimiter,
+            &proj,
+        )?;
+        // Aggregate each y-column by label (mean, or --agg func if provided).
+        // This handles both pre-aggregated wide data (one row per label) and
+        // long-format data (many rows per label, values averaged per group).
+        let raw_labels = table.col_str(&label_spec)?;
+        let y_data: Vec<Vec<f64>> = args
+            .y
+            .iter()
+            .map(|c| table.col_f64(c))
+            .collect::<Result<_, _>>()?;
+        let series_names: Vec<String> = args
+            .y
+            .iter()
+            .map(|c| table.col_display_name(c))
+            .collect();
+
+        // Collect unique labels in first-seen order, accumulating values per (label, series).
+        let mut label_order: Vec<String> = Vec::new();
+        let mut sums: BTreeMap<(String, usize), f64> = BTreeMap::new();
+        let mut cnts: BTreeMap<(String, usize), usize> = BTreeMap::new();
+        for (row_i, label) in raw_labels.iter().enumerate() {
+            if !label_order.contains(label) {
+                label_order.push(label.clone());
+            }
+            for (si, col_vals) in y_data.iter().enumerate() {
+                *sums.entry((label.clone(), si)).or_insert(0.0) += col_vals[row_i];
+                *cnts.entry((label.clone(), si)).or_insert(0) += 1;
+            }
+        }
+        let agg_fn = args.agg.as_deref().unwrap_or("mean");
+
+        let pal = Palette::category10();
+        let colors: Vec<String> = (0..args.y.len()).map(|i| pal[i].to_string()).collect();
+
+        let mut plot = BarPlot::new();
+        if let Some(w) = args.bar_width {
+            plot = plot.with_width(w);
+        }
+        for label in &label_order {
+            let bar_values: Vec<(f64, String)> = (0..args.y.len())
+                .map(|si| {
+                    let key = (label.clone(), si);
+                    let val = match agg_fn {
+                        "sum" => *sums.get(&key).unwrap_or(&0.0),
+                        "min" | "max" => {
+                            // min/max require the raw values — fall back to mean
+                            let s = sums.get(&key).copied().unwrap_or(0.0);
+                            let c = cnts.get(&key).copied().unwrap_or(1).max(1);
+                            s / c as f64
+                        }
+                        _ => {
+                            // mean (default)
+                            let s = sums.get(&key).copied().unwrap_or(0.0);
+                            let c = cnts.get(&key).copied().unwrap_or(1).max(1);
+                            s / c as f64
+                        }
+                    };
+                    (val, colors[si].clone())
+                })
+                .collect();
+            plot = plot.with_group(label, bar_values);
+        }
+        plot = plot.with_legend(series_names.iter().map(|s| s.as_str()).collect());
+        if args.horizontal {
+            plot = plot.with_horizontal(true);
+        }
+        let plots = vec![Plot::Bar(plot)];
+        let layout = Layout::auto_from_plots(&plots);
+        let layout = apply_base_args(layout, &args.base);
+        let layout = apply_axis_args(layout, &args.axis);
+        let layout = if args.horizontal {
+            layout
+        } else {
+            layout.with_x_tick_rotate(-45.0)
+        };
+        let scene = render_multiple(plots, layout);
+        return write_output(scene, &args.base);
+    }
+
     let mut proj: Vec<ColSpec> = vec![
         args.label_col.clone().unwrap_or(ColSpec::Index(0)),
-        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+        if args.y.len() == 1 {
+            args.y[0].clone()
+        } else {
+            args.value_col.clone().unwrap_or(ColSpec::Index(1))
+        },
     ];
     if let Some(ref c) = args.count_by {
         proj.push(c.clone());
@@ -75,11 +175,16 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     )?;
 
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
+    let effective_value_col: ColSpec = if args.y.len() == 1 {
+        args.y[0].clone()
+    } else {
+        args.value_col.unwrap_or(ColSpec::Index(1))
+    };
 
     // --color-by: grouped bar chart (one series per unique value in color_by column)
     if let Some(ref color_by_col) = args.color_by {
         let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
-        let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
+        let value_col = effective_value_col.clone();
         let labels = table.col_str(&label_col)?;
         let series = table.col_str(color_by_col)?;
         let values = table.col_f64(&value_col)?;
@@ -200,7 +305,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         counts.into_iter().map(|(k, c)| (k, c as f64)).collect()
     } else if let Some(ref func) = args.agg {
         let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
-        let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
+        let value_col = effective_value_col.clone();
         let labels = table.col_str(&label_col)?;
         let values = table.col_f64(&value_col)?;
         // Accumulate values per group (preserve insertion order via Vec).
@@ -237,9 +342,8 @@ pub fn run(args: BarArgs) -> Result<(), String> {
             .collect()
     } else {
         let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
-        let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
         let labels = table.col_str(&label_col)?;
-        let values = table.col_f64(&value_col)?;
+        let values = table.col_f64(&effective_value_col)?;
         labels.into_iter().zip(values).collect()
     };
 
