@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-06-19
 
 ### Added
 
@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enclosed plots — `AxisLine::Internal` and `AxisLine::Mirrored`** — `Layout::with_axis_line(AxisLine)` controls how axes are drawn. `AxisLine::Open` (renamed from the previous `Left`) draws a standard open axis; `AxisLine::Internal` draws tick marks inward; `AxisLine::Mirrored` draws ticks on both sides of the plot area. (PR #77.)
 - **`embed_font` Cargo feature** — `flate2` is now optional. The new `embed_font` feature gates font embedding in SVG output; the `png` and `pdf` features pull in `flate2` for their own font loading; SVG-only builds no longer depend on it. The `fonts` module is gated on `any(embed_font, png, pdf)`. (Adapted from PR #81 by Zodey-hub.)
 - **`NetworkPlot` enhancements** — cubic-Bézier curved edges via `.with_curves(true)`; inside-node label placement (labels drawn centred inside node circles for compact graphs); legend group color fix (group entries now use the correct per-group color rather than a single fallback).
+- **Bundled font variants (Bold, Oblique, Mono)** — DejaVu Sans Bold, Oblique, and Mono TTFs are now bundled (gzip-compressed, inflated on first use via `OnceLock`). All three are gated behind `#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]` — SVG-only builds pay no binary-size cost. The `embed_font` `@font-face` block now embeds all four variants with correct `font-weight`/`font-style` descriptors so bold, italic, and code spans in `TextPlot` render correctly in self-contained SVGs.
+- **`TextPlot` `code` span markup** — backtick syntax (`` `code` ``) is now parsed by `parse_inline_markup` and produces a `TextSpan { code: true }`. SVG renders code spans with `font-family="DejaVu Sans Mono,monospace"`; PNG/PDF use the bundled DejaVu Sans Mono font face.
+- **`TextPlot` full markup in PNG/PDF** — bold, italic, and code spans now render correctly in PNG and PDF. Each span is drawn with the matching bundled font face (Bold / Oblique / Mono); text metrics are computed per-font so multi-style lines are correctly anchored.
 
 ### Fixed
 
@@ -369,3 +372,16 @@ Initial release of kuva.
 - `kuva brick` CLI subcommand is not yet implemented (pending integration with bladerunner)
 - Terminal rendering is not yet supported for `upset` (the command prints a message and exits cleanly; use `-o file.svg` instead)
 - No Python or other language bindings
+
+---
+
+[Unreleased]: https://github.com/Psy-Fer/kuva/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Psy-Fer/kuva/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Psy-Fer/kuva/compare/v0.1.6...v0.2.0
+[0.1.6]: https://github.com/Psy-Fer/kuva/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Psy-Fer/kuva/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Psy-Fer/kuva/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Psy-Fer/kuva/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/Psy-Fer/kuva/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/Psy-Fer/kuva/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Psy-Fer/kuva/releases/tag/v0.1.0
