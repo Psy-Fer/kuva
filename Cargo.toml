@@ -10,9 +10,18 @@ keywords = ["plotting", "bioinformatics", "svg", "visualization", "science"]
 categories = ["science", "visualization", "graphics", "command-line-utilities"]
 documentation = "https://docs.rs/kuva"
 readme = "README.md"
-# The raw .ttf is kept in the repo for regenerating the .deflate asset, but is
-# not published — only the compressed form ships in the crate.
-exclude = ["assets/fonts/DejaVuSans.ttf"]
+# Only the gzip-compressed .ttf.gz files are needed at compile time (include_bytes!).
+# The raw .ttf files, the mdBook documentation tree, generated example outputs,
+# and helper scripts are excluded to stay within the crates.io 10 MB limit.
+exclude = [
+    "assets/fonts/*.ttf",           # raw TTFs — only .ttf.gz are used by include_bytes!
+    "docs/",                         # mdBook source + generated SVG/PNG/GIF/PDF assets
+    "scripts/",                      # smoke test and generation scripts
+    "examples/*.svg",                # generated SVG outputs
+    "examples/*.png",                # generated PNG outputs
+    "examples/data/gene_stats.tsv",  # large TSV (~500 KB) only used in smoke tests
+    "examples/data/gene_stats_logp.tsv",
+]
 
 [package.metadata.docs.rs]
 all-features = true

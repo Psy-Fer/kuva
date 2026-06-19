@@ -11,9 +11,9 @@
 
 A scientific plotting library in Rust. 60 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
-![All 60 plot types](docs/src/assets/overview/all_plots_complex.svg)
+![All 60 plot types](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/overview/all_plots_complex.svg)
 
-![kuva terminal — Sankey diagram](docs/src/assets/terminal/sankey.gif)
+![kuva terminal — Sankey diagram](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/terminal/sankey.gif)
 
 ---
 
