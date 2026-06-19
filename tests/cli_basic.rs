@@ -35,6 +35,31 @@ fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
     )
 }
 
+/// Feed raw `input` bytes to the binary's stdin and return (stdout, stderr, exit_code).
+#[cfg(feature = "parquet")]
+fn run_with_stdin_bytes(args: &[&str], input: &[u8]) -> (String, String, i32) {
+    let mut cmd = kuva_bin();
+    cmd.args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("failed to spawn kuva");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(input)
+        .expect("write stdin");
+
+    let out = child.wait_with_output().expect("wait");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code().unwrap_or(-1),
+    )
+}
+
 /// Run the binary with a file argument.
 fn run_with_file(args: &[&str]) -> (String, String, i32) {
     let out = kuva_bin().args(args).output().expect("failed to run kuva");
@@ -198,6 +223,27 @@ fn test_missing_feature_error() {
 }
 
 // ─── Tier 1: SVG output tests ─────────────────────────────────────────────────
+
+#[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--x",
+        "x",
+        "--y",
+        "y",
+        "--title",
+        "Parquet Scatter",
+        "--x-label",
+        "X",
+        "--y-label",
+        "Y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+}
 
 #[test]
 fn test_line_svg() {
@@ -736,6 +782,63 @@ fn test_scatter_has_circles() {
 }
 
 #[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_color_by_has_multiple_colors() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--x",
+        "x",
+        "--y",
+        "y",
+        "--color-by",
+        "group",
+        "--title",
+        "Parquet Groups",
+        "--x-label",
+        "X",
+        "--y-label",
+        "Y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+
+    let fills: Vec<&str> = stdout
+        .split("fill=\"")
+        .skip(1)
+        .map(|s| s.split('"').next().unwrap_or(""))
+        .filter(|s| s.starts_with('#'))
+        .collect();
+
+    let unique: std::collections::HashSet<_> = fills.iter().collect();
+    assert!(
+        unique.len() >= 2,
+        "expected at least 2 distinct fill colors for parquet groups; got: {unique:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_multi_y_legend_labels() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "scatter",
+        &data("scatter.parquet"),
+        "--y",
+        "x,y",
+        "--legend",
+        "--interactive",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains(r#"data-group="x""#),
+        "expected parquet multi-y SVG to contain data-group=\"x\"; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(r#"data-group="y""#),
+        "expected parquet multi-y SVG to contain data-group=\"y\"; stdout: {stdout}"
+    );
+}
+
+#[test]
 fn test_line_has_path() {
     let (stdout, stderr, code) = run_with_file(&[
         "line",
@@ -1192,6 +1295,26 @@ fn test_bad_column_name() {
 }
 
 #[test]
+#[cfg(feature = "parquet")]
+fn test_scatter_parquet_stdin_bad_column_name_reports_parquet_error() {
+    let parquet = fs::read(data("scatter.parquet")).expect("read scatter.parquet");
+    let (_, stderr, code) =
+        run_with_stdin_bytes(&["scatter", "--x", "x", "--y", "does_not_exist"], &parquet);
+    assert_ne!(
+        code, 0,
+        "should fail when parquet column name does not exist"
+    );
+    assert!(
+        stderr.contains("does_not_exist"),
+        "error message should mention the bad parquet column name; got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Could not read stdin as a valid string"),
+        "stderr should report the parquet error, not a UTF-8 fallback error; got: {stderr}"
+    );
+}
+
+#[test]
 fn test_empty_stdin() {
     let (_, stderr, code) = run_with_stdin(&["scatter"], "");
     assert_ne!(code, 0, "should fail on empty input");
@@ -1501,6 +1624,191 @@ fn test_heatmap_colormap_unknown_warns_but_succeeds() {
     assert!(
         stderr.contains("unknown colormap"),
         "should warn about unknown colormap; stderr: {stderr}"
+    );
+}
+
+// ── quiver ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_quiver_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--auto-scale",
+        "0.8",
+        "--title",
+        "Vector Field",
+        "--x-label",
+        "x",
+        "--y-label",
+        "y",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    // Arrow = line (shaft) + path (head). Every arrow adds at least one of each.
+    assert!(
+        stdout.matches("<path").count() >= 60,
+        "expected arrow-head paths; got {}",
+        stdout.matches("<path").count()
+    );
+}
+
+#[test]
+fn test_quiver_colormap_adds_colorbar() {
+    let plain = run_with_file(&["quiver", &data("quiver.tsv"), "--auto-scale", "0.8"]).0;
+    let with_cmap = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--auto-scale",
+        "0.8",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+    ])
+    .0;
+    assert!(plain.starts_with("<svg") && with_cmap.starts_with("<svg"));
+    // Colorbar widens the canvas and adds the label text to the SVG.
+    assert!(
+        with_cmap.contains("Speed"),
+        "colorbar label should appear in SVG"
+    );
+    let plain_w = extract_width(&plain);
+    let cmap_w = extract_width(&with_cmap);
+    assert!(
+        cmap_w > plain_w,
+        "colormap version should be wider ({cmap_w} vs {plain_w})"
+    );
+}
+
+fn extract_width(svg: &str) -> f64 {
+    let start = svg.find("width=\"").expect("width attr") + 7;
+    let end = svg[start..].find('"').expect("close quote");
+    svg[start..start + end].parse().expect("parse width")
+}
+
+#[test]
+fn test_quiver_cli_pivot_middle() {
+    // --pivot middle must be accepted and produce a shifted-endpoint SVG
+    // that differs from the tail-default output.
+    let default_out = run_with_file(&["quiver", &data("quiver.tsv"), "--no-grid"]).0;
+    let middle_out = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--no-grid",
+        "--pivot",
+        "middle",
+    ])
+    .0;
+    assert!(default_out.starts_with("<svg"));
+    assert!(middle_out.starts_with("<svg"));
+    assert_ne!(
+        default_out, middle_out,
+        "--pivot middle should produce a different SVG than the tail default"
+    );
+}
+
+#[test]
+fn test_quiver_cli_tight_bounds_emits_clip_path() {
+    let (stdout, _, code) =
+        run_with_file(&["quiver", &data("quiver.tsv"), "--no-grid", "--tight-bounds"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("clipPath") || stdout.contains("clip-path"),
+        "--tight-bounds should emit a clip-path"
+    );
+}
+
+#[test]
+fn test_quiver_cli_no_clip_suppresses_clip_with_tight_bounds() {
+    let (stdout, _, code) = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--no-grid",
+        "--tight-bounds",
+        "--no-clip",
+    ]);
+    assert_eq!(code, 0);
+    assert!(
+        !stdout.contains("kuva-quiver-clip"),
+        "--no-clip must suppress the quiver clip-path even with --tight-bounds"
+    );
+}
+
+#[test]
+fn test_quiver_cli_colorbar_label() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--no-grid",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("Speed"),
+        "--colorbar-label text should appear in SVG"
+    );
+}
+
+#[test]
+fn test_quiver_cli_legend() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--no-grid",
+        "--legend",
+        "wind",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("wind"),
+        "--legend text should appear in SVG"
+    );
+}
+
+#[test]
+fn test_quiver_cli_head_length_accepted() {
+    // Explicit head dims should be accepted without the mutex-with-proportional
+    // fallback blowing up. Compare output to default to confirm the flag did
+    // something.
+    let default_out = run_with_file(&["quiver", &data("quiver.tsv"), "--no-grid"]).0;
+    let big_head_out = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--no-grid",
+        "--head-length",
+        "20",
+        "--head-width",
+        "8",
+    ])
+    .0;
+    assert!(default_out.starts_with("<svg"));
+    assert!(big_head_out.starts_with("<svg"));
+    assert_ne!(
+        default_out.len(),
+        big_head_out.len(),
+        "--head-length/--head-width should change SVG byte length vs defaults"
+    );
+}
+
+#[test]
+fn test_quiver_scale_auto_scale_exclusive() {
+    let (_, stderr, code) = run_with_file(&[
+        "quiver",
+        &data("quiver.tsv"),
+        "--arrow-scale",
+        "1.0",
+        "--auto-scale",
+        "0.8",
+    ]);
+    assert_ne!(code, 0, "mutually exclusive flags should error");
+    assert!(
+        stderr.to_ascii_lowercase().contains("cannot be used with")
+            || stderr.to_ascii_lowercase().contains("conflict"),
+        "expected conflict error; got: {stderr}"
     );
 }
 

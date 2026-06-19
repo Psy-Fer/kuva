@@ -56,10 +56,16 @@ pub struct ContourArgs {
 use crate::data::parse_colormap;
 
 pub fn run(args: ContourArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.x.clone().unwrap_or(ColSpec::Index(0)),
+        args.y.clone().unwrap_or(ColSpec::Index(1)),
+        args.z.clone().unwrap_or(ColSpec::Index(2)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let x_col = args.x.unwrap_or(ColSpec::Index(0));

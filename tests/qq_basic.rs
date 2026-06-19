@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{QQMode, QQPlot};
 use kuva::render::layout::Layout;
@@ -30,7 +31,7 @@ fn test_qq_normal_basic() {
         .with_x_label("Theoretical Quantiles")
         .with_y_label("Sample Quantiles");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_normal_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_normal_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Should have scatter circles
     assert!(
@@ -47,7 +48,7 @@ fn test_qq_normal_reference_line() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_normal_refline.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_normal_refline.svg", &svg).unwrap();
     assert!(
         svg.contains("<line"),
         "reference line should produce a line element"
@@ -62,7 +63,7 @@ fn test_qq_normal_no_reference_line() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_normal_no_refline.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_normal_no_refline.svg", &svg).unwrap();
     assert!(
         !svg.contains("stroke-dasharray=\"5,3\""),
         "no reference line should not produce dashed line"
@@ -82,7 +83,7 @@ fn test_qq_normal_multigroup() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Multi-group Normal Q-Q");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_normal_multigroup.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_normal_multigroup.svg", &svg).unwrap();
     assert!(svg.contains("Group A"), "legend should contain Group A");
     assert!(svg.contains("Group B"), "legend should contain Group B");
 }
@@ -102,7 +103,7 @@ fn test_qq_genomic_basic() {
         .with_x_label("Expected −log₁₀(p)")
         .with_y_label("Observed −log₁₀(p)");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_basic.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<circle"),
@@ -124,7 +125,7 @@ fn test_qq_genomic_mode_explicit() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_explicit.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_explicit.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -136,7 +137,7 @@ fn test_qq_genomic_ci_band() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Genomic Q-Q with CI band");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_ci_band.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_ci_band.svg", &svg).unwrap();
     // CI band is a filled path
     let path_count = svg.matches("<path").count();
     assert!(
@@ -154,7 +155,7 @@ fn test_qq_genomic_lambda() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Genomic Q-Q with λ");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_lambda.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_lambda.svg", &svg).unwrap();
     assert!(
         svg.contains('λ') || svg.contains("&#955;") || svg.contains("λ"),
         "lambda annotation should be present"
@@ -173,7 +174,7 @@ fn test_qq_genomic_no_inflation() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_null.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_null.svg", &svg).unwrap();
     assert!(!svg.contains("NaN"));
     assert!(svg.contains("<svg"));
 }
@@ -192,7 +193,7 @@ fn test_qq_genomic_multigroup() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Multi-study Genomic Q-Q");
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_genomic_multigroup.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_genomic_multigroup.svg", &svg).unwrap();
     assert!(svg.contains("Study A"));
     assert!(svg.contains("Study B"));
 }
@@ -206,7 +207,7 @@ fn test_qq_single_point() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_single.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_single.svg", &svg).unwrap();
     assert!(
         svg.contains("<svg"),
         "single-point Q-Q should produce valid SVG"
@@ -224,7 +225,7 @@ fn test_qq_empty() {
         .with_y_axis_min(-3.0)
         .with_y_axis_max(3.0);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_empty.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "empty Q-Q should produce valid SVG");
 }
 
@@ -274,6 +275,6 @@ fn test_qq_fill_opacity() {
     let plots = vec![Plot::QQ(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = render_svg(plots, layout);
-    fs::write("test_outputs/qq_fill_opacity.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/qq_fill_opacity.svg", &svg).unwrap();
     assert!(svg.contains("fill-opacity"));
 }

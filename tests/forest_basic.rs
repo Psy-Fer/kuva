@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::ForestPlot;
 use kuva::render::layout::Layout;
@@ -18,7 +19,7 @@ fn test_forest_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_basic.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Should contain circles (point estimates) and lines (whiskers)
     assert!(
@@ -53,7 +54,7 @@ fn test_forest_null_line() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_null_line.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_null_line.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // The null line should be dashed
     assert!(
@@ -74,7 +75,7 @@ fn test_forest_weighted() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_weighted.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_weighted.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<rect"),
@@ -94,7 +95,7 @@ fn test_forest_custom_color() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_custom_color.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_custom_color.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // Check the color appears in some form (hex, named, or rgb)
     assert!(
@@ -112,7 +113,7 @@ fn test_forest_single_row() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_single_row.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_single_row.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("Only Study"),
@@ -135,7 +136,7 @@ fn test_forest_many_rows() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_many_rows.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_many_rows.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Study 00"));
     assert!(svg.contains("Study 29"));
@@ -153,7 +154,7 @@ fn test_forest_wide_ci() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_wide_ci.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_wide_ci.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("<rect"),
@@ -173,7 +174,7 @@ fn test_forest_identical_estimates() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_identical_est.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_identical_est.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
 
@@ -189,7 +190,7 @@ fn test_forest_estimate_at_ci_edge() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_edge_est.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_edge_est.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // All three rows should still produce markers
     let rect_count = svg.matches("<rect").count();
@@ -213,7 +214,7 @@ fn test_forest_negative_null() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_neg_null.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_neg_null.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("stroke-dasharray"),
@@ -232,7 +233,7 @@ fn test_forest_no_null_line() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_no_null.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_no_null.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         !svg.contains("stroke-dasharray"),
@@ -252,7 +253,7 @@ fn test_forest_extreme_weights() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_extreme_weights.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_extreme_weights.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // All three should still produce visible rects
     let rect_count = svg.matches("<rect").count();
@@ -278,7 +279,7 @@ fn test_forest_long_labels() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_long_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_long_labels.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Phase III"), "long label should be present");
 }
@@ -297,7 +298,7 @@ fn test_forest_all_positive() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_all_positive.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_all_positive.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("stroke-dasharray"),
@@ -317,7 +318,7 @@ fn test_forest_with_caps() {
     let layout = Layout::auto_from_plots(&plots);
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_caps.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_caps.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // With 2 rows and caps: each row has 1 whisker + 2 cap lines + 1 rect = 3 lines per row
     // Plus null line + axis lines. Should have many more lines than without caps.
@@ -342,12 +343,13 @@ fn test_forest_colored_rows() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_colored_rows.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_colored_rows.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
-    // Per-row colors should appear in the SVG.
-    // "seagreen" is not in the named-color table so it stays as a CSS string;
-    // "tomato" is resolved to its Rgb value and emitted as hex.
-    assert!(svg.contains("seagreen"), "SVG should contain seagreen");
+    // Per-row colors should appear in the SVG (resolved to hex by Color).
+    assert!(
+        svg.contains("seagreen") || svg.contains("#2e8b57"),
+        "SVG should contain seagreen"
+    );
     assert!(
         svg.contains("#ff6347"),
         "SVG should contain #ff6347 (tomato)"
@@ -370,7 +372,7 @@ fn test_forest_weighted_colored_rows() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/forest_weighted_colored.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/forest_weighted_colored.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     // All three per-row colors should appear.
     // These names are in the named-color table and are emitted as hex.

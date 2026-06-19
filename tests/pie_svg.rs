@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{PieLabelPosition, PiePlot};
 use kuva::render::layout::Layout;
@@ -18,7 +19,7 @@ fn test_pie_basic() {
 
     let scene = render_pie(&pie, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_builder.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
 }
@@ -41,7 +42,7 @@ fn test_pie_outside_labels_with_percent() {
 
     let scene = render_pie(&pie, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_outside_percent.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_outside_percent.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // All labels should show percentages
@@ -66,7 +67,7 @@ fn test_pie_auto_labels() {
 
     let scene = render_pie(&pie, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_auto_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_auto_labels.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Small slices should have leader lines (outside)
@@ -86,7 +87,7 @@ fn test_pie_no_labels() {
 
     let scene = render_pie(&pie, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_no_labels.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_no_labels.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Should not contain slice label text (only the title text)
@@ -109,7 +110,7 @@ fn test_pie_legend_per_slice() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Legend should have per-slice entries
@@ -136,7 +137,7 @@ fn test_pie_outside_labels_font_family() {
 
     let scene = render_pie(&pie, &layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/pie_font_family.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_font_family.svg", svg.clone()).unwrap();
 
     assert!(svg.contains(r#"font-family="Helvetica, Arial, sans-serif""#));
     // All labels should be present
@@ -167,7 +168,7 @@ fn test_pie_outside_labels_large_font() {
         Layout::auto_from_plots(&plots_default).with_title("Pie - Default Font Size");
     let scene_default = render_pie(&pie, &layout_default);
     let svg_default = SvgBackend.render_scene(&scene_default);
-    std::fs::write(
+    common::write_test_output(
         "test_outputs/pie_outside_default_font.svg",
         svg_default.clone(),
     )
@@ -179,7 +180,8 @@ fn test_pie_outside_labels_large_font() {
         .with_body_size(20);
     let scene_large = render_pie(&pie, &layout_large);
     let svg_large = SvgBackend.render_scene(&scene_large);
-    std::fs::write("test_outputs/pie_outside_large_font.svg", svg_large.clone()).unwrap();
+    common::write_test_output("test_outputs/pie_outside_large_font.svg", svg_large.clone())
+        .unwrap();
 
     assert!(svg_default.contains("<svg"));
     assert!(svg_large.contains("<svg"));

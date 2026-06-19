@@ -36,6 +36,7 @@ pub struct BarPlot {
     pub width: f64,
     pub legend_label: Option<Vec<String>>,
     pub stacked: bool,
+    pub horizontal: bool,
     pub show_tooltips: bool,
     pub tooltip_labels: Option<Vec<String>>,
 }
@@ -73,6 +74,7 @@ impl BarPlot {
             width: 0.8,
             legend_label: None,
             stacked: false,
+            horizontal: false,
             show_tooltips: false,
             tooltip_labels: None,
         }
@@ -290,6 +292,12 @@ impl BarPlot {
 
     fn default_color(&self) -> String {
         "steelblue".into()
+    }
+
+    /// Render categories on the Y-axis and values on the X-axis (default `false`).
+    pub fn with_horizontal(mut self, h: bool) -> Self {
+        self.horizontal = h;
+        self
     }
 
     pub fn with_tooltips(mut self) -> Self {

@@ -41,9 +41,13 @@ pub struct RaincloudArgs {
     #[arg(long)]
     pub no_rain: bool,
 
-    /// Flip orientation (horizontal layout).
+    /// Flip the cloud/rain side (cloud goes to the other side of the center line).
     #[arg(long)]
     pub flip: bool,
+
+    /// Render groups on the Y-axis and values on the X-axis.
+    #[arg(long)]
+    pub horizontal: bool,
 
     /// Legend title (enables legend display).
     #[arg(long)]
@@ -60,10 +64,15 @@ pub struct RaincloudArgs {
 }
 
 pub fn run(args: RaincloudArgs) -> Result<(), String> {
+    let proj: Vec<ColSpec> = vec![
+        args.group_col.clone().unwrap_or(ColSpec::Index(0)),
+        args.value_col.clone().unwrap_or(ColSpec::Index(1)),
+    ];
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.no_header,
         args.input.delimiter,
+        &proj,
     )?;
 
     let group_col = args.group_col.unwrap_or(ColSpec::Index(0));
@@ -84,6 +93,9 @@ pub fn run(args: RaincloudArgs) -> Result<(), String> {
     }
     if args.flip {
         plot = plot.with_flip(true);
+    }
+    if args.horizontal {
+        plot = plot.with_horizontal(true);
     }
     if let Some(v) = args.bandwidth {
         plot = plot.with_bandwidth(v);

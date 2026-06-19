@@ -5,7 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-06-19
+
+### Added
+
+- **Math in labels** — any label (title, axis labels, `TextPlot` markdown bodies) may embed `$...$` math written in LaTeX-ish syntax (`$\sigma^2$`, `$\frac{a}{b}$`, `$\sqrt{x^2+y^2}$`). Math regions are lowered to inline Unicode — Greek letters, operators, super/subscripts (all-or-nothing, with a clean `x^(2q)` fallback), `\frac`→`a/b`, `\sqrt`→`√(…)` — by every backend including the terminal. Zero dependencies, always on; a literal dollar is written `\$`. See *Reference → Math in Labels*.
+- **`QuiverPlot`** — 2-D vector field rendered as arrows. Each arrow has a tail at `(x, y)` and a vector `(u, v)`. Features: `from_function()` constructor for sampling a closure on a regular grid; auto-scaled arrow length (longest arrow ≈ one grid cell via a `span/√n` heuristic) or explicit `with_scale`; proportional arrow heads that make every arrow "look like an arrow" regardless of magnitude; three pivot modes (`Tail`, `Middle`, `Tip`); optional magnitude-driven colormap with automatic colorbar; `tight_bounds` opt-in for dense fields and independent `with_clip_to_plot_area()` for plot-area clipping; combo helper `with_magnitude_colormap(cmap, label)`. CLI: `kuva quiver`.
+- **Pre-compiled release binaries** — pushing a `vX.Y.Z` tag now builds standalone `kuva` CLI binaries (with the `cli,full` feature set: SVG + PNG + PDF) for Linux (x86_64 gnu/musl, aarch64), macOS (Intel + Apple Silicon) and Windows (x86_64), and attaches them with SHA-256 checksums to the matching GitHub Release. Users can download a binary and run it without installing Rust. See `.github/workflows/release.yml` (resolves #17).
+- **`AxisLabelOverlap` — collision-aware x-axis label thinning** — `Layout::with_x_label_overlap(AxisLabelOverlap)` opts any plot into collision-aware x-axis labelling. Three modes: `Allow` (default — existing behaviour), `Thin` (left-to-right pass; skip any label whose estimated footprint overlaps the previous one), and `Stagger` (alternate two vertical offsets so adjacent labels no longer need horizontal clearance). Works with both upright and rotated (`Layout::with_x_tick_rotate`) labels. `ManhattanPlot` gains the convenience builder `with_thin_overlapping_labels()`. CLI: `--x-label-overlap allow|thin|stagger` on all subcommands.
+- **`.parquet` input for all CLI subcommands** — all ~50 CLI subcommands can read `.parquet` files directly (extension sniffing), or detect parquet piped via stdin by magic bytes (`PAR1` header/footer). Uses projected Arrow reads via `ParquetRecordBatchReaderBuilder` + `ProjectionMask::roots()` — only requested columns are decoded; 35–154× faster and 7–29× less memory than full-file row API on wide files. Gated behind `--features parquet`. (Community PR #79 by mud2monarch; extended to all subcommands in this release.)
+- **Horizontal mode for `BarPlot`, `BoxPlot`, `ViolinPlot`, `RaincloudPlot`** — `.with_horizontal(true)` rotates any of these charts so categories appear on the Y-axis and values on the X-axis. Useful when category labels are long or when a horizontal layout reads more naturally. Slot-fraction width/gap builders work identically in both orientations. CLI: `--horizontal` flag added to `kuva bar`, `kuva box`, `kuva violin`, `kuva raincloud`.
+- **CLI multi-column `--y` extended** — `--y A,B,C` (comma-separated column names or indices) is now supported on `histogram`, `bar`, `strip`, `violin`, `box`, `density`, and `ridgeline` in addition to the `scatter` and `line` subcommands added in v0.2.0. One series / group / ridge / curve is created per column; legend labels use column header names. Bar mode aggregates rows by `--label-col` (mean by default; `--agg` overrides). All existing `--group-col` / `--value-col` flags remain supported.
+- **Enclosed plots — `AxisLine::Internal` and `AxisLine::Mirrored`** — `Layout::with_axis_line(AxisLine)` controls how axes are drawn. `AxisLine::Open` (renamed from the previous `Left`) draws a standard open axis; `AxisLine::Internal` draws tick marks inward; `AxisLine::Mirrored` draws ticks on both sides of the plot area. (PR #77.)
+- **`embed_font` Cargo feature** — `flate2` is now optional. The new `embed_font` feature gates font embedding in SVG output; the `png` and `pdf` features pull in `flate2` for their own font loading; SVG-only builds no longer depend on it. The `fonts` module is gated on `any(embed_font, png, pdf)`. (Adapted from PR #81 by Zodey-hub.)
+- **`NetworkPlot` enhancements** — cubic-Bézier curved edges via `.with_curves(true)`; inside-node label placement (labels drawn centred inside node circles for compact graphs); legend group color fix (group entries now use the correct per-group color rather than a single fallback).
+- **Bundled font variants (Bold, Oblique, Mono)** — DejaVu Sans Bold, Oblique, and Mono TTFs are now bundled (gzip-compressed, inflated on first use via `OnceLock`). All three are gated behind `#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]` — SVG-only builds pay no binary-size cost. The `embed_font` `@font-face` block now embeds all four variants with correct `font-weight`/`font-style` descriptors so bold, italic, and code spans in `TextPlot` render correctly in self-contained SVGs.
+- **`TextPlot` `code` span markup** — backtick syntax (`` `code` ``) is now parsed by `parse_inline_markup` and produces a `TextSpan { code: true }`. SVG renders code spans with `font-family="DejaVu Sans Mono,monospace"`; PNG/PDF use the bundled DejaVu Sans Mono font face.
+- **`TextPlot` full markup in PNG/PDF** — bold, italic, and code spans now render correctly in PNG and PDF. Each span is drawn with the matching bundled font face (Bold / Oblique / Mono); text metrics are computed per-font so multi-style lines are correctly anchored.
+
+### Fixed
+
+- **Tick generation overflow (#80)** — `generate_ticks` used an absolute loop guard `end + 1e-8`; on sub-1e-8 data ranges (e.g. values in the 1e-10 range) the guard was never reached and the loop could produce millions of ticks or run indefinitely. Fixed with a relative tolerance `step.abs() * 1e-6` plus scale-invariant significant-figure rounding.
+- **Y-axis label centering without title (#83)** — the y-axis label y-position was computed from the canvas centre (`height / 2`); when no title was present this placed the label above the plot midpoint. Corrected to `margin_top + plot_height() / 2`.
+- **Legend box right-padding** — the auto-sizing formula `max_chars * 7.2 + 35` underestimated required box width, clipping long labels at larger font sizes or scale factors. Updated to `max_chars * 8.5 + 41`.
+- **Negative values in CLI numeric flags** — `--y-min`, `--y-max`, `--x-min`, `--x-max`, `--x-tick-step`, `--y-tick-step` now accept negative numbers (e.g. `--x-min -1.5`) without being misinterpreted as unknown flags. Fixed via `allow_hyphen_values = true` on the relevant arguments.
+- **BrickPlot multifigure bleed** — row heights are now normalized to a consistent pixel height when `BrickPlot` is placed inside a `Figure` panel, preventing render bleed into adjacent cells.
+- **`group_by` performance** — changed from O(n²) to O(n) using a `HashMap` + insertion-order `Vec`. Affects all CLI subcommands that use `--color-by` or grouped input.
+
+### Changed
+
+- **PNG backend — new raster pipeline** — `PngBackend` now uses a direct RGBA pixel-buffer rasterizer with `fontdue` text rendering. The previous `resvg`-based SVG round-trip path is removed. Renders are faster and no longer depend on `resvg` or `usvg`. `PngBackend` retains its existing public API as a compatibility shim over the new `RasterBackend`.
+- **`BrickPlot` legend improvements** — new builders `with_legend_columns(n)` (fixed column count) and `with_legend_max_entries(n)` (cap before overflow); legend entries per column are now evenly distributed. Prevents legend overflow when many repeat motifs are present.
+- **Refactor: `render_utils::arrow_head_path`** — factored a shared arrow-head triangle helper now used by `QuiverPlot`, `NetworkPlot` (directed-edge arrowheads), and `TextAnnotation` arrows. Eliminates three inlined copies of the same geometry.
+- **Refactor: `colorbar_linear` helper** in `render/plots.rs` — consolidates six near-identical `Arc<Fn>` closures that built linearly-normalized colorbars across `Heatmap`, `DotPlot`, `DicePlot`, `Contour`, `Clustermap`, and (new) `Quiver`. The 3-D `colorbar_from_z` path also routes through it now.
 
 ---
 
@@ -340,3 +372,16 @@ Initial release of kuva.
 - `kuva brick` CLI subcommand is not yet implemented (pending integration with bladerunner)
 - Terminal rendering is not yet supported for `upset` (the command prints a message and exits cleanly; use `-o file.svg` instead)
 - No Python or other language bindings
+
+---
+
+[Unreleased]: https://github.com/Psy-Fer/kuva/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Psy-Fer/kuva/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Psy-Fer/kuva/compare/v0.1.6...v0.2.0
+[0.1.6]: https://github.com/Psy-Fer/kuva/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Psy-Fer/kuva/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Psy-Fer/kuva/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Psy-Fer/kuva/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/Psy-Fer/kuva/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/Psy-Fer/kuva/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Psy-Fer/kuva/releases/tag/v0.1.0

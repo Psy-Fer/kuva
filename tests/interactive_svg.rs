@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::volcano::VolcanoPlot;
 use kuva::prelude::*;
@@ -62,7 +63,7 @@ fn make_volcano_svg(interactive: bool) -> String {
 #[test]
 fn test_interactive_off_by_default() {
     let svg = make_scatter_svg(false);
-    std::fs::write("test_outputs/interactive_off.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_off.svg", &svg).unwrap();
     assert!(
         !svg.contains("data-xmin"),
         "non-interactive SVG must not have data-xmin"
@@ -82,7 +83,7 @@ fn test_interactive_off_by_default() {
 #[test]
 fn test_interactive_root_attrs() {
     let svg = make_scatter_svg(true);
-    std::fs::write("test_outputs/interactive_root_attrs.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_root_attrs.svg", &svg).unwrap();
     assert!(svg.contains("data-xmin="), "missing data-xmin");
     assert!(svg.contains("data-xmax="), "missing data-xmax");
     assert!(svg.contains("data-ymin="), "missing data-ymin");
@@ -108,7 +109,7 @@ fn test_interactive_log_axis_flag() {
         .with_log_y();
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend::new().render_scene(&scene);
-    std::fs::write("test_outputs/interactive_log_y.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_log_y.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"data-log-y="1""#),
         "expected data-log-y=\"1\" in SVG root"
@@ -120,7 +121,7 @@ fn test_interactive_log_axis_flag() {
 #[test]
 fn test_interactive_scatter_data_attrs() {
     let svg = make_scatter_svg(true);
-    std::fs::write("test_outputs/interactive_scatter_data_attrs.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_scatter_data_attrs.svg", &svg).unwrap();
     assert!(
         svg.contains("data-x="),
         "expected data-x= on scatter point groups"
@@ -156,7 +157,7 @@ fn test_interactive_no_circle_batch() {
 #[test]
 fn test_interactive_volcano_threshold() {
     let svg = make_volcano_svg(true);
-    std::fs::write("test_outputs/interactive_volcano_threshold.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_volcano_threshold.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"class="kuva-threshold""#),
         "expected class=\"kuva-threshold\" on volcano threshold lines"
@@ -179,7 +180,7 @@ fn test_interactive_volcano_point_logfc() {
 #[test]
 fn test_interactive_legend_data_group() {
     let svg = make_multi_group_scatter_svg();
-    std::fs::write("test_outputs/interactive_legend_data_group.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_legend_data_group.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"class="legend-entry""#),
         "expected class=\"legend-entry\" on legend entry groups"
@@ -266,7 +267,7 @@ fn test_interactive_figure_propagates() {
 
     let scene = figure.render();
     let svg = SvgBackend::new().render_scene(&scene);
-    std::fs::write("test_outputs/interactive_figure.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/interactive_figure.svg", &svg).unwrap();
     // Figure merges all panel SVGs into one; the child panel scenes are rendered with
     // interactive=true so they should have data-x attrs on scatter point groups.
     assert!(

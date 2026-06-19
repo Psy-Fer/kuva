@@ -183,6 +183,37 @@ let plot = ViolinPlot::new()
 
 ---
 
+## Horizontal mode
+
+`.with_horizontal(true)` rotates the chart so categories appear on the Y-axis and values on the X-axis.
+
+```rust,no_run
+use kuva::plot::ViolinPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
+use kuva::backend::svg::SvgBackend;
+
+let plot = ViolinPlot::new()
+    .with_group("Normal",  normal_data)
+    .with_group("Bimodal", bimodal_data)
+    .with_group("Skewed",  skewed_data)
+    .with_group_colors(["steelblue", "tomato", "seagreen"])
+    .with_width(0.8)
+    .with_horizontal(true);
+
+let plots = vec![Plot::Violin(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Horizontal Violin Plot")
+    .with_x_label("Value");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/violin/horizontal.svg" alt="Horizontal violin plot" width="560">
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -199,3 +230,4 @@ let plot = ViolinPlot::new()
 | `.with_swarm_overlay()` | Overlay beeswarm points (spread to avoid overlap) |
 | `.with_overlay_color(s)` | Overlay point color (default `"rgba(0,0,0,0.45)"`) |
 | `.with_overlay_size(r)` | Overlay point radius in pixels (default `3.0`) |
+| `.with_horizontal(bool)` | Rotate chart: categories on Y-axis, values on X-axis (default `false`) |

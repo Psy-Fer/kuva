@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{BandPlot, LinePlot, ScatterPlot};
 use kuva::render::layout::Layout;
@@ -33,7 +34,7 @@ fn test_standalone_band() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/band_standalone.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/band_standalone.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));
@@ -66,7 +67,7 @@ fn test_line_with_band() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_with_band.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/line_with_band.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));
@@ -98,7 +99,7 @@ fn test_scatter_with_band() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/scatter_with_band.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/scatter_with_band.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));

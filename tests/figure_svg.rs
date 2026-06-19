@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{LegendEntry, LegendPlot, LegendShape, LinePlot, ScatterPlot};
 use kuva::render::figure::{Figure, FigureLegendPosition};
@@ -31,7 +32,7 @@ fn figure_basic_2x2() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_basic_2x2.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_basic_2x2.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<g"));
@@ -54,7 +55,7 @@ fn figure_merged_cells() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_merged_cells.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_merged_cells.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Each panel has a translate group + a clip group → 2 × 4 = 8
@@ -78,7 +79,7 @@ fn figure_vertical_span() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_vertical_span.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_vertical_span.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Each panel has a translate group + a clip group → 2 × 3 = 6
@@ -113,7 +114,7 @@ fn figure_shared_y_row() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_y_row.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_y_row.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Only the leftmost subplot should have the y label
@@ -136,7 +137,7 @@ fn figure_panel_labels() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_panel_labels.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_panel_labels.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains(">A<"));
@@ -158,7 +159,7 @@ fn figure_fewer_plots_than_slots() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_fewer_plots.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_fewer_plots.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // 3 panels × (translate group + clip group) = 6; 4th cell is blank
@@ -181,7 +182,7 @@ fn figure_title_and_subplot_titles() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_title.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_title.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Figure Title"));
@@ -217,7 +218,7 @@ fn figure_shared_y_row_slice() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_y_slice.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_y_slice.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Y0 should remain (col 0, not in slice)
@@ -256,7 +257,7 @@ fn figure_shared_x_column() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_x_column.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_x_column.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Only the bottommost subplot should have the x label
@@ -281,7 +282,7 @@ fn figure_negative_y_only() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_negative_y.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_negative_y.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // x min should be 0 (all positive, clamped)
@@ -304,7 +305,7 @@ fn figure_negative_x_only() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_negative_x.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_negative_x.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // x: ticks=5 → auto_nice_range(-6.14, 8.14, 5) → step=2.5 → (-7.5, 10) range.
@@ -327,7 +328,7 @@ fn figure_both_axes_negative() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_both_negative.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_both_negative.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // x: ticks=5 → auto_nice_range(-5.11, 6.11, 5) → step=2 → (-6, 8) range.
@@ -358,7 +359,7 @@ fn figure_large_negative_values() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_large_negatives.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_large_negatives.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // x: min=-50, pad_min(-50) = -50 * 1.05 = -52.5; max=80, pad_max(80) = 80 * 1.05 = 84
@@ -408,7 +409,7 @@ fn figure_size_basic() {
         .render();
 
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_size_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_size_basic.svg", &svg).unwrap();
 
     assert_eq!(
         svg_dim(&svg, "width"),
@@ -447,7 +448,7 @@ fn figure_size_with_title() {
         .render();
 
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_size_with_title.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_size_with_title.svg", &svg).unwrap();
 
     assert_eq!(svg_dim(&svg, "width"), 900.0);
     assert_eq!(svg_dim(&svg, "height"), 400.0);
@@ -480,7 +481,7 @@ fn figure_size_with_shared_legend() {
         .render();
 
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_size_with_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_size_with_legend.svg", &svg).unwrap();
 
     assert_eq!(svg_dim(&svg, "width"), 760.0);
     assert_eq!(svg_dim(&svg, "height"), 380.0);
@@ -507,7 +508,7 @@ fn figure_panel_legends() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_panel_legends.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_panel_legends.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Blue data"));
@@ -528,7 +529,7 @@ fn figure_shared_legend_right() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_legend_right.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_legend_right.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Should have the shared legend entries (deduplicated: Blue, Red, Green)
@@ -556,7 +557,7 @@ fn figure_shared_legend_bottom() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_legend_bottom.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_legend_bottom.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Sample A"));
@@ -595,7 +596,7 @@ fn figure_shared_legend_manual_entries() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_shared_legend_manual.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_shared_legend_manual.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Custom 1"));
@@ -615,7 +616,7 @@ fn figure_keep_panel_legends() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_keep_panel_legends.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_keep_panel_legends.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Both shared legend and per-panel legends should render
@@ -646,7 +647,7 @@ fn figure_explicit_axis_bounds_preserved() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_explicit_bounds.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_explicit_bounds.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"));
     // Panel 0: y range forced to [-10, 20] → ticks at -10 and 20
@@ -684,7 +685,7 @@ fn figure_twin_y_cell() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_twin_y_cell.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_twin_y_cell.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"), "should produce valid SVG");
     // Twin-Y emits a right-side y2 axis line; check the SVG has more than 2 axis line elements
@@ -709,7 +710,7 @@ fn figure_twin_y_auto_layout() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_twin_y_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_twin_y_auto.svg", &svg).unwrap();
 
     assert!(svg.contains("<svg"), "should produce valid SVG");
     assert!(svg.contains("<circle"), "scatter points should be present");
@@ -741,7 +742,7 @@ fn figure_twin_y_with_layout() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_twin_y_layout.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_twin_y_layout.svg", &svg).unwrap();
 
     assert!(svg.contains("Twin-Y in Figure"), "title should appear");
     assert!(svg.contains("Time"), "x label should appear");
@@ -775,7 +776,7 @@ fn render_legend_pos(pos: FigureLegendPosition, name: &str) -> String {
         .with_shared_legend_position(pos)
         .render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write(format!("test_outputs/{name}.svg"), &svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), &svg).unwrap();
     svg
 }
 
@@ -936,6 +937,37 @@ fn figure_legend_bottom_right() {
     assert_eq!(svg_dim(&svg, "height"), 476.0);
 }
 
+// ── Legend height scales with body_size ─────────────────────────────────────
+//
+// Regression for the hardcoded `18.0` in render_legend_at and figure.rs.
+// With body_size=16: line_height = 16*1.5 = 24 (not 18).
+// Legend entries "Alpha"/"Beta" (2 entries):
+//   legend_height = 2*24+20 = 68   (was 2*18+20 = 56 at default body_size=12)
+//   legend_spacing = 20
+// Top legend: total height = 400 + 68 + 20 = 488  (was 476 at body_size=12)
+
+#[test]
+fn figure_legend_height_scales_with_body_size() {
+    let plots = legend_plots();
+    let layouts = vec![
+        Layout::auto_from_plots(&plots[0]).with_body_size(16),
+        Layout::auto_from_plots(&plots[1]).with_body_size(16),
+    ];
+    let scene = Figure::new(1, 2)
+        .with_plots(plots)
+        .with_layouts(layouts)
+        .with_shared_legend_position(FigureLegendPosition::TopCenter)
+        .render();
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/figure_legend_scaled_body_size.svg", &svg).unwrap();
+    assert!(svg.contains("Alpha") && svg.contains("Beta"));
+    assert_eq!(
+        svg_dim(&svg, "height"),
+        488.0,
+        "legend height must scale with body_size (16*1.5=24 per entry, 2*24+20=68 + 20 spacing)"
+    );
+}
+
 // ── Backward-compat aliases still work ───────────────────────────────────────
 
 #[test]
@@ -1042,7 +1074,7 @@ fn figure_per_row_height() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_per_row_height.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_per_row_height.svg", &svg).unwrap();
 
     assert!(svg.contains("<circle"), "scatter points should be present");
     assert!(
@@ -1111,7 +1143,7 @@ fn figure_per_col_width() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_per_col_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_per_col_width.svg", &svg).unwrap();
 
     assert!(svg.contains("<circle"), "scatter points should render");
     assert!(svg.contains("<path"), "line path should render");
@@ -1164,7 +1196,7 @@ fn figure_per_row_col_mixed() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_per_row_col_mixed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_per_row_col_mixed.svg", &svg).unwrap();
 
     assert!(svg.contains("Group A") && svg.contains("Group B"));
     assert!(svg.contains("Alpha") && svg.contains("Beta"));
@@ -1209,7 +1241,7 @@ fn figure_figure_size_with_explicit_row() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_size_explicit_row.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_size_explicit_row.svg", &svg).unwrap();
 
     assert!(svg.contains("Experiment results"));
     assert!(svg.contains("Series A") && svg.contains("Series B"));
@@ -1285,7 +1317,7 @@ fn figure_legend_plot_fits_short_cell() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_legend_plot_fits.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_legend_plot_fits.svg", &svg).unwrap();
 
     assert!(svg.contains("<circle"), "scatter points should render");
     assert!(
@@ -1343,7 +1375,7 @@ fn figure_legend_plot_single_col_when_tall_enough() {
 
     let scene = figure.render();
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/figure_legend_plot_single_col.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/figure_legend_plot_single_col.svg", &svg).unwrap();
 
     assert!(svg.contains("<path"), "line paths should render");
     assert!(svg.contains("Four series"), "panel title should appear");

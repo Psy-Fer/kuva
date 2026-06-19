@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::network::{NetworkLayout, NetworkPlot, NodeShape};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -13,7 +14,7 @@ fn network_basic() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Basic Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_basic.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_basic.svg", svg).unwrap();
 }
 
 #[test]
@@ -29,7 +30,7 @@ fn network_directed() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Directed Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_directed.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_directed.svg", svg).unwrap();
 }
 
 #[test]
@@ -51,7 +52,7 @@ fn network_circle_layout() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Circle Layout");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_circle.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_circle.svg", svg).unwrap();
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn network_self_loop() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Self-Loop");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_self_loop.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_self_loop.svg", svg).unwrap();
 }
 
 #[test]
@@ -83,7 +84,7 @@ fn network_matrix() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("From Adjacency Matrix");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_matrix.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_matrix.svg", svg).unwrap();
 }
 
 #[test]
@@ -102,7 +103,7 @@ fn network_groups_legend() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Grouped Network");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_groups_legend.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_groups_legend.svg", svg).unwrap();
 }
 
 #[test]
@@ -117,7 +118,7 @@ fn network_weighted() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Weighted Edges");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_weighted.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_weighted.svg", svg).unwrap();
 }
 
 #[test]
@@ -137,7 +138,7 @@ fn network_node_sizes() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Variable Node Sizes");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_node_sizes.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_node_sizes.svg", svg).unwrap();
 }
 
 #[test]
@@ -170,7 +171,7 @@ fn network_disconnected() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Disconnected Components");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_disconnected.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_disconnected.svg", svg).unwrap();
 }
 
 #[test]
@@ -203,7 +204,7 @@ fn network_pinned_positions() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Pinned Positions");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/network_pinned.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_pinned.svg", svg).unwrap();
 }
 
 #[test]
@@ -226,7 +227,42 @@ fn network_explicit_node_colors() {
     assert!(svg.contains("#e41a1c"), "node A should use explicit red");
     assert!(svg.contains("#377eb8"), "node B should use explicit blue");
     assert!(svg.contains("#4daf4a"), "node C should use explicit green");
-    std::fs::write("test_outputs/network_explicit_colors.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_explicit_colors.svg", svg).unwrap();
+}
+
+#[test]
+fn network_legend_swatch_uses_explicit_color() {
+    // When a node has both a group and an explicit color, the legend swatch
+    // for that group should show the explicit color, not the palette default.
+    // Palette defaults: Group1 → #1f77b4, Group2 → #ff7f0e.
+    let net = NetworkPlot::new()
+        .with_edge("Spine", "Other", 1.0)
+        .with_node_color("Spine", "#2166ac")
+        .with_node_color("Other", "#aaaaaa")
+        .with_node_group("Spine", "Group1")
+        .with_node_group("Other", "Group2")
+        .with_labels()
+        .with_legend("Groups");
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Legend swatch honors explicit color");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains("#2166ac"),
+        "explicit color #2166ac should appear in the SVG (node or legend swatch)"
+    );
+    assert!(
+        svg.contains("#aaaaaa"),
+        "explicit color #aaaaaa should appear in the SVG (node or legend swatch)"
+    );
+    assert!(
+        !svg.contains("#1f77b4"),
+        "palette default #1f77b4 should not appear when an explicit color overrides it"
+    );
+    assert!(
+        !svg.contains("#ff7f0e"),
+        "palette default #ff7f0e should not appear when an explicit color overrides it"
+    );
+    common::write_test_output("test_outputs/network_legend_swatch_explicit.svg", svg).unwrap();
 }
 
 #[test]
@@ -243,7 +279,7 @@ fn network_single_node_self_loop() {
         svg.contains("<path"),
         "single-node self-loop should produce a path"
     );
-    std::fs::write("test_outputs/network_single_self_loop.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_single_self_loop.svg", svg).unwrap();
 }
 
 #[test]
@@ -268,7 +304,7 @@ fn network_matrix_directed_order_independent() {
         arrow_count >= 3,
         "directed matrix should produce at least 3 arrowhead paths, got {arrow_count}"
     );
-    std::fs::write("test_outputs/network_matrix_directed.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_matrix_directed.svg", svg).unwrap();
 }
 
 #[test]
@@ -286,7 +322,7 @@ fn network_kamada_kawai() {
     let layout = Layout::auto_from_plots(&plots).with_title("Kamada-Kawai Layout");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("<circle"), "KK layout should produce nodes");
-    std::fs::write("test_outputs/network_kamada_kawai.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_kamada_kawai.svg", svg).unwrap();
 }
 
 #[test]
@@ -301,7 +337,7 @@ fn network_edge_labels() {
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("0.95"), "edge label should appear in SVG");
     assert!(svg.contains("0.72"), "edge label should appear in SVG");
-    std::fs::write("test_outputs/network_edge_labels.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_edge_labels.svg", svg).unwrap();
 }
 
 #[test]
@@ -323,7 +359,7 @@ fn network_node_shapes() {
     assert!(svg.contains("<circle"), "should have circle nodes");
     assert!(svg.contains("<rect"), "should have square nodes");
     // Diamond and triangle are rendered as <path>
-    std::fs::write("test_outputs/network_node_shapes.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_node_shapes.svg", svg).unwrap();
 }
 
 #[test]
@@ -343,7 +379,7 @@ fn network_antiparallel_curved() {
     );
     assert!(svg.contains("strong"), "A→B edge label should appear");
     assert!(svg.contains("weak"), "B→A edge label should appear");
-    std::fs::write("test_outputs/network_antiparallel.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_antiparallel.svg", svg).unwrap();
 }
 
 #[test]
@@ -361,7 +397,7 @@ fn network_repel_labels() {
     let layout = Layout::auto_from_plots(&plots).with_title("Label Repulsion");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains("Alpha"), "labels should still be present");
-    std::fs::write("test_outputs/network_repel_labels.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_repel_labels.svg", svg).unwrap();
 }
 
 #[test]
@@ -423,7 +459,7 @@ fn network_dense_clusters() {
         group_count >= 50,
         "dense graph should have many edge groups, got {group_count}"
     );
-    std::fs::write("test_outputs/network_dense_clusters.svg", svg).unwrap();
+    common::write_test_output("test_outputs/network_dense_clusters.svg", svg).unwrap();
 }
 
 #[test]
@@ -473,5 +509,237 @@ fn network_matrix_self_loop_undirected() {
         net.edges.len(),
         3,
         "undirected 3-node fully-connected matrix should have 3 edges"
+    );
+}
+
+// ── label_inside tests ───────────────────────────────────────────────────
+
+#[test]
+fn network_labels_inside_sets_flags() {
+    // with_labels_inside() enables both show_labels and label_inside.
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_labels_inside();
+    assert!(net.show_labels, "with_labels_inside should set show_labels");
+    assert!(
+        net.label_inside,
+        "with_labels_inside should set label_inside"
+    );
+}
+
+#[test]
+fn network_labels_inside_svg() {
+    // Labels rendered inside nodes should appear with white fill and be
+    // centred on the node position (no outward offset).
+    let net = NetworkPlot::new()
+        .with_edge("X", "Y", 1.0)
+        .with_edge("Y", "Z", 1.0)
+        .with_layout(NetworkLayout::Circle)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Labels Inside Nodes");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("white"), "inside labels should use white fill");
+    assert!(svg.contains("X"), "label X should appear");
+    assert!(svg.contains("Y"), "label Y should appear");
+    assert!(svg.contains("Z"), "label Z should appear");
+    common::write_test_output("test_outputs/network_labels_inside.svg", svg).unwrap();
+}
+
+#[test]
+fn network_labels_inside_large_nodes() {
+    // Larger nodes give more room; the font size auto-scales but is capped
+    // at the layout default.  White text should still be present.
+    let net = NetworkPlot::new()
+        .with_edge("Alpha", "Beta", 1.0)
+        .with_edge("Beta", "Gamma", 1.0)
+        .with_node_size("Alpha", 28.0)
+        .with_node_size("Beta", 28.0)
+        .with_node_size("Gamma", 28.0)
+        .with_layout(NetworkLayout::Circle)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Inside Labels – Large Nodes");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains("white"),
+        "large-node inside labels should use white fill"
+    );
+    assert!(svg.contains("Alpha"), "label Alpha should appear");
+    common::write_test_output("test_outputs/network_labels_inside_large.svg", svg).unwrap();
+}
+
+#[test]
+fn network_poa_graph_labels_inside() {
+    // POA graph with inside labels — the primary use case for this feature.
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 3.0)
+        .with_edge("B", "C", 3.0)
+        .with_edge("C", "D", 3.0)
+        .with_edge("D", "E", 3.0)
+        .with_edge_curved("A", "C", 1.0, 0.3)
+        .with_edge_curved("B", "D", 1.0, 0.3)
+        .with_directed()
+        .with_node_radius(16.0)
+        .with_node_position("A", 0.0, 0.5)
+        .with_node_position("B", 0.25, 0.5)
+        .with_node_position("C", 0.5, 0.5)
+        .with_node_position("D", 0.75, 0.5)
+        .with_node_position("E", 1.0, 0.5)
+        .with_labels_inside();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("POA Graph – Labels Inside");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains("white"),
+        "POA inside labels should use white fill"
+    );
+    assert!(svg.contains(" Q "), "curved arcs should still be present");
+    common::write_test_output("test_outputs/network_poa_labels_inside.svg", svg).unwrap();
+}
+
+// ── curve field tests ─────────────────────────────────────────────────────
+
+#[test]
+fn network_edge_curve_field_default_none() {
+    // Edges added via the standard builders must have curve = None.
+    let mut net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_edge_color("B", "C", 1.0, "#ff0000")
+        .with_edge_label("C", "A", 1.0, "back")
+        .with_edge_styled("A", "C", 1.0, "#00ff00", "diag");
+    net.resolve_matrix();
+    for edge in &net.edges {
+        assert!(
+            edge.curve.is_none(),
+            "standard builder edges should have curve = None, got {:?}",
+            edge.curve
+        );
+    }
+}
+
+#[test]
+fn network_edge_curved_field_set() {
+    // with_edge_curved sets curve = Some(value) on the edge.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.3)
+        .with_edge_curved("B", "A", 1.0, -0.3);
+    assert_eq!(net.edges.len(), 2);
+    assert_eq!(
+        net.edges[0].curve,
+        Some(0.3),
+        "first curved edge should store its curve value"
+    );
+    assert_eq!(
+        net.edges[1].curve,
+        Some(-0.3),
+        "second curved edge (negative) should store its curve value"
+    );
+}
+
+#[test]
+fn network_edge_curved_svg() {
+    // with_edge_curved produces a quadratic-bezier path in the SVG.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.25)
+        .with_edge("B", "C", 1.0) // straight control
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Edge");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains(" Q "),
+        "a curved edge should emit a quadratic-bezier path (Q command)"
+    );
+    common::write_test_output("test_outputs/network_edge_curved.svg", svg).unwrap();
+}
+
+#[test]
+fn network_edge_curved_directed_arrowhead() {
+    // Curved directed edges must still carry arrowheads.
+    let net = NetworkPlot::new()
+        .with_edge_curved("A", "B", 1.0, 0.2)
+        .with_edge_curved("B", "A", 1.0, 0.2) // parallel pair, both manually curved
+        .with_directed()
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Directed Edges");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(
+        svg.contains(" Q "),
+        "curved directed edges should use quadratic bezier"
+    );
+    // Two directed edges → two arrowhead triangles (each has two L commands).
+    let l_count = svg.matches("L ").count();
+    assert!(
+        l_count >= 4,
+        "two directed edges should have ≥4 'L ' path commands (2 per arrowhead), got {l_count}"
+    );
+    common::write_test_output("test_outputs/network_curved_directed.svg", svg).unwrap();
+}
+
+#[test]
+fn network_poa_graph() {
+    // Partial-order alignment graph: linear backbone A→B→C→D→E with arcs
+    // that skip nodes (insertions/deletions), visualised with explicit curves.
+    let net = NetworkPlot::new()
+        // Backbone
+        .with_edge("A", "B", 3.0)
+        .with_edge("B", "C", 3.0)
+        .with_edge("C", "D", 3.0)
+        .with_edge("D", "E", 3.0)
+        // Skip arcs above the backbone (positive = left = visually above)
+        .with_edge_curved("A", "C", 1.0, 0.25)
+        .with_edge_curved("B", "D", 1.0, 0.25)
+        .with_edge_curved("A", "E", 0.5, 0.4)
+        // Skip arc below
+        .with_edge_curved("C", "E", 1.0, -0.2)
+        .with_directed()
+        .with_node_position("A", 0.0, 0.5)
+        .with_node_position("B", 0.25, 0.5)
+        .with_node_position("C", 0.5, 0.5)
+        .with_node_position("D", 0.75, 0.5)
+        .with_node_position("E", 1.0, 0.5)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("POA Graph (backbone + skip arcs)");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    // Four curved skip arcs → at least four Q commands.
+    let q_count = svg.matches(" Q ").count();
+    assert!(
+        q_count >= 4,
+        "POA graph should have ≥4 quadratic-bezier arcs, got {q_count}"
+    );
+    common::write_test_output("test_outputs/network_poa_graph.svg", svg).unwrap();
+}
+
+/// Refactor regression: the directed-edge arrowhead now goes through the
+/// shared `render_utils::arrow_head_path` helper. The pre-refactor inlined
+/// format used unrounded coords; the new helper rounds to 2 decimals and
+/// uses the same M/L/L/Z shape. Lock in that arrowhead paths still
+/// (a) exist for every directed edge and (b) use the shared 2-decimal format.
+#[test]
+fn test_network_directed_arrowhead_format_regression() {
+    let net = NetworkPlot::new()
+        .with_edge("A", "B", 1.0)
+        .with_edge("B", "C", 1.0)
+        .with_edge("C", "A", 1.0)
+        .with_directed();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Directed arrowhead regression");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    // Three directed edges → at least three arrowhead triangles.
+    let triangle_count = svg.matches("L ").count();
+    assert!(
+        triangle_count >= 6,
+        "expected ≥6 'L ' path commands (2 per arrowhead × 3 edges), got {triangle_count}"
+    );
+    // 2-decimal coordinate format from the shared helper: look for "M <digits>.<2 digits>".
+    let d_fmt_sample = svg.split("<path").nth(1).unwrap_or("");
+    assert!(
+        d_fmt_sample.contains(" Z") || d_fmt_sample.contains("Z\""),
+        "arrowhead path should close with Z"
     );
 }

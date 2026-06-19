@@ -132,6 +132,7 @@ impl SvgBackend {
         svg.push('>');
         write_newline(&mut svg, p);
 
+        #[cfg(feature = "embed_font")]
         if self.embed_font {
             write_indent(&mut svg, 1, p);
             svg.push_str(crate::fonts::dejavu_sans_style_block());
@@ -224,6 +225,17 @@ impl SvgBackend {
                     bold,
                     color,
                 } => {
+                    // Lower any `$...$` math regions to inline Unicode
+                    // (σ², a/b, √(…)) so they render as ordinary text.
+                    // No-op for plain labels.
+                    let lowered;
+                    let content: &str = if crate::render::math::needs_rewrite(content) {
+                        lowered = crate::render::math::to_unicode(content);
+                        &lowered
+                    } else {
+                        content
+                    };
+
                     let anchor_str = match anchor {
                         TextAnchor::Start => "start",
                         TextAnchor::Middle => "middle",
@@ -291,9 +303,12 @@ impl SvgBackend {
                     }
                     svg.push('>');
                     for span in spans {
-                        let styled = span.bold || span.italic || span.underline;
+                        let styled = span.bold || span.italic || span.underline || span.code;
                         if styled {
                             svg.push_str("<tspan");
+                            if span.code {
+                                svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                            }
                             if span.bold {
                                 svg.push_str(r#" font-weight="bold""#);
                             }
@@ -337,6 +352,39 @@ impl SvgBackend {
                     write_float(&mut svg, *stroke_width);
                     svg.push('"');
                     if let Some(dash) = stroke_dasharray {
+                        svg.push_str(r#" stroke-dasharray=""#);
+                        svg.push_str(dash);
+                        svg.push('"');
+                    }
+                    svg.push_str(" />");
+                    write_newline(&mut svg, p);
+                }
+                Primitive::PolyLine {
+                    points,
+                    stroke,
+                    stroke_width,
+                    stroke_dasharray,
+                } => {
+                    write_indent(&mut svg, depth, p);
+                    svg.push_str(r#"<path d=""#);
+                    for (i, &(x, y)) in points.iter().enumerate() {
+                        if i == 0 {
+                            svg.push('M');
+                        } else {
+                            svg.push('L');
+                        }
+                        svg.push(' ');
+                        write_float(&mut svg, x);
+                        svg.push(' ');
+                        write_float(&mut svg, y);
+                        svg.push(' ');
+                    }
+                    svg.push_str(r#"" stroke=""#);
+                    stroke.write_svg(&mut svg);
+                    svg.push_str(r#"" stroke-width=""#);
+                    write_float(&mut svg, *stroke_width);
+                    svg.push_str(r#"" fill="none""#);
+                    if let Some(ref dash) = stroke_dasharray {
                         svg.push_str(r#" stroke-dasharray=""#);
                         svg.push_str(dash);
                         svg.push('"');

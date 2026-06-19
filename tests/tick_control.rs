@@ -1,5 +1,6 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
-use kuva::plot::ScatterPlot;
+use kuva::plot::{LinePlot, ScatterPlot};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
 fn scatter_svg(layout: Layout) -> String {
@@ -28,7 +29,7 @@ fn test_axis_range_override() {
         .with_x_axis_min(0.0)
         .with_x_axis_max(10.0);
     let svg_override = scatter_svg(layout_override);
-    std::fs::write("test_outputs/tick_control_range.svg", &svg_override).unwrap();
+    common::write_test_output("test_outputs/tick_control_range.svg", &svg_override).unwrap();
     assert!(
         svg_override.contains("10"),
         "overridden range should include tick 10"
@@ -50,7 +51,7 @@ fn test_explicit_tick_step() {
         .with_x_axis_max(10.0)
         .with_x_tick_step(2.5);
     let svg = scatter_svg(layout);
-    std::fs::write("test_outputs/tick_control_step.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_control_step.svg", &svg).unwrap();
     assert!(
         svg.contains(">0<") || svg.contains(">0.0<") || svg.contains("\"0\"") || svg.contains(">0"),
         "tick 0 should appear"
@@ -81,7 +82,7 @@ fn test_minor_ticks() {
     )];
     let layout_minor = Layout::auto_from_plots(&plots2).with_minor_ticks(5);
     let svg_minor = scatter_svg(layout_minor);
-    std::fs::write("test_outputs/tick_control_minor.svg", &svg_minor).unwrap();
+    common::write_test_output("test_outputs/tick_control_minor.svg", &svg_minor).unwrap();
 
     let lines_without = svg_no_minor.matches("<line").count();
     let lines_with = svg_minor.matches("<line").count();
@@ -109,7 +110,7 @@ fn test_minor_grid() {
         .with_minor_ticks(5)
         .with_show_minor_grid(true);
     let svg_grid = scatter_svg(layout_grid);
-    std::fs::write("test_outputs/tick_control_minor_grid.svg", &svg_grid).unwrap();
+    common::write_test_output("test_outputs/tick_control_minor_grid.svg", &svg_grid).unwrap();
 
     let lines_minor = svg_minor.matches("<line").count();
     let lines_grid = svg_grid.matches("<line").count();
@@ -129,7 +130,7 @@ fn test_axis_line_width() {
     )];
     let layout = Layout::auto_from_plots(&plots).with_axis_line_width(4.0);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/axis_line_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/axis_line_width.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"stroke-width="4""#),
         "axis lines should carry stroke-width=\"4\""
@@ -159,7 +160,7 @@ fn test_tick_stroke_width() {
     )];
     let layout = Layout::auto_from_plots(&plots).with_tick_width(3.5);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/tick_stroke_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_stroke_width.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"stroke-width="3.5""#),
         "tick marks should carry stroke-width=\"3.5\""
@@ -195,7 +196,7 @@ fn test_tick_length() {
     let plots_long = make_plots();
     let layout_long = Layout::auto_from_plots(&plots_long).with_tick_length(150.0);
     let svg_long = SvgBackend.render_scene(&render_multiple(plots_long, layout_long));
-    std::fs::write("test_outputs/tick_length.svg", &svg_long).unwrap();
+    common::write_test_output("test_outputs/tick_length.svg", &svg_long).unwrap();
 
     assert_ne!(
         svg_default, svg_long,
@@ -211,7 +212,7 @@ fn test_grid_line_width() {
     )];
     let layout = Layout::auto_from_plots(&plots).with_grid_line_width(2.5);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/grid_line_width.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/grid_line_width.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"stroke-width="2.5""#),
         "grid lines should carry stroke-width=\"2.5\""
@@ -255,7 +256,7 @@ fn test_tick_and_grid_width_independent() {
         .with_tick_width(3.0)
         .with_grid_line_width(7.0);
     let svg_both = SvgBackend.render_scene(&render_multiple(plots_both, layout_both));
-    std::fs::write("test_outputs/tick_grid_independent.svg", &svg_both).unwrap();
+    common::write_test_output("test_outputs/tick_grid_independent.svg", &svg_both).unwrap();
     assert!(
         svg_both.contains(r#"stroke-width="3""#),
         "tick width=3 should appear when set independently of grid"
@@ -302,7 +303,7 @@ fn test_axis_controls_combined() {
         .with_tick_length(8.0)
         .with_grid_line_width(0.5);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/axis_controls_combined.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/axis_controls_combined.svg", &svg).unwrap();
     assert!(
         svg.contains(r#"stroke-width="5""#),
         "axis line width=5 should appear"
@@ -339,9 +340,50 @@ fn test_no_negative_zero_tick_label() {
     let plots = vec![Plot::Density(dp)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/tick_no_negative_zero.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_no_negative_zero.svg", &svg).unwrap();
     assert!(
         !svg.contains(">-0<"),
         "SVG must not contain a '-0' tick label"
+    );
+}
+
+/// Regression #80: generate_ticks with tiny values (1e-14 scale) must produce a
+/// bounded tick count. The old code used `end + 1e-8` as a loop termination
+/// tolerance; when the entire data range is smaller than 1e-8, the loop ran for
+/// millions of iterations, producing gigabyte-sized SVG output.
+#[test]
+fn test_generate_ticks_small_scale_bounded() {
+    let ticks = kuva::render::render_utils::generate_ticks(1e-14, 2e-14, 10);
+    assert!(
+        ticks.len() <= 20,
+        "generate_ticks([1e-14, 2e-14], 10) should produce ≤20 ticks, got {}",
+        ticks.len()
+    );
+    assert!(!ticks.is_empty(), "should produce at least one tick");
+    // All tick values must be within the axis range
+    for &t in &ticks {
+        assert!(
+            t >= 1e-14 * 0.999 && t <= 2e-14 * 1.001,
+            "tick {t} is outside expected range [1e-14, 2e-14]"
+        );
+    }
+}
+
+/// Regression #80: A LinePlot with very small y-values must produce a compact SVG,
+/// not a ~920 MB file.
+#[test]
+fn test_line_plot_small_values_svg_size() {
+    let plot = LinePlot::new().with_data(vec![(0.0_f64, 1.0e-14), (0.5, 2.0e-14), (1.0, 1.5e-14)]);
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Small Values")
+        .with_x_label("X")
+        .with_y_label("Y");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/tick_small_scale_line.svg", &svg).unwrap();
+    assert!(
+        svg.len() < 100_000,
+        "LinePlot with 1e-14 y-values should produce a small SVG (<100 KB), got {} bytes",
+        svg.len()
     );
 }

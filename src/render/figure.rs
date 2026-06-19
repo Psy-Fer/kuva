@@ -480,7 +480,8 @@ impl Figure {
             } else {
                 let max_label_len = entries.iter().map(|e| e.label.len()).max().unwrap_or(0);
                 let w = (max_label_len as f64 * 7.0 + 35.0).max(80.0);
-                let h = entries.len() as f64 * 18.0 + 20.0;
+                let line_h = user_layouts.first().map_or(12, |l| l.body_size) as f64 * 1.5;
+                let h = entries.len() as f64 * line_h + 20.0;
                 (w, h)
             }
         } else {
@@ -605,6 +606,17 @@ impl Figure {
             }
         }
 
+        // Build per-column widths first — needed below to supply actual cell
+        // widths when computing BrickPlot row heights.
+        let mut per_col_widths: Vec<f64> = vec![cell_width; cols];
+        for (c, cw) in explicit_col_widths.iter().enumerate() {
+            if let Some(w) = cw {
+                if c < cols {
+                    per_col_widths[c] = *w;
+                }
+            }
+        }
+
         // Compute per-grid-row heights.  A grid row's height is the default
         // `cell_height` unless any cell in that row contains a BrickPlot with
         // `row_height_px`, in which case we compute:
@@ -614,6 +626,10 @@ impl Figure {
         // depend on canvas size) so they account for suppress_x_ticks, axis labels,
         // font sizes, etc. — giving exact row heights rather than relying on a fixed
         // margin estimate.
+        //
+        // We pass the actual cell width so that OutsideBottomColumns legends compute
+        // the correct column count (and thus margin_bottom) rather than using the
+        // 600px fallback that fires when layout.width is None.
         let mut per_row_heights: Vec<f64> = vec![cell_height; rows];
         for (i, group) in structure.iter().enumerate() {
             let rect = cell_rect(group, cols);
@@ -624,9 +640,16 @@ impl Figure {
                         if let Some(rh) = bp.row_height_px {
                             let n = bp.num_rows();
                             if n > 0 {
-                                // Compute actual margins from the post-shared-axis layout.
-                                // Margins do not depend on canvas height, so this is exact.
-                                let cl = ComputedLayout::from_layout(&layouts[i]);
+                                // Compute actual margins from the post-shared-axis layout,
+                                // using the real cell width so legend column counts are exact.
+                                let col_span = rect.3 - rect.1 + 1;
+                                let cell_w = (rect.1..rect.1 + col_span)
+                                    .map(|c| per_col_widths[c])
+                                    .sum::<f64>()
+                                    + (col_span as f64 - 1.0) * spacing;
+                                let mut provisional = clone_layout(&layouts[i]);
+                                provisional.width = Some(cell_w);
+                                let cl = ComputedLayout::from_layout(&provisional);
                                 let overhead = cl.margin_top + cl.margin_bottom;
                                 let desired = rh * n as f64 + overhead;
                                 // Always set — desired is typically smaller than
@@ -645,16 +668,6 @@ impl Figure {
             if let Some(h) = rh {
                 if r < rows {
                     per_row_heights[r] = *h;
-                }
-            }
-        }
-
-        // Build per-column widths, applying any explicit overrides.
-        let mut per_col_widths: Vec<f64> = vec![cell_width; cols];
-        for (c, cw) in explicit_col_widths.iter().enumerate() {
-            if let Some(w) = cw {
-                if c < cols {
-                    per_col_widths[c] = *w;
                 }
             }
         }
@@ -896,6 +909,9 @@ fn clone_layout(l: &Layout) -> Layout {
     new.data_y_range = l.data_y_range;
     new.ticks = l.ticks;
     new.show_grid = l.show_grid;
+    new.axis_line = l.axis_line;
+    new.tick_align = l.tick_align;
+    new.tick_pos = l.tick_pos;
     new.x_label = l.x_label.clone();
     new.y_label = l.y_label.clone();
     new.title = l.title.clone();
@@ -910,6 +926,8 @@ fn clone_layout(l: &Layout) -> Layout {
     new.legend_groups = l.legend_groups.clone();
     new.legend_box = l.legend_box;
     new.legend_height = l.legend_height;
+    new.legend_col_limit = l.legend_col_limit;
+    new.legend_entry_limit = l.legend_entry_limit;
     new.stats_entries = l.stats_entries.clone();
     new.stats_title = l.stats_title.clone();
     new.stats_position = l.stats_position;

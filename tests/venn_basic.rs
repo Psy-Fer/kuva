@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::venn::VennPlot;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -8,7 +9,7 @@ fn write_venn(name: &str, venn: VennPlot, title: &str) -> String {
     let layout = Layout::auto_from_plots(&plots).with_title(title);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     fs::create_dir_all("test_outputs").unwrap();
-    fs::write(format!("test_outputs/venn_{name}.svg"), &svg).unwrap();
+    common::write_test_output(format!("test_outputs/venn_{name}.svg"), &svg).unwrap();
     svg
 }
 

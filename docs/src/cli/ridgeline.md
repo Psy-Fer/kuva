@@ -7,6 +7,7 @@ Ridgeline plot (joyplot) — stacked KDE density curves, one per group. Groups a
 | Flag | Default | Description |
 |---|---|---|
 | `--value <COL>` | `0` | Column of numeric values |
+| `--y <COL>[,<COL>…]` | — | Comma-separated columns; plots one ridge per column (column name = ridge label). Mutually exclusive with `--group-by` when 2+ columns given |
 | `--group-by <COL>` | — | Group by this column; one ridge per unique value |
 | `--filled` | on | Fill the area under each ridge curve |
 | `--opacity <F>` | `0.7` | Fill opacity |
@@ -18,6 +19,9 @@ kuva ridgeline samples.tsv --group-by group --value expression \
     --x-label "Expression" --y-label "Group" --title "Expression by group"
 
 kuva ridgeline samples.tsv --group-by group --value expression --overlap 1.0
+
+# multi-column: one ridge per column
+kuva ridgeline data.tsv --y col_a,col_b,col_c --overlap 0.3
 ```
 
 ---

@@ -7,6 +7,7 @@ Kernel density estimate of a single numeric column. Produces a smooth probabilit
 | Flag | Default | Description |
 |---|---|---|
 | `--value <COL>` | `0` | Column of numeric values to estimate |
+| `--y <COL>[,<COL>…]` | — | Comma-separated columns; plots one curve per column (column name = legend label). Mutually exclusive with `--color-by` when 2+ columns given |
 | `--color-by <COL>` | — | Group by this column; one curve per unique value |
 | `--filled` | off | Fill the area under each density curve |
 | `--bandwidth <F>` | *(Silverman)* | KDE bandwidth override |
@@ -27,6 +28,9 @@ kuva density scores.tsv --value score --x-min 0 --x-max 1
 
 # Counts that cannot be negative but have no upper cap
 kuva density counts.tsv --value count --x-min 0
+
+# multi-column: one curve per column
+kuva density data.tsv --y col_a,col_b,col_c --filled
 ```
 
 ---

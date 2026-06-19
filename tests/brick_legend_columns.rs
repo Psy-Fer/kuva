@@ -1,3 +1,4 @@
+mod common;
 use kuva::plot::{BrickPlot, LegendEntry, LegendPosition, LegendShape};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
@@ -6,7 +7,7 @@ use std::collections::HashMap;
 
 fn write(name: &str, svg: &str) {
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write(format!("test_outputs/{name}.svg"), svg).unwrap();
+    common::write_test_output(format!("test_outputs/{name}.svg"), svg).unwrap();
 }
 
 fn palette() -> Vec<&'static str> {

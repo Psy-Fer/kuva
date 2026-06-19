@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::{LinePlot, ScatterPlot};
 use kuva::render::layout::Layout;
@@ -51,7 +52,7 @@ fn test_line_svg_output_builder() {
     let scene = render_multiple(plots, layout).with_background(Some("white"));
 
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/multi_plot.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/multi_plot.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));

@@ -13,6 +13,21 @@ use std::sync::Arc;
 /// systems including HPC clusters), falls back through common sans-serif fonts.
 pub(crate) const DEFAULT_FONT_FAMILY: &str = "DejaVu Sans, Liberation Sans, Arial, sans-serif";
 
+/// Controls how overlapping x-axis tick labels are handled.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum AxisLabelOverlap {
+    /// Draw every label regardless of overlap (default).
+    #[default]
+    Allow,
+    /// Skip labels that would overlap the previously drawn one (greedy left-to-right).
+    /// Good for dense numeric axes and chromosome labels on Manhattan plots.
+    Thin,
+    /// Stagger labels into two alternating rows when they would otherwise collide.
+    /// Labels are placed collision-aware: row 0 first, row 1 only when needed.
+    /// The bottom margin is automatically expanded to accommodate the second row.
+    Stagger,
+}
+
 /// Controls how tick labels are formatted on an axis.
 pub enum TickFormat {
     /// Smart default: integers as "5", minimal decimals, scientific notation for extremes.
@@ -120,6 +135,87 @@ fn tick_format_sci(v: f64) -> String {
     }
 }
 
+/// Controls which axis border lines are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisLine {
+    /// Draw only the primary bottom and left axes (default).
+    Open,
+    /// Draw a full box around the plot area.
+    Box,
+}
+
+impl From<&str> for AxisLine {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "open" | "left" | "primary" => Self::Open,
+            "box" | "frame" | "enclosed" => Self::Box,
+            other => panic!("invalid axis line '{other}'; expected open or box"),
+        }
+    }
+}
+
+impl From<String> for AxisLine {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks point inside, outside, or across axis lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickAlign {
+    /// Ticks extend inward into the plot area (publication / pgfplots style).
+    Inside,
+    /// Ticks extend outward from the plot area (default).
+    Outside,
+    /// Ticks straddle the axis line equally on both sides.
+    Center,
+}
+
+impl From<&str> for TickAlign {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "inside" | "in" => Self::Inside,
+            "outside" | "out" => Self::Outside,
+            "center" | "centre" | "middle" => Self::Center,
+            other => {
+                panic!("invalid tick alignment '{other}'; expected inside, outside, or center")
+            }
+        }
+    }
+}
+
+impl From<String> for TickAlign {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+/// Controls whether tick marks appear only on the primary axes or on all four sides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickPos {
+    /// Ticks on the primary bottom and left axes only (default).
+    Primary,
+    /// Ticks mirrored onto the top and right axes as well. Automatically
+    /// promotes `axis_line` to [`AxisLine::Box`].
+    Both,
+}
+
+impl From<&str> for TickPos {
+    fn from(value: &str) -> Self {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "primary" | "left" | "bottom" | "lower" => Self::Primary,
+            "both" | "mirror" | "mirrored" => Self::Both,
+            other => panic!("invalid tick position '{other}'; expected primary or both"),
+        }
+    }
+}
+
+impl From<String> for TickPos {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
 /// Defines the layout of the plot
 pub struct Layout {
     pub width: Option<f64>,
@@ -131,6 +227,9 @@ pub struct Layout {
     pub data_y_range: Option<(f64, f64)>,
     pub ticks: usize,
     pub show_grid: bool,
+    pub axis_line: AxisLine,
+    pub tick_align: TickAlign,
+    pub tick_pos: TickPos,
     pub x_label: Option<String>,
     pub y_label: Option<String>,
     pub title: Option<String>,
@@ -156,6 +255,13 @@ pub struct Layout {
     pub(crate) legend_entry_count: usize,
     /// Longest legend label character count — set by `auto_from_plots` for column layout.
     pub(crate) legend_max_label_chars: usize,
+    /// Maximum number of columns for `OutsideBottomColumns` layout.
+    /// `0` means no limit (columns fill available width). Override with `with_legend_col_limit`.
+    pub legend_col_limit: usize,
+    /// Maximum number of entries shown in an `OutsideBottomColumns` legend.
+    /// Entries beyond this are replaced with a "… (+N more)" line.
+    /// `0` means unlimited. Defaults to 20 for BrickPlot via `auto_from_plots`.
+    pub legend_entry_limit: usize,
     // Stats box
     /// Pre-formatted text lines to display in a stats box (e.g. "R² = 0.847").
     pub stats_entries: Vec<String>,
@@ -200,6 +306,8 @@ pub struct Layout {
     pub x_datetime: Option<DateTimeAxis>,
     pub y_datetime: Option<DateTimeAxis>,
     pub x_tick_rotate: Option<f64>,
+    /// How to handle x-axis tick labels that would overlap each other.
+    pub x_label_overlap: AxisLabelOverlap,
     /// When true, the computed axis range snaps to the tick boundary that just
     /// contains the data — no extra breathing-room step is added.  Useful for
     /// cases like `TickFormat::Percent` where you want the axis to stop exactly
@@ -301,6 +409,9 @@ impl Layout {
             data_y_range: None,
             ticks: 5,
             show_grid: true,
+            axis_line: AxisLine::Open,
+            tick_align: TickAlign::Outside,
+            tick_pos: TickPos::Primary,
             x_label: None,
             y_label: None,
             title: None,
@@ -317,6 +428,8 @@ impl Layout {
             legend_height: None,
             legend_entry_count: 0,
             legend_max_label_chars: 0,
+            legend_col_limit: 0,
+            legend_entry_limit: 0,
             stats_entries: Vec::new(),
             stats_title: None,
             stats_position: LegendPosition::InsideTopLeft,
@@ -351,6 +464,7 @@ impl Layout {
             x_datetime: None,
             y_datetime: None,
             x_tick_rotate: None,
+            x_label_overlap: AxisLabelOverlap::Allow,
             clamp_axis: false,
             clamp_y_axis: false,
             x_bin_width: None,
@@ -418,6 +532,7 @@ impl Layout {
         let mut max_label_len: usize = 0;
         let mut legend_entry_count: usize = 0;
         let mut brick_has_notations: bool = false;
+        let mut has_brick: bool = false;
         let mut pyramid_normalize: Option<bool> = None;
         let mut horizon_right_annot_px: f64 = 0.0;
         let mut gantt_right_annot_px: f64 = 0.0;
@@ -477,7 +592,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if bp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
             }
 
             if let Plot::Violin(vp) = plot {
@@ -486,7 +605,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if vp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
             }
 
             if let Plot::Raincloud(rp) = plot {
@@ -495,7 +618,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if rp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
                 if rp.legend_label.is_some() {
                     has_legend = true;
                     for g in &rp.groups {
@@ -515,7 +642,11 @@ impl Layout {
                     .iter()
                     .map(|g| g.label.clone())
                     .collect::<Vec<_>>();
-                x_labels = Some(labels);
+                if bp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
                 if let Some(ref ll) = bp.legend_label {
                     has_legend = true;
                     for l in ll {
@@ -545,6 +676,7 @@ impl Layout {
                 }
             }
             if let Plot::Brick(bp) = plot {
+                has_brick = true;
                 // Reverse labels so that names[0] appears at the TOP of the plot.
                 // map_y maps larger y-data values to the top; row 0 is rendered at
                 // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
@@ -591,6 +723,7 @@ impl Layout {
                 || matches!(plot, Plot::Hexbin(hb) if hb.show_colorbar)
                 || matches!(plot, Plot::Treemap(tm) if matches!(tm.color_mode, crate::plot::treemap::TreemapColorMode::ByValue(_)) && tm.show_colorbar)
                 || matches!(plot, Plot::Sunburst(sb) if matches!(sb.color_mode, crate::plot::sunburst::SunburstColorMode::ByValue(_)) && sb.show_colorbar)
+                || matches!(plot, Plot::Quiver(q) if q.color_map.is_some())
             {
                 has_colorbar = true;
             }
@@ -779,6 +912,13 @@ impl Layout {
 
             if let Plot::Lollipop(lp) = plot {
                 if let Some(ref label) = lp.legend_label {
+                    has_legend = true;
+                    max_label_len = max_label_len.max(label.len());
+                }
+            }
+
+            if let Plot::Quiver(q) = plot {
+                if let Some(ref label) = q.legend_label {
                     has_legend = true;
                     max_label_len = max_label_len.max(label.len());
                 }
@@ -1166,6 +1306,9 @@ impl Layout {
             layout.legend_max_label_chars = max_label_len;
             let dynamic_width = max_label_len as f64 * 8.0 + 40.0;
             layout.legend_width = dynamic_width.max(80.0);
+            if has_brick {
+                layout.legend_entry_limit = 20;
+            }
 
             // Position legend die face needs 3 cells wide — ensure legend_width fits.
             for plot in plots.iter() {
@@ -1416,6 +1559,51 @@ impl Layout {
         self
     }
 
+    /// Set which axis border lines are drawn around the plot area.
+    ///
+    /// - [`AxisLine::Open`] *(default)* — bottom and left axes only.
+    /// - [`AxisLine::Box`] — all four sides (publication / pgfplots style).
+    ///
+    /// See also [`with_box_axes`](Self::with_box_axes) as a shorthand for `AxisLine::Box`.
+    /// Accepts `AxisLine` or `&str` / `String` (`"open"`, `"box"`, `"frame"`, `"enclosed"`).
+    pub fn with_axis_line<L: Into<AxisLine>>(mut self, line: L) -> Self {
+        self.axis_line = line.into();
+        self
+    }
+
+    /// Shorthand for `.with_axis_line(AxisLine::Box)` — draws all four axis borders.
+    pub fn with_box_axes(self) -> Self {
+        self.with_axis_line(AxisLine::Box)
+    }
+
+    /// Set the direction tick marks extend relative to the axis line.
+    ///
+    /// - [`TickAlign::Outside`] *(default)* — ticks extend outward from the plot area.
+    /// - [`TickAlign::Inside`] — ticks extend inward into the plot area (publication style).
+    /// - [`TickAlign::Center`] — ticks straddle the axis line equally on both sides.
+    ///
+    /// Accepts `TickAlign` or `&str` / `String` (`"inside"`, `"outside"`, `"center"`).
+    pub fn with_tick_align<A: Into<TickAlign>>(mut self, align: A) -> Self {
+        self.tick_align = align.into();
+        self
+    }
+
+    /// Set whether tick marks appear on the primary axes only or on all four sides.
+    ///
+    /// - [`TickPos::Primary`] *(default)* — ticks on bottom and left axes only.
+    /// - [`TickPos::Both`] — ticks mirrored onto the top and right axes as well.
+    ///   Automatically promotes `axis_line` to [`AxisLine::Box`] so the border
+    ///   lines appear alongside the mirrored ticks.
+    ///
+    /// Accepts `TickPos` or `&str` / `String` (`"primary"`, `"both"`, `"mirror"`).
+    pub fn with_tick_pos<P: Into<TickPos>>(mut self, pos: P) -> Self {
+        self.tick_pos = pos.into();
+        if self.tick_pos == TickPos::Both {
+            self.axis_line = AxisLine::Box;
+        }
+        self
+    }
+
     fn with_show_legend(mut self) -> Self {
         self.show_legend = true;
         self
@@ -1430,7 +1618,7 @@ impl Layout {
     /// Auto-sizes `legend_width` from the longest label.
     pub fn with_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
         let max_chars = entries.iter().map(|e| e.label.len()).max().unwrap_or(4);
-        self.legend_width = (max_chars as f64 * 7.2 + 35.0).max(80.0);
+        self.legend_width = (max_chars as f64 * 8.5 + 41.0).max(80.0);
         self.show_legend = true;
         self.legend_entries = Some(entries);
         self
@@ -1479,10 +1667,10 @@ impl Layout {
     ) -> Self {
         let t = title.into();
         // Group title is start-anchored at legend_x+5; needs legend_width >= title_px + 10.
-        let needed_title = (t.len() as f64 * 7.2 + 10.0).max(80.0);
+        let needed_title = (t.len() as f64 * 8.5 + 10.0).max(80.0);
         // Entry labels start at legend_x+25 (after swatch); same formula as with_legend_entries.
         let max_entry_chars = entries.iter().map(|e| e.label.len()).max().unwrap_or(0);
-        let needed_entries = (max_entry_chars as f64 * 7.2 + 35.0).max(80.0);
+        let needed_entries = (max_entry_chars as f64 * 8.5 + 41.0).max(80.0);
         self.legend_width = self.legend_width.max(needed_title).max(needed_entries);
         self.legend_groups
             .get_or_insert_with(Vec::new)
@@ -1494,6 +1682,21 @@ impl Layout {
     /// Override the auto-computed legend width. Use when labels overflow the default box.
     pub fn with_legend_width(mut self, px: f64) -> Self {
         self.legend_width = px;
+        self
+    }
+
+    /// Cap the number of columns for `OutsideBottomColumns` legend layout.
+    /// `0` means no limit (auto from available width).
+    pub fn with_legend_col_limit(mut self, n: usize) -> Self {
+        self.legend_col_limit = n;
+        self
+    }
+
+    /// Cap the number of entries shown in an `OutsideBottomColumns` legend.
+    /// Entries beyond this are replaced with a "… (+N more)" line.
+    /// `0` means unlimited. Defaults to 20 for BrickPlot.
+    pub fn with_legend_entry_limit(mut self, n: usize) -> Self {
+        self.legend_entry_limit = n;
         self
     }
 
@@ -1813,6 +2016,16 @@ impl Layout {
         self
     }
 
+    /// Set the strategy for handling overlapping x-axis tick labels.
+    ///
+    /// - [`AxisLabelOverlap::Allow`] — draw every label (default).
+    /// - [`AxisLabelOverlap::Thin`] — skip labels that would overlap the previous one.
+    /// - [`AxisLabelOverlap::Stagger`] — place colliding labels in an alternating second row.
+    pub fn with_x_label_overlap(mut self, overlap: AxisLabelOverlap) -> Self {
+        self.x_label_overlap = overlap;
+        self
+    }
+
     /// Snap both axes to the tick boundary that just contains the data,
     /// with no extra breathing-room step.  Useful for `TickFormat::Percent`
     /// (so the axis stops at 100 % instead of 110 %) or any domain where the
@@ -2028,6 +2241,8 @@ pub struct ComputedLayout {
     pub y2_axis_width: f64,
     /// Rotation angle for x-axis tick labels (degrees, typically -45.0). None = no rotation.
     pub x_tick_rotate: Option<f64>,
+    /// Strategy for handling overlapping x-axis tick labels.
+    pub x_label_overlap: AxisLabelOverlap,
     /// Pixel spacing between legend entries, quantised to a whole terminal-row
     /// multiple when `term_rows` is set.  Always >= 18.0 (the SVG default).
     pub legend_line_height: f64,
@@ -2101,6 +2316,8 @@ pub struct ComputedLayout {
     pub legend_bottom_extra: f64,
     /// Number of columns for `OutsideBottomColumns` legend layout; 0 for all other positions.
     pub legend_col_count: usize,
+    /// Entry limit carried through from `Layout::legend_entry_limit`; 0 means unlimited.
+    pub legend_entry_limit: usize,
 }
 
 impl ComputedLayout {
@@ -2157,6 +2374,12 @@ impl ComputedLayout {
         } else {
             tick_size + label_size + tick_mark_major_px + 20.0 * s
         };
+        // Stagger adds a second row of tick labels below the first.
+        // Also applies when suppress_x_ticks is true (e.g. Manhattan, which
+        // draws its own chromosome labels via add_manhattan_chr_labels).
+        if matches!(layout.x_label_overlap, AxisLabelOverlap::Stagger) {
+            margin_bottom += tick_size;
+        }
         // Extra bottom margin for wrapped x-axis label.
         if let (Some(ref xlabel), Some(max_chars)) = (&layout.x_label, layout.x_label_wrap) {
             let x_label_lines = render_utils::wrap_text(xlabel, max_chars).len();
@@ -2285,7 +2508,7 @@ impl ComputedLayout {
 
         // Effective legend width: capped when legend_wrap is set.
         let mut effective_legend_width = if let Some(max_chars) = layout.legend_wrap {
-            let cap = max_chars as f64 * 7.2 * s + 35.0 * s;
+            let cap = max_chars as f64 * 8.5 * s + 41.0 * s;
             (layout.legend_width * s).min(cap).max(80.0 * s)
         } else {
             layout.legend_width * s
@@ -2385,11 +2608,23 @@ impl ComputedLayout {
                         layout.legend_max_label_chars.max(8) as f64
                     };
                     let col_w = (18.0 + max_chars * char_px / s + 20.0) * s;
-                    let n_cols = ((avail_w / col_w).floor() as usize).max(1);
-                    let n_entries = if let Some(ref entries) = layout.legend_entries {
+                    let n_cols_uncapped = ((avail_w / col_w).floor() as usize).max(1);
+                    let n_cols = if layout.legend_col_limit > 0 {
+                        n_cols_uncapped.min(layout.legend_col_limit)
+                    } else {
+                        n_cols_uncapped
+                    };
+                    let n_entries_raw = if let Some(ref entries) = layout.legend_entries {
                         entries.len()
                     } else {
                         layout.legend_entry_count.max(1)
+                    };
+                    // Cap entries for margin computation: when clipping, we show
+                    // (limit-1) real entries + 1 overflow row = limit slots total.
+                    let n_entries = if layout.legend_entry_limit > 0 {
+                        n_entries_raw.min(layout.legend_entry_limit)
+                    } else {
+                        n_entries_raw
                     };
                     let n_rows = n_entries.div_ceil(n_cols);
                     let legend_h = n_rows as f64 * legend_line_h + 20.0 * s;
@@ -2536,6 +2771,7 @@ impl ComputedLayout {
             y2_tick_format: layout.y2_tick_format.clone(),
             y2_axis_width,
             x_tick_rotate: layout.x_tick_rotate,
+            x_label_overlap: layout.x_label_overlap.clone(),
             legend_line_height,
             x_tick_step: layout.x_tick_step,
             y_tick_step: layout.y_tick_step,
@@ -2577,6 +2813,7 @@ impl ComputedLayout {
             legend_wrap: layout.legend_wrap,
             legend_bottom_extra,
             legend_col_count,
+            legend_entry_limit: layout.legend_entry_limit,
         };
         s.recompute_transforms();
         s

@@ -8,6 +8,7 @@ Strip / jitter plot — individual points along a categorical axis.
 |---|---|---|
 | `--group-col <COL>` | `0` | Group label column |
 | `--value-col <COL>` | `1` | Numeric value column |
+| `--y <COL>[,<COL>…]` | — | Comma-separated columns; each column becomes a separate group (column name = group label). Overrides `--group-col` + `--value-col` when 2+ columns given |
 | `--color <CSS>` | `steelblue` | Point color |
 | `--point-size <PX>` | `4.0` | Point radius in pixels |
 | `--swarm` | off | Beeswarm (non-overlapping) layout |
@@ -22,6 +23,9 @@ Default layout when neither `--swarm` nor `--center` is given: random jitter (±
 kuva strip samples.tsv --group-col group --value-col expression
 
 kuva strip samples.tsv --group-col group --value-col expression --swarm
+
+# multi-column: each numeric column is a group
+kuva strip data.tsv --y col_a,col_b,col_c
 
 # colored groups with legend
 kuva strip samples.tsv --group-col group --value-col expression \

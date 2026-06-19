@@ -57,6 +57,7 @@ pub struct RaincloudPlot {
 
     // Layout
     pub flip: bool,
+    pub horizontal: bool,
     pub rain_offset: f64,
     pub cloud_offset: f64,
 
@@ -91,6 +92,7 @@ impl Default for RaincloudPlot {
             rain_alpha: 0.7,
             show_rain: true,
             flip: false,
+            horizontal: false,
             rain_offset: 0.20,
             cloud_offset: 0.15,
             seed: 42,
@@ -224,6 +226,12 @@ impl RaincloudPlot {
     /// Flip the direction of cloud and rain (default `false` — cloud on the right, rain on the left).
     pub fn with_flip(mut self, flip: bool) -> Self {
         self.flip = flip;
+        self
+    }
+
+    /// Render groups along the Y-axis and data values along the X-axis (default `false`).
+    pub fn with_horizontal(mut self, h: bool) -> Self {
+        self.horizontal = h;
         self
     }
 

@@ -27,6 +27,7 @@ fn main() {
     group_colors();
     bandwidth_scale();
     elements();
+    horizontal();
 
     println!("Raincloud SVGs written to {OUT}/");
 }
@@ -136,6 +137,25 @@ fn bandwidth_scale() {
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
         std::fs::write(format!("{OUT}/bandwidth_{name}.svg"), svg).unwrap();
     }
+}
+
+/// Horizontal raincloud — categories on Y-axis, values on X-axis.
+fn horizontal() {
+    let plot = RaincloudPlot::new()
+        .with_group("Control", normal_samples(5.0, 1.0, 150, 10))
+        .with_group("Low dose", normal_samples(6.2, 1.1, 150, 11))
+        .with_group("High dose", normal_samples(7.8, 0.9, 150, 12))
+        .with_group_colors(["#4878d0", "#ee854a", "#6acc65"])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Raincloud(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Raincloud Plot")
+        .with_x_label("Value")
+        .with_y_label("Treatment");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/horizontal.svg"), svg).unwrap();
 }
 
 /// Individual element variants: cloud+box only, cloud+rain only, box+rain only.

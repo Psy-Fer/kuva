@@ -1,6 +1,6 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
-use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis};
+use crate::render::axis::{add_axes_and_grid, add_labels_and_title, add_y2_axis, XLabelPlacer};
 use crate::render::layout::{ComputedLayout, Layout, TickFormat};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
@@ -114,6 +114,7 @@ pub struct TextSpan {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub code: bool,
 }
 
 impl TextSpan {
@@ -123,6 +124,7 @@ impl TextSpan {
             bold: false,
             italic: false,
             underline: false,
+            code: false,
         }
     }
 }
@@ -203,6 +205,17 @@ pub enum Primitive {
         fill_opacity: Option<f64>,
         stroke: Option<Color>,
         stroke_width: Option<f64>,
+    },
+    /// A polyline stroke stored as screen-coordinate points.
+    /// The raster backend renders each segment as a stadium (capsule) shape —
+    /// the exact set of pixels within `stroke_width/2` of that segment.
+    /// Adjacent stadiums overlap at joins to form round joins with no
+    /// join geometry construction. The SVG/terminal backends emit `M L L…`.
+    PolyLine {
+        points: Vec<(f64, f64)>,
+        stroke: Color,
+        stroke_width: f64,
+        stroke_dasharray: Option<String>,
     },
     /// Struct-of-arrays batch of axis-aligned rectangles, each with its own fill.
     /// Produced by heatmap/histogram2d renderers.
@@ -804,33 +817,40 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     if line.data.len() >= 2 {
-        let points: Vec<(f64, f64)> = line
-            .data
-            .iter()
-            .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
-            .collect();
-
-        let stroke_d = if line.step {
-            build_step_path(&points)
+        // Map data → screen coordinates once. For step lines, expand to the
+        // explicit staircase polyline so backends receive the full point sequence.
+        let screen_pts: Vec<(f64, f64)> = if line.step {
+            let mapped: Vec<(f64, f64)> = line
+                .data
+                .iter()
+                .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
+                .collect();
+            let mut step = Vec::with_capacity(mapped.len() * 2 - 1);
+            for (i, &(x, y)) in mapped.iter().enumerate() {
+                if i == 0 {
+                    step.push((x, y));
+                } else {
+                    step.push((x, mapped[i - 1].1)); // horizontal leg
+                    step.push((x, y)); // vertical leg
+                }
+            }
+            step
         } else {
-            build_path(&points)
+            line.data
+                .iter()
+                .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
+                .collect()
         };
 
-        // Draw fill area behind the stroke line
+        // Fill area: still uses a Path (polygon, not stroke)
         if line.fill {
             let baseline_y = computed.map_y(computed.y_range.0.max(0.0));
-            let first_x = points
-                .first()
-                .expect("line fill requires at least one point")
-                .0;
-            let last_x = points
-                .last()
-                .expect("line fill requires at least one point")
-                .0;
-            let fill_d = format!(
-                "{}L {last_x} {baseline_y} L {first_x} {baseline_y} Z",
-                stroke_d
-            );
+            let first_x = screen_pts.first().unwrap().0;
+            let last_x = screen_pts.last().unwrap().0;
+            let mut fill_d = build_path(&screen_pts);
+            fill_d.push_str(&format!(
+                "L {last_x} {baseline_y} L {first_x} {baseline_y} Z"
+            ));
             scene.add(Primitive::Path(Box::new(PathData {
                 d: fill_d,
                 fill: Some(Color::from(&line.color)),
@@ -841,14 +861,12 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             })));
         }
 
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: stroke_d,
-            fill: None,
+        scene.add(Primitive::PolyLine {
+            points: screen_pts,
             stroke: Color::from(&line.color),
             stroke_width: line.stroke_width,
-            opacity: None,
             stroke_dasharray: line.line_style.dasharray(),
-        })));
+        });
     }
 
     // Draw error bars
@@ -992,118 +1010,210 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
 fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let mut flat_i: usize = 0;
     for (i, group) in bar.groups.iter().enumerate() {
-        let group_x = i as f64 + 1.0;
+        let group_cat = i as f64 + 1.0;
         let total_width = bar.width;
 
-        if bar.stacked {
-            let mut y_accum = 0.0;
-            for (j, bar_val) in group.bars.iter().enumerate() {
-                let x0 = computed.map_x(group_x - total_width / 2.0);
-                let x1 = computed.map_x(group_x + total_width / 2.0);
-                let y0 = computed.map_y(y_accum);
-                let y1 = computed.map_y(y_accum + bar_val.value);
-
-                let series_label = bar
-                    .legend_label
-                    .as_ref()
-                    .and_then(|ll| ll.get(j))
-                    .map(|s| s.as_str())
-                    .unwrap_or(&group.label);
-                let tip = tooltip(
-                    bar.show_tooltips || computed.interactive,
-                    &bar.tooltip_labels,
-                    flat_i,
-                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
-                );
-                let extra = if computed.interactive {
-                    Some(format!(
-                        "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
-                        series_label, group.label, bar_val.value
-                    ))
-                } else {
-                    None
-                };
-                if tip.is_some() || extra.is_some() {
-                    scene.add(Primitive::GroupStart {
-                        transform: None,
-                        title: tip,
-                        extra_attrs: extra,
-                    });
-                }
-                scene.add(Primitive::Rect {
-                    x: x0,
-                    y: y1.min(y0),
-                    width: (x1 - x0).abs(),
-                    height: (y0 - y1).abs(),
-                    fill: Color::from(&bar_val.color),
-                    stroke: None,
-                    stroke_width: None,
-                    opacity: None,
-                });
-                if bar.show_tooltips || computed.interactive {
-                    scene.add(Primitive::GroupEnd);
-                }
-
-                y_accum += bar_val.value;
-                flat_i += 1;
-            }
-        } else {
-            let n = group.bars.len();
-            let single_width = total_width / n as f64;
-
-            for (j, bar_val) in group.bars.iter().enumerate() {
-                let x = group_x - total_width / 2.0 + single_width * (j as f64 + 0.5);
-                let x0 = computed.map_x(x - single_width / 2.0);
-                let x1 = computed.map_x(x + single_width / 2.0);
-                let y0 = computed.map_y(0.0);
-                let y1 = computed.map_y(bar_val.value);
-
-                // In simple mode (1 bar per group), identify by the group's own label.
-                // In grouped mode (n>1 bars per group), identify by the series legend label.
-                let series_label = if n == 1 {
-                    group.label.as_str()
-                } else {
-                    bar.legend_label
+        if bar.horizontal {
+            // Categories on Y-axis, values on X-axis; bars extend rightward from x=0.
+            if bar.stacked {
+                let mut x_accum = 0.0;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let y0 = computed.map_y(group_cat - total_width / 2.0);
+                    let y1 = computed.map_y(group_cat + total_width / 2.0);
+                    let x0 = computed.map_x(x_accum);
+                    let x1 = computed.map_x(x_accum + bar_val.value);
+                    let series_label = bar
+                        .legend_label
                         .as_ref()
                         .and_then(|ll| ll.get(j))
                         .map(|s| s.as_str())
-                        .unwrap_or(&group.label)
-                };
-                let tip = tooltip(
-                    bar.show_tooltips || computed.interactive,
-                    &bar.tooltip_labels,
-                    flat_i,
-                    || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
-                );
-                let extra = if computed.interactive {
-                    Some(format!(
-                        "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
-                        series_label, group.label, bar_val.value
-                    ))
-                } else {
-                    None
-                };
-                if tip.is_some() || extra.is_some() {
-                    scene.add(Primitive::GroupStart {
-                        transform: None,
-                        title: tip,
-                        extra_attrs: extra,
+                        .unwrap_or(&group.label);
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    if let Some(ref t) = tip {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: Some(t.clone()),
+                            extra_attrs: None,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0.min(x1),
+                        y: y0.min(y1),
+                        width: (x1 - x0).abs(),
+                        height: (y1 - y0).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
                     });
+                    if tip.is_some() {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    x_accum += bar_val.value;
+                    flat_i += 1;
                 }
-                scene.add(Primitive::Rect {
-                    x: x0,
-                    y: y1.min(y0),
-                    width: (x1 - x0).abs(),
-                    height: (y0 - y1).abs(),
-                    fill: Color::from(&bar_val.color),
-                    stroke: None,
-                    stroke_width: None,
-                    opacity: None,
-                });
-                if bar.show_tooltips || computed.interactive {
-                    scene.add(Primitive::GroupEnd);
+            } else {
+                let n = group.bars.len();
+                let single_width = total_width / n as f64;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let y_center = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                    let y0 = computed.map_y(y_center - single_width / 2.0);
+                    let y1 = computed.map_y(y_center + single_width / 2.0);
+                    let x0 = computed.map_x(0.0);
+                    let x1 = computed.map_x(bar_val.value);
+                    let series_label = if n == 1 {
+                        group.label.as_str()
+                    } else {
+                        bar.legend_label
+                            .as_ref()
+                            .and_then(|ll| ll.get(j))
+                            .map(|s| s.as_str())
+                            .unwrap_or(&group.label)
+                    };
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    if let Some(ref t) = tip {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: Some(t.clone()),
+                            extra_attrs: None,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0.min(x1),
+                        y: y0.min(y1),
+                        width: (x1 - x0).abs(),
+                        height: (y1 - y0).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if tip.is_some() {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    flat_i += 1;
                 }
-                flat_i += 1;
+            }
+        } else {
+            // Default vertical: categories on X-axis, values on Y-axis.
+            if bar.stacked {
+                let mut y_accum = 0.0;
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let x0 = computed.map_x(group_cat - total_width / 2.0);
+                    let x1 = computed.map_x(group_cat + total_width / 2.0);
+                    let y0 = computed.map_y(y_accum);
+                    let y1 = computed.map_y(y_accum + bar_val.value);
+
+                    let series_label = bar
+                        .legend_label
+                        .as_ref()
+                        .and_then(|ll| ll.get(j))
+                        .map(|s| s.as_str())
+                        .unwrap_or(&group.label);
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    let extra = if computed.interactive {
+                        Some(format!(
+                            "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                            series_label, group.label, bar_val.value
+                        ))
+                    } else {
+                        None
+                    };
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip,
+                            extra_attrs: extra,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y: y1.min(y0),
+                        width: (x1 - x0).abs(),
+                        height: (y0 - y1).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if bar.show_tooltips || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
+
+                    y_accum += bar_val.value;
+                    flat_i += 1;
+                }
+            } else {
+                let n = group.bars.len();
+                let single_width = total_width / n as f64;
+
+                for (j, bar_val) in group.bars.iter().enumerate() {
+                    let x = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                    let x0 = computed.map_x(x - single_width / 2.0);
+                    let x1 = computed.map_x(x + single_width / 2.0);
+                    let y0 = computed.map_y(0.0);
+                    let y1 = computed.map_y(bar_val.value);
+
+                    let series_label = if n == 1 {
+                        group.label.as_str()
+                    } else {
+                        bar.legend_label
+                            .as_ref()
+                            .and_then(|ll| ll.get(j))
+                            .map(|s| s.as_str())
+                            .unwrap_or(&group.label)
+                    };
+                    let tip = tooltip(
+                        bar.show_tooltips || computed.interactive,
+                        &bar.tooltip_labels,
+                        flat_i,
+                        || format!("{} {}: {:.2}", group.label, series_label, bar_val.value),
+                    );
+                    let extra = if computed.interactive {
+                        Some(format!(
+                            "class=\"tt\" data-group=\"{}\" data-x=\"{}\" data-y=\"{:.4}\"",
+                            series_label, group.label, bar_val.value
+                        ))
+                    } else {
+                        None
+                    };
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip,
+                            extra_attrs: extra,
+                        });
+                    }
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y: y1.min(y0),
+                        width: (x1 - x0).abs(),
+                        height: (y0 - y1).abs(),
+                        fill: Color::from(&bar_val.color),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    if bar.show_tooltips || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
+                    flat_i += 1;
+                }
             }
         }
     }
@@ -1322,72 +1432,136 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             .filter(|v| *v <= q3 + 1.5 * iqr)
             .fold(f64::NEG_INFINITY, f64::max);
 
-        let x = i as f64 + 1.0;
+        let cat = i as f64 + 1.0;
         let w = boxplot.width / 2.0;
 
-        let x0 = computed.map_x(x - w);
-        let x1 = computed.map_x(x + w);
-        let yq1 = computed.map_y(q1);
-        let yq3 = computed.map_y(q3);
-        let ymed = computed.map_y(q2);
-        let ylow = computed.map_y(lower_whisker);
-        let yhigh = computed.map_y(upper_whisker);
-        let xmid = computed.map_x(x);
+        if boxplot.horizontal {
+            // Groups on Y-axis, data values on X-axis
+            let y0 = computed.map_y(cat - w);
+            let y1 = computed.map_y(cat + w);
+            let xq1 = computed.map_x(q1);
+            let xq3 = computed.map_x(q3);
+            let xmed = computed.map_x(q2);
+            let xlow = computed.map_x(lower_whisker);
+            let xhigh = computed.map_x(upper_whisker);
+            let ymid = computed.map_y(cat);
 
-        // Box
-        scene.add(Primitive::Rect {
-            x: x0,
-            y: yq3.min(yq1),
-            width: (x1 - x0).abs(),
-            height: (yq1 - yq3).abs(),
-            fill: Color::from(color),
-            stroke: None,
-            stroke_width: None,
-            opacity: None,
-        });
-
-        // Median line
-        scene.add(Primitive::Line {
-            x1: x0,
-            y1: ymed,
-            x2: x1,
-            y2: ymed,
-            stroke: Color::from(&theme.box_median),
-            stroke_width: 1.5,
-            stroke_dasharray: None,
-        });
-
-        // Whiskers
-        scene.add(Primitive::Line {
-            x1: xmid,
-            y1: ylow,
-            x2: xmid,
-            y2: yq1,
-            stroke: Color::from(color),
-            stroke_width: 1.0,
-            stroke_dasharray: None,
-        });
-        scene.add(Primitive::Line {
-            x1: xmid,
-            y1: yq3,
-            x2: xmid,
-            y2: yhigh,
-            stroke: Color::from(color),
-            stroke_width: 1.0,
-            stroke_dasharray: None,
-        });
-
-        // Whisker caps
-        for &y in &[ylow, yhigh] {
+            scene.add(Primitive::Rect {
+                x: xq1.min(xq3),
+                y: y0.min(y1),
+                width: (xq3 - xq1).abs(),
+                height: (y1 - y0).abs(),
+                fill: Color::from(color),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+            // Median: vertical line
             scene.add(Primitive::Line {
-                x1: computed.map_x(x - w / 2.0),
-                x2: computed.map_x(x + w / 2.0),
-                y1: y,
-                y2: y,
+                x1: xmed,
+                y1: y0.min(y1),
+                x2: xmed,
+                y2: y0.max(y1),
+                stroke: Color::from(&theme.box_median),
+                stroke_width: 1.5,
+                stroke_dasharray: None,
+            });
+            // Whisker lines: horizontal
+            scene.add(Primitive::Line {
+                x1: xlow,
+                y1: ymid,
+                x2: xq1,
+                y2: ymid,
                 stroke: Color::from(color),
                 stroke_width: 1.0,
                 stroke_dasharray: None,
             });
+            scene.add(Primitive::Line {
+                x1: xq3,
+                y1: ymid,
+                x2: xhigh,
+                y2: ymid,
+                stroke: Color::from(color),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+            // Whisker caps: vertical
+            for &xc in &[xlow, xhigh] {
+                scene.add(Primitive::Line {
+                    x1: xc,
+                    y1: computed.map_y(cat - w / 2.0),
+                    x2: xc,
+                    y2: computed.map_y(cat + w / 2.0),
+                    stroke: Color::from(color),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
+        } else {
+            let x0 = computed.map_x(cat - w);
+            let x1 = computed.map_x(cat + w);
+            let yq1 = computed.map_y(q1);
+            let yq3 = computed.map_y(q3);
+            let ymed = computed.map_y(q2);
+            let ylow = computed.map_y(lower_whisker);
+            let yhigh = computed.map_y(upper_whisker);
+            let xmid = computed.map_x(cat);
+
+            // Box
+            scene.add(Primitive::Rect {
+                x: x0,
+                y: yq3.min(yq1),
+                width: (x1 - x0).abs(),
+                height: (yq1 - yq3).abs(),
+                fill: Color::from(color),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+
+            // Median line
+            scene.add(Primitive::Line {
+                x1: x0,
+                y1: ymed,
+                x2: x1,
+                y2: ymed,
+                stroke: Color::from(&theme.box_median),
+                stroke_width: 1.5,
+                stroke_dasharray: None,
+            });
+
+            // Whiskers
+            scene.add(Primitive::Line {
+                x1: xmid,
+                y1: ylow,
+                x2: xmid,
+                y2: yq1,
+                stroke: Color::from(color),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+            scene.add(Primitive::Line {
+                x1: xmid,
+                y1: yq3,
+                x2: xmid,
+                y2: yhigh,
+                stroke: Color::from(color),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+
+            // Whisker caps
+            for &y in &[ylow, yhigh] {
+                scene.add(Primitive::Line {
+                    x1: computed.map_x(cat - w / 2.0),
+                    x2: computed.map_x(cat + w / 2.0),
+                    y1: y,
+                    y2: y,
+                    stroke: Color::from(color),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+            }
         }
     }
 
@@ -1409,6 +1583,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 None,
                 &group.label,
                 0,
+                boxplot.horizontal,
                 scene,
                 computed,
             );
@@ -1428,8 +1603,6 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
             .as_ref()
             .and_then(|c| c.get(i).map(|s| s.as_str()))
             .unwrap_or(&violin.color);
-        let x_center = computed.map_x((i + 1) as f64);
-
         // Compute KDE with auto or manual bandwidth
         let h = violin
             .bandwidth
@@ -1439,34 +1612,69 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
             continue;
         }
 
-        // Normalize
         let max_density = kde
             .iter()
             .map(|(_, y)| *y)
             .fold(f64::NEG_INFINITY, f64::max);
-        let scale = violin.width / max_density;
 
         let mut path_data = String::with_capacity(kde.len() * 32);
-        {
-            let mut rb = ryu::Buffer::new();
-            for (j, (y, d)) in kde.iter().enumerate() {
-                let dy = computed.map_y(*y);
-                let dx = x_center - d * scale;
-                path_data.push(if j == 0 { 'M' } else { 'L' });
-                path_data.push(' ');
-                path_data.push_str(rb.format(round2(dx)));
-                path_data.push(' ');
-                path_data.push_str(rb.format(round2(dy)));
-                path_data.push(' ');
+        if violin.horizontal {
+            // Data values on X-axis, groups on Y-axis
+            let y_center = computed.map_y((i + 1) as f64);
+            let slot_py = (computed.map_y(2.0) - computed.map_y(1.0)).abs();
+            let half_width_px = violin.width * slot_py / 2.0;
+            let scale = half_width_px / max_density;
+            {
+                let mut rb = ryu::Buffer::new();
+                // Upper edge: left to right, density offsets upward (smaller pixel y)
+                for (j, (data_val, d)) in kde.iter().enumerate() {
+                    let px = computed.map_x(*data_val);
+                    let py = y_center - d * scale;
+                    path_data.push(if j == 0 { 'M' } else { 'L' });
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(px)));
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(py)));
+                    path_data.push(' ');
+                }
+                // Lower edge: right to left
+                for (data_val, d) in kde.iter().rev() {
+                    let px = computed.map_x(*data_val);
+                    let py = y_center + d * scale;
+                    path_data.push_str("L ");
+                    path_data.push_str(rb.format(round2(px)));
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(py)));
+                    path_data.push(' ');
+                }
             }
-            for (y, d) in kde.iter().rev() {
-                let dy = computed.map_y(*y);
-                let dx = x_center + d * scale;
-                path_data.push_str("L ");
-                path_data.push_str(rb.format(round2(dx)));
-                path_data.push(' ');
-                path_data.push_str(rb.format(round2(dy)));
-                path_data.push(' ');
+        } else {
+            // Groups on X-axis, data values on Y-axis (default vertical)
+            let x_center = computed.map_x((i + 1) as f64);
+            let slot_px = (computed.map_x(2.0) - computed.map_x(1.0)).abs();
+            let half_width_px = violin.width * slot_px / 2.0;
+            let scale = half_width_px / max_density;
+            {
+                let mut rb = ryu::Buffer::new();
+                for (j, (y, d)) in kde.iter().enumerate() {
+                    let dy = computed.map_y(*y);
+                    let dx = x_center - d * scale;
+                    path_data.push(if j == 0 { 'M' } else { 'L' });
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(dx)));
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(dy)));
+                    path_data.push(' ');
+                }
+                for (y, d) in kde.iter().rev() {
+                    let dy = computed.map_y(*y);
+                    let dx = x_center + d * scale;
+                    path_data.push_str("L ");
+                    path_data.push_str(rb.format(round2(dx)));
+                    path_data.push(' ');
+                    path_data.push_str(rb.format(round2(dy)));
+                    path_data.push(' ');
+                }
             }
         }
         path_data.push('Z');
@@ -1499,6 +1707,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
                 None,
                 &group.label,
                 0,
+                violin.horizontal,
                 scene,
                 computed,
             );
@@ -2319,6 +2528,7 @@ fn add_strip_points(
     tooltip_labels: Option<&[String]>,
     group_label: &str,
     label_offset: usize,
+    horizontal: bool,
     scene: &mut Scene,
     computed: &ComputedLayout,
 ) {
@@ -2362,8 +2572,12 @@ fn add_strip_points(
     };
     match style {
         StripStyle::Center => {
-            let cx = computed.map_x(x_center_data);
             for (j, &v) in values.iter().enumerate() {
+                let (cx, cy) = if horizontal {
+                    (computed.map_x(v), computed.map_y(x_center_data))
+                } else {
+                    (computed.map_x(x_center_data), computed.map_y(v))
+                };
                 let tip = tooltip(
                     show_tooltips || computed.interactive,
                     &tooltip_labels_opt,
@@ -2378,7 +2592,7 @@ fn add_strip_points(
                         extra_attrs: extra,
                     });
                 }
-                draw_point(j, cx, computed.map_y(v), scene);
+                draw_point(j, cx, cy, scene);
                 if tip.is_some() || computed.interactive {
                     scene.add(Primitive::GroupEnd);
                 }
@@ -2395,7 +2609,11 @@ fn add_strip_points(
                 rng_state ^= rng_state << 17;
                 let rand_val = (rng_state >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
                 let offset: f64 = (rand_val - 0.5) * jitter;
-                let cx = computed.map_x(x_center_data + offset);
+                let (cx, cy) = if horizontal {
+                    (computed.map_x(v), computed.map_y(x_center_data + offset))
+                } else {
+                    (computed.map_x(x_center_data + offset), computed.map_y(v))
+                };
                 let tip = tooltip(
                     show_tooltips || computed.interactive,
                     &tooltip_labels_opt,
@@ -2410,35 +2628,63 @@ fn add_strip_points(
                         extra_attrs: extra,
                     });
                 }
-                draw_point(j, cx, computed.map_y(v), scene);
+                draw_point(j, cx, cy, scene);
                 if tip.is_some() || computed.interactive {
                     scene.add(Primitive::GroupEnd);
                 }
             }
         }
         StripStyle::Swarm => {
-            let y_screen: Vec<f64> = values.iter().map(|&v| computed.map_y(v)).collect();
-            let x_offsets = render_utils::beeswarm_positions(&y_screen, point_size);
-            let cx_center = computed.map_x(x_center_data);
-            for (j, &v) in values.iter().enumerate() {
-                let cx = cx_center + x_offsets[j];
-                let tip = tooltip(
-                    show_tooltips || computed.interactive,
-                    &tooltip_labels_opt,
-                    label_offset + j,
-                    || format!("{}: {:.2}", group_label, v),
-                );
-                let extra = strip_extra(v);
-                if tip.is_some() || extra.is_some() {
-                    scene.add(Primitive::GroupStart {
-                        transform: None,
-                        title: tip.clone(),
-                        extra_attrs: extra,
-                    });
+            if horizontal {
+                let x_screen: Vec<f64> = values.iter().map(|&v| computed.map_x(v)).collect();
+                let y_offsets = render_utils::beeswarm_positions(&x_screen, point_size);
+                let cy_center = computed.map_y(x_center_data);
+                for (j, &v) in values.iter().enumerate() {
+                    let cx = computed.map_x(v);
+                    let cy = cy_center + y_offsets[j];
+                    let tip = tooltip(
+                        show_tooltips || computed.interactive,
+                        &tooltip_labels_opt,
+                        label_offset + j,
+                        || format!("{}: {:.2}", group_label, v),
+                    );
+                    let extra = strip_extra(v);
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip.clone(),
+                            extra_attrs: extra,
+                        });
+                    }
+                    draw_point(j, cx, cy, scene);
+                    if tip.is_some() || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
                 }
-                draw_point(j, cx, computed.map_y(v), scene);
-                if tip.is_some() || computed.interactive {
-                    scene.add(Primitive::GroupEnd);
+            } else {
+                let y_screen: Vec<f64> = values.iter().map(|&v| computed.map_y(v)).collect();
+                let x_offsets = render_utils::beeswarm_positions(&y_screen, point_size);
+                let cx_center = computed.map_x(x_center_data);
+                for (j, &v) in values.iter().enumerate() {
+                    let cx = cx_center + x_offsets[j];
+                    let tip = tooltip(
+                        show_tooltips || computed.interactive,
+                        &tooltip_labels_opt,
+                        label_offset + j,
+                        || format!("{}: {:.2}", group_label, v),
+                    );
+                    let extra = strip_extra(v);
+                    if tip.is_some() || extra.is_some() {
+                        scene.add(Primitive::GroupStart {
+                            transform: None,
+                            title: tip.clone(),
+                            extra_attrs: extra,
+                        });
+                    }
+                    draw_point(j, cx, computed.map_y(v), scene);
+                    if tip.is_some() || computed.interactive {
+                        scene.add(Primitive::GroupEnd);
+                    }
                 }
             }
         }
@@ -2468,6 +2714,7 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             strip.tooltip_labels.as_deref(),
             &group.label,
             label_offset,
+            false,
             scene,
             computed,
         );
@@ -5339,9 +5586,183 @@ fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayou
                 }
             });
 
-        // Sign convention: cloud_sign > 0 → cloud extends to the right of center
+        // Sign convention: cloud_sign > 0 → cloud extends to the right of center (vertical)
+        // or above center (horizontal: larger data-y → smaller pixel-y → above)
         let cloud_sign: f64 = if rp.flip { -1.0 } else { 1.0 };
         let rain_sign: f64 = -cloud_sign;
+
+        if rp.horizontal {
+            let group_y = (i + 1) as f64;
+            let cloud_cy = group_y + cloud_sign * rp.cloud_offset;
+            let rain_cy = group_y + rain_sign * rp.rain_offset;
+
+            // ── CLOUD (horizontal half-violin) ────────────────────────────────
+            if rp.show_cloud {
+                let h = rp.bandwidth.unwrap_or_else(|| {
+                    render_utils::silverman_bandwidth(&group.values) * rp.bandwidth_scale
+                });
+                let all_kde = render_utils::simple_kde(&group.values, h, rp.kde_samples);
+                let data_min = group.values.iter().cloned().fold(f64::INFINITY, f64::min);
+                let data_max = group
+                    .values
+                    .iter()
+                    .cloned()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let kde: Vec<(f64, f64)> = all_kde
+                    .into_iter()
+                    .filter(|(y, _)| *y >= data_min && *y <= data_max)
+                    .collect();
+                if !kde.is_empty() {
+                    let max_density = kde
+                        .iter()
+                        .map(|(_, d)| *d)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    if max_density > 0.0 {
+                        let scale = rp.cloud_width / max_density;
+                        let spine_py = computed.map_y(cloud_cy);
+                        let mut path_data = String::with_capacity(kde.len() * 32);
+                        {
+                            let mut rb = ryu::Buffer::new();
+                            for (j, (data_val, density)) in kde.iter().enumerate() {
+                                let px = computed.map_x(*data_val);
+                                // cloud_sign > 0 → above center → smaller pixel-y
+                                let py = spine_py - cloud_sign * density * scale;
+                                path_data.push(if j == 0 { 'M' } else { 'L' });
+                                path_data.push(' ');
+                                path_data.push_str(rb.format(round2(px)));
+                                path_data.push(' ');
+                                path_data.push_str(rb.format(round2(py)));
+                                path_data.push(' ');
+                            }
+                            for (data_val, _) in kde.iter().rev() {
+                                let px = computed.map_x(*data_val);
+                                path_data.push_str("L ");
+                                path_data.push_str(rb.format(round2(px)));
+                                path_data.push(' ');
+                                path_data.push_str(rb.format(round2(spine_py)));
+                                path_data.push(' ');
+                            }
+                        }
+                        path_data.push('Z');
+                        scene.add(Primitive::Path(Box::new(PathData {
+                            d: path_data,
+                            fill: Some(Color::from(color)),
+                            stroke: Color::from(color),
+                            stroke_width: 0.5,
+                            opacity: Some(rp.cloud_alpha),
+                            stroke_dasharray: None,
+                        })));
+                    }
+                }
+            }
+
+            // ── BOX (horizontal) ──────────────────────────────────────────────
+            if rp.show_box {
+                let mut sorted = group.values.clone();
+                sorted.sort_by(|a, b| a.total_cmp(b));
+                let q1 = percentile(&sorted, 25.0);
+                let q2 = percentile(&sorted, 50.0);
+                let q3 = percentile(&sorted, 75.0);
+                let iqr = q3 - q1;
+                let lower_w = sorted
+                    .iter()
+                    .cloned()
+                    .filter(|v| *v >= q1 - 1.5 * iqr)
+                    .fold(f64::INFINITY, f64::min);
+                let upper_w = sorted
+                    .iter()
+                    .cloned()
+                    .filter(|v| *v <= q3 + 1.5 * iqr)
+                    .fold(f64::NEG_INFINITY, f64::max);
+
+                let box_half_px = computed.plot_height() / n as f64 * rp.box_width / 2.0;
+                let ymid = computed.map_y(group_y);
+                let y0 = ymid - box_half_px;
+                let y1 = ymid + box_half_px;
+                let xq1 = computed.map_x(q1);
+                let xq3 = computed.map_x(q3);
+                let xmed = computed.map_x(q2);
+                let xlow = computed.map_x(lower_w);
+                let xhigh = computed.map_x(upper_w);
+
+                scene.add(Primitive::Rect {
+                    x: xq1.min(xq3),
+                    y: y0.min(y1),
+                    width: (xq3 - xq1).abs(),
+                    height: (y1 - y0).abs(),
+                    fill: Color::from(color),
+                    stroke: None,
+                    stroke_width: None,
+                    opacity: None,
+                });
+                scene.add(Primitive::Line {
+                    x1: xmed,
+                    y1: y0.min(y1),
+                    x2: xmed,
+                    y2: y0.max(y1),
+                    stroke: Color::from(&computed.theme.box_median),
+                    stroke_width: 1.5,
+                    stroke_dasharray: None,
+                });
+                scene.add(Primitive::Line {
+                    x1: xlow,
+                    y1: ymid,
+                    x2: xq1,
+                    y2: ymid,
+                    stroke: Color::from(color),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+                scene.add(Primitive::Line {
+                    x1: xq3,
+                    y1: ymid,
+                    x2: xhigh,
+                    y2: ymid,
+                    stroke: Color::from(color),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+                let cap_half = box_half_px * 0.5;
+                for &xc in &[xlow, xhigh] {
+                    scene.add(Primitive::Line {
+                        x1: xc,
+                        y1: ymid - cap_half,
+                        x2: xc,
+                        y2: ymid + cap_half,
+                        stroke: Color::from(color),
+                        stroke_width: 1.0,
+                        stroke_dasharray: None,
+                    });
+                }
+            }
+
+            // ── RAIN (horizontal jittered points) ─────────────────────────────
+            if rp.show_rain {
+                let style = StripStyle::Strip {
+                    jitter: rp.rain_jitter,
+                };
+                add_strip_points(
+                    &group.values,
+                    rain_cy,
+                    &style,
+                    color,
+                    None,
+                    None,
+                    rp.rain_size,
+                    rp.seed.wrapping_add(i as u64 * 1000),
+                    Some(rp.rain_alpha),
+                    None,
+                    false,
+                    None,
+                    &group.label,
+                    0,
+                    true,
+                    scene,
+                    computed,
+                );
+            }
+            continue;
+        }
 
         let group_x = (i + 1) as f64;
         let cloud_cx = group_x + cloud_sign * rp.cloud_offset;
@@ -5524,6 +5945,7 @@ fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayou
                 None,
                 &group.label,
                 0,
+                false,
                 scene,
                 computed,
             );
@@ -6773,8 +7195,21 @@ fn add_legend_with_offset(
         let plot_right = computed.width - computed.margin_right;
         // Legend sits in the reserved band below the x-axis content.
         // The x-axis labels end at (height - legend_bottom_extra); add a 5px gap.
-        let n_entries = legend.entries.len().max(1);
-        let n_rows = n_entries.div_ceil(n_cols);
+        let n_total = legend.entries.len();
+        let entry_limit = computed.legend_entry_limit;
+        // Apply entry limit: show up to (limit-1) entries + 1 overflow row.
+        let overflow = if entry_limit > 0 && n_total > entry_limit {
+            n_total - (entry_limit - 1)
+        } else {
+            0
+        };
+        let entries_to_show = if overflow > 0 {
+            entry_limit - 1
+        } else {
+            n_total
+        };
+        let n_display = entries_to_show + if overflow > 0 { 1 } else { 0 };
+        let n_rows = n_display.max(1).div_ceil(n_cols);
         let legend_y = computed.height - computed.legend_bottom_extra + 5.0;
         let avail_w = plot_right - plot_left;
         let col_w = avail_w / n_cols as f64;
@@ -6804,12 +7239,29 @@ fn add_legend_with_offset(
             });
         }
 
-        for (i, entry) in legend.entries.iter().enumerate() {
+        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
             let col = i % n_cols;
             let row = i / n_cols;
             let ex = plot_left + col as f64 * col_w;
             let ey = legend_y + row as f64 * line_height;
             render_legend_entry(entry, scene, ex, ey, computed);
+        }
+        if overflow > 0 {
+            let i = entries_to_show;
+            let col = i % n_cols;
+            let row = i / n_cols;
+            let ex = plot_left + col as f64 * col_w;
+            let ey = legend_y + row as f64 * line_height;
+            scene.add(Primitive::Text {
+                x: ex + computed.legend_text_x,
+                y: ey + computed.body_size as f64 * 0.8,
+                content: format!("… (+{overflow} more)"),
+                size: computed.body_size,
+                anchor: TextAnchor::Start,
+                rotate: None,
+                bold: false,
+                color: None,
+            });
         }
         return;
     }
@@ -7688,19 +8140,27 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
 fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
-    let label_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
     let min_label_px = 6.0_f64;
+    let mut placer = XLabelPlacer::new(
+        computed.x_label_overlap.clone(),
+        computed.tick_size as f64,
+        computed.x_tick_rotate,
+    );
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x >= plot_left && mid_x <= plot_right && band_px >= min_label_px {
-            let (anchor, rotate) = match computed.x_tick_rotate {
-                Some(angle) => (TextAnchor::End, Some(angle)),
-                None => (TextAnchor::Middle, None),
-            };
+        if mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
+            continue;
+        }
+        let (anchor, rotate) = match computed.x_tick_rotate {
+            Some(angle) => (TextAnchor::End, Some(angle)),
+            None => (TextAnchor::Middle, None),
+        };
+        let base_y = computed.height - computed.margin_bottom + 5.0 + computed.tick_size as f64;
+        if let Some(y_off) = placer.place(mid_x, &span.name, &anchor) {
             scene.add(Primitive::Text {
                 x: mid_x,
-                y: label_y,
+                y: base_y + y_off,
                 content: span.name.clone(),
                 size: computed.tick_size,
                 anchor,
@@ -9342,7 +9802,7 @@ fn add_dice_legends(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout)
         } else {
             y + 8.0
         };
-        let bar_height = (computed.height - bar_y - 20.0).max(60.0);
+        let bar_height = (computed.height - computed.margin_bottom - bar_y - 8.0).max(60.0);
         add_colorbar_at(&info, scene, computed, bar_x, bar_y, bar_height);
         return true;
     }
@@ -9936,7 +10396,8 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 if net.legend_label.is_some() {
                     use crate::render::palette::Palette;
                     let fallback = Palette::category10();
-                    // One entry per unique group.
+                    // One entry per unique group, seeded with palette then
+                    // overwritten by any explicit node color in that group.
                     let mut seen: Vec<String> = Vec::new();
                     let mut gi = 0usize;
                     for node in &net.nodes {
@@ -9951,6 +10412,14 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                                 });
                                 seen.push(g.clone());
                                 gi += 1;
+                            }
+                        }
+                    }
+                    // Overwrite palette swatches with explicit per-node colors.
+                    for node in &net.nodes {
+                        if let (Some(ref g), Some(ref c)) = (&node.group, &node.color) {
+                            if let Some(entry) = entries.iter_mut().rev().find(|e| &e.label == g) {
+                                entry.color = c.clone();
                             }
                         }
                     }
@@ -10460,6 +10929,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     }
                 }
             }
+            Plot::Quiver(q) => {
+                if let Some(ref label) = q.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: q.color.clone(),
+                        shape: LegendShape::Line,
+                        dasharray: None,
+                    });
+                }
+            }
             Plot::Text(_) => {}
             Plot::LegendPlot(_) => {}
             _ => {}
@@ -10487,7 +10966,7 @@ pub fn render_legend_at(
     theme: &Theme,
 ) {
     let legend_padding = 10.0;
-    let line_height = 18.0;
+    let line_height = body_size as f64 * 1.5;
 
     let entry_rows = if let Some(groups) = groups {
         groups.iter().map(|g| g.entries.len() + 1).sum::<usize>()
@@ -12735,6 +13214,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: true,
                             italic: false,
                             underline: false,
+                            code: false,
                         });
                     }
                     i += 2;
@@ -12756,6 +13236,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: false,
                             italic: true,
                             underline: false,
+                            code: false,
                         });
                     }
                     i += 1;
@@ -12777,9 +13258,32 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: false,
                             italic: false,
                             underline: true,
+                            code: false,
                         });
                     }
                     i += 2;
+                    break;
+                }
+                i += 1;
+            }
+        } else if chars[i] == '`' {
+            // Code: `...`
+            flush(&mut plain, &mut spans);
+            i += 1;
+            let start = i;
+            while i < n {
+                if chars[i] == '`' {
+                    let inner: String = chars[start..i].iter().collect();
+                    if !inner.is_empty() {
+                        spans.push(TextSpan {
+                            text: inner,
+                            bold: false,
+                            italic: false,
+                            underline: false,
+                            code: true,
+                        });
+                    }
+                    i += 1;
                     break;
                 }
                 i += 1;
@@ -12790,26 +13294,43 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
         }
     }
     flush(&mut plain, &mut spans);
+
+    // Lower any `$...$` math in each span to inline Unicode, so math works
+    // inside markdown body text just like in plain labels. Math is parsed
+    // after markdown, so the styling markers are already consumed.
+    for span in &mut spans {
+        if crate::render::math::needs_rewrite(&span.text) {
+            span.text = crate::render::math::to_unicode(&span.text);
+        }
+    }
+
     spans
 }
 
 /// Explode spans into tagged words, then wrap into lines of at most `max_chars`.
 /// Words are never split mid-word; a word that would overflow is moved to the next line.
 fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
-    // Explode into (bold, italic, underline, word) tuples
-    let mut words: Vec<(bool, bool, bool, String)> = Vec::new();
+    type Word = (bool, bool, bool, bool, String);
+    // Explode into (bold, italic, underline, code, word) tuples
+    let mut words: Vec<Word> = Vec::new();
     for span in spans {
         for word in span.text.split_whitespace() {
-            words.push((span.bold, span.italic, span.underline, word.to_string()));
+            words.push((
+                span.bold,
+                span.italic,
+                span.underline,
+                span.code,
+                word.to_string(),
+            ));
         }
     }
 
     // Pack words onto lines
-    let mut lines: Vec<Vec<(bool, bool, bool, String)>> = Vec::new();
-    let mut cur: Vec<(bool, bool, bool, String)> = Vec::new();
+    let mut lines: Vec<Vec<Word>> = Vec::new();
+    let mut cur: Vec<Word> = Vec::new();
     let mut cur_len = 0usize;
 
-    for (bold, italic, underline, word) in words {
+    for (bold, italic, underline, code, word) in words {
         let wlen = word.chars().count();
         let sep = if cur.is_empty() { 0 } else { 1 };
         if cur_len + sep + wlen > max_chars && !cur.is_empty() {
@@ -12817,7 +13338,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
             cur_len = 0;
         }
         cur_len += if cur.is_empty() { wlen } else { wlen + 1 };
-        cur.push((bold, italic, underline, word));
+        cur.push((bold, italic, underline, code, word));
     }
     if !cur.is_empty() {
         lines.push(cur);
@@ -12828,10 +13349,14 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
         .into_iter()
         .map(|line_words| {
             let mut line_spans: Vec<TextSpan> = Vec::new();
-            for (i, (bold, italic, underline, word)) in line_words.into_iter().enumerate() {
+            for (i, (bold, italic, underline, code, word)) in line_words.into_iter().enumerate() {
                 // Try to merge with the last span if styles match
                 if let Some(last) = line_spans.last_mut() {
-                    if last.bold == bold && last.italic == italic && last.underline == underline {
+                    if last.bold == bold
+                        && last.italic == italic
+                        && last.underline == underline
+                        && last.code == code
+                    {
                         last.text.push(' ');
                         last.text.push_str(&word);
                         continue;
@@ -12844,6 +13369,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
                     bold,
                     italic,
                     underline,
+                    code,
                 });
             }
             line_spans
@@ -12862,7 +13388,24 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
     let plot_top = computed.margin_top;
     let avail_w = plot_right - plot_left;
 
-    let n_entries = lp.entries.len();
+    let n_total = lp.entries.len();
+
+    // Apply entry limit: show (max-1) real entries + 1 overflow row.
+    let overflow = if let Some(limit) = lp.max_entries {
+        if n_total > limit {
+            n_total - (limit - 1)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let entries_to_show = if overflow > 0 {
+        lp.max_entries.unwrap() - 1
+    } else {
+        n_total
+    };
+    let n_display = entries_to_show + if overflow > 0 { 1 } else { 0 };
 
     // Auto-compute columns if not set, then bump up columns to fit within cell height.
     let mut n_cols = lp.cols.unwrap_or_else(|| {
@@ -12871,16 +13414,17 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
         let col_w = 18.0 + max_chars * char_px + 20.0;
         ((avail_w / col_w).floor() as usize).max(1)
     });
-    let mut n_rows = n_entries.div_ceil(n_cols);
+    let mut n_rows = n_display.max(1).div_ceil(n_cols);
 
     // Title row consumes one line_height; account for it when checking fit.
     let title_h = if lp.title.is_some() { line_height } else { 0.0 };
     let avail_h = computed.height - plot_top - title_h - legend_padding * 2.0;
-    // Increase columns until all rows fit within the cell, without splitting entries
-    // across more columns than there are entries.
-    while n_cols < n_entries && (n_rows as f64 * line_height) > avail_h {
+    // Increase columns until all rows fit within the cell, capped by max_cols
+    // so long labels are never squeezed into columns that are too narrow.
+    let col_cap = lp.max_cols.unwrap_or(usize::MAX);
+    while n_cols < n_display && n_cols < col_cap && (n_rows as f64 * line_height) > avail_h {
         n_cols += 1;
-        n_rows = n_entries.div_ceil(n_cols);
+        n_rows = n_display.max(1).div_ceil(n_cols);
     }
 
     // Optional title
@@ -12902,7 +13446,7 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
     let legend_y = cur_y;
     let col_w = avail_w / n_cols as f64;
 
-    if lp.show_box && n_entries > 0 {
+    if lp.show_box && n_display > 0 {
         let box_h = n_rows as f64 * line_height + legend_padding * 2.0;
         scene.add(Primitive::Rect {
             x: plot_left - legend_padding + 5.0,
@@ -12926,12 +13470,29 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
         });
     }
 
-    for (i, entry) in lp.entries.iter().enumerate() {
+    for (i, entry) in lp.entries.iter().take(entries_to_show).enumerate() {
         let col = i % n_cols;
         let row = i / n_cols;
         let ex = plot_left + col as f64 * col_w;
         let ey = legend_y + row as f64 * line_height;
         render_legend_entry(entry, scene, ex, ey, computed);
+    }
+    if overflow > 0 {
+        let i = entries_to_show;
+        let col = i % n_cols;
+        let row = i / n_cols;
+        let ex = plot_left + col as f64 * col_w;
+        let ey = legend_y + row as f64 * line_height;
+        scene.add(Primitive::Text {
+            x: ex + computed.legend_text_x,
+            y: ey + computed.body_size as f64 * 0.8,
+            content: format!("… (+{overflow} more)"),
+            size: computed.body_size,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
     }
 }
 
@@ -13124,7 +13685,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::Survival(_)
                 | Plot::Slope(_)
                 | Plot::Ecdf(_)
-                | Plot::QQ(_) => {
+                | Plot::QQ(_)
+                | Plot::Quiver(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -13312,6 +13874,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     });
     if !skip_axes {
         add_axes_and_grid(&mut scene, &computed, &layout);
+        if layout.y2_range.is_some() {
+            add_y2_axis(&mut scene, &computed, &layout);
+        }
     }
 
     // For DicePlot: precompute the actual grid extents so that axis labels and
@@ -13607,6 +14172,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::LegendPlot(lp) => {
                 add_legend_plot(lp, &mut scene, &computed);
+            }
+            Plot::Quiver(q) => {
+                add_quiver(q, &mut scene, &computed);
             }
         }
     }
@@ -15915,20 +16483,7 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                      stroke_w: f64,
                      color: &str| {
         let size = arr_len(stroke_w);
-        let base_x = tip_x - ux * size;
-        let base_y = tip_y - uy * size;
-        let perp_x = -uy;
-        let perp_y = ux;
-        let half_w = size * 0.4;
-        let d = format!(
-            "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
-            tip_x,
-            tip_y,
-            base_x + perp_x * half_w,
-            base_y + perp_y * half_w,
-            base_x - perp_x * half_w,
-            base_y - perp_y * half_w
-        );
+        let d = render_utils::arrow_head_path(tip_x, tip_y, ux, uy, size, size * 0.4);
         scene.add(Primitive::Path(Box::new(PathData {
             d,
             fill: Some(color.into()),
@@ -15941,8 +16496,8 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
 
     let fallback = Palette::category10();
 
-    // Build group→colour map.  Groups always get palette colors;
-    // per-node explicit colors are a node-level override only.
+    // Build group→colour map, seeding with palette colors then overwriting
+    // with any explicit node color set for that group.
     let mut group_map: Vec<(String, String)> = Vec::new();
     {
         let mut gi = 0usize;
@@ -15951,6 +16506,13 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 if !group_map.iter().any(|(gn, _)| gn == g) {
                     group_map.push((g.clone(), fallback[gi % fallback.len()].to_string()));
                     gi += 1;
+                }
+            }
+        }
+        for node in &net.nodes {
+            if let (Some(ref g), Some(ref c)) = (&node.group, &node.color) {
+                if let Some(pos) = group_map.iter().position(|(gn, _)| gn == g) {
+                    group_map[pos].1 = c.clone();
                 }
             }
         }
@@ -16114,10 +16676,15 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
         let r_tgt = net.nodes[ti].size.unwrap_or(net.node_radius)
             * net.nodes[ti].shape.circumradius_factor();
 
-        let is_antiparallel = net.directed && antiparallel.contains(&(si, ti));
-        let curve_offset = if is_antiparallel { dist * 0.15 } else { 0.0 };
+        let curve_offset = if let Some(c) = edge.curve {
+            dist * c
+        } else if net.directed && antiparallel.contains(&(si, ti)) {
+            dist * 0.15
+        } else {
+            0.0
+        };
 
-        if curve_offset > 0.0 {
+        if curve_offset.abs() > 1e-9 {
             // Curved edge via quadratic bezier to separate antiparallel pair.
             let perp_x = -uy;
             let perp_y = ux;
@@ -16313,118 +16880,140 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
         }
     }
 
-    // ── Draw labels (with optional repulsion) ─────────────────────────
+    // ── Draw labels ───────────────────────────────────────────────────
     if net.show_labels {
-        let n = px.len();
-        // Place each label in the direction away from the graph centroid so
-        // labels radiate outward and rarely land on top of other edges.
-        let cx_c = if n > 0 {
-            px.iter().sum::<f64>() / n as f64
-        } else {
-            0.0
-        };
-        let cy_c = if n > 0 {
-            py.iter().sum::<f64>() / n as f64
-        } else {
-            0.0
-        };
-
-        // Tuple: (anchor_x, center_y, text, approx_half_width, TextAnchor)
-        // anchor_x meaning:
-        //   Start  → left edge of text
-        //   End    → right edge of text
-        //   Middle → centre of text
-        let mut labels: Vec<(f64, f64, String, f64, TextAnchor)> = net
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| {
+        if net.label_inside {
+            // Centre each label inside its node.  Font size is scaled down to
+            // fit the node diameter; white text contrasts against the fill.
+            for (i, node) in net.nodes.iter().enumerate() {
                 let r = node.size.unwrap_or(net.node_radius);
-                let lw = node.label.chars().count() as f64 * 0.6 * font_size as f64;
-                let gap = r + 4.0;
-                // Unit vector from centroid to node.
-                let fdx = px[i] - cx_c;
-                let fdy = py[i] - cy_c;
-                let fmag = (fdx * fdx + fdy * fdy).sqrt().max(1e-6);
-                let fux = fdx / fmag;
-                let fuy = fdy / fmag;
-                // Choose anchor and x position based on horizontal direction.
-                let (lx, anchor) = if fux > 0.25 {
-                    (px[i] + fux * gap, TextAnchor::Start)
-                } else if fux < -0.25 {
-                    (px[i] + fux * gap, TextAnchor::End)
-                } else {
-                    (px[i], TextAnchor::Middle)
-                };
-                // Vertical: shift in the outward y direction; apply baseline offset.
-                let ly = py[i] + fuy * gap + font_size as f64 * 0.35;
-                (lx, ly, node.label.clone(), lw, anchor)
-            })
-            .collect();
-
-        if net.repel_labels && labels.len() > 1 {
-            let lh = font_size as f64;
-            // Convert to center-x for repulsion arithmetic, then convert back.
-            let center_x = |l: &(f64, f64, String, f64, TextAnchor)| match l.4 {
-                TextAnchor::Start => l.0 + l.3 / 2.0,
-                TextAnchor::End => l.0 - l.3 / 2.0,
-                TextAnchor::Middle => l.0,
+                let n_chars = node.label.chars().count().max(1);
+                // Largest font that fits: diameter / (chars * 0.6 char-width-factor).
+                let max_fs = ((2.0 * r) / (n_chars as f64 * 0.6)).floor() as u32;
+                let fs = max_fs.min(font_size).max(6);
+                scene.add(Primitive::Text {
+                    x: round2(px[i]),
+                    y: round2(py[i] + fs as f64 * 0.35),
+                    content: node.label.clone(),
+                    size: fs,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: Some(Color::from("white")),
+                });
+            }
+        } else {
+            let n = px.len();
+            // Place each label in the direction away from the graph centroid so
+            // labels radiate outward and rarely land on top of other edges.
+            let cx_c = if n > 0 {
+                px.iter().sum::<f64>() / n as f64
+            } else {
+                0.0
             };
-            for _ in 0..50 {
-                let mut moved = false;
-                for i in 0..labels.len() {
-                    for j in (i + 1)..labels.len() {
-                        let cx_i = center_x(&labels[i]);
-                        let cx_j = center_x(&labels[j]);
-                        let dx = cx_j - cx_i;
-                        let dy = labels[j].1 - labels[i].1;
-                        let overlap_x = (labels[i].3 + labels[j].3) / 2.0 - dx.abs();
-                        let overlap_y = lh - dy.abs();
-                        if overlap_x > 0.0 && overlap_y > 0.0 {
-                            let push = 0.5;
-                            if overlap_x < overlap_y {
-                                let sign = if dx >= 0.0 { 1.0 } else { -1.0 };
-                                labels[i].0 -= sign * overlap_x * push;
-                                labels[j].0 += sign * overlap_x * push;
-                            } else {
-                                let sign = if dy >= 0.0 { 1.0 } else { -1.0 };
-                                labels[i].1 -= sign * overlap_y * push;
-                                labels[j].1 += sign * overlap_y * push;
+            let cy_c = if n > 0 {
+                py.iter().sum::<f64>() / n as f64
+            } else {
+                0.0
+            };
+
+            // Tuple: (anchor_x, center_y, text, approx_half_width, TextAnchor)
+            // anchor_x meaning:
+            //   Start  → left edge of text
+            //   End    → right edge of text
+            //   Middle → centre of text
+            let mut labels: Vec<(f64, f64, String, f64, TextAnchor)> = net
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| {
+                    let r = node.size.unwrap_or(net.node_radius);
+                    let lw = node.label.chars().count() as f64 * 0.6 * font_size as f64;
+                    let gap = r + 4.0;
+                    // Unit vector from centroid to node.
+                    let fdx = px[i] - cx_c;
+                    let fdy = py[i] - cy_c;
+                    let fmag = (fdx * fdx + fdy * fdy).sqrt().max(1e-6);
+                    let fux = fdx / fmag;
+                    let fuy = fdy / fmag;
+                    // Choose anchor and x position based on horizontal direction.
+                    let (lx, anchor) = if fux > 0.25 {
+                        (px[i] + fux * gap, TextAnchor::Start)
+                    } else if fux < -0.25 {
+                        (px[i] + fux * gap, TextAnchor::End)
+                    } else {
+                        (px[i], TextAnchor::Middle)
+                    };
+                    // Vertical: shift in the outward y direction; apply baseline offset.
+                    let ly = py[i] + fuy * gap + font_size as f64 * 0.35;
+                    (lx, ly, node.label.clone(), lw, anchor)
+                })
+                .collect();
+
+            if net.repel_labels && labels.len() > 1 {
+                let lh = font_size as f64;
+                // Convert to center-x for repulsion arithmetic, then convert back.
+                let center_x = |l: &(f64, f64, String, f64, TextAnchor)| match l.4 {
+                    TextAnchor::Start => l.0 + l.3 / 2.0,
+                    TextAnchor::End => l.0 - l.3 / 2.0,
+                    TextAnchor::Middle => l.0,
+                };
+                for _ in 0..50 {
+                    let mut moved = false;
+                    for i in 0..labels.len() {
+                        for j in (i + 1)..labels.len() {
+                            let cx_i = center_x(&labels[i]);
+                            let cx_j = center_x(&labels[j]);
+                            let dx = cx_j - cx_i;
+                            let dy = labels[j].1 - labels[i].1;
+                            let overlap_x = (labels[i].3 + labels[j].3) / 2.0 - dx.abs();
+                            let overlap_y = lh - dy.abs();
+                            if overlap_x > 0.0 && overlap_y > 0.0 {
+                                let push = 0.5;
+                                if overlap_x < overlap_y {
+                                    let sign = if dx >= 0.0 { 1.0 } else { -1.0 };
+                                    labels[i].0 -= sign * overlap_x * push;
+                                    labels[j].0 += sign * overlap_x * push;
+                                } else {
+                                    let sign = if dy >= 0.0 { 1.0 } else { -1.0 };
+                                    labels[i].1 -= sign * overlap_y * push;
+                                    labels[j].1 += sign * overlap_y * push;
+                                }
+                                moved = true;
                             }
-                            moved = true;
                         }
                     }
-                }
-                if !moved {
-                    break;
-                }
-            }
-            // Clamp to plot bounds, accounting for anchor and label width.
-            let x_max = ox + pw + pad_right_extra;
-            let y_max = oy + ph;
-            for l in labels.iter_mut() {
-                l.0 = match l.4 {
-                    TextAnchor::Start => l.0.clamp(ox, (x_max - l.3).max(ox)),
-                    TextAnchor::End => l.0.clamp(ox + l.3, x_max),
-                    TextAnchor::Middle => {
-                        l.0.clamp(ox + l.3 / 2.0, (x_max - l.3 / 2.0).max(ox + l.3 / 2.0))
+                    if !moved {
+                        break;
                     }
-                };
-                l.1 = l.1.clamp(oy + font_size as f64, y_max);
+                }
+                // Clamp to plot bounds, accounting for anchor and label width.
+                let x_max = ox + pw + pad_right_extra;
+                let y_max = oy + ph;
+                for l in labels.iter_mut() {
+                    l.0 = match l.4 {
+                        TextAnchor::Start => l.0.clamp(ox, (x_max - l.3).max(ox)),
+                        TextAnchor::End => l.0.clamp(ox + l.3, x_max),
+                        TextAnchor::Middle => {
+                            l.0.clamp(ox + l.3 / 2.0, (x_max - l.3 / 2.0).max(ox + l.3 / 2.0))
+                        }
+                    };
+                    l.1 = l.1.clamp(oy + font_size as f64, y_max);
+                }
             }
-        }
 
-        for (lx, ly, text, _lw, anchor) in &labels {
-            scene.add(Primitive::Text {
-                x: round2(*lx),
-                y: round2(*ly),
-                content: text.clone(),
-                size: font_size,
-                anchor: *anchor,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+            for (lx, ly, text, _lw, anchor) in &labels {
+                scene.add(Primitive::Text {
+                    x: round2(*lx),
+                    y: round2(*ly),
+                    content: text.clone(),
+                    size: font_size,
+                    anchor: *anchor,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
         }
     }
 }
@@ -20901,6 +21490,138 @@ pub fn render_horizon(hp: HorizonPlot, layout: Layout) -> Scene {
     render_multiple(plots, layout)
 }
 
+// ── QuiverPlot (2-D vector field) ─────────────────────────────────────────────
+
+fn add_quiver(q: &crate::plot::quiver::QuiverPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if q.arrows.is_empty() {
+        return;
+    }
+
+    let scale = q.effective_scale();
+    let (mag_min, mag_max) = q.magnitude_extent();
+    let (c_min, c_max) = q.color_range.unwrap_or((mag_min, mag_max));
+    let c_span = (c_max - c_min).max(f64::EPSILON);
+
+    // With tight bounds, arrows can extend past the plot area and into the
+    // axis/title margins. Clip to the plot rectangle so they stay tidy.
+    let clipped = q.should_clip();
+    if clipped {
+        let clip_id = format!("kuva-quiver-clip-{}", scene.elements.len());
+        let clip_def = format!(
+            "<clipPath id=\"{id}\"><rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\"/></clipPath>",
+            id = clip_id,
+            x = round2(computed.margin_left),
+            y = round2(computed.margin_top),
+            w = round2(computed.plot_width()),
+            h = round2(computed.plot_height()),
+        );
+        scene.defs.push(clip_def);
+        scene.add(Primitive::ClipStart {
+            x: computed.margin_left,
+            y: computed.margin_top,
+            width: computed.plot_width(),
+            height: computed.plot_height(),
+            id: clip_id,
+        });
+    }
+
+    for arrow in &q.arrows {
+        let ((tx, ty), (px, py)) = q.endpoints_with_scale(arrow, scale);
+        let tail_x = computed.map_x(tx);
+        let tail_y = computed.map_y(ty);
+        let tip_x = computed.map_x(px);
+        let tip_y = computed.map_y(py);
+
+        let dx = tip_x - tail_x;
+        let dy = tip_y - tail_y;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-6 {
+            continue;
+        }
+
+        if computed.interactive {
+            let mag = arrow.magnitude();
+            let angle_deg = arrow.v.atan2(arrow.u).to_degrees();
+            let title = format!(
+                "x={:.2}, y={:.2}, u={:.2}, v={:.2}, |v|={:.2}, θ={:.0}°",
+                arrow.x, arrow.y, arrow.u, arrow.v, mag, angle_deg
+            );
+            let extra = format!(
+                r#"class="tt" data-x="{x}" data-y="{y}" data-u="{u}" data-v="{v}" data-mag="{mag}""#,
+                x = arrow.x,
+                y = arrow.y,
+                u = arrow.u,
+                v = arrow.v,
+                mag = mag,
+            );
+            scene.add(Primitive::GroupStart {
+                transform: None,
+                title: Some(title),
+                extra_attrs: Some(extra),
+            });
+        }
+
+        let color_str: String = if let Some(ref c) = arrow.color {
+            c.clone()
+        } else if let Some(ref cmap) = q.color_map {
+            let mag = arrow.magnitude();
+            cmap.map(((mag - c_min) / c_span).clamp(0.0, 1.0))
+        } else {
+            q.color.clone()
+        };
+        let color = Color::from(color_str.as_str());
+
+        let ux = dx / len;
+        let uy = dy / len;
+        let (head_len, half_w) = q.resolve_head(len);
+        // Shaft ends at the head base, not at the tip, so the two don't overlap.
+        let base_x = tip_x - ux * head_len;
+        let base_y = tip_y - uy * head_len;
+
+        scene.add(Primitive::Line {
+            x1: tail_x,
+            y1: tail_y,
+            x2: base_x,
+            y2: base_y,
+            stroke: color.clone(),
+            stroke_width: q.shaft_width,
+            stroke_dasharray: None,
+        });
+
+        let d = render_utils::arrow_head_path(tip_x, tip_y, ux, uy, head_len, half_w);
+        scene.add(Primitive::Path(Box::new(PathData {
+            d,
+            fill: Some(color.clone()),
+            stroke: color,
+            stroke_width: 0.0,
+            opacity: None,
+            stroke_dasharray: None,
+        })));
+
+        if computed.interactive {
+            scene.add(Primitive::GroupEnd);
+        }
+    }
+
+    if clipped {
+        scene.add(Primitive::ClipEnd);
+    }
+}
+
+/// Render a single [`crate::plot::quiver::QuiverPlot`] to a [`Scene`].
+pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Scene {
+    let computed = ComputedLayout::from_layout(layout);
+    let mut scene = Scene::new(computed.width, computed.height);
+    scene.font_family = computed.font_family.clone();
+    apply_theme(&mut scene, &computed.theme);
+    add_axes_and_grid(&mut scene, &computed, layout);
+    add_labels_and_title(&mut scene, &computed, layout);
+    add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
+    add_quiver(q, &mut scene, &computed);
+    add_reference_lines(&layout.reference_lines, &mut scene, &computed);
+    add_text_annotations(&layout.annotations, &mut scene, &computed);
+    scene
+}
 // ── GanttPlot ─────────────────────────────────────────────────────────────────
 
 fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {

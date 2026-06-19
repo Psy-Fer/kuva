@@ -950,6 +950,73 @@ check "sunburst hierarchical" \
         --label label --value value --parent parent \
         --title "Animal Kingdom by Class"
 
+# ── quiver ────────────────────────────────────────────────────────────────────
+check "quiver basic" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --title "Quiver Field" --x-label "x" --y-label "y"
+
+check "quiver with colormap" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --colormap viridis --colorbar-label "Speed" \
+        --title "Quiver Magnitude"
+
+check "quiver pivot middle" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --pivot middle --tight-bounds \
+        --title "Quiver Pivot Middle"
+
+check "quiver pivot tip" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --pivot tip --arrow-scale 0.3 \
+        --title "Quiver Pivot Tip"
+
+check "quiver explicit head" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --head-length 12 --head-width 4 --shaft-width 2 \
+        --title "Quiver Fixed Head"
+
+check "quiver with legend" \
+    "$BIN" quiver "$DATA/quiver.tsv" --no-grid \
+        --legend "wind" \
+        --title "Quiver Legend"
+
+check "quiver grid on + tight bounds" \
+    "$BIN" quiver "$DATA/quiver.tsv" \
+        --tight-bounds --pivot middle \
+        --title "Quiver Grid + Clip"
+
+# ── math in labels ──────────────────────────────────────────────────────────
+# $...$ math regions in labels are lowered to inline Unicode (σ², a/b, √(…), ∑)
+# by every backend. Exercised across plot types and label slots to confirm it
+# is not scatter-specific.
+check "math superscript + sqrt" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label 'Variance, $\sigma^2$ (units)' --y-label '$\sqrt{x^2+y^2}$'
+
+check "math fraction title" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title 'Rate $\frac{a + b}{c}$'
+
+check "math sum with limits" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\sum_{i=1}^{n} x_i$' --title 'Summation'
+
+check "math greek and operators" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\alpha \leq \beta \neq \gamma$' --y-label '$\mu \pm \sigma$'
+
+check "math in rotated y-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-label 'Energy $E = mc^2$'
+
+check "math on line plot" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value \
+        --x-label 'Time $t$ ($\mu s$)' --y-label 'Amplitude $A_0$'
+
+check "math on bar plot" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --y-label 'Count $\times 10^3$'
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -26,6 +26,7 @@ fn main() {
     bandwidth();
     swarm_overlay();
     group_colors();
+    horizontal();
 
     println!("Violin SVGs written to {OUT}/");
 }
@@ -66,7 +67,7 @@ fn basic() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 500, 2))
         .with_group("Skewed", skewed_samples(500, 3))
         .with_color("steelblue")
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(plot)];
     let layout = Layout::auto_from_plots(&plots)
@@ -85,7 +86,7 @@ fn bandwidth() {
         let mut plot = ViolinPlot::new()
             .with_group("", data.clone())
             .with_color("steelblue")
-            .with_width(30.0);
+            .with_width(0.8);
         if name == "auto" {
             // leave bandwidth unset — Silverman's rule
         } else {
@@ -111,7 +112,7 @@ fn group_colors() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 300, 2))
         .with_group("Skewed", skewed_samples(300, 3))
         .with_group_colors(["steelblue", "tomato", "seagreen"])
-        .with_width(30.0);
+        .with_width(0.8);
 
     let plots = vec![Plot::Violin(plot)];
     let layout = Layout::auto_from_plots(&plots)
@@ -122,6 +123,25 @@ fn group_colors() {
     std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
 }
 
+/// Horizontal violin — categories on Y-axis, values on X-axis.
+fn horizontal() {
+    let plot = ViolinPlot::new()
+        .with_group("Normal", normal_samples(0.0, 1.0, 300, 1))
+        .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 300, 2))
+        .with_group("Skewed", skewed_samples(300, 3))
+        .with_group_colors(["steelblue", "tomato", "seagreen"])
+        .with_width(0.8)
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Violin(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Violin Plot")
+        .with_x_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/horizontal.svg"), svg).unwrap();
+}
+
 /// Bimodal violin with a beeswarm overlay showing individual points.
 fn swarm_overlay() {
     let plot = ViolinPlot::new()
@@ -129,7 +149,7 @@ fn swarm_overlay() {
         .with_group("Bimodal", bimodal_samples(-2.0, 2.0, 0.6, 120, 2))
         .with_group("Skewed", skewed_samples(120, 3))
         .with_color("steelblue")
-        .with_width(30.0)
+        .with_width(0.8)
         .with_swarm_overlay()
         .with_overlay_color("rgba(0,0,0,0.35)")
         .with_overlay_size(2.5);

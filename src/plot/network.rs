@@ -92,6 +92,10 @@ pub struct NetworkEdge {
     pub weight: f64,
     pub color: Option<String>,
     pub label: Option<String>,
+    /// Signed perpendicular offset as a fraction of edge length for a
+    /// quadratic-bezier arc. Positive bends left of travel direction
+    /// (perp = (-uy, ux)); negative bends right. None = straight/antiparallel default.
+    pub curve: Option<f64>,
 }
 
 /// A network / graph diagram.
@@ -115,6 +119,10 @@ pub struct NetworkPlot {
     pub label_size: Option<u32>,
     /// Apply label repulsion to avoid overlap (default `false`).
     pub repel_labels: bool,
+    /// Render node labels centred inside the node circle instead of beside it
+    /// (default `false`). Font size is auto-scaled to fit within the node
+    /// radius; white text is used for contrast.
+    pub label_inside: bool,
     /// Deferred adjacency matrix (expanded into edges by `resolve_matrix`).
     pending_matrix: Option<(Vec<Vec<f64>>, Vec<usize>)>,
     /// O(1) label→index lookup, kept in sync with `nodes`.
@@ -140,6 +148,7 @@ impl NetworkPlot {
             legend_label: None,
             label_size: None,
             repel_labels: false,
+            label_inside: false,
             pending_matrix: None,
             node_map: HashMap::new(),
         }
@@ -170,6 +179,7 @@ impl NetworkPlot {
         weight: f64,
         color: Option<String>,
         label: Option<String>,
+        curve: Option<f64>,
     ) {
         let si = self.node_index(&source);
         let ti = self.node_index(&target);
@@ -179,6 +189,7 @@ impl NetworkPlot {
             weight,
             color,
             label,
+            curve,
         });
     }
 
@@ -189,7 +200,14 @@ impl NetworkPlot {
         target: S,
         weight: impl Into<f64>,
     ) -> Self {
-        self.push_edge(source.into(), target.into(), weight.into(), None, None);
+        self.push_edge(
+            source.into(),
+            target.into(),
+            weight.into(),
+            None,
+            None,
+            None,
+        );
         self
     }
 
@@ -206,6 +224,7 @@ impl NetworkPlot {
             target.into(),
             weight.into(),
             Some(color.into()),
+            None,
             None,
         );
         self
@@ -225,6 +244,7 @@ impl NetworkPlot {
             weight.into(),
             None,
             Some(label.into()),
+            None,
         );
         self
     }
@@ -244,6 +264,30 @@ impl NetworkPlot {
             weight.into(),
             Some(color.into()),
             Some(label.into()),
+            None,
+        );
+        self
+    }
+
+    /// Add a curved edge via quadratic-bezier arc.
+    ///
+    /// `curve` is a signed perpendicular offset as a fraction of edge length.
+    /// Positive bends left of the travel direction (perp = (−uy, ux));
+    /// negative bends right.
+    pub fn with_edge_curved<S: Into<String>>(
+        mut self,
+        source: S,
+        target: S,
+        weight: impl Into<f64>,
+        curve: f64,
+    ) -> Self {
+        self.push_edge(
+            source.into(),
+            target.into(),
+            weight.into(),
+            None,
+            None,
+            Some(curve),
         );
         self
     }
@@ -256,7 +300,7 @@ impl NetworkPlot {
         I: IntoIterator<Item = (S, S, V)>,
     {
         for (src, tgt, w) in edges {
-            self.push_edge(src.into(), tgt.into(), w.into(), None, None);
+            self.push_edge(src.into(), tgt.into(), w.into(), None, None, None);
         }
         self
     }
@@ -306,6 +350,7 @@ impl NetworkPlot {
                         weight: w,
                         color: None,
                         label: None,
+                        curve: None,
                     });
                 }
                 // Self-loops from diagonal: only in directed mode.
@@ -321,6 +366,7 @@ impl NetworkPlot {
                             weight: w,
                             color: None,
                             label: None,
+                            curve: None,
                         });
                     }
                 }
@@ -408,6 +454,15 @@ impl NetworkPlot {
     /// Enable label repulsion so overlapping labels push apart.
     pub fn with_repel_labels(mut self) -> Self {
         self.repel_labels = true;
+        self
+    }
+
+    /// Render node labels centred inside each node.  Also enables
+    /// `show_labels`.  Font size is auto-scaled to fit the node radius;
+    /// white text is used for contrast against the node fill.
+    pub fn with_labels_inside(mut self) -> Self {
+        self.show_labels = true;
+        self.label_inside = true;
         self
     }
 
@@ -571,6 +626,7 @@ impl NetworkPlot {
                         weight: edge.weight,
                         color: edge.color.clone(),
                         label: edge.label.clone(),
+                        curve: edge.curve,
                     });
                 }
             }

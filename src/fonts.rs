@@ -1,45 +1,69 @@
-//! Bundled DejaVu Sans Regular — always available as a fallback regardless of
-//! what fonts are installed on the host system.
+//! Bundled DejaVu Sans font family — Regular, Bold, Oblique, and Mono.
 //!
-//! The TTF is stored on disk as a gzip stream (~350 KB) and inflated on first
-//! use. The inflated bytes (~740 KB) are cached for the lifetime of the process
-//! via `OnceLock`, so the decompression cost is paid at most once.
-//!
-//! Using gzip framing (rather than raw DEFLATE or zlib) means the on-disk
-//! asset is round-trippable with standard tools — `gunzip DejaVuSans.ttf.gz`
-//! works as expected.
+//! Each TTF is stored on disk as a gzip stream and inflated on first use.
+//! The inflated bytes are cached for the lifetime of the process via `OnceLock`,
+//! so the decompression cost is paid at most once per variant.
 //!
 //! License: Bitstream Vera Fonts Copyright / public domain (see assets/fonts/LICENSE).
 //!
-//! ## Regenerating the compressed asset
-//!
-//! If `DejaVuSans.ttf` is ever replaced, regenerate the gzip asset with:
+//! ## Regenerating compressed assets
 //!
 //! ```sh
-//! libdeflate-gzip -12 -k -f assets/fonts/DejaVuSans.ttf
+//! gzip -9 -k -f assets/fonts/DejaVuSans.ttf
+//! gzip -9 -k -f assets/fonts/DejaVuSans-Bold.ttf
+//! gzip -9 -k -f assets/fonts/DejaVuSans-Oblique.ttf
+//! gzip -9 -k -f assets/fonts/DejaVuSansMono.ttf
 //! ```
-//!
-//! Any standards-compliant gzip encoder works (`gzip -9`, `pigz -11`, etc.);
-//! `libdeflate-gzip -12` just produces the smallest output.
 
 use std::io::Read;
 use std::sync::OnceLock;
 
 use flate2::read::GzDecoder;
 
-/// Gzip-compressed bytes of DejaVu Sans Regular, embedded at compile time.
 const DEJAVU_SANS_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf.gz");
 
-/// Returns the inflated DejaVu Sans TTF bytes. Inflated once and cached.
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+const DEJAVU_SANS_BOLD_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Bold.ttf.gz");
+
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+const DEJAVU_SANS_OBLIQUE_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Oblique.ttf.gz");
+
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+const DEJAVU_SANS_MONO_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf.gz");
+
+fn inflate(gz: &[u8], capacity: usize, label: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(capacity);
+    GzDecoder::new(gz)
+        .read_to_end(&mut out)
+        .unwrap_or_else(|_| panic!("bundled {label} gzip stream is corrupt"));
+    out
+}
+
+/// Returns the inflated DejaVu Sans Regular TTF bytes.
 pub(crate) fn dejavu_sans() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| {
-        let mut out = Vec::with_capacity(800_000);
-        GzDecoder::new(DEJAVU_SANS_GZ)
-            .read_to_end(&mut out)
-            .expect("bundled DejaVu Sans gzip stream is corrupt");
-        out
-    })
+    BYTES.get_or_init(|| inflate(DEJAVU_SANS_GZ, 800_000, "DejaVu Sans"))
+}
+
+/// Returns the inflated DejaVu Sans Bold TTF bytes.
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+pub(crate) fn dejavu_sans_bold() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| inflate(DEJAVU_SANS_BOLD_GZ, 750_000, "DejaVu Sans Bold"))
+}
+
+/// Returns the inflated DejaVu Sans Oblique TTF bytes.
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+pub(crate) fn dejavu_sans_oblique() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| inflate(DEJAVU_SANS_OBLIQUE_GZ, 680_000, "DejaVu Sans Oblique"))
+}
+
+/// Returns the inflated DejaVu Sans Mono TTF bytes.
+#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
+pub(crate) fn dejavu_sans_mono() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| inflate(DEJAVU_SANS_MONO_GZ, 380_000, "DejaVu Sans Mono"))
 }
 
 fn base64_encode(data: &[u8]) -> String {
@@ -74,16 +98,23 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-/// Returns a `<style>` block containing a base64-encoded `@font-face` for DejaVu Sans.
+/// Returns a `<style>` block with `@font-face` rules for all four DejaVu variants.
 /// The result is computed once and cached for the lifetime of the process.
 pub(crate) fn dejavu_sans_style_block() -> &'static str {
     static BLOCK: OnceLock<String> = OnceLock::new();
     BLOCK.get_or_init(|| {
-        let b64 = base64_encode(dejavu_sans());
+        let reg = base64_encode(dejavu_sans());
+        let bold = base64_encode(dejavu_sans_bold());
+        let oblique = base64_encode(dejavu_sans_oblique());
+        let mono = base64_encode(dejavu_sans_mono());
+        let url = "data:font/truetype;base64,";
         format!(
-            "<style>@font-face{{font-family:'DejaVu Sans';\
-             src:url('data:font/truetype;base64,{b64}') format('truetype');\
-             font-weight:normal;font-style:normal;}}</style>"
+            "<style>\
+             @font-face{{font-family:'DejaVu Sans';src:url('{url}{reg}') format('truetype');font-weight:normal;font-style:normal;}}\
+             @font-face{{font-family:'DejaVu Sans';src:url('{url}{bold}') format('truetype');font-weight:bold;font-style:normal;}}\
+             @font-face{{font-family:'DejaVu Sans';src:url('{url}{oblique}') format('truetype');font-weight:normal;font-style:italic;}}\
+             @font-face{{font-family:'DejaVu Sans Mono';src:url('{url}{mono}') format('truetype');font-weight:normal;font-style:normal;}}\
+             </style>"
         )
     })
 }

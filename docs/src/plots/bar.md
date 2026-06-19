@@ -157,6 +157,42 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Horizontal mode
+
+`.with_horizontal(true)` rotates the chart so categories appear on the Y-axis and values on the X-axis. Works with all three modes (simple, grouped, stacked).
+
+```rust,no_run
+use kuva::plot::BarPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
+use kuva::backend::svg::SvgBackend;
+
+let plot = BarPlot::new()
+    .with_bars(vec![
+        ("Apples",     42.0),
+        ("Bananas",    58.0),
+        ("Cherries",   31.0),
+        ("Dates",      47.0),
+        ("Elderberry", 25.0),
+    ])
+    .with_color("steelblue")
+    .with_horizontal(true);
+
+let plots = vec![Plot::Bar(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Horizontal Bar Chart")
+    .with_x_label("Count");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/bar/horizontal.svg" alt="Horizontal bar chart" width="560">
+
+Horizontal bars are especially useful when category labels are long — they read left-to-right on the Y-axis without rotation or truncation.
+
+---
+
 ## Bar width
 
 `.with_width()` controls how much of each category slot the bar fills. The default is `0.8`; `1.0` means bars touch.

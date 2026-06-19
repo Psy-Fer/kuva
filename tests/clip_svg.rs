@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::bar::BarPlot;
 /// Tests for SVG plot-area clipping (#53).
@@ -38,7 +39,7 @@ fn test_clip_y_axis_min_line() {
         .with_y_axis_min(0.3);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_y_axis_min_line.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_y_axis_min_line.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),
@@ -63,7 +64,7 @@ fn test_clip_x_axis_min_line() {
         .with_x_axis_min(0.5);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_x_axis_min_line.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_x_axis_min_line.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),
@@ -85,7 +86,7 @@ fn test_clip_y_axis_max_scatter() {
     let layout = Layout::auto_from_plots(&plots).with_y_axis_max(8.0);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_y_axis_max_scatter.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_y_axis_max_scatter.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),
@@ -109,7 +110,7 @@ fn test_clip_both_axes() {
         .with_y_axis_max(3.0);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_both_axes.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_both_axes.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),
@@ -132,7 +133,7 @@ fn test_clip_present_even_without_overflow() {
     let layout = Layout::auto_from_plots(&plots).with_y_axis_min(0.0);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_no_overflow.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_no_overflow.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),
@@ -152,7 +153,7 @@ fn test_clip_bar_y_axis_max() {
     let layout = Layout::auto_from_plots(&plots).with_y_axis_max(6.0);
 
     let svg = render(plots, layout);
-    std::fs::write("test_outputs/clip_bar_y_axis_max.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/clip_bar_y_axis_max.svg", &svg).unwrap();
 
     assert!(
         svg.contains("<clipPath"),

@@ -207,6 +207,12 @@ run ternary "$DATA/ternary.tsv" --a a --b b --c c --color-by group \
     --title "Ternary Plot" \
     --terminal $W $H
 
+# ── quiver ────────────────────────────────────────────────────────────────────
+header "quiver"
+run quiver "$DATA/quiver.tsv" --pivot middle \
+    --title "Vector Field" --x-label "x" --y-label "y" \
+    --terminal $W $H
+
 # ── text wrapping ─────────────────────────────────────────────────────────────
 header "wrap title"
 run scatter "$DATA/scatter.tsv" --x x --y y \
@@ -224,6 +230,15 @@ header "wrap y-label"
 run scatter "$DATA/scatter.tsv" --x x --y y \
     --y-label "A very long y-axis label that wraps into multiple rotated lines" \
     --y-label-wrap 20 \
+    --terminal $W $H
+
+# ── math in labels ────────────────────────────────────────────────────────────
+# $...$ regions are lowered to inline Unicode (σ², a/b, √, ∑) before drawing
+# on the character grid.
+header "math labels"
+run scatter "$DATA/scatter.tsv" --x x --y y \
+    --title 'Decay $\lambda$ vs $\sigma^2$' \
+    --x-label 'Time ($\mu s$)' --y-label '$\sqrt{x^2 + y^2}$' \
     --terminal $W $H
 
 echo

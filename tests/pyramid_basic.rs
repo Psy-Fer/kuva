@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::pyramid::{PopulationPyramid, PyramidMode};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -33,7 +34,7 @@ fn simple_pyramid() -> PopulationPyramid {
 #[test]
 fn test_pyramid_basic() {
     let svg = render(simple_pyramid(), "Basic Pyramid");
-    std::fs::write("test_outputs/pyramid_basic.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_basic.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should have rect elements");
     assert!(svg.contains("Male"), "should contain left label");
     assert!(svg.contains("Female"), "should contain right label");
@@ -45,7 +46,7 @@ fn test_pyramid_empty() {
     let plots = vec![Plot::Pyramid(pp)];
     let layout = Layout::new((-1.0, 1.0), (0.5, 1.5));
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/pyramid_empty.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_empty.svg", &svg).unwrap();
     assert!(svg.contains("<svg"), "should produce valid SVG");
 }
 
@@ -53,7 +54,7 @@ fn test_pyramid_empty() {
 fn test_pyramid_with_legend() {
     let pp = simple_pyramid().with_legend(true);
     let svg = render(pp, "Pyramid with Legend");
-    std::fs::write("test_outputs/pyramid_legend.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_legend.svg", &svg).unwrap();
     assert!(svg.contains("Male"), "legend entry for left");
     assert!(svg.contains("Female"), "legend entry for right");
 }
@@ -62,7 +63,7 @@ fn test_pyramid_with_legend() {
 fn test_pyramid_normalized() {
     let pp = simple_pyramid().with_normalize(true);
     let svg = render(pp, "Normalized Pyramid");
-    std::fs::write("test_outputs/pyramid_normalized.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_normalized.svg", &svg).unwrap();
     // Normalized: x-tick labels should have '%'
     assert!(svg.contains('%'), "should have percent tick labels");
 }
@@ -71,7 +72,7 @@ fn test_pyramid_normalized() {
 fn test_pyramid_show_values() {
     let pp = simple_pyramid().with_show_values(true);
     let svg = render_size(pp, "Pyramid with Values", 700.0, 500.0);
-    std::fs::write("test_outputs/pyramid_values.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_values.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should have bars");
 }
 
@@ -86,7 +87,7 @@ fn test_pyramid_custom_colors() {
         .with_group("5–14", 6.8, 6.5)
         .with_group("15+", 9.5, 9.4);
     let svg = render(pp, "Custom Colors");
-    std::fs::write("test_outputs/pyramid_custom_colors.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_custom_colors.svg", &svg).unwrap();
     assert!(
         svg.contains("#3498db") || svg.contains("3498db"),
         "should use left color"
@@ -123,7 +124,7 @@ fn test_pyramid_multi_series_grouped() {
         .with_legend(true)
         .with_mode(PyramidMode::Grouped);
     let svg = render(pp, "Multi-Series Grouped");
-    std::fs::write("test_outputs/pyramid_multi_grouped.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_multi_grouped.svg", &svg).unwrap();
     assert!(svg.contains("1960"), "should contain first series label");
     assert!(svg.contains("2020"), "should contain second series label");
 }
@@ -152,7 +153,7 @@ fn test_pyramid_multi_series_overlap() {
         .with_mode(PyramidMode::Overlap)
         .with_legend(true);
     let svg = render(pp, "Multi-Series Overlap");
-    std::fs::write("test_outputs/pyramid_multi_overlap.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_multi_overlap.svg", &svg).unwrap();
     assert!(svg.contains("<rect"), "should have rect elements");
 }
 
@@ -161,7 +162,7 @@ fn test_pyramid_x_ticks_are_unsigned() {
     // The x-axis should show unsigned values (no minus signs on tick labels)
     let pp = simple_pyramid();
     let svg = render(pp, "Tick Sign Check");
-    std::fs::write("test_outputs/pyramid_tick_sign.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_tick_sign.svg", &svg).unwrap();
     // Simple heuristic: no tick label should be "-"
     // The tick format custom fn strips the sign; "−" or "-" followed by digits should not appear
     // as a standalone tick label. We check the SVG doesn't have a lone "-" tick label.
@@ -204,7 +205,7 @@ fn test_pyramid_three_series_grouped() {
         .with_group_gap(0.1)
         .with_bar_gap(0.03);
     let svg = render_size(pp, "Three Census Years", 700.0, 500.0);
-    std::fs::write("test_outputs/pyramid_three_series.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/pyramid_three_series.svg", &svg).unwrap();
     assert!(svg.contains("1960"), "should contain 1960 label");
     assert!(svg.contains("1990"), "should contain 1990 label");
     assert!(svg.contains("2020"), "should contain 2020 label");
@@ -251,8 +252,8 @@ fn test_pyramid_bar_width() {
     let svg_narrow = make(0.4);
     let svg_wide = make(0.8);
 
-    std::fs::write("test_outputs/pyramid_bar_width_narrow.svg", &svg_narrow).unwrap();
-    std::fs::write("test_outputs/pyramid_bar_width_wide.svg", &svg_wide).unwrap();
+    common::write_test_output("test_outputs/pyramid_bar_width_narrow.svg", &svg_narrow).unwrap();
+    common::write_test_output("test_outputs/pyramid_bar_width_wide.svg", &svg_wide).unwrap();
 
     // Extract the first rect height from each SVG (the left bar of group 0).
     // Format in SVG output is: height="NNN.NN"

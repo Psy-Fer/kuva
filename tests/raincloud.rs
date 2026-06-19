@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::RaincloudPlot;
 use kuva::render::layout::Layout;
@@ -35,7 +36,7 @@ fn test_raincloud_basic() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_basic.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_basic.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"), "SVG should start with svg element");
     // Cloud is a filled path
@@ -73,7 +74,7 @@ fn test_raincloud_single_group() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_single.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_single.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(
@@ -96,7 +97,7 @@ fn test_raincloud_no_cloud() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_no_cloud.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_no_cloud.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Without cloud, no path elements should represent the KDE shape
@@ -117,7 +118,7 @@ fn test_raincloud_no_box() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_no_box.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_no_box.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Background rect is still present; just verify it renders OK
@@ -137,7 +138,7 @@ fn test_raincloud_no_rain() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_no_rain.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_no_rain.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // No circle elements when rain is disabled
@@ -161,7 +162,7 @@ fn test_raincloud_group_colors() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_group_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_group_colors.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // All three custom colors (or their hex equivalents) should appear
@@ -184,7 +185,7 @@ fn test_raincloud_flipped() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_flipped.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_flipped.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"), "cloud path present when flipped");
@@ -203,7 +204,7 @@ fn test_raincloud_legend() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_legend.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_legend.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Legend entries are per-group: group labels appear as legend text
@@ -236,7 +237,7 @@ fn test_raincloud_five_groups() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_five_groups.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_five_groups.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     for label in &labels {
@@ -275,7 +276,8 @@ fn test_raincloud_bandwidth_scale() {
             .with_x_label("Group")
             .with_y_label("Value");
         let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-        std::fs::write(format!("test_outputs/raincloud_bw_{name}.svg"), svg.clone()).unwrap();
+        common::write_test_output(format!("test_outputs/raincloud_bw_{name}.svg"), svg.clone())
+            .unwrap();
         assert!(svg.contains("<svg"));
         assert!(
             svg.contains("<path"),
@@ -300,7 +302,7 @@ fn test_raincloud_large_dataset() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/raincloud_large.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/raincloud_large.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"), "cloud paths present");
@@ -310,4 +312,27 @@ fn test_raincloud_large_dataset() {
         circle_count >= 3000,
         "expected 3000+ rain circles for 3×1000 pts, got {circle_count}"
     );
+}
+
+#[test]
+fn test_raincloud_horizontal() {
+    let plot = RaincloudPlot::new()
+        .with_group("Alpha", vec![1.0, 2.0, 2.5, 3.0, 4.0, 5.0])
+        .with_group("Beta", vec![3.0, 4.0, 4.5, 5.0, 5.5, 6.0])
+        .with_group("Gamma", vec![5.0, 6.0, 7.0, 7.5, 8.0, 9.0])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Raincloud(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Raincloud")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/raincloud_horizontal.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+    assert!(svg.contains("Gamma"));
 }

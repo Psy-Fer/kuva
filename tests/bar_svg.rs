@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::BarPlot;
 use kuva::render::layout::{ComputedLayout, Layout};
@@ -20,7 +21,7 @@ fn test_bar_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/bar_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -39,7 +40,7 @@ fn test_bar_vec_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/bar_vec_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_vec_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -61,7 +62,7 @@ fn test_bar_categories_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/bar_categories_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_categories_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -93,11 +94,11 @@ fn test_bar_stacked() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/bar_stacked.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_stacked.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("#ff6347"));
-    assert!(svg.contains("skyblue"));
+    assert!(svg.contains("#87ceeb"));
     assert!(svg.contains("#ffd700"));
 }
 
@@ -146,7 +147,7 @@ fn test_rotated_neg45_long_first_label_expands_left_margin() {
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains(long_first));
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write("test_outputs/bar_long_first_neg45.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bar_long_first_neg45.svg", &svg).unwrap();
 }
 
 // Positive rotation (+45°): TextAnchor::Start — last label extends right of its tick.
@@ -176,7 +177,7 @@ fn test_rotated_pos45_long_last_label_expands_right_margin() {
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(svg.contains(long_last));
     std::fs::create_dir_all("test_outputs").ok();
-    std::fs::write("test_outputs/bar_long_last_pos45.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/bar_long_last_pos45.svg", &svg).unwrap();
 }
 
 // Short labels should not cause unnecessary margin inflation — both rotations.
@@ -208,7 +209,7 @@ fn test_colored_bar_individual_colors() {
     let plots = vec![Plot::Bar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("Nucleotide Variants");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bar_colored_bars.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_colored_bars.svg", svg.clone()).unwrap();
 
     assert!(
         svg.contains("steelblue") || svg.contains("#4682b4"),
@@ -242,7 +243,7 @@ fn test_colored_bars_bulk() {
     let plots = vec![Plot::Bar(plot)];
     let layout = Layout::auto_from_plots(&plots).with_title("All Variants");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bar_colored_bars_bulk.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_colored_bars_bulk.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("A2C"));
     assert!(svg.contains("C2T"));
@@ -267,7 +268,88 @@ fn test_colored_bar_does_not_affect_other_bars() {
     let plots = vec![Plot::Bar(plot)];
     let layout = Layout::auto_from_plots(&plots);
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    std::fs::write("test_outputs/bar_mixed_colors.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/bar_mixed_colors.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("Red bar") || svg.contains("crimson") || svg.contains("#dc143c"));
+}
+
+#[test]
+fn test_bar_horizontal_simple() {
+    let plot = BarPlot::new()
+        .with_bar("Apples", 42.0)
+        .with_bar("Bananas", 58.0)
+        .with_bar("Cherries", 31.0)
+        .with_bar("Dates", 75.0)
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Bar Chart")
+        .with_x_label("Count")
+        .with_y_label("Fruit");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_simple.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Categories should appear as y-axis labels
+    assert!(svg.contains("Apples"));
+    assert!(svg.contains("Bananas"));
+}
+
+#[test]
+fn test_bar_horizontal_grouped() {
+    let plot = BarPlot::new()
+        .with_group("Q1", vec![(30.0, "steelblue"), (20.0, "tomato")])
+        .with_group("Q2", vec![(45.0, "steelblue"), (35.0, "tomato")])
+        .with_group("Q3", vec![(38.0, "steelblue"), (42.0, "tomato")])
+        .with_legend(vec!["Product A", "Product B"])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Grouped Bar Chart")
+        .with_x_label("Revenue")
+        .with_y_label("Quarter");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_grouped.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Q1"));
+    assert!(svg.contains("Q2"));
+}
+
+#[test]
+fn test_bar_horizontal_stacked() {
+    let plot = BarPlot::new()
+        .with_group(
+            "Alpha",
+            vec![(40.0, "steelblue"), (25.0, "tomato"), (15.0, "seagreen")],
+        )
+        .with_group(
+            "Beta",
+            vec![(30.0, "steelblue"), (35.0, "tomato"), (20.0, "seagreen")],
+        )
+        .with_group(
+            "Gamma",
+            vec![(50.0, "steelblue"), (15.0, "tomato"), (25.0, "seagreen")],
+        )
+        .with_legend(vec!["X", "Y", "Z"])
+        .with_stacked()
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Stacked Bar Chart")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/bar_horizontal_stacked.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
 }

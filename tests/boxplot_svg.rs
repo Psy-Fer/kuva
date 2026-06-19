@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::BoxPlot;
 use kuva::render::layout::Layout;
@@ -22,7 +23,7 @@ fn test_boxplot_groups_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_groups_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_groups_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -42,7 +43,7 @@ fn test_boxplot_svg_output_builder() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -61,13 +62,13 @@ fn test_boxplot_group_colors_full() {
     let layout = Layout::auto_from_plots(&plots).with_title("Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_group_colors_full.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_group_colors_full.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Each group color must appear; the fallback "black" must not be used as a fill
     assert!(svg.contains("steelblue") || svg.contains("#4682b4"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));
-    assert!(svg.contains("seagreen"));
+    assert!(svg.contains("seagreen") || svg.contains("#2e8b57"));
 }
 
 #[test]
@@ -84,10 +85,36 @@ fn test_boxplot_group_colors_partial() {
     let layout = Layout::auto_from_plots(&plots).with_title("Partial Per-group Colors");
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/boxplot_group_colors_partial.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/boxplot_group_colors_partial.svg", svg.clone())
+        .unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("tomato") || svg.contains("#ff6347"));
     // Fallback color must appear for the uncolored groups
     assert!(svg.contains("black"));
+}
+
+#[test]
+fn test_boxplot_horizontal() {
+    let plot = BoxPlot::new()
+        .with_group("Alpha", vec![1.0, 2.0, 3.0, 4.0, 5.0])
+        .with_group("Beta", vec![2.0, 3.5, 4.0, 4.5, 6.0])
+        .with_group("Gamma", vec![3.0, 4.0, 5.0, 6.0, 8.0])
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Box(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Box Plot")
+        .with_x_label("Value")
+        .with_y_label("Group");
+    let scene = render_multiple(plots, layout);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/boxplot_horizontal.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Groups should appear as y-axis tick labels
+    assert!(svg.contains("Alpha"));
+    assert!(svg.contains("Beta"));
+    assert!(svg.contains("Gamma"));
 }

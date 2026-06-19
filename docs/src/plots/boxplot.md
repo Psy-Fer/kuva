@@ -140,6 +140,37 @@ let plot = BoxPlot::new()
 
 ---
 
+## Horizontal mode
+
+`.with_horizontal(true)` rotates the chart so categories appear on the Y-axis and values on the X-axis.
+
+```rust,no_run
+use kuva::plot::BoxPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+use kuva::render::render::render_multiple;
+use kuva::backend::svg::SvgBackend;
+
+let plot = BoxPlot::new()
+    .with_group("Control",     vec![4.1, 5.0, 5.3, 5.8, 6.2, 7.0])
+    .with_group("Treatment A", vec![5.5, 6.1, 6.4, 7.2, 7.8, 8.5])
+    .with_group("Treatment B", vec![3.2, 4.0, 4.5, 4.8, 5.1, 5.9])
+    .with_group("Treatment C", vec![6.0, 7.2, 7.5, 8.1, 8.8, 9.5])
+    .with_group_colors(["steelblue", "tomato", "seagreen", "goldenrod"])
+    .with_horizontal(true);
+
+let plots = vec![Plot::Box(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Horizontal Box Plot")
+    .with_x_label("Value");
+
+let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+```
+
+<img src="../assets/boxplot/horizontal.svg" alt="Horizontal box plot" width="560">
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -154,3 +185,4 @@ let plot = BoxPlot::new()
 | `.with_swarm_overlay()` | Overlay beeswarm points (spread to avoid overlap) |
 | `.with_overlay_color(s)` | Color for overlay points (default `"rgba(0,0,0,0.45)"`) |
 | `.with_overlay_size(r)` | Radius of overlay points in pixels (default `3.0`) |
+| `.with_horizontal(bool)` | Rotate chart: categories on Y-axis, values on X-axis (default `false`) |

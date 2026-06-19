@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::LinePlot;
 use kuva::render::layout::Layout;
@@ -22,7 +23,7 @@ fn test_line_svg_output_builder() {
 
     let scene = render_line(&plot, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_builder.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_builder.svg", svg.clone()).unwrap();
 
     // Basic sanity assertion
     assert!(svg.contains("<svg"));
@@ -69,7 +70,7 @@ fn test_line_styles() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_styles.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_styles.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains(r#"stroke-dasharray="8 4""#)); // dashed
@@ -92,7 +93,7 @@ fn test_line_step() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_step.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_step.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     // Step path should have more L segments than data points (2 per step after the first)
@@ -115,7 +116,7 @@ fn test_line_area() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_area.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_area.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));
@@ -136,7 +137,7 @@ fn test_line_step_area() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_step_area.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_step_area.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("fill-opacity"));
@@ -158,7 +159,7 @@ fn test_font_family() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_font_family.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_font_family.svg", svg.clone()).unwrap();
 
     assert!(svg.contains(r#"font-family="Arial, sans-serif""#));
 }
@@ -181,7 +182,7 @@ fn test_custom_font_sizes() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_custom_fonts.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_custom_fonts.svg", svg.clone()).unwrap();
 
     assert!(svg.contains(r#"font-size="24""#)); // title
     assert!(svg.contains(r#"font-size="18""#)); // axis labels
@@ -207,7 +208,7 @@ fn test_line_log_y() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_log_y.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_log_y.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));
@@ -246,7 +247,7 @@ fn test_line_log_xy_wide_range() {
 
     let scene = render_multiple(plots, layout);
     let svg = SvgBackend.render_scene(&scene);
-    std::fs::write("test_outputs/line_log_wide.svg", svg.clone()).unwrap();
+    common::write_test_output("test_outputs/line_log_wide.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
     assert!(svg.contains("<path"));

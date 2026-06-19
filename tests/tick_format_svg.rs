@@ -1,3 +1,4 @@
+mod common;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;
 use kuva::render::layout::Layout;
@@ -18,7 +19,7 @@ fn test_auto_integers() {
     let data: Vec<(f64, f64)> = (0..=5).map(|i| (i as f64, i as f64 * 2.0)).collect();
     let layout = Layout::new((0.0, 5.0), (0.0, 10.0));
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_auto_integers.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_auto_integers.svg", &svg).unwrap();
     assert!(
         !svg.contains(".0<"),
         "Auto format should not produce trailing .0 in tick labels"
@@ -37,7 +38,7 @@ fn test_fixed() {
     ];
     let layout = Layout::new((0.0, 2.0), (0.0, 4.0)).with_y_tick_format(TickFormat::Fixed(2));
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_fixed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_fixed.svg", &svg).unwrap();
     // Fixed(2) means 2 decimal places; look for pattern like "X.XX"
     // The tick labels should all have exactly 2 decimal places
     assert!(svg.contains("<svg"));
@@ -62,7 +63,7 @@ fn test_integer() {
     let data = vec![(1.5, 2.7), (3.2, 4.1)];
     let layout = Layout::new((0.0, 5.0), (0.0, 5.0)).with_tick_format(TickFormat::Integer);
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_integer.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_integer.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Tick labels should not contain a decimal point
     // Extract text content from text elements in the tick area
@@ -100,7 +101,7 @@ fn test_percent() {
     let data = vec![(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)];
     let layout = Layout::new((0.0, 1.0), (0.0, 1.0)).with_y_tick_format(TickFormat::Percent);
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_percent.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_percent.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains('%'),
@@ -113,7 +114,7 @@ fn test_sci() {
     let data = vec![(1.0, 1.0), (1000.0, 50000.0), (100000.0, 100000.0)];
     let layout = Layout::new((0.0, 100000.0), (0.0, 100000.0)).with_tick_format(TickFormat::Sci);
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_sci.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_sci.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     // Scientific notation tick labels should contain 'e'
     let has_sci = svg.split("font-size=\"12\"").skip(1).any(|chunk| {
@@ -141,7 +142,7 @@ fn test_custom() {
     let layout = Layout::new((0.0, 100.0), (0.0, 200.0))
         .with_tick_format(TickFormat::Custom(Arc::new(|v| format!("{}px", v as i32))));
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_custom.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_custom.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains("px"),
@@ -157,7 +158,7 @@ fn test_independent() {
         .with_x_tick_format(TickFormat::Percent)
         .with_y_tick_format(TickFormat::Sci);
     let svg = make_scatter(data, layout);
-    std::fs::write("test_outputs/tick_format_independent.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_independent.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
     assert!(
         svg.contains('%'),
@@ -181,7 +182,7 @@ fn test_percent_auto_no_overflow() {
     let layout = Layout::auto_from_plots(&plots).with_y_tick_format(TickFormat::Percent);
     let svg = render_multiple(plots, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&svg);
-    std::fs::write("test_outputs/tick_format_percent_auto.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_percent_auto.svg", &svg).unwrap();
     // With proportional 1%-span padding the axis should extend only one step
     // beyond the data, not balloon to 200%.
     assert!(
@@ -204,7 +205,7 @@ fn test_percent_clamp_at_100() {
         .with_clamp_axis();
     let svg = render_multiple(plots, layout).with_background(Some("white"));
     let svg = SvgBackend.render_scene(&svg);
-    std::fs::write("test_outputs/tick_format_percent_clamp.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/tick_format_percent_clamp.svg", &svg).unwrap();
     // The highest y tick should be "100.0%" — the axis must not overshoot.
     assert!(
         svg.contains("100.0%"),

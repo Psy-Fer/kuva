@@ -26,6 +26,7 @@ fn main() {
     strip_overlay();
     swarm_overlay();
     group_colors();
+    horizontal();
 
     println!("Box plot SVGs written to {OUT}/");
 }
@@ -94,6 +95,25 @@ fn group_colors() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/group_colors.svg"), svg).unwrap();
+}
+
+/// Horizontal box plot — categories on Y-axis, values on X-axis.
+fn horizontal() {
+    let plot = BoxPlot::new()
+        .with_group("Control", samples(5.0, 1.0, 60, 1))
+        .with_group("Treatment A", samples(6.5, 1.2, 60, 2))
+        .with_group("Treatment B", samples(4.2, 0.9, 60, 3))
+        .with_group("Treatment C", samples(7.1, 1.5, 60, 4))
+        .with_group_colors(["steelblue", "tomato", "seagreen", "goldenrod"])
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Box(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Box Plot")
+        .with_x_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/horizontal.svg"), svg).unwrap();
 }
 
 /// Boxes with a beeswarm overlay — points spread to avoid overlap.

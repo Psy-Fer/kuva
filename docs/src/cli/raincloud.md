@@ -14,6 +14,7 @@ Raincloud plot — combines a half-violin KDE cloud, box-and-whisker, and jitter
 | `--no-box` | off | Hide the box-and-whisker |
 | `--no-rain` | off | Hide the jittered raw points |
 | `--flip` | off | Mirror cloud to the opposite side |
+| `--horizontal` | off | Render groups on the Y-axis, values on the X-axis |
 | `--legend <LABEL>` | — | Add legend entries (one per group) |
 
 ```bash
@@ -21,6 +22,9 @@ kuva raincloud data.tsv --group-col group --value-col score
 
 kuva raincloud data.tsv --group-col condition --value-col response \
     --no-rain --legend "Condition" --title "Treatment Response"
+
+# horizontal layout
+kuva raincloud data.tsv --group-col group --value-col score --horizontal
 ```
 
 ---

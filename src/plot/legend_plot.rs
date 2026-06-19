@@ -93,6 +93,13 @@ pub struct LegendPlot {
     pub entries: Vec<LegendEntry>,
     /// Fixed column count. `None` = auto-detect from available width.
     pub cols: Option<usize>,
+    /// Maximum number of columns. `None` = no cap. Applied after auto-detection
+    /// and the vertical-fit bump-up loop, so labels never get squeezed below
+    /// this column budget.
+    pub max_cols: Option<usize>,
+    /// Maximum number of entries to display. Entries beyond this are replaced
+    /// with a "… (+N more)" line. `None` = show all.
+    pub max_entries: Option<usize>,
     pub title: Option<String>,
     pub show_box: bool,
 }
@@ -103,6 +110,8 @@ impl LegendPlot {
         Self {
             entries: Vec::new(),
             cols: None,
+            max_cols: None,
+            max_entries: None,
             title: None,
             show_box: true,
         }
@@ -116,6 +125,8 @@ impl LegendPlot {
         Self {
             entries,
             cols: None,
+            max_cols: None,
+            max_entries: None,
             title: None,
             show_box: true,
         }
@@ -133,6 +144,23 @@ impl LegendPlot {
     /// widest label using a conservative all-caps character-width estimate.
     pub fn with_cols(mut self, n: usize) -> Self {
         self.cols = Some(n);
+        self
+    }
+
+    /// Cap the maximum number of columns used during auto-layout.
+    ///
+    /// The auto-layout may bump the column count upward to make all rows fit
+    /// within the cell height. This cap prevents that bump from squeezing
+    /// long labels into columns that are too narrow.
+    pub fn with_max_cols(mut self, n: usize) -> Self {
+        self.max_cols = Some(n);
+        self
+    }
+
+    /// Limit the number of entries displayed. Entries beyond `n` are replaced
+    /// with a "… (+M more)" line in the next grid slot.
+    pub fn with_max_entries(mut self, n: usize) -> Self {
+        self.max_entries = Some(n);
         self
     }
 

@@ -41,6 +41,7 @@ pub struct BoxPlot {
     pub overlay_color: String,
     pub overlay_size: f64,
     pub overlay_seed: u64,
+    pub horizontal: bool,
 }
 
 /// A single group (one box) with a category label and raw values.
@@ -71,6 +72,7 @@ impl BoxPlot {
             overlay_color: "rgba(0,0,0,0.45)".into(),
             overlay_size: 3.0,
             overlay_seed: 42,
+            horizontal: false,
         }
     }
 
@@ -179,6 +181,12 @@ impl BoxPlot {
     /// Set the radius of overlay points in pixels (default `3.0`).
     pub fn with_overlay_size(mut self, size: f64) -> Self {
         self.overlay_size = size;
+        self
+    }
+
+    /// Render groups along the Y-axis and data values along the X-axis (default `false`).
+    pub fn with_horizontal(mut self, h: bool) -> Self {
+        self.horizontal = h;
         self
     }
 }
