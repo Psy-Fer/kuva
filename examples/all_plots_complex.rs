@@ -1,4 +1,4 @@
-//! Full-featured showcase of all 59 kuva plot types.
+//! Full-featured showcase of all 62 kuva plot types.
 //! Each cell uses a larger dataset and includes a title, axis labels,
 //! and a legend where applicable.
 //!
@@ -14,11 +14,11 @@ use kuva::plot::{
     ContourPlot, DensityPlot, DicePlot, DotPlot, EcdfPlot, ForestPlot, FunnelPlot, GanttPlot,
     Heatmap, HexbinPlot, Histogram, Histogram2D, HorizonPlot, JointPlot, LinePlot, LollipopPlot,
     ManhattanPlot, MosaicPlot, NetworkPlot, ParallelPlot, PhyloTree, PieLabelPosition, PiePlot,
-    PolarMode, PolarPlot, PopulationPyramid, PrGroup, PrPlot, QQPlot, RadarPlot, RaincloudPlot,
-    RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot, ScatterPlot, SeriesPlot,
-    SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot, Surface3DPlot,
-    SurvivalPlot, SyntenyPlot, TernaryPlot, TreemapNode, TreemapPlot, UpSetPlot, VennPlot,
-    ViolinPlot, VolcanoPlot, WafflePlot, WaterfallPlot,
+    PolarMode, PolarPlot, PopulationPyramid, PrGroup, PrPlot, QQPlot, QuiverPlot, RadarPlot,
+    RaincloudPlot, RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot,
+    ScatterPlot, SeriesPlot, SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot,
+    Surface3DPlot, SurvivalPlot, SyntenyPlot, TernaryPlot, TextPlot, TreemapNode, TreemapPlot,
+    UpSetPlot, VennPlot, ViolinPlot, VolcanoPlot, WafflePlot, WaterfallPlot,
 };
 use kuva::render::figure::Figure;
 use kuva::render::layout::Layout;
@@ -1170,7 +1170,51 @@ fn main() {
         .with_milestone("Launch", 12.0)
         .with_now_line(7.0);
 
-    // ── Assemble 10×6 Figure (row-major, 60 plots) ───────────────────────────
+    // ── Row 10: TextPlot, Quiver, Horizontal modes ───────────────────────────
+
+    let text = TextPlot::new()
+        .with_title("TextPlot")
+        .with_body(
+            "**Bold** and *italic* inline markup.\n\nMath: $\\sigma^2 = \\frac{1}{n}\\sum x_i^2$\n\nHeadings, rules, and\nword-wrapped paragraphs.",
+        );
+
+    let quiver = QuiverPlot::from_function((-3.0, 3.0, 8), (-3.0, 3.0, 8), |x, y| {
+        (-y * 0.3, x * 0.3)
+    })
+    .with_color("steelblue");
+
+    let (bar_h, box_h, violin_h, raincloud_h) = {
+        let simple_groups: Vec<(&str, Vec<f64>)> = group_data
+            .iter()
+            .take(3)
+            .map(|(l, d)| (*l, d.clone()))
+            .collect();
+
+        let bar_h = BarPlot::new()
+            .with_group("Control", vec![(5.2_f64, "steelblue")])
+            .with_group("Low",     vec![(6.8_f64, "steelblue")])
+            .with_group("High",    vec![(8.1_f64, "steelblue")])
+            .with_horizontal(true);
+
+        let box_h = simple_groups
+            .iter()
+            .fold(BoxPlot::new(), |b, (lbl, v)| b.with_group(*lbl, v.clone()))
+            .with_horizontal(true);
+
+        let violin_h = simple_groups
+            .iter()
+            .fold(ViolinPlot::new(), |v, (lbl, d)| v.with_group(*lbl, d.clone()))
+            .with_horizontal(true);
+
+        let raincloud_h = simple_groups
+            .iter()
+            .fold(RaincloudPlot::new(), |r, (lbl, d)| r.with_group(*lbl, d.clone()))
+            .with_horizontal(true);
+
+        (bar_h, box_h, violin_h, raincloud_h)
+    };
+
+    // ── Assemble 11×6 Figure (row-major, 66 cells) ───────────────────────────
 
     let hmap_row_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
     let hmap_col_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
@@ -1250,6 +1294,13 @@ fn main() {
         vec![Plot::Calendar(calendar)],
         vec![Plot::Funnel(funnel)],
         vec![Plot::Gantt(gantt)],
+        // Row 10: TextPlot, Quiver, Horizontal Bar, Horizontal Box, Horizontal Violin, Horizontal Raincloud
+        vec![Plot::Text(text)],
+        vec![Plot::Quiver(quiver)],
+        vec![Plot::Bar(bar_h)],
+        vec![Plot::Box(box_h)],
+        vec![Plot::Violin(violin_h)],
+        vec![Plot::Raincloud(raincloud_h)],
     ];
 
     let layouts: Vec<Layout> = all_plots
@@ -1388,12 +1439,25 @@ fn main() {
                 56 => base.with_title("Surface 3D"),
                 57 => base.with_title("Calendar Heatmap"),
                 58 => base.with_title("Funnel").with_y_label("Stage"),
+                59 => base.with_title("Gantt"),
+                // Row 10
+                60 => base.with_title("Text Plot"),
+                61 => base
+                    .with_title("Quiver")
+                    .with_x_label("x")
+                    .with_y_label("y"),
+                62 => base.with_title("Horizontal Bar").with_x_label("Value"),
+                63 => base.with_title("Horizontal Box").with_x_label("Value"),
+                64 => base.with_title("Horizontal Violin").with_x_label("Value"),
+                65 => base
+                    .with_title("Horizontal Raincloud")
+                    .with_x_label("Value"),
                 _ => base,
             }
         })
         .collect();
 
-    let fig = Figure::new(10, 6)
+    let fig = Figure::new(11, 6)
         .with_cell_size(600.0, 460.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

@@ -23,6 +23,7 @@ fn main() {
     basic();
     grouped();
     stacked();
+    horizontal();
 
     println!("Bar SVGs written to {OUT}/");
 }
@@ -76,6 +77,28 @@ fn grouped() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/grouped.svg"), svg).unwrap();
+}
+
+/// Horizontal bar chart — categories on Y, values on X.
+fn horizontal() {
+    let plot = BarPlot::new()
+        .with_bars(vec![
+            ("Apples", 42.0),
+            ("Bananas", 58.0),
+            ("Cherries", 31.0),
+            ("Dates", 47.0),
+            ("Elderberry", 25.0),
+        ])
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Bar Chart")
+        .with_x_label("Count");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/horizontal.svg"), svg).unwrap();
 }
 
 /// Stacked bar chart — series stacked vertically within each category.

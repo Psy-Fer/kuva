@@ -1,4 +1,4 @@
-//! Compact showcase of all 59 kuva plot types in a 10×6 Figure grid.
+//! Compact showcase of all 62 kuva plot types in a 11×6 Figure grid.
 //! Each cell uses minimal inline data — see all_plots_complex for larger
 //! datasets with axes, legends, and titles.
 //!
@@ -14,11 +14,11 @@ use kuva::plot::{
     ContourPlot, DensityPlot, DicePlot, DotPlot, EcdfPlot, ForestPlot, FunnelPlot, GanttPlot,
     Heatmap, HexbinPlot, Histogram, Histogram2D, HorizonPlot, JointPlot, LinePlot, LollipopPlot,
     ManhattanPlot, MosaicPlot, NetworkPlot, ParallelPlot, PhyloTree, PieLabelPosition, PiePlot,
-    PolarMode, PolarPlot, PopulationPyramid, PrGroup, PrPlot, QQPlot, RadarPlot, RaincloudPlot,
-    RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot, ScatterPlot, SeriesPlot,
-    SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot, Surface3DPlot,
-    SurvivalPlot, SyntenyPlot, TernaryPlot, TreemapNode, TreemapPlot, UpSetPlot, VennPlot,
-    ViolinPlot, VolcanoPlot, WafflePlot, WaterfallPlot,
+    PolarMode, PolarPlot, PopulationPyramid, PrGroup, PrPlot, QQPlot, QuiverPlot, RadarPlot,
+    RaincloudPlot, RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot,
+    ScatterPlot, SeriesPlot, SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot,
+    Surface3DPlot, SurvivalPlot, SyntenyPlot, TernaryPlot, TextPlot, TreemapNode, TreemapPlot,
+    UpSetPlot, VennPlot, ViolinPlot, VolcanoPlot, WafflePlot, WaterfallPlot,
 };
 use kuva::render::figure::Figure;
 use kuva::render::layout::Layout;
@@ -91,9 +91,9 @@ fn main() {
 
     // 8: Strip
     let strip = StripPlot::new()
-        .with_group("A", grp_a)
-        .with_group("B", grp_b)
-        .with_group("C", grp_c)
+        .with_group("A", grp_a.clone())
+        .with_group("B", grp_b.clone())
+        .with_group("C", grp_c.clone())
         .with_color("steelblue");
 
     // 9: Waterfall
@@ -631,7 +631,48 @@ fn main() {
         .with_milestone("Launch", 7.0)
         .with_now_line(4.0);
 
-    // ── Assemble 10×6 Figure (row-major, 60 plots) ───────────────────────────
+    // ── Row 10: TextPlot, Quiver, Horizontal modes ───────────────────────────
+
+    // 60: TextPlot
+    let text = TextPlot::new()
+        .with_title("TextPlot")
+        .with_body("**Bold**, *italic*,\n`code`, and\n$\\alpha + \\beta$");
+
+    // 61: QuiverPlot (rotational field)
+    let quiver = QuiverPlot::from_function((-2.0, 2.0, 6), (-2.0, 2.0, 6), |x, y| {
+        (-y * 0.4, x * 0.4)
+    });
+
+    // 62: Horizontal bar
+    let bar_h = BarPlot::new()
+        .with_group("A", vec![(4.0_f64, "steelblue")])
+        .with_group("B", vec![(7.0_f64, "steelblue")])
+        .with_group("C", vec![(3.0_f64, "steelblue")])
+        .with_group("D", vec![(8.0_f64, "steelblue")])
+        .with_group("E", vec![(5.0_f64, "steelblue")])
+        .with_horizontal(true);
+
+    // 63: Horizontal box
+    let box_h = BoxPlot::new()
+        .with_group("A", grp_a.clone())
+        .with_group("B", grp_b.clone())
+        .with_group("C", grp_c.clone())
+        .with_horizontal(true);
+
+    // 64: Horizontal violin
+    let violin_h = ViolinPlot::new()
+        .with_group("A", grp_a.clone())
+        .with_group("B", grp_b.clone())
+        .with_group("C", grp_c.clone())
+        .with_horizontal(true);
+
+    // 65: Horizontal raincloud
+    let raincloud_h = RaincloudPlot::new()
+        .with_group("A", (0..15).map(|i| 2.0 + i as f64 * 0.4).collect())
+        .with_group("B", (0..15).map(|i| 4.5 + i as f64 * 0.3).collect())
+        .with_horizontal(true);
+
+    // ── Assemble 11×6 Figure (row-major, 66 cells) ───────────────────────────
 
     let all_plots: Vec<Vec<Plot>> = vec![
         // Row 0: Scatter, Line, Bar, Histogram, Histogram2D, Hexbin
@@ -708,6 +749,13 @@ fn main() {
         vec![Plot::Calendar(calendar)],
         vec![Plot::Funnel(funnel)],
         vec![Plot::Gantt(gantt)],
+        // Row 10: TextPlot, Quiver, Horizontal Bar, Horizontal Box, Horizontal Violin, Horizontal Raincloud
+        vec![Plot::Text(text)],
+        vec![Plot::Quiver(quiver)],
+        vec![Plot::Bar(bar_h)],
+        vec![Plot::Box(box_h)],
+        vec![Plot::Violin(violin_h)],
+        vec![Plot::Raincloud(raincloud_h)],
     ];
 
     let layouts: Vec<Layout> = all_plots
@@ -715,7 +763,7 @@ fn main() {
         .map(|cell| Layout::auto_from_plots(cell))
         .collect();
 
-    let fig = Figure::new(10, 6)
+    let fig = Figure::new(11, 6)
         .with_cell_size(500.0, 380.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

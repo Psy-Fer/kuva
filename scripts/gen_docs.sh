@@ -17,12 +17,15 @@ EXAMPLES=(
     chord
     clustermap
     contour
+    datetime
     density
     diceplot
+    dotplot
     ecdf
     forest
     funnel
     gantt
+    heatmap
     hexbin
     histogram
     histogram2d
@@ -44,6 +47,7 @@ EXAMPLES=(
     pr
     pyramid
     qq
+    quiver
     radar
     raincloud
     ridgeline
@@ -63,6 +67,7 @@ EXAMPLES=(
     survival
     synteny
     ternary
+    text
     treemap
     twin_y
     upset
@@ -71,10 +76,6 @@ EXAMPLES=(
     volcano
     waffle
     waterfall
-    pyramid
-    mosaic
-    parallel
-    quiver
     all_plots_simple
     all_plots_complex
 )
