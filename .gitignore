@@ -33,6 +33,7 @@ TODO*.md
 /*.csv
 !examples/data/sankey_alluvium.tsv
 !examples/data/sankey_got.tsv
+/analysis
 
 
 # doom feature asset cache
