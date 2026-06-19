@@ -162,9 +162,9 @@ When `--interactive` is set the output SVG contains a self-contained `<script>` 
 - **Search** — type in the search box (top-left of the plot area) to dim non-matching points. **Escape** clears.
 - **Coordinate readout** — mouse position inside the plot area is shown in data-space coordinates.
 - **Legend toggle** — click a legend entry to show/hide that series.
-- **Save button** — top-right button serialises the current SVG DOM (including any pinned/dimmed state). *Note: the download is not yet functional; this will be fixed in v0.2.*
+- **Save button** — top-right button serialises the current SVG DOM (including any pinned/dimmed state). *Note: the download is not yet functional.*
 
-Supported in this release: `scatter`, `line`, `bar`, `strip`, `volcano`. All other subcommands accept `--interactive` and load the UI chrome (coordinate readout, search box) but do not yet have per-point hover/search — remaining renderers will be wired in v0.2.
+Supported in this release: `scatter`, `line`, `bar`, `strip`, `volcano`. All other subcommands accept `--interactive` and load the UI chrome (coordinate readout, search box) but do not yet have per-point hover/search — full renderer coverage is planned for a future release.
 
 ```bash
 kuva scatter data.tsv --x x --y y --color-by group --legend --interactive -o plot.svg

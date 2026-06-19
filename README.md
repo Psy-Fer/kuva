@@ -50,12 +50,12 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-kuva = "0.1"
+kuva = "0.3"
 
 # Optional backends
-kuva = { version = "0.1", features = ["png"] }   # PNG output
-kuva = { version = "0.1", features = ["pdf"] }   # PDF output
-kuva = { version = "0.1", features = ["full"] }  # PNG + PDF
+kuva = { version = "0.3", features = ["png"] }   # PNG output
+kuva = { version = "0.3", features = ["pdf"] }   # PDF output
+kuva = { version = "0.3", features = ["full"] }  # PNG + PDF
 ```
 
 Then in Rust:

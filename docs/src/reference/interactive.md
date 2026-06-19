@@ -42,7 +42,7 @@ The flag is accepted by every subcommand. Open the output file in any modern bro
 | **Search** | Type in the search box (top-left of the plot area) to dim non-matching points; **Escape** clears |
 | **Coordinate readout** | While the cursor is inside the plot area, the current x/y in data space is shown near the cursor |
 | **Legend toggle** | Click a legend entry to hide that series; click again to show it |
-| **Save SVG** | The Save button (top-right) captures the current DOM state. *Download is not yet functional — will be fixed in v0.2.* |
+| **Save SVG** | The Save button (top-right) captures the current DOM state. *Download is not yet functional.* |
 
 ## Plot support
 
@@ -54,7 +54,7 @@ Interactivity is fully wired (hover, search, legend toggle) for:
 - `strip`
 - `volcano`
 
-All other subcommands accept `--interactive` and render the coordinate readout and search UI, but individual data points do not yet respond to hover or search. Full renderer coverage is planned for v0.2.
+All other subcommands accept `--interactive` and render the coordinate readout and search UI, but individual data points do not yet respond to hover or search. Full renderer coverage is planned for a future release.
 
 ## Non-SVG contexts
 
