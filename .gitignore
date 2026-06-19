@@ -26,6 +26,7 @@ target/
 # Internal / maintainer-only files
 CLAUDE.md
 TODO*.md
+/memory/
 /terminal.md
 /font_sampler*
 /*.svg
