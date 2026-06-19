@@ -13310,8 +13310,9 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
 /// Explode spans into tagged words, then wrap into lines of at most `max_chars`.
 /// Words are never split mid-word; a word that would overflow is moved to the next line.
 fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
+    type Word = (bool, bool, bool, bool, String);
     // Explode into (bold, italic, underline, code, word) tuples
-    let mut words: Vec<(bool, bool, bool, bool, String)> = Vec::new();
+    let mut words: Vec<Word> = Vec::new();
     for span in spans {
         for word in span.text.split_whitespace() {
             words.push((
@@ -13325,8 +13326,8 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
     }
 
     // Pack words onto lines
-    let mut lines: Vec<Vec<(bool, bool, bool, bool, String)>> = Vec::new();
-    let mut cur: Vec<(bool, bool, bool, bool, String)> = Vec::new();
+    let mut lines: Vec<Vec<Word>> = Vec::new();
+    let mut cur: Vec<Word> = Vec::new();
     let mut cur_len = 0usize;
 
     for (bold, italic, underline, code, word) in words {
