@@ -940,6 +940,11 @@ fn measure_text(text: &str, size: f32, font: &Font, cache: &mut GlyphCache) -> f
     total
 }
 
+/// Measure text width using font metrics only (no rasterization, no cache).
+fn measure_text_direct(text: &str, size: f32, font: &Font) -> f32 {
+    text.chars().map(|ch| font.metrics(ch, size).advance_width).sum()
+}
+
 fn anchor_pen_x(
     x: f32,
     text: &str,
@@ -962,6 +967,30 @@ fn shared_font() -> &'static Font {
     FONT.get_or_init(|| {
         Font::from_bytes(crate::fonts::dejavu_sans(), FontSettings::default())
             .expect("bundled DejaVu Sans TTF is valid")
+    })
+}
+
+fn shared_font_bold() -> &'static Font {
+    static FONT: OnceLock<Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(crate::fonts::dejavu_sans_bold(), FontSettings::default())
+            .expect("bundled DejaVu Sans Bold TTF is valid")
+    })
+}
+
+fn shared_font_oblique() -> &'static Font {
+    static FONT: OnceLock<Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(crate::fonts::dejavu_sans_oblique(), FontSettings::default())
+            .expect("bundled DejaVu Sans Oblique TTF is valid")
+    })
+}
+
+fn shared_font_mono() -> &'static Font {
+    static FONT: OnceLock<Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(crate::fonts::dejavu_sans_mono(), FontSettings::default())
+            .expect("bundled DejaVu Sans Mono TTF is valid")
     })
 }
 
@@ -1532,6 +1561,9 @@ impl RasterBackend {
 
         let font = shared_font();
         let mut glyph_cache = GlyphCache::new();
+        let mut glyph_cache_bold = GlyphCache::new();
+        let mut glyph_cache_oblique = GlyphCache::new();
+        let mut glyph_cache_mono = GlyphCache::new();
         let s = self.scale;
 
         let default_text = scene
@@ -1915,21 +1947,53 @@ impl RasterBackend {
                         .as_ref()
                         .and_then(kcolor_to_rgba)
                         .unwrap_or(default_text);
-                    // Flatten spans — bold/italic require additional font faces;
-                    // treat as plain text for now (a separate bold TTF can be added later).
-                    let content: String = spans.iter().map(|sp| sp.text.as_str()).collect();
-                    canvas.draw_text(
-                        sx!(*x),
-                        sy!(*y),
-                        &content,
-                        *size as f32 * s,
-                        rgba,
-                        *anchor,
-                        None,
-                        font,
-                        &mut glyph_cache,
-                        clip,
-                    );
+                    let sz = *size as f32 * s;
+
+                    // Compute total width for anchor alignment using metrics (no cache needed).
+                    let total_w: f32 = spans
+                        .iter()
+                        .map(|sp| {
+                            let f = if sp.bold {
+                                shared_font_bold()
+                            } else if sp.code {
+                                shared_font_mono()
+                            } else if sp.italic {
+                                shared_font_oblique()
+                            } else {
+                                font
+                            };
+                            measure_text_direct(&sp.text, sz, f)
+                        })
+                        .sum();
+
+                    let start_x = match anchor {
+                        TextAnchor::Start => sx!(*x),
+                        TextAnchor::Middle => sx!(*x) - total_w * 0.5,
+                        TextAnchor::End => sx!(*x) - total_w,
+                    };
+
+                    let mut pen_x = start_x;
+                    for sp in spans {
+                        // Draw with the appropriate font/cache; advance pen by span width.
+                        let w = if sp.bold {
+                            let w = measure_text_direct(&sp.text, sz, shared_font_bold());
+                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_bold(), &mut glyph_cache_bold, clip);
+                            w
+                        } else if sp.code {
+                            let w = measure_text_direct(&sp.text, sz, shared_font_mono());
+                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_mono(), &mut glyph_cache_mono, clip);
+                            w
+                        } else if sp.italic {
+                            let w = measure_text_direct(&sp.text, sz, shared_font_oblique());
+                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_oblique(), &mut glyph_cache_oblique, clip);
+                            w
+                        } else {
+                            let w = measure_text_direct(&sp.text, sz, font);
+                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, font, &mut glyph_cache, clip);
+                            w
+                        };
+                        pen_x += w;
+                    }
                 }
             }
         }

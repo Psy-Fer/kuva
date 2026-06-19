@@ -1175,7 +1175,7 @@ fn main() {
     let text = TextPlot::new()
         .with_title("TextPlot")
         .with_body(
-            "**Bold** and *italic* inline markup.\n\nMath: $\\sigma^2 = \\frac{1}{n}\\sum x_i^2$\n\nHeadings, rules, and\nword-wrapped paragraphs.",
+            "**Bold**, *italic*, `code`.\n\nMath: $\\sigma^2 = \\frac{1}{n}\\sum x_i^2$\n\nHeadings, rules, and\nword-wrapped paragraphs.",
         );
 
     let quiver = QuiverPlot::from_function((-3.0, 3.0, 8), (-3.0, 3.0, 8), |x, y| {
@@ -1475,4 +1475,10 @@ fn main() {
         .unwrap();
     std::fs::write(format!("{out}/all_plots_complex.png"), png).unwrap();
     println!("Written to {out}/all_plots_complex.png");
+
+    let pdf = kuva::backend::pdf::PdfBackend::new()
+        .render_scene(&scene)
+        .expect("PDF rendering failed");
+    std::fs::write(format!("{out}/all_plots_complex.pdf"), pdf).unwrap();
+    println!("Written to {out}/all_plots_complex.pdf");
 }

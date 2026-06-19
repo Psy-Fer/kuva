@@ -114,6 +114,7 @@ pub struct TextSpan {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub code: bool,
 }
 
 impl TextSpan {
@@ -123,6 +124,7 @@ impl TextSpan {
             bold: false,
             italic: false,
             underline: false,
+            code: false,
         }
     }
 }
@@ -13205,6 +13207,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: true,
                             italic: false,
                             underline: false,
+                            code: false,
                         });
                     }
                     i += 2;
@@ -13226,6 +13229,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: false,
                             italic: true,
                             underline: false,
+                            code: false,
                         });
                     }
                     i += 1;
@@ -13247,9 +13251,32 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             bold: false,
                             italic: false,
                             underline: true,
+                            code: false,
                         });
                     }
                     i += 2;
+                    break;
+                }
+                i += 1;
+            }
+        } else if chars[i] == '`' {
+            // Code: `...`
+            flush(&mut plain, &mut spans);
+            i += 1;
+            let start = i;
+            while i < n {
+                if chars[i] == '`' {
+                    let inner: String = chars[start..i].iter().collect();
+                    if !inner.is_empty() {
+                        spans.push(TextSpan {
+                            text: inner,
+                            bold: false,
+                            italic: false,
+                            underline: false,
+                            code: true,
+                        });
+                    }
+                    i += 1;
                     break;
                 }
                 i += 1;
@@ -13276,20 +13303,20 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
 /// Explode spans into tagged words, then wrap into lines of at most `max_chars`.
 /// Words are never split mid-word; a word that would overflow is moved to the next line.
 fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
-    // Explode into (bold, italic, underline, word) tuples
-    let mut words: Vec<(bool, bool, bool, String)> = Vec::new();
+    // Explode into (bold, italic, underline, code, word) tuples
+    let mut words: Vec<(bool, bool, bool, bool, String)> = Vec::new();
     for span in spans {
         for word in span.text.split_whitespace() {
-            words.push((span.bold, span.italic, span.underline, word.to_string()));
+            words.push((span.bold, span.italic, span.underline, span.code, word.to_string()));
         }
     }
 
     // Pack words onto lines
-    let mut lines: Vec<Vec<(bool, bool, bool, String)>> = Vec::new();
-    let mut cur: Vec<(bool, bool, bool, String)> = Vec::new();
+    let mut lines: Vec<Vec<(bool, bool, bool, bool, String)>> = Vec::new();
+    let mut cur: Vec<(bool, bool, bool, bool, String)> = Vec::new();
     let mut cur_len = 0usize;
 
-    for (bold, italic, underline, word) in words {
+    for (bold, italic, underline, code, word) in words {
         let wlen = word.chars().count();
         let sep = if cur.is_empty() { 0 } else { 1 };
         if cur_len + sep + wlen > max_chars && !cur.is_empty() {
@@ -13297,7 +13324,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
             cur_len = 0;
         }
         cur_len += if cur.is_empty() { wlen } else { wlen + 1 };
-        cur.push((bold, italic, underline, word));
+        cur.push((bold, italic, underline, code, word));
     }
     if !cur.is_empty() {
         lines.push(cur);
@@ -13308,10 +13335,14 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
         .into_iter()
         .map(|line_words| {
             let mut line_spans: Vec<TextSpan> = Vec::new();
-            for (i, (bold, italic, underline, word)) in line_words.into_iter().enumerate() {
+            for (i, (bold, italic, underline, code, word)) in line_words.into_iter().enumerate() {
                 // Try to merge with the last span if styles match
                 if let Some(last) = line_spans.last_mut() {
-                    if last.bold == bold && last.italic == italic && last.underline == underline {
+                    if last.bold == bold
+                        && last.italic == italic
+                        && last.underline == underline
+                        && last.code == code
+                    {
                         last.text.push(' ');
                         last.text.push_str(&word);
                         continue;
@@ -13324,6 +13355,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
                     bold,
                     italic,
                     underline,
+                    code,
                 });
             }
             line_spans

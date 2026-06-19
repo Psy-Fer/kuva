@@ -303,9 +303,12 @@ impl SvgBackend {
                     }
                     svg.push('>');
                     for span in spans {
-                        let styled = span.bold || span.italic || span.underline;
+                        let styled = span.bold || span.italic || span.underline || span.code;
                         if styled {
                             svg.push_str("<tspan");
+                            if span.code {
+                                svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                            }
                             if span.bold {
                                 svg.push_str(r#" font-weight="bold""#);
                             }
