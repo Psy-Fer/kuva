@@ -631,7 +631,15 @@ mod tests {
         let a = table.col_f64(&ColSpec::Name("a".to_string())).unwrap();
         let b = table.col_f64(&ColSpec::Name("b".to_string())).unwrap();
 
-        assert_eq!(a, vec![1.0], "col 'a' returned b's value — on-disk order bug");
-        assert_eq!(b, vec![99.0], "col 'b' returned a's value — on-disk order bug");
+        assert_eq!(
+            a,
+            vec![1.0],
+            "col 'a' returned b's value — on-disk order bug"
+        );
+        assert_eq!(
+            b,
+            vec![99.0],
+            "col 'b' returned a's value — on-disk order bug"
+        );
     }
 }

@@ -639,9 +639,8 @@ fn main() {
         .with_body("**Bold**, *italic*,\n`code`, and\n$\\alpha + \\beta$");
 
     // 61: QuiverPlot (rotational field)
-    let quiver = QuiverPlot::from_function((-2.0, 2.0, 6), (-2.0, 2.0, 6), |x, y| {
-        (-y * 0.4, x * 0.4)
-    });
+    let quiver =
+        QuiverPlot::from_function((-2.0, 2.0, 6), (-2.0, 2.0, 6), |x, y| (-y * 0.4, x * 0.4));
 
     // 62: Horizontal bar
     let bar_h = BarPlot::new()

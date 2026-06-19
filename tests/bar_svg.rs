@@ -324,9 +324,18 @@ fn test_bar_horizontal_grouped() {
 #[test]
 fn test_bar_horizontal_stacked() {
     let plot = BarPlot::new()
-        .with_group("Alpha", vec![(40.0, "steelblue"), (25.0, "tomato"), (15.0, "seagreen")])
-        .with_group("Beta",  vec![(30.0, "steelblue"), (35.0, "tomato"), (20.0, "seagreen")])
-        .with_group("Gamma", vec![(50.0, "steelblue"), (15.0, "tomato"), (25.0, "seagreen")])
+        .with_group(
+            "Alpha",
+            vec![(40.0, "steelblue"), (25.0, "tomato"), (15.0, "seagreen")],
+        )
+        .with_group(
+            "Beta",
+            vec![(30.0, "steelblue"), (35.0, "tomato"), (20.0, "seagreen")],
+        )
+        .with_group(
+            "Gamma",
+            vec![(50.0, "steelblue"), (15.0, "tomato"), (25.0, "seagreen")],
+        )
         .with_legend(vec!["X", "Y", "Z"])
         .with_stacked()
         .with_horizontal(true);

@@ -200,7 +200,14 @@ impl NetworkPlot {
         target: S,
         weight: impl Into<f64>,
     ) -> Self {
-        self.push_edge(source.into(), target.into(), weight.into(), None, None, None);
+        self.push_edge(
+            source.into(),
+            target.into(),
+            weight.into(),
+            None,
+            None,
+            None,
+        );
         self
     }
 

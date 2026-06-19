@@ -26,8 +26,7 @@ const DEJAVU_SANS_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf.gz"
 const DEJAVU_SANS_BOLD_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Bold.ttf.gz");
 
 #[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-const DEJAVU_SANS_OBLIQUE_GZ: &[u8] =
-    include_bytes!("../assets/fonts/DejaVuSans-Oblique.ttf.gz");
+const DEJAVU_SANS_OBLIQUE_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Oblique.ttf.gz");
 
 #[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
 const DEJAVU_SANS_MONO_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf.gz");

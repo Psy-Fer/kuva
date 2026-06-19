@@ -244,8 +244,7 @@ fn network_legend_swatch_uses_explicit_color() {
         .with_labels()
         .with_legend("Groups");
     let plots = vec![Plot::Network(net)];
-    let layout =
-        Layout::auto_from_plots(&plots).with_title("Legend swatch honors explicit color");
+    let layout = Layout::auto_from_plots(&plots).with_title("Legend swatch honors explicit color");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(
         svg.contains("#2166ac"),
@@ -522,7 +521,10 @@ fn network_labels_inside_sets_flags() {
         .with_edge("A", "B", 1.0)
         .with_labels_inside();
     assert!(net.show_labels, "with_labels_inside should set show_labels");
-    assert!(net.label_inside, "with_labels_inside should set label_inside");
+    assert!(
+        net.label_inside,
+        "with_labels_inside should set label_inside"
+    );
 }
 
 #[test]
@@ -559,7 +561,10 @@ fn network_labels_inside_large_nodes() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("Inside Labels – Large Nodes");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    assert!(svg.contains("white"), "large-node inside labels should use white fill");
+    assert!(
+        svg.contains("white"),
+        "large-node inside labels should use white fill"
+    );
     assert!(svg.contains("Alpha"), "label Alpha should appear");
     common::write_test_output("test_outputs/network_labels_inside_large.svg", svg).unwrap();
 }
@@ -585,7 +590,10 @@ fn network_poa_graph_labels_inside() {
     let plots = vec![Plot::Network(net)];
     let layout = Layout::auto_from_plots(&plots).with_title("POA Graph – Labels Inside");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    assert!(svg.contains("white"), "POA inside labels should use white fill");
+    assert!(
+        svg.contains("white"),
+        "POA inside labels should use white fill"
+    );
     assert!(svg.contains(" Q "), "curved arcs should still be present");
     common::write_test_output("test_outputs/network_poa_labels_inside.svg", svg).unwrap();
 }
@@ -696,8 +704,7 @@ fn network_poa_graph() {
         .with_node_position("E", 1.0, 0.5)
         .with_labels();
     let plots = vec![Plot::Network(net)];
-    let layout =
-        Layout::auto_from_plots(&plots).with_title("POA Graph (backbone + skip arcs)");
+    let layout = Layout::auto_from_plots(&plots).with_title("POA Graph (backbone + skip arcs)");
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     // Four curved skip arcs → at least four Q commands.
     let q_count = svg.matches(" Q ").count();

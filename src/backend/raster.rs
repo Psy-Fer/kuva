@@ -942,7 +942,9 @@ fn measure_text(text: &str, size: f32, font: &Font, cache: &mut GlyphCache) -> f
 
 /// Measure text width using font metrics only (no rasterization, no cache).
 fn measure_text_direct(text: &str, size: f32, font: &Font) -> f32 {
-    text.chars().map(|ch| font.metrics(ch, size).advance_width).sum()
+    text.chars()
+        .map(|ch| font.metrics(ch, size).advance_width)
+        .sum()
 }
 
 fn anchor_pen_x(
@@ -1977,19 +1979,63 @@ impl RasterBackend {
                         // Draw with the appropriate font/cache; advance pen by span width.
                         let w = if sp.bold {
                             let w = measure_text_direct(&sp.text, sz, shared_font_bold());
-                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_bold(), &mut glyph_cache_bold, clip);
+                            canvas.draw_text(
+                                pen_x,
+                                sy!(*y),
+                                &sp.text,
+                                sz,
+                                rgba,
+                                TextAnchor::Start,
+                                None,
+                                shared_font_bold(),
+                                &mut glyph_cache_bold,
+                                clip,
+                            );
                             w
                         } else if sp.code {
                             let w = measure_text_direct(&sp.text, sz, shared_font_mono());
-                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_mono(), &mut glyph_cache_mono, clip);
+                            canvas.draw_text(
+                                pen_x,
+                                sy!(*y),
+                                &sp.text,
+                                sz,
+                                rgba,
+                                TextAnchor::Start,
+                                None,
+                                shared_font_mono(),
+                                &mut glyph_cache_mono,
+                                clip,
+                            );
                             w
                         } else if sp.italic {
                             let w = measure_text_direct(&sp.text, sz, shared_font_oblique());
-                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, shared_font_oblique(), &mut glyph_cache_oblique, clip);
+                            canvas.draw_text(
+                                pen_x,
+                                sy!(*y),
+                                &sp.text,
+                                sz,
+                                rgba,
+                                TextAnchor::Start,
+                                None,
+                                shared_font_oblique(),
+                                &mut glyph_cache_oblique,
+                                clip,
+                            );
                             w
                         } else {
                             let w = measure_text_direct(&sp.text, sz, font);
-                            canvas.draw_text(pen_x, sy!(*y), &sp.text, sz, rgba, TextAnchor::Start, None, font, &mut glyph_cache, clip);
+                            canvas.draw_text(
+                                pen_x,
+                                sy!(*y),
+                                &sp.text,
+                                sz,
+                                rgba,
+                                TextAnchor::Start,
+                                None,
+                                font,
+                                &mut glyph_cache,
+                                clip,
+                            );
                             w
                         };
                         pen_x += w;

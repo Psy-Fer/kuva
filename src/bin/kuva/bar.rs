@@ -84,11 +84,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
             .iter()
             .map(|c| table.col_f64(c))
             .collect::<Result<_, _>>()?;
-        let series_names: Vec<String> = args
-            .y
-            .iter()
-            .map(|c| table.col_display_name(c))
-            .collect();
+        let series_names: Vec<String> = args.y.iter().map(|c| table.col_display_name(c)).collect();
 
         // Collect unique labels in first-seen order, accumulating values per (label, series).
         let mut label_order: Vec<String> = Vec::new();
@@ -291,7 +287,11 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let layout = apply_axis_args(layout, &args.axis);
-        let layout = if args.horizontal { layout } else { layout.with_x_tick_rotate(-45.0) };
+        let layout = if args.horizontal {
+            layout
+        } else {
+            layout.with_x_tick_rotate(-45.0)
+        };
         let scene = render_multiple(plots, layout);
         return write_output(scene, &args.base);
     }
@@ -360,7 +360,11 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
-    let layout = if args.horizontal { layout } else { layout.with_x_tick_rotate(-45.0) };
+    let layout = if args.horizontal {
+        layout
+    } else {
+        layout.with_x_tick_rotate(-45.0)
+    };
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
 }

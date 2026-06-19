@@ -58,7 +58,10 @@ pub struct BoxArgs {
 }
 
 pub fn run(args: BoxArgs) -> Result<(), String> {
-    let color = args.color.clone().unwrap_or_else(|| "steelblue".to_string());
+    let color = args
+        .color
+        .clone()
+        .unwrap_or_else(|| "steelblue".to_string());
 
     // Multi-column --y mode: each column is a group
     if args.y.len() > 1 {

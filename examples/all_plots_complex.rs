@@ -1178,10 +1178,9 @@ fn main() {
             "**Bold**, *italic*, `code`.\n\nMath: $\\sigma^2 = \\frac{1}{n}\\sum x_i^2$\n\nHeadings, rules, and\nword-wrapped paragraphs.",
         );
 
-    let quiver = QuiverPlot::from_function((-3.0, 3.0, 8), (-3.0, 3.0, 8), |x, y| {
-        (-y * 0.3, x * 0.3)
-    })
-    .with_color("steelblue");
+    let quiver =
+        QuiverPlot::from_function((-3.0, 3.0, 8), (-3.0, 3.0, 8), |x, y| (-y * 0.3, x * 0.3))
+            .with_color("steelblue");
 
     let (bar_h, box_h, violin_h, raincloud_h) = {
         let simple_groups: Vec<(&str, Vec<f64>)> = group_data
@@ -1192,8 +1191,8 @@ fn main() {
 
         let bar_h = BarPlot::new()
             .with_group("Control", vec![(5.2_f64, "steelblue")])
-            .with_group("Low",     vec![(6.8_f64, "steelblue")])
-            .with_group("High",    vec![(8.1_f64, "steelblue")])
+            .with_group("Low", vec![(6.8_f64, "steelblue")])
+            .with_group("High", vec![(8.1_f64, "steelblue")])
             .with_horizontal(true);
 
         let box_h = simple_groups
@@ -1203,12 +1202,16 @@ fn main() {
 
         let violin_h = simple_groups
             .iter()
-            .fold(ViolinPlot::new(), |v, (lbl, d)| v.with_group(*lbl, d.clone()))
+            .fold(ViolinPlot::new(), |v, (lbl, d)| {
+                v.with_group(*lbl, d.clone())
+            })
             .with_horizontal(true);
 
         let raincloud_h = simple_groups
             .iter()
-            .fold(RaincloudPlot::new(), |r, (lbl, d)| r.with_group(*lbl, d.clone()))
+            .fold(RaincloudPlot::new(), |r, (lbl, d)| {
+                r.with_group(*lbl, d.clone())
+            })
             .with_horizontal(true);
 
         (bar_h, box_h, violin_h, raincloud_h)

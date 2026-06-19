@@ -1163,8 +1163,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let single_width = total_width / n as f64;
 
                 for (j, bar_val) in group.bars.iter().enumerate() {
-                    let x =
-                        group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
+                    let x = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
                     let x0 = computed.map_x(x - single_width / 2.0);
                     let x1 = computed.map_x(x + single_width / 2.0);
                     let y0 = computed.map_y(0.0);
@@ -5604,14 +5603,20 @@ fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayou
                 });
                 let all_kde = render_utils::simple_kde(&group.values, h, rp.kde_samples);
                 let data_min = group.values.iter().cloned().fold(f64::INFINITY, f64::min);
-                let data_max = group.values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let data_max = group
+                    .values
+                    .iter()
+                    .cloned()
+                    .fold(f64::NEG_INFINITY, f64::max);
                 let kde: Vec<(f64, f64)> = all_kde
                     .into_iter()
                     .filter(|(y, _)| *y >= data_min && *y <= data_max)
                     .collect();
                 if !kde.is_empty() {
-                    let max_density =
-                        kde.iter().map(|(_, d)| *d).fold(f64::NEG_INFINITY, f64::max);
+                    let max_density = kde
+                        .iter()
+                        .map(|(_, d)| *d)
+                        .fold(f64::NEG_INFINITY, f64::max);
                     if max_density > 0.0 {
                         let scale = rp.cloud_width / max_density;
                         let spine_py = computed.map_y(cloud_cy);
@@ -5733,7 +5738,9 @@ fn add_raincloud(rp: &RaincloudPlot, scene: &mut Scene, computed: &ComputedLayou
 
             // ── RAIN (horizontal jittered points) ─────────────────────────────
             if rp.show_rain {
-                let style = StripStyle::Strip { jitter: rp.rain_jitter };
+                let style = StripStyle::Strip {
+                    jitter: rp.rain_jitter,
+                };
                 add_strip_points(
                     &group.values,
                     rain_cy,
@@ -13307,7 +13314,13 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
     let mut words: Vec<(bool, bool, bool, bool, String)> = Vec::new();
     for span in spans {
         for word in span.text.split_whitespace() {
-            words.push((span.bold, span.italic, span.underline, span.code, word.to_string()));
+            words.push((
+                span.bold,
+                span.italic,
+                span.underline,
+                span.code,
+                word.to_string(),
+            ));
         }
     }
 
@@ -13378,7 +13391,11 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
 
     // Apply entry limit: show (max-1) real entries + 1 overflow row.
     let overflow = if let Some(limit) = lp.max_entries {
-        if n_total > limit { n_total - (limit - 1) } else { 0 }
+        if n_total > limit {
+            n_total - (limit - 1)
+        } else {
+            0
+        }
     } else {
         0
     };
