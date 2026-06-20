@@ -292,6 +292,47 @@ impl NetworkPlot {
         self
     }
 
+    /// Add a curved edge with a text label rendered at the curve's midpoint.
+    pub fn with_edge_curved_label<S: Into<String>, L: Into<String>>(
+        mut self,
+        source: S,
+        target: S,
+        weight: impl Into<f64>,
+        curve: f64,
+        label: L,
+    ) -> Self {
+        self.push_edge(
+            source.into(),
+            target.into(),
+            weight.into(),
+            None,
+            Some(label.into()),
+            Some(curve),
+        );
+        self
+    }
+
+    /// Add a curved edge with an explicit colour and a text label.
+    pub fn with_edge_curved_styled<S: Into<String>, C: Into<String>, L: Into<String>>(
+        mut self,
+        source: S,
+        target: S,
+        weight: impl Into<f64>,
+        curve: f64,
+        color: C,
+        label: L,
+    ) -> Self {
+        self.push_edge(
+            source.into(),
+            target.into(),
+            weight.into(),
+            Some(color.into()),
+            Some(label.into()),
+            Some(curve),
+        );
+        self
+    }
+
     /// Bulk-add edges from an iterator of `(source, target, weight)`.
     pub fn with_edges<S, V, I>(mut self, edges: I) -> Self
     where

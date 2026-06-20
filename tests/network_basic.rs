@@ -681,6 +681,62 @@ fn network_edge_curved_directed_arrowhead() {
 }
 
 #[test]
+fn network_edge_curved_label_fields() {
+    // with_edge_curved_label sets both curve and label on the edge.
+    let net = NetworkPlot::new()
+        .with_edge_curved_label("A", "B", 1.0, 0.3, "strong");
+    assert_eq!(net.edges.len(), 1);
+    assert_eq!(net.edges[0].curve, Some(0.3));
+    assert_eq!(net.edges[0].label.as_deref(), Some("strong"));
+    assert!(net.edges[0].color.is_none());
+}
+
+#[test]
+fn network_edge_curved_label_svg() {
+    // with_edge_curved_label produces a bezier arc with the label text in the SVG.
+    let net = NetworkPlot::new()
+        .with_edge_curved_label("A", "B", 1.0, 0.3, "myedge")
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Edge Label");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains(" Q "), "curved labeled edge should emit a bezier path");
+    assert!(svg.contains("myedge"), "edge label should appear in SVG");
+    common::write_test_output("test_outputs/network_edge_curved_label.svg", svg).unwrap();
+}
+
+#[test]
+fn network_edge_curved_styled_fields() {
+    // with_edge_curved_styled sets curve, color, and label on the edge.
+    let net = NetworkPlot::new()
+        .with_edge_curved_styled("A", "B", 1.0, -0.25, "#ff0000", "red arc");
+    assert_eq!(net.edges.len(), 1);
+    assert_eq!(net.edges[0].curve, Some(-0.25));
+    assert_eq!(net.edges[0].color.as_deref(), Some("#ff0000"));
+    assert_eq!(net.edges[0].label.as_deref(), Some("red arc"));
+}
+
+#[test]
+fn network_edge_curved_styled_svg() {
+    // with_edge_curved_styled produces a colored bezier arc with a label.
+    let net = NetworkPlot::new()
+        .with_edge_curved_styled("A", "B", 1.0, 0.3, "#ff0000", "fwd")
+        .with_edge_curved_styled("B", "A", 1.0, 0.3, "#0000ff", "rev")
+        .with_layout(NetworkLayout::Circle)
+        .with_labels();
+    let plots = vec![Plot::Network(net)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Curved Styled Edges");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains(" Q "), "should emit bezier paths");
+    assert!(svg.contains("fwd"), "forward label should appear in SVG");
+    assert!(svg.contains("rev"), "reverse label should appear in SVG");
+    assert!(svg.contains("#ff0000"), "forward edge color should appear in SVG");
+    assert!(svg.contains("#0000ff"), "reverse edge color should appear in SVG");
+    common::write_test_output("test_outputs/network_edge_curved_styled.svg", svg).unwrap();
+}
+
+#[test]
 fn network_poa_graph() {
     // Partial-order alignment graph: linear backbone A→B→C→D→E with arcs
     // that skip nodes (insertions/deletions), visualised with explicit curves.
