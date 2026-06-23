@@ -73,6 +73,13 @@ pub struct BaseArgs {
     #[arg(long)]
     pub interactive: bool,
 
+    /// Black-and-white accessibility mode. Replaces palette colours with grey
+    /// shades and hatch patterns, cycles dash styles on lines, and cycles
+    /// marker shapes on scatter plots. Produces output legible when printed
+    /// in greyscale, meeting most journal accessibility requirements.
+    #[arg(long)]
+    pub bw: bool,
+
     /// Wrap all text (title, axis labels, legend) at N characters.
     /// Per-element flags (--title-wrap, etc.) override this when set.
     #[arg(long, value_name = "CHARS")]
@@ -260,6 +267,9 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     }
     if args.interactive {
         layout = layout.with_interactive();
+    }
+    if args.bw {
+        layout = layout.with_bw_mode();
     }
     // Global wrap first, then per-element overrides.
     if let Some(n) = args.wrap {

@@ -37,6 +37,7 @@ pub use crate::plot::{
     EcdfPlot,
     ForestPlot,
     ForestRow,
+    FillPattern,
     FunnelColorMode,
     FunnelOrientation,
     FunnelPlot,

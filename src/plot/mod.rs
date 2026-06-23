@@ -1,5 +1,6 @@
 pub mod band;
 pub mod bar;
+pub mod fill_pattern;
 pub mod boxplot;
 pub mod brick;
 pub mod bump;
@@ -83,6 +84,7 @@ pub use density::DensityPlot;
 pub use diceplot::{DicePlot, DicePoint};
 pub use dotplot::{DotPlot, DotPoint};
 pub use ecdf::{EcdfGroup, EcdfPlot};
+pub use fill_pattern::FillPattern;
 pub use forest::{ForestPlot, ForestRow};
 pub use funnel::{FunnelColorMode, FunnelOrientation, FunnelPlot, FunnelStage};
 pub use gantt::{GanttDisplayRow, GanttPlot, GanttTask};

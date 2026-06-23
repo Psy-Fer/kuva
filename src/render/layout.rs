@@ -396,6 +396,11 @@ pub struct Layout {
     /// Extra right-margin pixels reserved for GanttPlot milestone/outside-bar
     /// labels drawn post-clip.  Set automatically by `auto_from_plots`.
     pub gantt_right_annot_px: f64,
+    /// When `true`, all renderers replace palette colours with grey shades and
+    /// hatch patterns, dash-cycle line plots, and shape-cycle scatter points.
+    /// Produces output that is legible when printed in greyscale and meets
+    /// common journal accessibility requirements.
+    pub bw_mode: bool,
 }
 
 impl Layout {
@@ -493,6 +498,7 @@ impl Layout {
             legend_wrap: None,
             horizon_right_annot_px: 0.0,
             gantt_right_annot_px: 0.0,
+            bw_mode: false,
         }
     }
 
@@ -1783,6 +1789,18 @@ impl Layout {
         self
     }
 
+    /// Enable black-and-white accessibility mode.
+    ///
+    /// When active, all renderers replace palette colours with grey shades and
+    /// hatch-pattern overlays, line plots cycle through dash patterns, and
+    /// scatter plots cycle through marker shapes.  The resulting output is
+    /// legible when printed in greyscale and satisfies the accessibility
+    /// requirements of most scientific journals.
+    pub fn with_bw_mode(mut self) -> Self {
+        self.bw_mode = true;
+        self
+    }
+
     /// Enable SVG interactivity: hover highlighting, click-to-pin, search box,
     /// coordinate readout, and legend-driven dim/highlight.
     pub fn with_interactive(mut self) -> Self {
@@ -2318,6 +2336,8 @@ pub struct ComputedLayout {
     pub legend_col_count: usize,
     /// Entry limit carried through from `Layout::legend_entry_limit`; 0 means unlimited.
     pub legend_entry_limit: usize,
+    /// Propagated from `Layout::bw_mode`.
+    pub bw_mode: bool,
 }
 
 impl ComputedLayout {
@@ -2814,6 +2834,7 @@ impl ComputedLayout {
             legend_bottom_extra,
             legend_col_count,
             legend_entry_limit: layout.legend_entry_limit,
+            bw_mode: layout.bw_mode,
         };
         s.recompute_transforms();
         s

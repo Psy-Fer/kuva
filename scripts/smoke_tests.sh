@@ -1017,6 +1017,95 @@ check "math on bar plot" \
     "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
         --y-label 'Count $\times 10^3$'
 
+# ── bw mode ───────────────────────────────────────────────────────────────────
+check "bw scatter" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --color-by group --legend --bw \
+        --title "BW Scatter"
+
+check "bw line" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group --legend --bw \
+        --title "BW Line"
+
+check "bw bar" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count --bw \
+        --title "BW Bar"
+
+check "bw histogram" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bw \
+        --title "BW Histogram"
+
+check "bw box" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --bw \
+        --title "BW Boxplot"
+
+check "bw violin" \
+    "$BIN" violin "$DATA/samples.tsv" --group-col group --value-col expression --bw \
+        --title "BW Violin"
+
+check "bw pie" \
+    "$BIN" pie "$DATA/pie.tsv" --label-col feature --value-col percentage --bw \
+        --title "BW Pie"
+
+check "bw strip" \
+    "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --bw \
+        --title "BW Strip"
+
+check "bw waterfall" \
+    "$BIN" waterfall "$DATA/waterfall.tsv" --label-col process --value-col log2fc --bw \
+        --title "BW Waterfall"
+
+check "bw stacked-area" \
+    "$BIN" stacked-area "$DATA/stacked_area.tsv" --x-col week --group-col species --y-col abundance --bw \
+        --title "BW Stacked Area"
+
+check "bw density" \
+    "$BIN" density "$DATA/samples.tsv" --value expression --color-by group --filled --bw \
+        --title "BW Density"
+
+check "bw ridgeline" \
+    "$BIN" ridgeline "$DATA/samples.tsv" --group-by group --value expression --bw \
+        --title "BW Ridgeline"
+
+check "bw ecdf" \
+    "$BIN" ecdf "$DATA/samples.tsv" --value expression --color-by group --confidence-band --bw \
+        --title "BW ECDF"
+
+check "bw streamgraph" \
+    "$BIN" streamgraph "$DATA/streamgraph.tsv" --bw \
+        --title "BW Streamgraph"
+
+check "bw survival" \
+    "$BIN" survival "$DATA/survival.tsv" --time-col time --event-col event --group-col group --bw \
+        --title "BW Survival"
+
+check "bw roc" \
+    "$BIN" roc "$DATA/roc.tsv" --score-col score --label-col label --ci --legend "Model" --bw \
+        --title "BW ROC"
+
+check "bw pr" \
+    "$BIN" pr "$DATA/pr.tsv" --score-col score --label-col label --legend "Classifier" --bw \
+        --title "BW PR"
+
+check "bw qq" \
+    "$BIN" qq "$DATA/samples.tsv" --value expression --color-by group --bw \
+        --title "BW QQ"
+
+check "bw bump" \
+    "$BIN" bump "$DATA/bump.tsv" --series series --time time --rank rank --bw \
+        --title "BW Bump"
+
+check "bw slope" \
+    "$BIN" slope "$DATA/slope.tsv" --label-col label --before-col before --after-col after --bw \
+        --title "BW Slope"
+
+check "bw rose" \
+    "$BIN" rose "$DATA/rose.tsv" --label direction --value high_speed --bw \
+        --title "BW Rose"
+
+check "bw upset" \
+    "$BIN" upset "$DATA/upset.tsv" --bw \
+        --title "BW UpSet"
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

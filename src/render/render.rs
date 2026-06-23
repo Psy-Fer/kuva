@@ -45,6 +45,97 @@ fn tooltip(
     }
 }
 
+/// Emit a filled [`Primitive::Rect`] with optional BW-mode pattern overlay.
+///
+/// In BW mode: fills with the grey shade for `bw_idx` and overlays a hatch
+/// pattern on a second rect.  In color mode: plain fill with `color_str`.
+#[allow(clippy::too_many_arguments)]
+fn rect_bw(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    bw_idx: usize,
+    color_str: &str,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    stroke: Option<Color>,
+    stroke_width: Option<f64>,
+    opacity: Option<f64>,
+) {
+    use crate::render::bw::{bw_fill, register_pattern};
+    let fill = if computed.bw_mode {
+        let (grey, _) = bw_fill(bw_idx);
+        Color::from(grey)
+    } else {
+        Color::from(color_str)
+    };
+    scene.add(Primitive::Rect { x, y, width: w, height: h, fill, stroke, stroke_width, opacity });
+    if computed.bw_mode {
+        let (_, pattern) = bw_fill(bw_idx);
+        let pat_url = register_pattern(scene, pattern);
+        if !pat_url.is_empty() {
+            scene.add(Primitive::Rect {
+                x,
+                y,
+                width: w,
+                height: h,
+                fill: Color::from(pat_url.as_str()),
+                stroke: None,
+                stroke_width: None,
+                opacity: None,
+            });
+        }
+    }
+}
+
+/// Emit a filled [`Primitive::Path`] with optional BW-mode pattern overlay.
+///
+/// In BW mode: fills with the grey shade for `bw_idx` and overlays a hatch
+/// pattern on a second path.  In color mode: plain fill with `color_str`.
+#[allow(clippy::too_many_arguments)]
+fn path_bw(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    bw_idx: usize,
+    color_str: &str,
+    d: String,
+    stroke: Color,
+    stroke_width: f64,
+    opacity: Option<f64>,
+    stroke_dasharray: Option<String>,
+) {
+    use crate::render::bw::{bw_fill, register_pattern};
+    let fill = if computed.bw_mode {
+        let (grey, _) = bw_fill(bw_idx);
+        Some(Color::from(grey))
+    } else {
+        Some(Color::from(color_str))
+    };
+    scene.add(Primitive::Path(Box::new(PathData {
+        d: d.clone(),
+        fill,
+        stroke: stroke.clone(),
+        stroke_width,
+        opacity,
+        stroke_dasharray: stroke_dasharray.clone(),
+    })));
+    if computed.bw_mode {
+        let (_, pattern) = bw_fill(bw_idx);
+        let pat_url = register_pattern(scene, pattern);
+        if !pat_url.is_empty() {
+            scene.add(Primitive::Path(Box::new(PathData {
+                d,
+                fill: Some(Color::from(pat_url.as_str())),
+                stroke: Color::None,
+                stroke_width: 0.0,
+                opacity: None,
+                stroke_dasharray: None,
+            })));
+        }
+    }
+}
+
 use crate::plot::band::BandPlot;
 use crate::plot::bar::BarPlot;
 use crate::plot::bump::{BumpPlot, CurveStyle};
@@ -559,14 +650,7 @@ fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
         path.push(' ');
     }
     path.push('Z');
-    scene.add(Primitive::Path(Box::new(PathData {
-        d: path,
-        fill: Some(Color::from(&band.color)),
-        stroke: "none".into(),
-        stroke_width: 0.0,
-        opacity: Some(band.opacity),
-        stroke_dasharray: None,
-    })));
+    path_bw(scene, computed, 0, &band.color, path, Color::None, 0.0, Some(band.opacity), None);
 }
 
 fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -597,11 +681,12 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             .iter()
             .map(|point| (computed.map_x(point.x), computed.map_y(point.y)))
             .unzip();
+        let batch_fill = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(scatter.color.as_str()) };
         scene.add(Primitive::CircleBatch {
             cx: cx_vec,
             cy: cy_vec,
             r: scatter.size,
-            fill: Color::from(scatter.color.as_str()),
+            fill: batch_fill,
             fill_opacity: scatter.marker_opacity,
             stroke: marker_stroke,
             stroke_width: scatter.marker_stroke_width,
@@ -654,13 +739,14 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                     extra_attrs: scatter_extra,
                 });
             }
+            let pt_color = if computed.bw_mode { "#1a1a1a" } else { color };
             draw_marker(
                 scene,
                 scatter.marker,
                 computed.map_x(point.x),
                 computed.map_y(point.y),
                 size,
-                color,
+                pt_color,
                 scatter.marker_opacity,
                 pt_stroke,
                 scatter.marker_stroke_width,
@@ -851,21 +937,20 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             fill_d.push_str(&format!(
                 "L {last_x} {baseline_y} L {first_x} {baseline_y} Z"
             ));
-            scene.add(Primitive::Path(Box::new(PathData {
-                d: fill_d,
-                fill: Some(Color::from(&line.color)),
-                stroke: "none".into(),
-                stroke_width: 0.0,
-                opacity: Some(line.fill_opacity),
-                stroke_dasharray: None,
-            })));
+            path_bw(scene, computed, 0, &line.color, fill_d, Color::None, 0.0, Some(line.fill_opacity), None);
         }
 
+        let (line_stroke, line_da) = if computed.bw_mode {
+            use crate::render::bw::bw_dash;
+            (Color::from("#1a1a1a"), bw_dash(0).dasharray())
+        } else {
+            (Color::from(&line.color), line.line_style.dasharray())
+        };
         scene.add(Primitive::PolyLine {
             points: screen_pts,
-            stroke: Color::from(&line.color),
+            stroke: line_stroke,
             stroke_width: line.stroke_width,
-            stroke_dasharray: line.line_style.dasharray(),
+            stroke_dasharray: line_da,
         });
     }
 
@@ -955,16 +1040,24 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
         .map(|(i, &y)| (computed.map_x(i as f64), computed.map_y(y)))
         .collect();
 
+    let (ser_stroke, ser_da) = if computed.bw_mode {
+        use crate::render::bw::bw_dash;
+        (Color::from("#1a1a1a"), bw_dash(0).dasharray())
+    } else {
+        (Color::from(&series.color), None)
+    };
+    let ser_fill = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(&series.color) };
+
     match series.style {
         SeriesStyle::Line => {
             if points.len() >= 2 {
                 scene.add(Primitive::Path(Box::new(PathData {
                     d: build_path(&points),
                     fill: None,
-                    stroke: Color::from(&series.color),
+                    stroke: ser_stroke,
                     stroke_width: series.stroke_width,
                     opacity: None,
-                    stroke_dasharray: None,
+                    stroke_dasharray: ser_da,
                 })));
             }
         }
@@ -974,7 +1067,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx: x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color),
+                    fill: ser_fill.clone(),
                     fill_opacity: None,
                     stroke: None,
                     stroke_width: None,
@@ -986,10 +1079,10 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                 scene.add(Primitive::Path(Box::new(PathData {
                     d: build_path(&points),
                     fill: None,
-                    stroke: Color::from(&series.color),
+                    stroke: ser_stroke,
                     stroke_width: series.stroke_width,
                     opacity: None,
-                    stroke_dasharray: None,
+                    stroke_dasharray: ser_da,
                 })));
             }
             for (x, y) in points {
@@ -997,7 +1090,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
                     cx: x,
                     cy: y,
                     r: series.point_radius,
-                    fill: Color::from(&series.color),
+                    fill: ser_fill.clone(),
                     fill_opacity: None,
                     stroke: None,
                     stroke_width: None,
@@ -1041,16 +1134,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             extra_attrs: None,
                         });
                     }
-                    scene.add(Primitive::Rect {
-                        x: x0.min(x1),
-                        y: y0.min(y1),
-                        width: (x1 - x0).abs(),
-                        height: (y1 - y0).abs(),
-                        fill: Color::from(&bar_val.color),
-                        stroke: None,
-                        stroke_width: None,
-                        opacity: None,
-                    });
+                    let bw_idx = if group.bars.len() == 1 { i } else { j };
+                    rect_bw(scene, computed, bw_idx, &bar_val.color, x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs(), None, None, None);
                     if tip.is_some() {
                         scene.add(Primitive::GroupEnd);
                     }
@@ -1088,16 +1173,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             extra_attrs: None,
                         });
                     }
-                    scene.add(Primitive::Rect {
-                        x: x0.min(x1),
-                        y: y0.min(y1),
-                        width: (x1 - x0).abs(),
-                        height: (y1 - y0).abs(),
-                        fill: Color::from(&bar_val.color),
-                        stroke: None,
-                        stroke_width: None,
-                        opacity: None,
-                    });
+                    let bw_idx = if group.bars.len() == 1 { i } else { j };
+                    rect_bw(scene, computed, bw_idx, &bar_val.color, x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs(), None, None, None);
                     if tip.is_some() {
                         scene.add(Primitive::GroupEnd);
                     }
@@ -1141,16 +1218,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             extra_attrs: extra,
                         });
                     }
-                    scene.add(Primitive::Rect {
-                        x: x0,
-                        y: y1.min(y0),
-                        width: (x1 - x0).abs(),
-                        height: (y0 - y1).abs(),
-                        fill: Color::from(&bar_val.color),
-                        stroke: None,
-                        stroke_width: None,
-                        opacity: None,
-                    });
+                    let bw_idx = if group.bars.len() == 1 { i } else { j };
+                    rect_bw(scene, computed, bw_idx, &bar_val.color, x0, y1.min(y0), (x1 - x0).abs(), (y0 - y1).abs(), None, None, None);
                     if bar.show_tooltips || computed.interactive {
                         scene.add(Primitive::GroupEnd);
                     }
@@ -1199,16 +1268,8 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             extra_attrs: extra,
                         });
                     }
-                    scene.add(Primitive::Rect {
-                        x: x0,
-                        y: y1.min(y0),
-                        width: (x1 - x0).abs(),
-                        height: (y0 - y1).abs(),
-                        fill: Color::from(&bar_val.color),
-                        stroke: None,
-                        stroke_width: None,
-                        opacity: None,
-                    });
+                    let bw_idx = if group.bars.len() == 1 { i } else { j };
+                    rect_bw(scene, computed, bw_idx, &bar_val.color, x0, y1.min(y0), (x1 - x0).abs(), (y0 - y1).abs(), None, None, None);
                     if bar.show_tooltips || computed.interactive {
                         scene.add(Primitive::GroupEnd);
                     }
@@ -1245,16 +1306,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
                     extra_attrs: None,
                 });
             }
-            scene.add(Primitive::Rect {
-                x: x0,
-                y: y1.min(y0),
-                width: (x1 - x0).abs(),
-                height: (y0 - y1).abs(),
-                fill: Color::from(&hist.color),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            rect_bw(scene, computed, 0, &hist.color, x0, y1.min(y0), (x1 - x0).abs(), (y0 - y1).abs(), None, None, None);
             if tip.is_some() {
                 scene.add(Primitive::GroupEnd);
             }
@@ -1309,16 +1361,7 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout)
                 extra_attrs: None,
             });
         }
-        scene.add(Primitive::Rect {
-            x: x0,
-            y: y1.min(y0),
-            width: rect_width,
-            height: rect_height,
-            fill: Color::from(&hist.color),
-            stroke: None,
-            stroke_width: None,
-            opacity: None,
-        });
+        rect_bw(scene, computed, 0, &hist.color, x0, y1.min(y0), rect_width, rect_height, None, None, None);
         if tip.is_some() {
             scene.add(Primitive::GroupEnd);
         }
@@ -1446,16 +1489,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             let xhigh = computed.map_x(upper_whisker);
             let ymid = computed.map_y(cat);
 
-            scene.add(Primitive::Rect {
-                x: xq1.min(xq3),
-                y: y0.min(y1),
-                width: (xq3 - xq1).abs(),
-                height: (y1 - y0).abs(),
-                fill: Color::from(color),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            rect_bw(scene, computed, i, color, xq1.min(xq3), y0.min(y1), (xq3 - xq1).abs(), (y1 - y0).abs(), None, None, None);
             // Median: vertical line
             scene.add(Primitive::Line {
                 x1: xmed,
@@ -1508,16 +1542,7 @@ fn add_boxplot(boxplot: &BoxPlot, scene: &mut Scene, computed: &ComputedLayout) 
             let xmid = computed.map_x(cat);
 
             // Box
-            scene.add(Primitive::Rect {
-                x: x0,
-                y: yq3.min(yq1),
-                width: (x1 - x0).abs(),
-                height: (yq1 - yq3).abs(),
-                fill: Color::from(color),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            rect_bw(scene, computed, i, color, x0, yq3.min(yq1), (x1 - x0).abs(), (yq1 - yq3).abs(), None, None, None);
 
             // Median line
             scene.add(Primitive::Line {
@@ -1679,14 +1704,7 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
         }
         path_data.push('Z');
 
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: path_data,
-            fill: Some(Color::from(color)),
-            stroke: Color::from(&theme.violin_border),
-            stroke_width: 0.5,
-            opacity: None,
-            stroke_dasharray: None,
-        })));
+        path_bw(scene, computed, i, color, path_data, Color::from(&theme.violin_border), 0.5, None, None);
     }
 
     // Overlay strip/swarm points after violin shapes
@@ -1801,14 +1819,8 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 extra_attrs: None,
             });
         }
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: path_data,
-            fill: Some(Color::from(&slice.color)),
-            stroke: Color::from(&slice.color),
-            stroke_width: 1.0,
-            opacity: None,
-            stroke_dasharray: None,
-        })));
+        let stroke_col = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(&slice.color) };
+        path_bw(scene, computed, slice_i, &slice.color, path_data, stroke_col, 1.0, None, None);
         if tip.is_some() {
             scene.add(Primitive::GroupEnd);
         }
@@ -2534,9 +2546,13 @@ fn add_strip_points(
 ) {
     // Resolve the fill color for point index `j`, falling back to the group color.
     let resolve_color = |j: usize| -> &str {
-        point_colors
-            .and_then(|c| c.get(j).map(|s| s.as_str()))
-            .unwrap_or(color)
+        if computed.bw_mode {
+            "#1a1a1a"
+        } else {
+            point_colors
+                .and_then(|c| c.get(j).map(|s| s.as_str()))
+                .unwrap_or(color)
+        }
     };
     // Resolve the marker shape for point index `j`, falling back to Circle.
     let resolve_shape = |j: usize| -> MarkerShape {
@@ -3772,14 +3788,7 @@ fn add_survival(
             }
             d.push_str(" Z");
 
-            scene.add(Primitive::Path(Box::new(PathData {
-                d,
-                fill: Some(color.clone()),
-                stroke: color.clone(),
-                stroke_width: 0.0,
-                opacity: Some(sp.ci_alpha),
-                stroke_dasharray: None,
-            })));
+            path_bw(scene, computed, i, color_str, d, Color::None, 0.0, Some(sp.ci_alpha), None);
         }
 
         // ── Step function line ────────────────────────────────────────────
@@ -3800,19 +3809,26 @@ fn add_survival(
         }
         d.push_str(&format!(" H {}", round2(x_end_px)));
 
+        let (surv_stroke, surv_da) = if computed.bw_mode {
+            use crate::render::bw::bw_dash;
+            (Color::from("#1a1a1a"), bw_dash(i).dasharray())
+        } else {
+            (color.clone(), None)
+        };
         scene.add(Primitive::Path(Box::new(PathData {
             d,
             fill: None,
-            stroke: color.clone(),
+            stroke: surv_stroke,
             stroke_width: sp.line_width,
             opacity: None,
-            stroke_dasharray: None,
+            stroke_dasharray: surv_da,
         })));
 
         // ── Censoring tick marks ──────────────────────────────────────────
         if sp.show_censoring {
             let ticks = censoring_levels(&group.times, &group.events, &km);
             let half = sp.censoring_size;
+            let tick_stroke = if computed.bw_mode { Color::from("#1a1a1a") } else { color.clone() };
             for (t, s) in ticks {
                 let cx = computed.map_x(t);
                 let cy = computed.map_y(s);
@@ -3821,7 +3837,7 @@ fn add_survival(
                     y1: cy - half,
                     x2: cx,
                     y2: cy + half,
-                    stroke: color.clone(),
+                    stroke: tick_stroke.clone(),
                     stroke_width: sp.line_width,
                     stroke_dasharray: None,
                 });
@@ -3928,14 +3944,7 @@ fn add_roc(roc: &RocPlot, scene: &mut Scene, computed: &ComputedLayout) {
             }
             d.push_str(" Z");
 
-            scene.add(Primitive::Path(Box::new(PathData {
-                d,
-                fill: Some(color.clone()),
-                stroke: color.clone(),
-                stroke_width: 0.0,
-                opacity: Some(group.ci_alpha),
-                stroke_dasharray: None,
-            })));
+            path_bw(scene, computed, i, color_str, d, Color::None, 0.0, Some(group.ci_alpha), None);
         }
 
         // ── ROC curve path ────────────────────────────────────────────────────
@@ -3950,13 +3959,19 @@ fn add_roc(roc: &RocPlot, scene: &mut Scene, computed: &ComputedLayout) {
             for &(x, y) in pts.iter().skip(1) {
                 d.push_str(&format!(" L {},{}", round2(x), round2(y)));
             }
+            let (roc_stroke, roc_da) = if computed.bw_mode {
+                use crate::render::bw::bw_dash;
+                (Color::from("#1a1a1a"), bw_dash(i).dasharray())
+            } else {
+                (color.clone(), group.dasharray.clone())
+            };
             scene.add(Primitive::Path(Box::new(PathData {
                 d,
                 fill: None,
-                stroke: color.clone(),
+                stroke: roc_stroke,
                 stroke_width: group.line_width,
                 opacity: None,
-                stroke_dasharray: group.dasharray.clone(),
+                stroke_dasharray: roc_da,
             })));
         }
 
@@ -4042,13 +4057,19 @@ fn add_pr(pr: &PrPlot, scene: &mut Scene, computed: &ComputedLayout) {
             for &(x, y) in pts.iter().skip(1) {
                 d.push_str(&format!(" L {},{}", round2(x), round2(y)));
             }
+            let (pr_stroke, pr_da) = if computed.bw_mode {
+                use crate::render::bw::bw_dash;
+                (Color::from("#1a1a1a"), bw_dash(i).dasharray())
+            } else {
+                (color.clone(), group.dasharray.clone())
+            };
             scene.add(Primitive::Path(Box::new(PathData {
                 d,
                 fill: None,
-                stroke: color.clone(),
+                stroke: pr_stroke,
                 stroke_width: group.line_width,
                 opacity: None,
-                stroke_dasharray: group.dasharray.clone(),
+                stroke_dasharray: pr_da,
             })));
         }
 
@@ -4118,13 +4139,20 @@ fn add_slope(sp: &crate::plot::slope::SlopePlot, scene: &mut Scene, computed: &C
             round2(px_after),
             round2(py)
         );
+        let (slope_stroke, slope_da) = if computed.bw_mode {
+            use crate::render::bw::bw_dash;
+            (Color::from("#1a1a1a"), bw_dash(i).dasharray())
+        } else {
+            (color.clone(), None)
+        };
+        let dot_fill = if computed.bw_mode { Color::from("#1a1a1a") } else { color.clone() };
         scene.add(Primitive::Path(Box::new(PathData {
             d,
             fill: None,
-            stroke: color.clone(),
+            stroke: slope_stroke,
             stroke_width: sp.line_width,
             opacity: Some(sp.line_opacity),
-            stroke_dasharray: None,
+            stroke_dasharray: slope_da,
         })));
 
         // Before dot
@@ -4132,7 +4160,7 @@ fn add_slope(sp: &crate::plot::slope::SlopePlot, scene: &mut Scene, computed: &C
             cx: px_before,
             cy: py,
             r: sp.dot_radius,
-            fill: color.clone(),
+            fill: dot_fill.clone(),
             fill_opacity: if sp.dot_opacity < 1.0 {
                 Some(sp.dot_opacity)
             } else {
@@ -4147,7 +4175,7 @@ fn add_slope(sp: &crate::plot::slope::SlopePlot, scene: &mut Scene, computed: &C
             cx: px_after,
             cy: py,
             r: sp.dot_radius,
-            fill: color.clone(),
+            fill: dot_fill.clone(),
             fill_opacity: if sp.dot_opacity < 1.0 {
                 Some(sp.dot_opacity)
             } else {
@@ -6741,16 +6769,12 @@ fn add_waterfall(waterfall: &WaterfallPlot, scene: &mut Scene, computed: &Comput
                     extra_attrs: None,
                 });
             }
-            scene.add(Primitive::Rect {
-                x: x0,
-                y: y_screen_hi,
-                width: (x1 - x0).abs(),
-                height: bar_height,
-                fill: color.into(),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            let bw_idx = match &bar.kind {
+                WaterfallKind::Delta => if bar.value >= 0.0 { 0 } else { 1 },
+                WaterfallKind::Total => 2,
+                WaterfallKind::Difference { from, to } => if to >= from { 0 } else { 1 },
+            };
+            rect_bw(scene, computed, bw_idx, &color, x0, y_screen_hi, (x1 - x0).abs(), bar_height, None, None, None);
             if tip.is_some() {
                 scene.add(Primitive::GroupEnd);
             }
@@ -6823,6 +6847,7 @@ fn render_legend_entry(
     legend_x: f64,
     cur_y: f64,
     computed: &ComputedLayout,
+    bw_idx: usize,
 ) {
     // Swatch center: rect top is cur_y - 1, height swatch_size → center at cur_y + swatch_size/2 - 1.
     // Text baseline must be placed so the cap midpoint (baseline - body_size * 0.35)
@@ -6840,42 +6865,60 @@ fn render_legend_entry(
         color: None,
     });
     match entry.shape {
-        LegendShape::Rect => scene.add(Primitive::Rect {
-            x: legend_x + computed.legend_swatch_x,
-            y: cur_y - computed.axis_stroke_width,
-            width: computed.legend_swatch_size,
-            height: computed.legend_swatch_size,
-            fill: Color::from(&entry.color),
-            stroke: None,
-            stroke_width: None,
-            opacity: None,
-        }),
-        LegendShape::Line => scene.add(Primitive::Line {
-            x1: legend_x + computed.legend_swatch_x,
-            y1: swatch_cy,
-            x2: legend_x + computed.legend_swatch_x + computed.legend_swatch_size,
-            y2: swatch_cy,
-            stroke: Color::from(&entry.color),
-            stroke_width: computed.axis_stroke_width * 2.0,
-            stroke_dasharray: entry.dasharray.clone(),
-        }),
-        LegendShape::Circle => scene.add(Primitive::Circle {
-            cx: legend_x + computed.legend_swatch_x + computed.legend_swatch_r,
-            cy: swatch_cy,
-            r: computed.legend_swatch_r,
-            fill: Color::from(&entry.color),
-            fill_opacity: None,
-            stroke: None,
-            stroke_width: None,
-        }),
+        LegendShape::Rect => {
+            let sx = legend_x + computed.legend_swatch_x;
+            let sy = cur_y - computed.axis_stroke_width;
+            let sw = computed.legend_swatch_size;
+            let sh = computed.legend_swatch_size;
+            if computed.bw_mode {
+                use crate::render::bw::{bw_fill, register_pattern};
+                let (grey, pattern) = bw_fill(bw_idx);
+                scene.add(Primitive::Rect { x: sx, y: sy, width: sw, height: sh, fill: Color::from(grey), stroke: None, stroke_width: None, opacity: None });
+                register_pattern(scene, pattern);
+                let pid = pattern.id();
+                scene.add(Primitive::Rect { x: sx, y: sy, width: sw, height: sh, fill: Color::from(&format!("url(#{pid})")), stroke: None, stroke_width: None, opacity: None });
+            } else {
+                scene.add(Primitive::Rect { x: sx, y: sy, width: sw, height: sh, fill: Color::from(&entry.color), stroke: None, stroke_width: None, opacity: None });
+            }
+        }
+        LegendShape::Line => {
+            let (stroke, dasharray) = if computed.bw_mode {
+                use crate::render::bw::bw_dash;
+                (Color::from("#1a1a1a"), bw_dash(bw_idx).dasharray())
+            } else {
+                (Color::from(&entry.color), entry.dasharray.clone())
+            };
+            scene.add(Primitive::Line {
+                x1: legend_x + computed.legend_swatch_x,
+                y1: swatch_cy,
+                x2: legend_x + computed.legend_swatch_x + computed.legend_swatch_size,
+                y2: swatch_cy,
+                stroke,
+                stroke_width: computed.axis_stroke_width * 2.0,
+                stroke_dasharray: dasharray,
+            });
+        }
+        LegendShape::Circle => {
+            let fill = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(&entry.color) };
+            scene.add(Primitive::Circle {
+                cx: legend_x + computed.legend_swatch_x + computed.legend_swatch_r,
+                cy: swatch_cy,
+                r: computed.legend_swatch_r,
+                fill,
+                fill_opacity: None,
+                stroke: None,
+                stroke_width: None,
+            });
+        }
         LegendShape::Marker(marker) => {
+            let color = if computed.bw_mode { "#1a1a1a" } else { &entry.color };
             draw_marker(
                 scene,
                 marker,
                 legend_x + computed.legend_swatch_x + computed.legend_swatch_r,
                 swatch_cy,
                 computed.legend_swatch_r,
-                &entry.color,
+                color,
                 None,
                 None,
                 None,
@@ -6883,11 +6926,12 @@ fn render_legend_entry(
         }
         LegendShape::CircleSize(r) => {
             let draw_r = r.min(computed.legend_swatch_half);
+            let fill = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(&entry.color) };
             scene.add(Primitive::Circle {
                 cx: legend_x + computed.legend_swatch_x + computed.legend_swatch_r,
                 cy: swatch_cy,
                 r: draw_r,
-                fill: Color::from(&entry.color),
+                fill,
                 fill_opacity: None,
                 stroke: None,
                 stroke_width: None,
@@ -7244,7 +7288,7 @@ fn add_legend_with_offset(
             let row = i / n_cols;
             let ex = plot_left + col as f64 * col_w;
             let ey = legend_y + row as f64 * line_height;
-            render_legend_entry(entry, scene, ex, ey, computed);
+            render_legend_entry(entry, scene, ex, ey, computed, i);
         }
         if overflow > 0 {
             let i = entries_to_show;
@@ -7481,7 +7525,7 @@ fn add_legend_with_offset(
     }
 
     // Render a single legend entry with optional label wrapping.
-    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64| {
+    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, bw_idx: usize| {
         if computed.interactive {
             let grp_attr = format!(
                 r#"class="legend-entry" data-group="{lbl}""#,
@@ -7496,7 +7540,7 @@ fn add_legend_with_offset(
         let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
         let mut first = entry.clone();
         first.label = lines[0].clone();
-        render_legend_entry(&first, scene, legend_x, *cur_y, computed);
+        render_legend_entry(&first, scene, legend_x, *cur_y, computed, bw_idx);
         *cur_y += line_height;
         for line in &lines[1..] {
             scene.add(Primitive::Text {
@@ -7519,6 +7563,7 @@ fn add_legend_with_offset(
     // max_entries_display was already computed above after legend_y was resolved.
 
     if let Some(ref groups) = legend.groups {
+        let mut bw_counter = 0usize;
         for (i, group) in groups.iter().enumerate() {
             if i > 0 {
                 cur_y += group_gap;
@@ -7539,7 +7584,8 @@ fn add_legend_with_offset(
                 cur_y += line_height;
             }
             for entry in &group.entries {
-                render_entry(entry, scene, &mut cur_y);
+                render_entry(entry, scene, &mut cur_y, bw_counter);
+                bw_counter += 1;
             }
         }
     } else {
@@ -7549,8 +7595,8 @@ fn add_legend_with_offset(
         } else {
             legend.entries.len()
         };
-        for entry in legend.entries.iter().take(entries_to_show) {
-            render_entry(entry, scene, &mut cur_y);
+        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
+            render_entry(entry, scene, &mut cur_y, i);
         }
         if overflow > 0 {
             scene.add(Primitive::Text {
@@ -8483,21 +8529,14 @@ fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
             round2(first_px),
             round2(y_baseline),
         );
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: fill_path,
-            fill: Some(Color::from(&dp.color)),
-            stroke: Color::from("none"),
-            stroke_width: 0.0,
-            opacity: Some(dp.opacity),
-            stroke_dasharray: None,
-        })));
+        path_bw(scene, computed, 0, &dp.color, fill_path, Color::None, 0.0, Some(dp.opacity), None);
     }
 
     // Emit the outline
     scene.add(Primitive::Path(Box::new(PathData {
         d: path.trim_end().to_string(),
         fill: None,
-        stroke: Color::from(&dp.color),
+        stroke: if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(&dp.color) },
         stroke_width: dp.stroke_width,
         opacity: None,
         stroke_dasharray: dp.line_dash.clone(),
@@ -8608,15 +8647,15 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
             }
             d.push_str(" Z");
 
-            scene.add(Primitive::Path(Box::new(PathData {
-                d,
-                fill: Some(color.clone()),
-                stroke: color.clone(),
-                stroke_width: 0.0,
-                opacity: Some(ep.band_alpha),
-                stroke_dasharray: None,
-            })));
+            path_bw(scene, computed, i, color_str, d, Color::None, 0.0, Some(ep.band_alpha), None);
         }
+
+        let (ecdf_stroke, ecdf_da) = if computed.bw_mode {
+            use crate::render::bw::bw_dash;
+            (Color::from("#1a1a1a"), bw_dash(i).dasharray())
+        } else {
+            (color.clone(), ep.line_dash.clone())
+        };
 
         // ── ECDF curve ────────────────────────────────────────────────────
         if ep.smooth && n >= 2 {
@@ -8653,10 +8692,10 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
                 scene.add(Primitive::Path(Box::new(PathData {
                     d,
                     fill: None,
-                    stroke: color.clone(),
+                    stroke: ecdf_stroke.clone(),
                     stroke_width: ep.stroke_width,
                     opacity: None,
-                    stroke_dasharray: ep.line_dash.clone(),
+                    stroke_dasharray: ecdf_da.clone(),
                 })));
             }
         } else {
@@ -8684,10 +8723,10 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
             scene.add(Primitive::Path(Box::new(PathData {
                 d,
                 fill: None,
-                stroke: color.clone(),
+                stroke: ecdf_stroke.clone(),
                 stroke_width: ep.stroke_width,
                 opacity: None,
-                stroke_dasharray: ep.line_dash.clone(),
+                stroke_dasharray: ecdf_da.clone(),
             })));
         }
 
@@ -8795,12 +8834,13 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
 
                 // Scatter points
                 let fill_op = qp.fill_opacity;
+                let pt_fill = if computed.bw_mode { Color::from("#1a1a1a") } else { color.clone() };
                 for k in 0..n {
                     scene.add(Primitive::Circle {
                         cx: computed.map_x(theoretical[k]),
                         cy: computed.map_y(sorted[k]),
                         r: qp.marker_size,
-                        fill: color.clone(),
+                        fill: pt_fill.clone(),
                         fill_opacity: fill_op,
                         stroke: None,
                         stroke_width: None,
@@ -8856,19 +8896,12 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                     d.push_str(" Z");
 
                     // Use first group's color for the band, or gray if multi-group
-                    let band_color = if qp.groups.len() == 1 {
-                        resolve_color(&qp.groups[0], 0)
+                    let band_color_str = if qp.groups.len() == 1 {
+                        qp.groups[0].color.as_deref().unwrap_or(&qp.color)
                     } else {
-                        Color::from("#aaaaaa")
+                        "#aaaaaa"
                     };
-                    scene.add(Primitive::Path(Box::new(PathData {
-                        d,
-                        fill: Some(band_color),
-                        stroke: Color::from("none"),
-                        stroke_width: 0.0,
-                        opacity: Some(qp.ci_alpha),
-                        stroke_dasharray: None,
-                    })));
+                    path_bw(scene, computed, 0, band_color_str, d, Color::None, 0.0, Some(qp.ci_alpha), None);
                 }
             }
 
@@ -8922,6 +8955,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
 
                 // Scatter points
                 let fill_op = qp.fill_opacity;
+                let pt_fill = if computed.bw_mode { Color::from("#1a1a1a") } else { color.clone() };
                 for (k, &pval) in pvals.iter().enumerate() {
                     let expected_p = (k as f64 + 0.5) / n as f64;
                     let x_val = -expected_p.log10();
@@ -8930,7 +8964,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                         cx: computed.map_x(x_val),
                         cy: computed.map_y(y_val),
                         r: qp.marker_size,
-                        fill: color.clone(),
+                        fill: pt_fill.clone(),
                         fill_opacity: fill_op,
                         stroke: None,
                         stroke_width: None,
@@ -9084,21 +9118,14 @@ fn add_ridgeline(rp: &RidgelinePlot, computed: &ComputedLayout, scene: &mut Scen
                 "{} L {} {} L {} {} Z",
                 outline, s_last_px, s_y_center, s_first_px, s_y_center,
             );
-            scene.add(Primitive::Path(Box::new(PathData {
-                d: fill_path,
-                fill: Some(Color::from(color)),
-                stroke: Color::from("none"),
-                stroke_width: 0.0,
-                opacity: Some(rp.opacity),
-                stroke_dasharray: None,
-            })));
+            path_bw(scene, computed, i, color, fill_path, Color::None, 0.0, Some(rp.opacity), None);
         }
 
         // Emit outline
         scene.add(Primitive::Path(Box::new(PathData {
             d: outline,
             fill: None,
-            stroke: Color::from(color),
+            stroke: if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from(color) },
             stroke_width: rp.stroke_width,
             opacity: None,
             stroke_dasharray: rp.line_dash.clone(),
@@ -11212,16 +11239,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let bar_w = size as f64 / max_set * bar_area;
 
             // Bars grow leftward from the right edge (zero baseline at bar_x_end).
-            scene.add(Primitive::Rect {
-                x: bar_x_end - bar_w,
-                y: cy - bar_half_h,
-                width: bar_w,
-                height: bar_half_h * 2.0,
-                fill: Color::from(&up.bar_color),
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            rect_bw(scene, computed, 0, &up.bar_color, bar_x_end - bar_w, cy - bar_half_h, bar_w, bar_half_h * 2.0, None, None, None);
 
             if up.show_counts {
                 // Fixed position in the count_gap zone — never encroaches on name_area.
@@ -11340,16 +11358,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let bar_x = cx - bar_half_w;
         let bar_y = bar_y_max - bar_h;
 
-        scene.add(Primitive::Rect {
-            x: bar_x,
-            y: bar_y,
-            width: bar_half_w * 2.0,
-            height: bar_h,
-            fill: Color::from(&up.bar_color),
-            stroke: None,
-            stroke_width: None,
-            opacity: None,
-        });
+        rect_bw(scene, computed, 0, &up.bar_color, bar_x, bar_y, bar_half_w * 2.0, bar_h, None, None, None);
 
         // Suppress count label when the column is too narrow to show it without overlap.
         // Each digit needs ~tick_size * 0.6 px; two-digit numbers need ~1.2 * tick_size.
@@ -11495,14 +11504,7 @@ fn add_stacked_area(sa: &StackedAreaPlot, scene: &mut Scene, computed: &Computed
         }
         path.push('Z');
 
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: path,
-            fill: Some(Color::from(&color)),
-            stroke: "none".into(),
-            stroke_width: 0.0,
-            opacity: Some(sa.fill_opacity),
-            stroke_dasharray: None,
-        })));
+        path_bw(scene, computed, k, &color, path, Color::None, 0.0, Some(sa.fill_opacity), None);
 
         if sa.show_strokes {
             let mut stroke_path = String::with_capacity(n * 16);
@@ -11517,10 +11519,11 @@ fn add_stacked_area(sa: &StackedAreaPlot, scene: &mut Scene, computed: &Computed
                 stroke_path.push_str(rb.format(round2(sy)));
                 stroke_path.push(' ');
             }
+            let stroke_col = if computed.bw_mode { Color::from("#1a1a1a") } else { color.into() };
             scene.add(Primitive::Path(Box::new(PathData {
                 d: stroke_path,
                 fill: None,
-                stroke: color.into(),
+                stroke: stroke_col,
                 stroke_width: sa.stroke_width,
                 opacity: None,
                 stroke_dasharray: None,
@@ -11718,14 +11721,7 @@ fn add_streamgraph(
             d
         };
 
-        scene.add(Primitive::Path(Box::new(PathData {
-            d: path_d,
-            fill: Some(Color::from(&color)),
-            stroke: "none".into(),
-            stroke_width: 0.0,
-            opacity: Some(sg.fill_opacity),
-            stroke_dasharray: None,
-        })));
+        path_bw(scene, computed, orig_idx, &color, path_d, Color::None, 0.0, Some(sg.fill_opacity), None);
 
         // Optional inter-stream stroke along the upper edge
         if sg.stroke_between {
@@ -13475,7 +13471,7 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
         let row = i / n_cols;
         let ex = plot_left + col as f64 * col_w;
         let ey = legend_y + row as f64 * line_height;
-        render_legend_entry(entry, scene, ex, ey, computed);
+        render_legend_entry(entry, scene, ex, ey, computed, i);
     }
     if overflow > 0 {
         let i = entries_to_show;
@@ -19059,6 +19055,13 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             bp.stroke_width
         };
 
+        let (bump_stroke_col, bump_da) = if computed.bw_mode {
+            use crate::render::bw::bw_dash;
+            (Color::from("#1a1a1a"), bw_dash(si).dasharray())
+        } else {
+            (Color::from(color.as_str()), None)
+        };
+
         // ── Connecting curves ─────────────────────────────────────────────
         let mut prev: Option<(f64, f64)> = None;
         for t in 0..n_time {
@@ -19081,10 +19084,10 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                     scene.add(Primitive::Path(Box::new(PathData {
                         d: path_d,
                         fill: None,
-                        stroke: Color::from(color.as_str()),
+                        stroke: bump_stroke_col.clone(),
                         stroke_width: sw,
                         opacity: Some(opacity),
-                        stroke_dasharray: None,
+                        stroke_dasharray: bump_da.clone(),
                     })));
                 }
                 prev = Some((px, py));
@@ -19105,7 +19108,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                     cx: px,
                     cy: py,
                     r: bp.dot_radius,
-                    fill: Color::from(color.as_str()),
+                    fill: bump_stroke_col.clone(),
                     fill_opacity: Some(opacity),
                     stroke: Some(Color::from("#ffffff")),
                     stroke_width: Some(bp.stroke_width * 0.5),
@@ -19161,7 +19164,9 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
         for (si, py) in positions_at(0) {
             let s = &series[si];
             let is_highlighted = highlight.is_none_or(|hl| s.name == hl);
-            let color = if highlight.is_some() && !is_highlighted {
+            let color = if computed.bw_mode {
+                if highlight.is_some() && !is_highlighted { "#bbbbbb".to_string() } else { "#1a1a1a".to_string() }
+            } else if highlight.is_some() && !is_highlighted {
                 "#bbbbbb".to_string()
             } else {
                 colors[si].clone()
@@ -19184,7 +19189,9 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
         for (si, py) in positions_at(last_t) {
             let s = &series[si];
             let is_highlighted = highlight.is_none_or(|hl| s.name == hl);
-            let color = if highlight.is_some() && !is_highlighted {
+            let color = if computed.bw_mode {
+                if highlight.is_some() && !is_highlighted { "#bbbbbb".to_string() } else { "#1a1a1a".to_string() }
+            } else if highlight.is_some() && !is_highlighted {
                 "#bbbbbb".to_string()
             } else {
                 colors[si].clone()
@@ -20151,14 +20158,8 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                             .clone()
                             .unwrap_or_else(|| cat10[j % 10].to_string());
                         let d = rose_wedge(cx, cy, r_inn, r_out, a1, a2, rp.clockwise);
-                        scene.add(Primitive::Path(Box::new(PathData {
-                            d,
-                            fill: Some(Color::from(color.as_str())),
-                            stroke: Color::from("#ffffff"),
-                            stroke_width: 0.5,
-                            opacity: Some(0.75),
-                            stroke_dasharray: None,
-                        })));
+                        let stroke_col = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from("#ffffff") };
+                        path_bw(scene, computed, j, color.as_str(), d, stroke_col, 0.5, Some(0.75), None);
                     }
                     if rp.show_values && cum > f64::EPSILON {
                         let r_out_tip = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
@@ -20201,14 +20202,8 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                             .clone()
                             .unwrap_or_else(|| cat10[j % 10].to_string());
                         let d = rose_wedge(cx, cy, base_r, r_out, a1, a2, rp.clockwise);
-                        scene.add(Primitive::Path(Box::new(PathData {
-                            d,
-                            fill: Some(Color::from(color.as_str())),
-                            stroke: Color::from("#ffffff"),
-                            stroke_width: 0.5,
-                            opacity: Some(0.75),
-                            stroke_dasharray: None,
-                        })));
+                        let stroke_col = if computed.bw_mode { Color::from("#1a1a1a") } else { Color::from("#ffffff") };
+                        path_bw(scene, computed, j, color.as_str(), d, stroke_col, 0.5, Some(0.75), None);
                     }
                     if rp.show_values {
                         let max_val = rp
