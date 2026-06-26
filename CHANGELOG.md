@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Log/count colorbars now honour `Layout::with_colorbar_tick_format`** — the log-scale colorbar used by `HexbinPlot` and `Histogram2D` (with log colouring) generated its own hard-coded power-of-ten integer labels and ignored the configured colorbar tick format, so a custom formatter (e.g. an SI formatter producing `1k`, `10k`, `100k`) had no effect. `ColorBarInfo` gains a `tick_values` field carrying `(position, value)` pairs; the value is formatted through `with_colorbar_tick_format` at render time, matching how the linear colorbar already behaved. Default (`TickFormat::Auto`) output is unchanged for integer count labels.
+
+---
+
 ## [0.3.0] — 2026-06-19
 
 ### Added
