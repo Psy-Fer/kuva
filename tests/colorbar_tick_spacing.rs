@@ -3,6 +3,8 @@
 //! height of each other their labels overprint, so the renderer drops the redundant
 //! data-max label while keeping it when it is clearly clear of the decade tick.
 
+mod common;
+
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::hexbin::HexbinPlot;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
@@ -32,7 +34,7 @@ fn test_data_max_label_suppressed_when_adjacent_to_decade() {
     let plots = make_hexbin_with_peak(112);
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin peak 112");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/colorbar_tick_spacing_suppressed.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/colorbar_tick_spacing_suppressed.svg", &svg).unwrap();
 
     assert!(
         svg.contains(">100</text>"),
@@ -54,7 +56,7 @@ fn test_data_max_label_kept_when_clear_of_decade() {
     let plots = make_hexbin_with_peak(300);
     let layout = Layout::auto_from_plots(&plots).with_title("Hexbin peak 300");
     let svg = render_svg(plots, layout);
-    std::fs::write("test_outputs/colorbar_tick_spacing_kept.svg", &svg).unwrap();
+    common::write_test_output("test_outputs/colorbar_tick_spacing_kept.svg", &svg).unwrap();
 
     assert!(
         svg.contains(">100</text>"),
