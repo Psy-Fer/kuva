@@ -7672,12 +7672,27 @@ fn add_colorbar_at(
             .collect();
         auto_ticks.as_slice()
     };
+
+    // Minimum vertical spacing between adjacent tick labels. Count/log colorbars
+    // append a tick at the exact data maximum on top of the nearest power-of-ten
+    // tick; in log space the two can sit a fraction of a decade apart so their
+    // labels overprint at the top of the bar. Entries arrive in ascending value
+    // order (drawn bottom→top), so keeping the first of any too-close pair
+    // preserves the round decade tick and drops the redundant data-max label.
+    let min_label_gap = computed.tick_size as f64;
+    let mut last_drawn_y: Option<f64> = None;
     for (pos, label) in tick_entries {
         if *pos < info.min_value || *pos > info.max_value {
             continue;
         }
         let frac = (pos - info.min_value) / range;
         let y = bar_y + bar_height - frac * bar_height; // invert: high values at top
+        if let Some(prev_y) = last_drawn_y {
+            if (y - prev_y).abs() < min_label_gap {
+                continue;
+            }
+        }
+        last_drawn_y = Some(y);
 
         // tick mark
         scene.add(Primitive::Line {
