@@ -1,3 +1,4 @@
+use crate::plot::hexbin::{HexbinPlot, ZReduce};
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition};
 use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
 use crate::render::datetime::DateTimeAxis;
@@ -297,6 +298,12 @@ pub struct Layout {
     pub x_tick_format: TickFormat,
     pub y_tick_format: TickFormat,
     pub colorbar_tick_format: TickFormat,
+    /// Numeric tick values that a colorbar will display, collected from the plots by
+    /// [`Layout::auto_from_plots`]. Used by `ComputedLayout::from_layout` to size the
+    /// right margin / colorbar inset to the widest label *after* applying
+    /// `colorbar_tick_format` (which the user may set after `auto_from_plots`). `None`
+    /// when no colorbar is present or the layout was built by hand.
+    pub(crate) colorbar_tick_values: Option<Vec<f64>>,
     pub y2_range: Option<(f64, f64)>,
     pub data_y2_range: Option<(f64, f64)>,
     pub y2_label: Option<String>,
@@ -460,6 +467,7 @@ impl Layout {
             x_tick_format: TickFormat::Auto,
             y_tick_format: TickFormat::Auto,
             colorbar_tick_format: TickFormat::Auto,
+            colorbar_tick_values: None,
             y2_range: None,
             data_y2_range: None,
             y2_label: None,
@@ -1340,6 +1348,17 @@ impl Layout {
 
         if has_colorbar {
             layout.show_colorbar = true;
+            // Collect the values every colorbar will label so `from_layout` can size the
+            // right margin / colorbar inset to the widest label once the (possibly
+            // user-overridden) colorbar tick format is known.
+            let cb_values: Vec<f64> = plots
+                .iter()
+                .filter_map(colorbar_tick_values_for)
+                .flatten()
+                .collect();
+            if !cb_values.is_empty() {
+                layout.colorbar_tick_values = Some(cb_values);
+            }
         }
 
         if has_manhattan {
@@ -2297,7 +2316,8 @@ pub struct ComputedLayout {
     pub annotation_arrow_len: f64, // 8.0 * scale — annotation arrowhead length
     pub annotation_arrow_half_w: f64, // 4.0 * scale — annotation arrowhead half-width
     pub colorbar_bar_width: f64, // 20.0 * scale — colorbar bar rect width
-    pub colorbar_x_inset: f64, // 70.0 * scale — colorbar position from canvas right
+    /// Colorbar bar position from the canvas right edge; sized to fit the widest tick label.
+    pub colorbar_x_inset: f64,
 
     // Pre-computed linear transform coefficients for map_x / map_y.
     // map_x(x) = x_offset + x * x_scale  (linear)
@@ -2657,8 +2677,34 @@ impl ComputedLayout {
                 _ => {}
             }
         }
+        // Width-aware colorbar geometry. Tick labels sit in a fixed band to the right of
+        // the bar (governed by `colorbar_x_inset`), so the inset — not just the right
+        // margin — must grow with the widest label or 6-digit labels clip at the canvas
+        // edge. Size to the widest label *after* applying the colorbar tick format,
+        // biasing low (no extra padding, 0.6 char-width) and letting `add_colorbar_at`
+        // shrink the font if a label still overruns. `colorbar_tick_values` is `None` for
+        // hand-built layouts; there we keep the legacy fixed reservation.
+        let colorbar_label_px = match &layout.colorbar_tick_values {
+            Some(values) => {
+                let max_chars = values
+                    .iter()
+                    .map(|&v| layout.colorbar_tick_format.format(v).chars().count())
+                    .max()
+                    .unwrap_or(0);
+                // Floor at ~2 char-widths like the axis-tick reservations, so a 1-2 char
+                // colorbar still gets a sane label band.
+                ((max_chars as f64) * tick_size * 0.6).max(tick_size * 2.0)
+            }
+            None => 30.0 * s, // legacy ~5-char allotment
+        };
+        // bar (20) + tick mark + edge gap (10) + labels; equals the legacy 65*s inset
+        // when colorbar_label_px == 30*s and tick_mark_major_px == 5*s. Use the actual
+        // tick-mark width so a custom tick_length keeps the label band consistent with
+        // where add_colorbar_at anchors the labels.
+        let mut colorbar_x_inset = (20.0 + 10.0) * s + tick_mark_major_px + colorbar_label_px;
         if layout.show_colorbar {
-            margin_right += 90.0 * s; // 20px label-gap + 20px bar + 5px tick-mark + 30px tick labels + 15px gap
+            // rotated colorbar title left of the bar (25*s) + the bar/tick/label band.
+            margin_right += 25.0 * s + colorbar_x_inset;
         }
 
         // If the user fixed the canvas width, ensure the legend doesn't crush the plot.
@@ -2667,6 +2713,16 @@ impl ComputedLayout {
             let min_plot_px = (fixed_w * 0.30).max(150.0);
             let max_margin_right = (fixed_w - margin_left - min_plot_px).max(0.0);
             if margin_right > max_margin_right {
+                // Trim the colorbar inset by the same amount we trim from the margin so
+                // the bar + labels stay inside the (reduced) right margin; the renderer
+                // then shrinks the label font to fit the narrower band rather than clip.
+                let trim = margin_right - max_margin_right;
+                // Floor: bar + tick mark + a sliver for the label. add_colorbar_at then
+                // shrinks the label font to fit; at pathologically narrow fixed widths the
+                // 6px font floor there can still overrun, so no-clip is best-effort below
+                // roughly a `2.5 * colorbar_x_inset`-wide canvas.
+                let min_inset = 20.0 * s + tick_mark_major_px + 5.0 * s;
+                colorbar_x_inset = (colorbar_x_inset - trim).max(min_inset);
                 margin_right = max_margin_right;
             }
         }
@@ -2816,7 +2872,7 @@ impl ComputedLayout {
             annotation_arrow_len: 8.0 * s,
             annotation_arrow_half_w: 4.0 * s,
             colorbar_bar_width: 20.0 * s,
-            colorbar_x_inset: 65.0 * s,
+            colorbar_x_inset,
             x_scale: 0.0,
             x_offset: 0.0,
             y_scale: 0.0,
@@ -2964,5 +3020,84 @@ impl ComputedLayout {
         c.y_tick_format = self.y2_tick_format.clone();
         c.recompute_transforms();
         c
+    }
+}
+
+/// The numeric values a plot's colorbar will label. Used only to size the colorbar's
+/// label reservation; the actual labels are formatted at render time. Returns `None`
+/// for plots without a colorbar.
+fn colorbar_tick_values_for(plot: &Plot) -> Option<Vec<f64>> {
+    match plot {
+        Plot::Hexbin(hb) if hb.show_colorbar => {
+            let (lo, hi) = hexbin_color_extent_estimate(hb);
+            Some(count_or_linear_tick_values(lo, hi, hb.log_color))
+        }
+        Plot::Histogram2d(h2d) => {
+            let max = h2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
+            Some(count_or_linear_tick_values(0.0, max, h2d.log_count))
+        }
+        other => {
+            let info = other.colorbar_info()?;
+            Some(render_utils::generate_ticks(
+                info.min_value,
+                info.max_value,
+                5,
+            ))
+        }
+    }
+}
+
+/// Power-of-ten count values (`0, 1, 10, … , data-max`) for a log colorbar, or nice
+/// linear ticks otherwise. Mirrors the values the count/log colorbar actually labels.
+fn count_or_linear_tick_values(lo: f64, hi: f64, log: bool) -> Vec<f64> {
+    if log {
+        let span = (hi - lo).max(0.0);
+        let mut values = vec![0.0];
+        let mut k = 0u32;
+        loop {
+            let decade = 10_f64.powi(k as i32);
+            if decade > span {
+                break;
+            }
+            values.push(decade);
+            k += 1;
+        }
+        // Skip the data-max push when it coincides with the last decade (exact power of ten).
+        if values.last() != Some(&span) {
+            values.push(span);
+        }
+        values
+    } else {
+        render_utils::generate_ticks(lo, hi, 5)
+    }
+}
+
+/// Estimate the `(min, max)` of a hexbin's colour values *without binning* (which would
+/// be circular with the margins we are computing). The exact per-hex maximum is unknown
+/// here, so we use a data-derived bound; the render-time shrink-to-fit guarantees labels
+/// never clip even when this under- or over-estimates.
+fn hexbin_color_extent_estimate(hb: &HexbinPlot) -> (f64, f64) {
+    if let Some(range) = hb.color_range {
+        return range;
+    }
+    let n = (hb.x.len() as f64).max(1.0);
+    match hb.z_reduce {
+        ZReduce::Count if hb.normalize => (0.0, 1.0),
+        ZReduce::Count => (1.0, n),
+        // Mean/Sum/Min/Max/Median are bounded by the z extent (Sum can exceed it per
+        // hex, but the exact per-hex value needs binning; the z extent is a fine width
+        // proxy and shrink-to-fit covers any shortfall).
+        _ => match &hb.z {
+            Some(z) => {
+                let lo = z.iter().cloned().fold(f64::INFINITY, f64::min);
+                let hi = z.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                if lo.is_finite() && hi.is_finite() {
+                    (lo, hi)
+                } else {
+                    (1.0, n)
+                }
+            }
+            None => (1.0, n),
+        },
     }
 }

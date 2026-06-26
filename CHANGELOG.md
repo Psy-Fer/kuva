@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Colorbar tick labels no longer clip at the canvas edge** — the colorbar's right-margin reservation was a fixed `90 px`, so a wide tick label (e.g. a 6-digit `100000` on a large-count hexbin) overran the 30 px label allotment and clipped against the canvas edge. The reservation and the colorbar's horizontal inset are now sized to the widest tick label, measured *after* applying `with_colorbar_tick_format` (`Layout::auto_from_plots` collects the colorbar's tick values so the width can be computed once the final format is known). When the canvas width is fixed too narrow for the full reservation, the tick-label font is shrunk to fit the available band rather than clipping. Hand-built layouts (no `auto_from_plots`) keep the previous fixed reservation.
+
+---
+
 ## [0.3.0] — 2026-06-19
 
 ### Added
