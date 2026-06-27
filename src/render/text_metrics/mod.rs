@@ -26,10 +26,6 @@
 //! font); a close, fails-safe prediction for bare SVG (the consumer picks the
 //! font, but the cascade resolves to DejaVu or a near-metric-match like Verdana).
 
-// The proxy call sites are migrated to this module in the following commit; until
-// then its functions have no callers. Removed once they are wired in.
-#![allow(dead_code)]
-
 use std::sync::OnceLock;
 
 mod data;
@@ -41,16 +37,24 @@ const FALLBACK_ADVANCE_UNITS: u16 = data::UNITS_PER_EM;
 
 /// Which face to measure against. Each variant has its own advance table; do not
 /// assume any two share metrics (they do not, across the full character set).
+///
+/// `Italic`/`BoldItalic` (and [`FontStyle::from_flags`]) complete the API so
+/// callers can measure italic text correctly — the faces genuinely differ — but
+/// no current width site measures italic text, so they carry `allow(dead_code)`
+/// until one does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FontStyle {
     Regular,
+    #[allow(dead_code)]
     Italic,
     Bold,
+    #[allow(dead_code)]
     BoldItalic,
 }
 
 impl FontStyle {
     /// Builds a style from independent bold/italic flags (the common call-site shape).
+    #[allow(dead_code)]
     pub(crate) fn from_flags(bold: bool, italic: bool) -> Self {
         match (bold, italic) {
             (false, false) => FontStyle::Regular,

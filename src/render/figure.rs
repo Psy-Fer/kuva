@@ -5,6 +5,7 @@ use crate::render::render::{
     collect_legend_entries, render_legend_at, render_multiple, render_twin_y, Primitive, Scene,
     TextAnchor,
 };
+use crate::render::text_metrics::{widest_text_width, FontStyle};
 
 #[derive(Debug, Clone)]
 pub enum FigureLegendPosition {
@@ -478,8 +479,8 @@ impl Figure {
             if entries.is_empty() {
                 (0.0, 0.0)
             } else {
-                let max_label_len = entries.iter().map(|e| e.label.len()).max().unwrap_or(0);
-                let w = (max_label_len as f64 * 7.0 + 35.0).max(80.0);
+                let labels = entries.iter().map(|e| e.label.as_str());
+                let w = (widest_text_width(labels, 12.0, FontStyle::Regular) + 35.0).max(80.0);
                 let line_h = user_layouts.first().map_or(12, |l| l.body_size) as f64 * 1.5;
                 let h = entries.len() as f64 * line_h + 20.0;
                 (w, h)

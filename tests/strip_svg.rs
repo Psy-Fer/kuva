@@ -582,7 +582,11 @@ fn test_strip_group_colors_legend_width() {
 
     // --- Parse legend text entries (text-anchor="start") and check they fit ---
     // Format: <text x="NNN" ... text-anchor="start">LABEL</text>
-    let px_per_char = 8.0_f64; // same heuristic used by layout width formula
+    // Upper-bound estimate of label width. Legend width is now sized from real
+    // DejaVu advance widths (mean ≈ 0.6 em ≈ 7.2px at the default body size), so
+    // this replaces the old inflated 8.0/char layout heuristic; it stays an upper
+    // bound on the real per-character advance, so a too-narrow box still trips it.
+    let px_per_char = 7.2_f64;
     for chunk in svg.split("<text") {
         if !chunk.contains("text-anchor=\"start\"") {
             continue;

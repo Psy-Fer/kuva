@@ -702,15 +702,6 @@ pub fn linkage_to_nodes(
 
 // ── Text utilities ───────────────────────────────────────────────────────────
 
-/// Estimate the rendered pixel width of `text` at the given `font_size`.
-///
-/// Uses a fixed character-width-to-font-size ratio of 0.6, which is the
-/// standard heuristic used throughout the layout and rendering code.
-#[allow(dead_code)]
-pub(crate) fn estimate_text_width(text: &str, font_size: f64) -> f64 {
-    text.chars().count() as f64 * font_size * 0.6
-}
-
 /// Wrap `text` if `max_chars` is `Some`, otherwise return the text as a single-element vec.
 ///
 /// Convenience wrapper around [`wrap_text`] for call sites that hold an
@@ -795,26 +786,6 @@ pub fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── estimate_text_width ──────────────────────────────────────────────
-
-    #[test]
-    fn text_width_ascii() {
-        let w = estimate_text_width("Hello", 10.0);
-        assert!((w - 30.0).abs() < 1e-9); // 5 chars * 10 * 0.6
-    }
-
-    #[test]
-    fn text_width_empty() {
-        assert!((estimate_text_width("", 14.0)).abs() < 1e-9);
-    }
-
-    #[test]
-    fn text_width_unicode() {
-        // 4 characters (c, a, f, é), each counted once regardless of byte length
-        let w = estimate_text_width("café", 10.0);
-        assert!((w - 24.0).abs() < 1e-9);
-    }
 
     // ── wrap_text ────────────────────────────────────────────────────────
 
