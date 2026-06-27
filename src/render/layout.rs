@@ -146,6 +146,20 @@ pub enum AxisLine {
     Box,
 }
 
+/// Records a candidate legend label for auto-sizing. Updates both the longest
+/// character count (used for column-count layout) and the widest *measured*
+/// width (used for the width reservation). `bonus_chars` is non-text width —
+/// markers, swatches, suffixes — expressed in character units; it is kept as a
+/// mean-width estimate since there is no glyph to measure. Measured at the
+/// default body size (12) the legend renders at.
+fn note_legend_label(max_chars: &mut usize, max_width: &mut f64, label: &str, bonus_chars: usize) {
+    const BODY: f64 = 12.0;
+    *max_chars = (*max_chars).max(label.chars().count() + bonus_chars);
+    *max_width = max_width.max(
+        measure_text_width(label, BODY, FontStyle::Regular) + bonus_chars as f64 * mean_char_width(BODY),
+    );
+}
+
 impl From<&str> for AxisLine {
     fn from(value: &str) -> Self {
         match value.to_ascii_lowercase().replace('_', "-").as_str() {
@@ -549,6 +563,7 @@ impl Layout {
         // (bar, histogram, stacked-area, etc.).  When false, the axis fits the data.
         let mut anchor_y_zero: bool = false;
         let mut max_label_len: usize = 0;
+        let mut max_label_w: f64 = 0.0;
         let mut legend_entry_count: usize = 0;
         let mut brick_has_notations: bool = false;
         let mut has_brick: bool = false;
@@ -597,10 +612,10 @@ impl Layout {
                     if sp.group_colors.is_some() {
                         // Legend entries are the per-group labels (see collect_legend_entries)
                         for g in &sp.groups {
-                            max_label_len = max_label_len.max(g.label.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                         }
                     } else {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
             }
@@ -645,7 +660,7 @@ impl Layout {
                 if rp.legend_label.is_some() {
                     has_legend = true;
                     for g in &rp.groups {
-                        max_label_len = max_label_len.max(g.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
             }
@@ -669,7 +684,7 @@ impl Layout {
                 if let Some(ref ll) = bp.legend_label {
                     has_legend = true;
                     for l in ll {
-                        max_label_len = max_label_len.max(l.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, l, 0);
                     }
                 }
             }
@@ -677,21 +692,21 @@ impl Layout {
             if let Plot::Scatter(sp) = plot {
                 if let Some(ref label) = sp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
             if let Plot::Line(lp) = plot {
                 if let Some(ref label) = lp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
             if let Plot::Series(sp) = plot {
                 if let Some(ref label) = sp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
             if let Plot::Brick(bp) = plot {
@@ -709,7 +724,7 @@ impl Layout {
                     // +1 when mark_primary is set: the primary entry gets a trailing '*'
                     let mark_bonus = if bp.mark_primary { 1 } else { 0 };
                     for v in motifs.values() {
-                        max_label_len = max_label_len.max(v.len() + mark_bonus);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, v, mark_bonus);
                     }
                 }
                 // Reserve vertical space for per-block notation labels when enabled.
@@ -733,7 +748,7 @@ impl Layout {
                         } else {
                             slice.label.clone()
                         };
-                        max_label_len = max_label_len.max(entry_label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &entry_label, 0);
                     }
                 }
             }
@@ -750,14 +765,14 @@ impl Layout {
             if let Plot::Volcano(vp) = plot {
                 if vp.legend_label.is_some() {
                     has_legend = true;
-                    max_label_len = max_label_len.max(4); // "Down"
+                    note_legend_label(&mut max_label_len, &mut max_label_w, "Down", 0);
                 }
             }
 
             if let Plot::Manhattan(mp) = plot {
                 if mp.legend_label.is_some() {
                     has_legend = true;
-                    max_label_len = max_label_len.max(12); // "Genome-wide"
+                    note_legend_label(&mut max_label_len, &mut max_label_w, "Genome-wide", 0);
                 }
                 has_manhattan = true;
             }
@@ -774,14 +789,14 @@ impl Layout {
                 if dp.size_label.is_some() {
                     has_legend = true;
                     // Entry labels are short numbers like "100.0" (5 chars)
-                    max_label_len = max_label_len.max(5);
+                    note_legend_label(&mut max_label_len, &mut max_label_w, "", 5);
                 }
             }
 
             if let Plot::StackedArea(sa) = plot {
                 for label in sa.labels.iter().flatten() {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
@@ -789,7 +804,7 @@ impl Layout {
                 if sg.legend_label.is_some() {
                     for label in sg.labels.iter().flatten() {
                         has_legend = true;
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
             }
@@ -804,23 +819,24 @@ impl Layout {
                 if !dp.dot_legend.is_empty() {
                     has_legend = true;
                     for (label, _) in &dp.dot_legend {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
                 if let Some(ref title) = dp.position_legend_label {
                     has_legend = true;
                     // Title is centre-anchored — needs same headroom as entry labels.
-                    max_label_len = max_label_len.max(title.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, title, 0);
                     for label in &dp.category_labels {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
                 if let Some(ref title) = dp.size_legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(title.len()).max(5);
+                    note_legend_label(&mut max_label_len, &mut max_label_w, title, 0);
+                    note_legend_label(&mut max_label_len, &mut max_label_w, "", 5);
                 }
                 for label in &dp.y_categories {
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
@@ -832,7 +848,7 @@ impl Layout {
                 }
                 if let Some(ref label) = cp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
@@ -843,7 +859,7 @@ impl Layout {
                 if let Some(ref label) = cp.legend_label {
                     if !cp.filled {
                         has_legend = true;
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
             }
@@ -852,7 +868,7 @@ impl Layout {
                 if cp.legend_label.is_some() {
                     has_legend = true;
                     for label in &cp.labels {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
             }
@@ -861,7 +877,7 @@ impl Layout {
                 if sp.legend_label.is_some() {
                     has_legend = true;
                     for node in &sp.nodes {
-                        max_label_len = max_label_len.max(node.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &node.label, 0);
                     }
                 }
             }
@@ -871,12 +887,12 @@ impl Layout {
                     has_legend = true;
                     for s in &rp.series {
                         if let Some(ref lbl) = s.label {
-                            max_label_len = max_label_len.max(lbl.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, lbl, 0);
                         }
                     }
                     for r in &rp.references {
                         if let Some(ref lbl) = r.label {
-                            max_label_len = max_label_len.max(lbl.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, lbl, 0);
                         }
                     }
                 }
@@ -890,14 +906,14 @@ impl Layout {
                     for node in &net.nodes {
                         if let Some(ref g) = node.group {
                             if !seen_groups.contains(&g.as_str()) {
-                                max_label_len = max_label_len.max(g.len());
+                                note_legend_label(&mut max_label_len, &mut max_label_w, g, 0);
                                 seen_groups.push(g);
                             }
                         }
                     }
                     if seen_groups.is_empty() {
                         for node in &net.nodes {
-                            max_label_len = max_label_len.max(node.label.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, &node.label, 0);
                         }
                     }
                 }
@@ -907,8 +923,8 @@ impl Layout {
                 if t.legend_label.is_some() {
                     has_legend = true;
                     for (node_id, _) in &t.clade_colors {
-                        let llen = t.nodes[*node_id].label.as_deref().unwrap_or("").len();
-                        max_label_len = max_label_len.max(llen);
+                        let lbl = t.nodes[*node_id].label.as_deref().unwrap_or("");
+                        note_legend_label(&mut max_label_len, &mut max_label_w, lbl, 0);
                     }
                 }
             }
@@ -917,7 +933,7 @@ impl Layout {
                 if sp.legend_label.is_some() {
                     has_legend = true;
                     for seq in &sp.sequences {
-                        max_label_len = max_label_len.max(seq.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &seq.label, 0);
                     }
                 }
             }
@@ -925,21 +941,21 @@ impl Layout {
             if let Plot::Density(dp) = plot {
                 if let Some(ref label) = dp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
             if let Plot::Lollipop(lp) = plot {
                 if let Some(ref label) = lp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
             if let Plot::Quiver(q) = plot {
                 if let Some(ref label) = q.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
@@ -947,7 +963,7 @@ impl Layout {
                 if sp.legend_label.is_some() {
                     has_legend = true;
                     for g in &sp.groups {
-                        max_label_len = max_label_len.max(g.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
             }
@@ -957,7 +973,7 @@ impl Layout {
                     has_legend = true;
                     for g in &roc.groups {
                         // Label + "  (AUC = 0.xxx)" suffix = 16 chars
-                        max_label_len = max_label_len.max(g.label.len() + 16);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 16);
                     }
                 }
             }
@@ -967,7 +983,7 @@ impl Layout {
                     has_legend = true;
                     for g in &pr.groups {
                         // Label + "  (AUC-PR = 0.xxx)" suffix = 18 chars
-                        max_label_len = max_label_len.max(g.label.len() + 18);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 18);
                     }
                 }
             }
@@ -979,15 +995,15 @@ impl Layout {
                     has_legend = true;
                     if sp.color_by_direction {
                         // "Decrease" is the longest direction label (8 chars)
-                        max_label_len = max_label_len.max(8);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, "", 8);
                     } else if let Some(ref gc) = sp.group_colors {
                         // Per-group: use point labels
                         let _ = gc;
                         for p in &sp.points {
-                            max_label_len = max_label_len.max(p.label.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, &p.label, 0);
                         }
                     } else {
-                        max_label_len = max_label_len.max(5);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, "", 5);
                     }
                 }
             }
@@ -997,7 +1013,7 @@ impl Layout {
                 y_labels = Some(fp.rows.iter().rev().map(|r| r.label.clone()).collect());
                 if let Some(ref label) = fp.legend_label {
                     has_legend = true;
-                    max_label_len = max_label_len.max(label.len());
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                 }
             }
 
@@ -1007,7 +1023,7 @@ impl Layout {
                 if rp.show_legend {
                     has_legend = true;
                     for g in &rp.groups {
-                        max_label_len = max_label_len.max(g.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
             }
@@ -1030,7 +1046,7 @@ impl Layout {
                     has_legend = true;
                     let series = bp.resolved_series();
                     for s in &series {
-                        max_label_len = max_label_len.max(s.name.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &s.name, 0);
                     }
                 }
                 if bp.show_series_labels {
@@ -1052,7 +1068,7 @@ impl Layout {
                     has_legend = true;
                     for s in &pp.series {
                         if let Some(ref lbl) = s.label {
-                            max_label_len = max_label_len.max(lbl.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, lbl, 0);
                         }
                     }
                 }
@@ -1062,7 +1078,7 @@ impl Layout {
                 if tp.show_legend {
                     has_legend = true;
                     for g in tp.unique_groups() {
-                        max_label_len = max_label_len.max(g.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g, 0);
                     }
                 }
             }
@@ -1071,7 +1087,7 @@ impl Layout {
                 if vp.legend_label.is_some() {
                     has_legend = true;
                     for s in &vp.sets {
-                        max_label_len = max_label_len.max(s.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &s.label, 0);
                     }
                 }
             }
@@ -1080,7 +1096,7 @@ impl Layout {
                 if pp.legend_label.is_some() {
                     has_legend = true;
                     for g in pp.groups() {
-                        max_label_len = max_label_len.max(g.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g, 0);
                     }
                 }
             }
@@ -1089,7 +1105,7 @@ impl Layout {
                 if mp.legend_label.is_some() {
                     has_legend = true;
                     for row in mp.effective_row_order() {
-                        max_label_len = max_label_len.max(row.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &row, 0);
                     }
                 }
             }
@@ -1098,7 +1114,7 @@ impl Layout {
                 if ep.legend_label.is_some() {
                     has_legend = true;
                     for g in &ep.groups {
-                        max_label_len = max_label_len.max(g.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
             }
@@ -1107,7 +1123,7 @@ impl Layout {
                 if qp.legend_label.is_some() {
                     has_legend = true;
                     for g in &qp.groups {
-                        max_label_len = max_label_len.max(g.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
             }
@@ -1120,7 +1136,7 @@ impl Layout {
             };
             if let Some(label) = legend_3d {
                 has_legend = true;
-                max_label_len = max_label_len.max(label.len());
+                note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
             }
             if cmap_3d {
                 has_colorbar = true;
@@ -1130,7 +1146,7 @@ impl Layout {
                 if fp.legend_label.is_some() {
                     has_legend = true;
                     for s in &fp.stages {
-                        max_label_len = max_label_len.max(s.label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &s.label, 0);
                     }
                 }
             }
@@ -1139,7 +1155,7 @@ impl Layout {
                 if rp.legend_label.is_some() {
                     has_legend = true;
                     for s in &rp.series {
-                        max_label_len = max_label_len.max(s.name.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &s.name, 0);
                     }
                 }
             }
@@ -1163,7 +1179,7 @@ impl Layout {
                             .max(pp.right_label.len());
                     } else {
                         for s in &pp.series {
-                            max_label_len = max_label_len.max(s.label.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, &s.label, 0);
                         }
                     }
                 }
@@ -1176,7 +1192,7 @@ impl Layout {
                     if hp.show_legend {
                         has_legend = true;
                         for s in &hp.series {
-                            max_label_len = max_label_len.max(s.label.len());
+                            note_legend_label(&mut max_label_len, &mut max_label_w, &s.label, 0);
                         }
                     }
                     if hp.show_value_labels || hp.show_sign_colors {
@@ -1195,11 +1211,11 @@ impl Layout {
                     let labels_top_to_bottom = gp.row_labels();
                     y_labels = Some(labels_top_to_bottom.into_iter().rev().collect());
                     for label in gp.row_labels() {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &label, 0);
                     }
                     if let Some(ref lbl) = gp.legend_label {
                         has_legend = true;
-                        max_label_len = max_label_len.max(lbl.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, lbl, 0);
                     }
                     // Reserve right margin for milestone labels and outside-bar labels
                     // drawn post-clip at font_size≈11, plus gap+diamond.
@@ -1227,7 +1243,7 @@ impl Layout {
                     );
                     for (i, cat) in wp.categories.iter().enumerate() {
                         let label = waffle_legend_label(cat, i, total, &counts, wp);
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &label, 0);
                     }
                 }
             }
@@ -1332,7 +1348,7 @@ impl Layout {
             layout.legend_max_label_chars = max_label_len;
             // Auto-collected entries: only the char count survived accumulation, so
             // estimate from the mean character width rather than a concrete string.
-            let dynamic_width = max_label_len as f64 * mean_char_width(layout.body_size as f64) + 40.0;
+            let dynamic_width = max_label_w + 40.0;
             layout.legend_auto_width = layout.legend_auto_width.max(dynamic_width.max(80.0));
             layout.refresh_legend_width();
             if has_brick {
@@ -3041,5 +3057,45 @@ impl ComputedLayout {
         c.y_tick_format = self.y2_tick_format.clone();
         c.recompute_transforms();
         c
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Layout;
+    use crate::plot::StripPlot;
+    use crate::render::plots::Plot;
+    use crate::render::text_metrics::{measure_text_width, FontStyle};
+
+    /// Auto-collected legend width must be sized from the real measured width of the
+    /// widest entry label — not its character count, and not a different (shorter)
+    /// string. Regression for an auto legend (e.g. group-coloured strip) reserving
+    /// too little for a label with above-average-width glyphs.
+    #[test]
+    fn auto_legend_width_fits_widest_measured_label() {
+        let long = "A Much Longer Category Label";
+        let strip = StripPlot::new()
+            .with_group("Short", vec![1.0, 2.0, 3.0])
+            .with_group(long, vec![1.5, 2.5, 3.5])
+            .with_group("Medium Label", vec![2.0, 3.0, 4.0])
+            .with_group_colors(vec!["steelblue", "tomato", "seagreen"])
+            .with_legend("groups");
+        let layout = Layout::auto_from_plots(&[Plot::Strip(strip)]);
+
+        // The legend renders at the default body size (12); the box must hold the
+        // widest group label plus the swatch + gap offset (legend_text_x = 25px).
+        let widest = measure_text_width(long, 12.0, FontStyle::Regular);
+        assert!(
+            layout.legend_width >= widest + 25.0,
+            "legend_width {:.1} must fit the widest group label (needs >= {:.1})",
+            layout.legend_width,
+            widest + 25.0
+        );
+        // ...and be driven by that label, not the short legend label "groups".
+        let short = measure_text_width("groups", 12.0, FontStyle::Regular);
+        assert!(
+            layout.legend_width > short + 25.0,
+            "legend_width must track the group labels, not the legend label"
+        );
     }
 }
