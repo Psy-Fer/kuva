@@ -15919,6 +15919,17 @@ fn joint_draw_right_marginal(
     });
 }
 
+/// Legend box width for a joint plot, sized to its widest group label. `JointPlot`
+/// renders its own legend, so it doesn't pass through `auto_from_plots`; this gives
+/// it the same content-hugging width (swatch + gap + measured text + padding).
+fn jointplot_legend_width(jp: &crate::plot::jointplot::JointPlot, body_size: f64) -> f64 {
+    widest_text_width(
+        jp.groups.iter().filter_map(|g| g.scatter.legend_label.as_deref()),
+        body_size,
+        FontStyle::Regular,
+    ) + 41.0
+}
+
 /// Inner drawing routine for `JointPlot` — populates an existing `scene` using
 /// `computed.width` / `computed.height` as the total canvas and `title_offset_y`
 /// as vertical space already consumed by a title drawn outside this call.
@@ -15950,6 +15961,14 @@ fn add_jointplot(
     let has_legend = jp.groups.iter().any(|g| g.scatter.legend_label.is_some());
     let legend_after_right = has_legend && jp.show_right;
     let legend_in_scatter = (show_legend || has_legend) && !jp.show_right;
+
+    // Size the legend box to the widest group label rather than the generic
+    // `legend_width` default (which is not derived from these labels).
+    let legend_width = if has_legend {
+        jointplot_legend_width(jp, computed.body_size as f64)
+    } else {
+        legend_width
+    };
 
     // In figure context the cell width is fixed, so we must carve space for every
     // component upfront: scatter | right_gap | right_marginal | legend_gap | legend.
@@ -16171,7 +16190,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     let has_legend = jp.groups.iter().any(|g| g.scatter.legend_label.is_some());
     let legend_after_right = has_legend && jp.show_right;
     let legend_extra_w = if legend_after_right {
-        layout.legend_width + 20.0
+        jointplot_legend_width(&jp, layout.body_size as f64) + 20.0
     } else {
         0.0
     };
