@@ -972,8 +972,12 @@ impl Layout {
                 if roc.legend_label.is_some() {
                     has_legend = true;
                     for g in &roc.groups {
-                        // Label + "  (AUC = 0.xxx)" suffix = 16 chars
-                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 16);
+                        // Measure the label plus the fixed "  (AUC = x.xxx)" suffix that
+                        // is appended at render time (digits are tabular, so the actual
+                        // value doesn't change the width) rather than estimating its
+                        // character count.
+                        let full = format!("{}  (AUC = 0.000)", g.label);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &full, 0);
                     }
                 }
             }
@@ -982,8 +986,10 @@ impl Layout {
                 if pr.legend_label.is_some() {
                     has_legend = true;
                     for g in &pr.groups {
-                        // Label + "  (AUC-PR = 0.xxx)" suffix = 18 chars
-                        note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 18);
+                        // Measure the label plus the fixed "  (AUC-PR = x.xxx)" suffix
+                        // appended at render time, rather than estimating its char count.
+                        let full = format!("{}  (AUC-PR = 0.000)", g.label);
+                        note_legend_label(&mut max_label_len, &mut max_label_w, &full, 0);
                     }
                 }
             }
@@ -1346,10 +1352,9 @@ impl Layout {
             layout = layout.with_show_legend();
             layout.legend_entry_count = legend_entry_count;
             layout.legend_max_label_chars = max_label_len;
-            // Auto-collected entries: only the char count survived accumulation, so
-            // estimate from the mean character width rather than a concrete string.
+            // Fit the widest measured entry label plus swatch + gap + padding.
             let dynamic_width = max_label_w + 40.0;
-            layout.legend_auto_width = layout.legend_auto_width.max(dynamic_width.max(80.0));
+            layout.legend_auto_width = layout.legend_auto_width.max(dynamic_width);
             layout.refresh_legend_width();
             if has_brick {
                 layout.legend_entry_limit = 20;
@@ -1674,10 +1679,10 @@ impl Layout {
         };
     }
 
-    /// Width the legend box must reserve to fit an entry label (swatch + gap + text),
-    /// floored at the minimum box width.
+    /// Width the legend box must reserve to fit an entry label (swatch + gap + text).
+    /// No minimum is imposed — the box hugs its content; `with_legend_width` can widen it.
     fn entry_label_box_width(&self, label_width: f64) -> f64 {
-        (label_width + 41.0).max(80.0)
+        label_width + 41.0
     }
 
     /// Supply `Vec<LegendEntry>` directly, bypassing auto-collection from plot data.
@@ -1720,7 +1725,7 @@ impl Layout {
     pub fn with_legend_title<S: Into<String>>(mut self, title: S) -> Self {
         let t = title.into();
         // Title is centre-anchored; needs legend_width >= title_px + 10 to stay inside the box.
-        let needed = (measure_text_width(&t, self.body_size as f64, FontStyle::Bold) + 10.0).max(80.0);
+        let needed = measure_text_width(&t, self.body_size as f64, FontStyle::Bold) + 10.0;
         self.legend_auto_width = self.legend_auto_width.max(needed);
         self.refresh_legend_width();
         self.legend_title = Some(t);
@@ -1737,8 +1742,7 @@ impl Layout {
     ) -> Self {
         let t = title.into();
         // Group title is start-anchored at legend_x+5; needs legend_width >= title_px + 10.
-        let needed_title =
-            (measure_text_width(&t, self.body_size as f64, FontStyle::Bold) + 10.0).max(80.0);
+        let needed_title = measure_text_width(&t, self.body_size as f64, FontStyle::Bold) + 10.0;
         // Entry labels start at legend_x+25 (after swatch); same basis as with_legend_entries.
         let widest_entry = widest_text_width(
             entries.iter().map(|e| e.label.as_str()),
@@ -2616,7 +2620,7 @@ impl ComputedLayout {
         // Effective legend width: capped when legend_wrap is set.
         let mut effective_legend_width = if let Some(max_chars) = layout.legend_wrap {
             let cap = max_chars as f64 * mean_char_width(layout.body_size as f64) * s + 41.0 * s;
-            (layout.legend_width * s).min(cap).max(80.0 * s)
+            (layout.legend_width * s).min(cap)
         } else {
             layout.legend_width * s
         };
