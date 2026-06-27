@@ -2483,7 +2483,15 @@ impl ComputedLayout {
                 _ => 10.0 * mean_char_width(tick_size),
             };
             let angle_rad = angle.abs() * std::f64::consts::PI / 180.0;
-            let needed = label_px * angle_rad.sin() + tick_size + tick_mark_major_px + 10.0 * s;
+            // The x-axis title (if present) is drawn below the rotated tick labels, so
+            // reserve a line for it. The dominant `label_px * sin` term would otherwise
+            // crowd it out: the `.max()` floor below does include `label_size`, but it
+            // only wins for short labels, leaving long-label plots with no room for the
+            // title (it then overlaps the lowest tick label). Wrapped title lines beyond
+            // the first are added separately further down.
+            let title_extra = if layout.x_label.is_some() { label_size + 6.0 * s } else { 0.0 };
+            let needed =
+                label_px * angle_rad.sin() + tick_size + tick_mark_major_px + 10.0 * s + title_extra;
             needed.max(tick_size + label_size + tick_mark_major_px + 20.0 * s)
         } else {
             tick_size + label_size + tick_mark_major_px + 20.0 * s
