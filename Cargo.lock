@@ -1005,6 +1005,7 @@ dependencies = [
  "rand_distr",
  "ryu",
  "svg2pdf",
+ "ttf-parser 0.25.1",
 ]
 
 [[package]]

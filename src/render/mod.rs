@@ -15,4 +15,5 @@ pub mod projection;
 #[allow(clippy::module_inception)]
 pub mod render;
 pub mod render_utils;
+pub mod text_metrics;
 pub mod theme;
