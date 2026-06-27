@@ -2530,8 +2530,17 @@ impl ComputedLayout {
                 ticks_log.iter().map(|&v| render_utils::format_log_tick(v)).collect();
             widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, FontStyle::Regular)
                 .max(tick_size * 2.0)
-        } else if layout.y_datetime.is_some() {
-            tick_size * 5.0 // datetime labels vary; ~5 char-widths is a reasonable default
+        } else if let Some(ref dt) = layout.y_datetime {
+            // Generate the actual datetime tick labels and measure the widest, so the
+            // left margin fits long formats (e.g. "2026-01-15 12:00") rather than a flat
+            // ~5 char-width guess that clipped them.
+            let labels: Vec<String> = dt
+                .generate_ticks(layout.y_range.0, layout.y_range.1)
+                .iter()
+                .map(|&v| dt.format_tick(v))
+                .collect();
+            widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, FontStyle::Regular)
+                .max(tick_size * 2.0)
         } else {
             // Generate a preliminary set of tick values from the raw y_range (no auto-ranging
             // yet) and format them to find the widest label string.  Using layout.y_range
@@ -2618,8 +2627,20 @@ impl ComputedLayout {
         } else {
             1
         };
-        let y2_axis_width = if layout.y2_range.is_some() && !layout.suppress_y2_ticks {
-            label_size * y2_label_lines as f64 + tick_size * 3.0 + 15.0 * s
+        let y2_axis_width = if let (Some((y2_min, y2_max)), false) =
+            (layout.y2_range, layout.suppress_y2_ticks)
+        {
+            // Measure the actual secondary-axis tick labels rather than assuming a flat
+            // ~3 char-widths, which clipped wide right-axis numbers.
+            let n = if layout.ticks > 0 { layout.ticks } else { 5 };
+            let labels: Vec<String> = render_utils::generate_ticks(y2_min, y2_max, n)
+                .iter()
+                .map(|&v| layout.y2_tick_format.format(v))
+                .collect();
+            let y2_tick_label_px =
+                widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, FontStyle::Regular)
+                    .max(tick_size * 2.0);
+            label_size * y2_label_lines as f64 + y2_tick_label_px + 15.0 * s
         } else {
             0.0
         };
