@@ -240,7 +240,16 @@ pub struct Layout {
     pub show_legend: bool,
     pub show_colorbar: bool,
     pub legend_position: LegendPosition,
+    /// Final legend width in px. Always re-derived (via `refresh_legend_width`) from
+    /// `legend_auto_width` and `legend_width_override`, so it is independent of the
+    /// order in which the `with_legend_*` builders are called.
     pub legend_width: f64,
+    /// Largest content-driven legend width seen so far (entries, group titles/entries,
+    /// secondary-axis labels, auto-collected labels). Accumulated by `max`, so call
+    /// order does not matter.
+    pub(crate) legend_auto_width: f64,
+    /// Explicit width from `with_legend_width`; wins over `legend_auto_width`.
+    pub(crate) legend_width_override: Option<f64>,
     /// Manual legend entries. When `Some`, replaces auto-collection from plot data.
     pub legend_entries: Option<Vec<LegendEntry>>,
     /// Optional title rendered as a bold header above legend entries.
@@ -428,6 +437,8 @@ impl Layout {
             show_colorbar: false,
             legend_position: LegendPosition::OutsideRightTop,
             legend_width: 120.0,
+            legend_auto_width: 0.0,
+            legend_width_override: None,
             legend_entries: None,
             legend_title: None,
             legend_groups: None,
@@ -1322,7 +1333,8 @@ impl Layout {
             // Auto-collected entries: only the char count survived accumulation, so
             // estimate from the mean character width rather than a concrete string.
             let dynamic_width = max_label_len as f64 * mean_char_width(layout.body_size as f64) + 40.0;
-            layout.legend_width = dynamic_width.max(80.0);
+            layout.legend_auto_width = layout.legend_auto_width.max(dynamic_width.max(80.0));
+            layout.refresh_legend_width();
             if has_brick {
                 layout.legend_entry_limit = 20;
             }
@@ -1338,15 +1350,19 @@ impl Layout {
                             .max()
                             .unwrap_or(3);
                         let die_cell_w = (max_cat as f64 * 5.5 + 10.0).max(24.0);
-                        layout.legend_width = layout.legend_width.max(3.0 * die_cell_w + 20.0);
+                        layout.legend_auto_width =
+                            layout.legend_auto_width.max(3.0 * die_cell_w + 20.0);
+                        layout.refresh_legend_width();
                     }
                 }
             }
         }
 
         if has_dot_stacked {
-            // Single column wide enough for the stacked colorbar + size-legend
-            layout.legend_width = 75.0;
+            // Single column sized exactly for the stacked colorbar + size-legend; a firm
+            // override so content sizing can't widen it.
+            layout.legend_width_override = Some(75.0);
+            layout.refresh_legend_width();
         }
 
         if has_colorbar {
@@ -1631,15 +1647,33 @@ impl Layout {
         self
     }
 
+    /// Re-derives `legend_width` from the order-independent content accumulator and any
+    /// explicit override. An override always wins; otherwise the widest content seen so
+    /// far is used, falling back to the default when no content has been measured.
+    fn refresh_legend_width(&mut self) {
+        self.legend_width = match self.legend_width_override {
+            Some(px) => px,
+            None if self.legend_auto_width > 0.0 => self.legend_auto_width,
+            None => 120.0,
+        };
+    }
+
+    /// Width the legend box must reserve to fit an entry label (swatch + gap + text),
+    /// floored at the minimum box width.
+    fn entry_label_box_width(&self, label_width: f64) -> f64 {
+        (label_width + 41.0).max(80.0)
+    }
+
     /// Supply `Vec<LegendEntry>` directly, bypassing auto-collection from plot data.
-    /// Auto-sizes `legend_width` from the longest label.
+    /// Contributes the widest entry to the order-independent legend width.
     pub fn with_legend_entries(mut self, entries: Vec<LegendEntry>) -> Self {
         let widest = widest_text_width(
             entries.iter().map(|e| e.label.as_str()),
             self.body_size as f64,
             FontStyle::Regular,
         );
-        self.legend_width = (widest + 41.0).max(80.0);
+        self.legend_auto_width = self.legend_auto_width.max(self.entry_label_box_width(widest));
+        self.refresh_legend_width();
         self.show_legend = true;
         self.legend_entries = Some(entries);
         self
@@ -1665,15 +1699,14 @@ impl Layout {
         self
     }
 
-    /// Set a bold title row above legend entries.
-    /// Also widens `legend_width` if the title text is wider than the current box.
+    /// Set a bold title row above legend entries. Contributes the title width to the
+    /// order-independent legend width, so the title fits regardless of when it is set.
     pub fn with_legend_title<S: Into<String>>(mut self, title: S) -> Self {
         let t = title.into();
         // Title is centre-anchored; needs legend_width >= title_px + 10 to stay inside the box.
         let needed = (measure_text_width(&t, self.body_size as f64, FontStyle::Bold) + 10.0).max(80.0);
-        if needed > self.legend_width {
-            self.legend_width = needed;
-        }
+        self.legend_auto_width = self.legend_auto_width.max(needed);
+        self.refresh_legend_width();
         self.legend_title = Some(t);
         self
     }
@@ -1696,8 +1729,9 @@ impl Layout {
             self.body_size as f64,
             FontStyle::Regular,
         );
-        let needed_entries = (widest_entry + 41.0).max(80.0);
-        self.legend_width = self.legend_width.max(needed_title).max(needed_entries);
+        let needed_entries = self.entry_label_box_width(widest_entry);
+        self.legend_auto_width = self.legend_auto_width.max(needed_title).max(needed_entries);
+        self.refresh_legend_width();
         self.legend_groups
             .get_or_insert_with(Vec::new)
             .push(LegendGroup { title: t, entries });
@@ -1705,9 +1739,11 @@ impl Layout {
         self
     }
 
-    /// Override the auto-computed legend width. Use when labels overflow the default box.
+    /// Override the auto-computed legend width. Wins over content-derived sizing
+    /// regardless of when it is called relative to the other `with_legend_*` builders.
     pub fn with_legend_width(mut self, px: f64) -> Self {
-        self.legend_width = px;
+        self.legend_width_override = Some(px);
+        self.refresh_legend_width();
         self
     }
 
@@ -2190,10 +2226,13 @@ impl Layout {
         }
         if max_secondary_label_w > 0.0 {
             let needed = max_secondary_label_w + 35.0;
+            // Preserve the original visibility trigger (only show when the secondary
+            // labels actually need more room than already reserved).
             if needed > self.legend_width {
-                self.legend_width = needed;
                 self.show_legend = true;
             }
+            self.legend_auto_width = self.legend_auto_width.max(needed);
+            self.refresh_legend_width();
         }
         self.x_range = (x_min, x_max);
         let raw = (y2_min, y2_max);

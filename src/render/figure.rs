@@ -922,6 +922,8 @@ fn clone_layout(l: &Layout) -> Layout {
     new.show_colorbar = l.show_colorbar;
     new.legend_position = l.legend_position;
     new.legend_width = l.legend_width;
+    new.legend_auto_width = l.legend_auto_width;
+    new.legend_width_override = l.legend_width_override;
     new.legend_entries = l.legend_entries.clone();
     new.legend_title = l.legend_title.clone();
     new.legend_groups = l.legend_groups.clone();
