@@ -11,7 +11,8 @@ use std::sync::Arc;
 /// Default font-family stack applied when the user has not specified a font
 /// and no theme font is set.  Prefers DejaVu Sans (pre-installed on most Linux
 /// systems including HPC clusters), falls back through common sans-serif fonts.
-pub(crate) const DEFAULT_FONT_FAMILY: &str = "DejaVu Sans, Liberation Sans, Arial, sans-serif";
+pub(crate) const DEFAULT_FONT_FAMILY: &str =
+    "DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif";
 
 /// Controls how overlapping x-axis tick labels are handled.
 #[derive(Debug, Clone, Default, PartialEq)]

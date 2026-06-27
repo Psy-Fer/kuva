@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Default font cascade now lists Verdana before the Arial-family fallbacks** — `DEFAULT_FONT_FAMILY` is now `"DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"`. Layout reserves space using DejaVu Sans metrics, but when DejaVu is unavailable (the common case for bare SVG on Windows/macOS, where it is not installed) the consumer substitutes the next family in the cascade. Verdana shares DejaVu's Bitstream Vera lineage and is a near-exact metric match (~1.5% mean width difference vs. ~12% for Arial/Liberation/Helvetica), and ships on essentially all Windows and macOS systems — so labels render at close to the reserved size. Linux still resolves to DejaVu (exact) or Liberation as before.
+
 ## [0.3.0] — 2026-06-19
 
 ### Added
