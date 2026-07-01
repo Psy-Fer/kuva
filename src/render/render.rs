@@ -7662,19 +7662,27 @@ fn add_colorbar_at(
         opacity: None,
     });
 
-    // Tick marks and labels — use custom tick_labels if provided, else auto-generate
+    // Tick marks and labels. Precedence: `tick_values` (positions + raw values,
+    // formatted here through the colorbar tick format) > `tick_labels` (pre-formatted
+    // strings) > auto-generated ticks.
     let range = info.max_value - info.min_value;
-    let auto_ticks: Vec<(f64, String)>;
-    let tick_entries: &[(f64, String)] = if let Some(ref tl) = info.tick_labels {
+    let owned_ticks: Vec<(f64, String)>;
+    let tick_entries: &[(f64, String)] = if let Some(ref tv) = info.tick_values {
+        owned_ticks = tv
+            .iter()
+            .map(|&(pos, value)| (pos, computed.colorbar_tick_format.format(value)))
+            .collect();
+        owned_ticks.as_slice()
+    } else if let Some(ref tl) = info.tick_labels {
         tl.as_slice()
     } else {
         let raw = render_utils::generate_ticks(info.min_value, info.max_value, 5);
-        auto_ticks = raw
+        owned_ticks = raw
             .into_iter()
             .filter(|t| *t >= info.min_value && *t <= info.max_value)
             .map(|t| (t, computed.colorbar_tick_format.format(t)))
             .collect();
-        auto_ticks.as_slice()
+        owned_ticks.as_slice()
     };
 
     // Minimum vertical spacing between adjacent tick labels. Count/log colorbars
@@ -9837,6 +9845,7 @@ fn add_dice_legends(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout)
             max_value: fill_max,
             label: dp.fill_legend_label.clone(),
             tick_labels: None,
+            tick_values: None,
         };
         let bar_x = computed.width - computed.colorbar_x_inset;
         // If the remaining height after stacking the other legend boxes is less than
@@ -17729,12 +17738,15 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
         });
 
     type MapFn = Arc<dyn Fn(f64) -> String + Send + Sync>;
+    // For log colouring the ticks live in log space (`position`) but are labelled with
+    // the raw count (`value`); supplying `(position, value)` pairs lets `add_colorbar_at`
+    // format the labels through `Layout::with_colorbar_tick_format`.
     #[allow(clippy::type_complexity)]
-    let (map_min, map_max, cb_map_fn, tick_labels): (
+    let (map_min, map_max, cb_map_fn, tick_values): (
         f64,
         f64,
         MapFn,
-        Option<Vec<(f64, String)>>,
+        Option<Vec<(f64, f64)>>,
     ) = if hb.log_color {
         let log_max = (v_max - v_min + 1.0).max(1.0).log10().max(f64::EPSILON);
         let mut ticks = Vec::new();
@@ -17744,10 +17756,10 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
             if count > v_max - v_min {
                 break;
             }
-            ticks.push(((count + 1.0).log10(), format!("{}", count as u64)));
+            ticks.push(((count + 1.0).log10(), count));
             k += 1;
         }
-        ticks.push((log_max, format!("{}", (v_max - v_min) as u64)));
+        ticks.push((log_max, v_max - v_min));
         ticks.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
         let lmax = log_max;
         (
@@ -17772,7 +17784,8 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
         min_value: map_min,
         max_value: map_max,
         label: Some(cb_label),
-        tick_labels,
+        tick_labels: None,
+        tick_values,
     };
     add_colorbar(&cb_info, scene, computed);
 }
@@ -18578,6 +18591,7 @@ fn add_treemap_colorbar(tm: &TreemapPlot, scene: &mut Scene, computed: &Computed
         max_value: v_max,
         label: Some(label),
         tick_labels: None,
+        tick_values: None,
     };
     add_colorbar(&cb_info, scene, computed);
 }
@@ -19019,6 +19033,7 @@ fn add_sunburst_colorbar(sb: &SunburstPlot, scene: &mut Scene, computed: &Comput
         max_value: v_max,
         label: Some(label),
         tick_labels: None,
+        tick_values: None,
     };
     add_colorbar(&cb_info, scene, computed);
 }

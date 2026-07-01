@@ -87,4 +87,12 @@ pub struct ColorBarInfo {
     /// When set, overrides auto-generated ticks. Each entry is `(position, label)` where
     /// `position` is in `[min_value, max_value]` space.
     pub tick_labels: Option<Vec<(f64, String)>>,
+    /// When set, overrides auto-generated ticks *and* `tick_labels`. Each entry is
+    /// `(position, value)` where `position` is in `[min_value, max_value]` space and
+    /// `value` is the data value to display; the value is formatted through the
+    /// layout's colorbar tick format at render time. Use this (rather than
+    /// `tick_labels`) when ticks should honour `Layout::with_colorbar_tick_format`,
+    /// e.g. log/count colorbars where positions live in log space but labels are raw
+    /// counts.
+    pub tick_values: Option<Vec<(f64, f64)>>,
 }
