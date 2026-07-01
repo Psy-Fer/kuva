@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Colorbar tick overprint on log/count colorbars** — the log-scale colorbar (hexbin and 2-D histogram with log colouring) appends a tick at the exact data maximum in addition to the nearest power-of-ten tick. In log space the two can sit a fraction of a decade apart, so their labels overprinted at the top of the bar. Adjacent colorbar tick labels closer than one label height are now thinned — entries are drawn bottom-to-top and the first of any too-close pair is kept, so the round decade tick survives and the redundant data-max label is dropped only when it would actually collide.
+
+---
+
 ## [0.3.0] — 2026-06-19
 
 ### Added
