@@ -1,7 +1,7 @@
 /// Marker shape used to render individual scatter points.
 ///
 /// The default is [`MarkerShape::Circle`].
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum MarkerShape {
     #[default]
     Circle,

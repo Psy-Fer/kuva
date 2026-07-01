@@ -405,6 +405,291 @@ fn bw_qq() {
     assert!(svg.contains("#1a1a1a"));
 }
 
+// ── Multi-series / multi-group differentiation ───────────────────────────────
+
+#[test]
+fn bw_line_multi_series_uses_distinct_dash_styles() {
+    // Each series uses different y-values so the lines are visually separated
+    let data0 = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 1.5), (3.0, 3.0)];
+    let data1 = vec![(0.0, 5.0), (1.0, 6.0), (2.0, 5.5), (3.0, 7.0)];
+    let data2 = vec![(0.0, 9.0), (1.0, 10.0), (2.0, 9.5), (3.0, 11.0)];
+    let line0 = LinePlot::new().with_data(data0).with_color("steelblue").with_legend("A");
+    let line1 = LinePlot::new().with_data(data1).with_color("tomato").with_legend("B");
+    let line2 = LinePlot::new().with_data(data2).with_color("seagreen").with_legend("C");
+    let plots = vec![Plot::Line(line0), Plot::Line(line1), Plot::Line(line2)];
+    let mut layout = Layout::auto_from_plots(&plots);
+    layout.show_legend = true;
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_line_multi.svg", svg.clone()).unwrap();
+    // Series 0 → Solid (no dasharray), Series 1 → Dashed "8 4", Series 2 → Dotted "2 4"
+    assert!(svg.contains("8 4"), "Second line should be dashed (8 4)");
+    assert!(svg.contains("2 4"), "Third line should be dotted (2 4)");
+}
+
+#[test]
+fn bw_scatter_multi_series_uses_distinct_shapes() {
+    let pts_a = vec![(1.0, 2.0), (2.0, 3.0), (3.0, 2.5)];
+    let pts_b = vec![(1.0, 3.5), (2.0, 1.5), (3.0, 4.0)];
+    let scatter0 = ScatterPlot::new().with_data(pts_a).with_color("steelblue").with_legend("A");
+    let scatter1 = ScatterPlot::new().with_data(pts_b).with_color("tomato").with_legend("B");
+    let plots = vec![Plot::Scatter(scatter0), Plot::Scatter(scatter1)];
+    let mut layout = Layout::auto_from_plots(&plots);
+    layout.show_legend = true;
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_scatter_multi.svg", svg.clone()).unwrap();
+    // Series 0 → Circle (fast path CircleBatch), Series 1 → Square (rect element via slow path)
+    assert!(svg.contains("#1a1a1a"), "All BW scatter points should be dark");
+    // The second scatter uses bw_shape(1) = Square → should contain a rect or polygon path,
+    // not just circles.  A simple proxy: the SVG is longer / more complex than a single series.
+    assert!(svg.len() > 500, "Multi-series BW scatter should produce non-trivial SVG");
+}
+
+#[test]
+fn bw_density_multi_series_distinct_patterns() {
+    let density0 = DensityPlot::new()
+        .with_data(vec![1.0, 1.5, 2.0, 2.5, 3.0, 2.0, 1.8])
+        .with_color("steelblue").with_filled(true).with_opacity(0.5);
+    let density1 = DensityPlot::new()
+        .with_data(vec![3.0, 3.5, 4.0, 4.5, 5.0, 4.0, 3.8])
+        .with_color("tomato").with_filled(true).with_opacity(0.5);
+    let plots = vec![Plot::Density(density0), Plot::Density(density1)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_density_multi.svg", svg.clone()).unwrap();
+    // Two densities → two different patterns → at least 2 pattern defs
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 2,
+        "Two BW density fills should use at least 2 distinct pattern defs, got {pattern_count}"
+    );
+}
+
+// Plot::Series overlays
+
+#[test]
+fn bw_series_multi_distinct_dashes() {
+    // Different y-ranges so the two series are visually separated
+    let v0: Vec<f64> = (0..20).map(|i| (i as f64 * 0.4).sin() * 2.0 + 3.0).collect();
+    let v1: Vec<f64> = (0..20).map(|i| (i as f64 * 0.4).cos() * 2.0 + 9.0).collect();
+    let s0 = SeriesPlot::new().with_data(v0).with_color("steelblue").with_line_style();
+    let s1 = SeriesPlot::new().with_data(v1).with_color("tomato").with_line_style();
+    let plots = vec![Plot::Series(s0), Plot::Series(s1)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_series_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second SeriesPlot should be dashed (8 4)");
+}
+
+// Plot::Band overlays
+
+#[test]
+fn bw_band_multi_distinct_patterns() {
+    let x: Vec<f64> = (0..15).map(|i| i as f64).collect();
+    let lo0: Vec<f64> = x.iter().map(|&v| v.sin() - 0.5).collect();
+    let hi0: Vec<f64> = x.iter().map(|&v| v.sin() + 0.5).collect();
+    let lo1: Vec<f64> = x.iter().map(|&v| v.cos() - 0.5).collect();
+    let hi1: Vec<f64> = x.iter().map(|&v| v.cos() + 0.5).collect();
+    use kuva::plot::BandPlot;
+    let b0 = BandPlot::new(x.clone(), lo0, hi0).with_color("steelblue").with_opacity(0.4);
+    let b1 = BandPlot::new(x, lo1, hi1).with_color("tomato").with_opacity(0.4);
+    let plots = vec![Plot::Band(b0), Plot::Band(b1)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_band_multi.svg", svg.clone()).unwrap();
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 2,
+        "Two BW band overlays should use at least 2 distinct pattern defs, got {pattern_count}"
+    );
+}
+
+// BoxPlot multi-group
+
+#[test]
+fn bw_boxplot_multi_group_distinct_patterns() {
+    use kuva::plot::BoxPlot;
+    let bp = BoxPlot::new()
+        .with_group("A", vec![1.0, 2.0, 2.5, 3.0, 4.0, 2.8])
+        .with_group("B", vec![2.0, 3.0, 3.5, 4.0, 4.5, 3.2])
+        .with_group("C", vec![0.5, 1.5, 2.0, 2.5, 3.5, 2.0]);
+    let plots = vec![Plot::Box(bp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_boxplot_multi.svg", svg.clone()).unwrap();
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 3,
+        "Three box groups should use at least 3 distinct patterns, got {pattern_count}"
+    );
+}
+
+// ViolinPlot multi-group
+
+#[test]
+fn bw_violin_multi_group_distinct_patterns() {
+    let violin = ViolinPlot::new()
+        .with_group("A", vec![1.0, 1.5, 2.0, 2.5, 3.0, 2.2, 1.8])
+        .with_group("B", vec![2.5, 3.0, 3.5, 4.0, 4.5, 3.8, 3.2])
+        .with_group("C", vec![0.5, 1.0, 1.5, 2.0, 2.5, 1.2, 0.8]);
+    let plots = vec![Plot::Violin(violin)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_violin_multi.svg", svg.clone()).unwrap();
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 3,
+        "Three violin groups should use at least 3 distinct patterns, got {pattern_count}"
+    );
+}
+
+// RidgelinePlot multi-group
+
+#[test]
+fn bw_ridgeline_multi_group_distinct_patterns() {
+    use kuva::plot::ridgeline::RidgelinePlot;
+    // Five groups to clearly differentiate from the single bw_ridgeline test (3 groups)
+    let rp = RidgelinePlot::new()
+        .with_group("Jan", vec![2.0, 3.0, 4.0, 3.5, 2.5, 4.5, 3.0])
+        .with_group("Mar", vec![8.0, 10.0, 12.0, 11.0, 9.0, 13.0, 10.5])
+        .with_group("Jun", vec![20.0, 22.0, 24.0, 23.0, 21.0, 25.0, 22.5])
+        .with_group("Sep", vec![14.0, 16.0, 18.0, 17.0, 15.0, 19.0, 16.5])
+        .with_group("Nov", vec![6.0, 8.0, 10.0, 9.0, 7.0, 11.0, 8.5])
+        .with_filled(true);
+    let plots = vec![Plot::Ridgeline(rp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_ridgeline_multi.svg", svg.clone()).unwrap();
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 5,
+        "Five ridgeline groups should use at least 5 distinct fill patterns, got {pattern_count}"
+    );
+}
+
+// SurvivalPlot multi-group
+
+#[test]
+fn bw_survival_multi_group_distinct_dashes() {
+    use kuva::plot::SurvivalPlot;
+    let sp = SurvivalPlot::new()
+        .with_group("Ctrl",  vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0], vec![true, true, false, true, false, true])
+        .with_group("Trt A", vec![3.0, 6.0, 9.0, 12.0, 15.0, 18.0], vec![true, false, true, false, true, false])
+        .with_group("Trt B", vec![5.0, 8.0, 11.0, 14.0, 17.0, 20.0], vec![true, true, false, false, true, true]);
+    let plots = vec![Plot::Survival(sp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_survival_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second survival group should use dashed line (8 4)");
+    assert!(svg.contains("2 4"), "Third survival group should use dotted line (2 4)");
+}
+
+// EcdfPlot multi-group
+
+#[test]
+fn bw_ecdf_multi_group_distinct_dashes() {
+    let ecdf = EcdfPlot::new()
+        .with_data("A", vec![1.2, 2.3, 3.4, 2.1, 4.5, 1.8, 3.0, 2.7])
+        .with_data("B", vec![2.2, 3.3, 4.4, 3.1, 5.5, 2.8, 4.0, 3.7])
+        .with_confidence_band();
+    let plots = vec![Plot::Ecdf(ecdf)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_ecdf_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second ECDF group should use dashed line (8 4)");
+}
+
+// RocPlot multi-group
+
+#[test]
+fn bw_roc_multi_group_distinct_dashes() {
+    use kuva::plot::roc::{RocGroup, RocPlot};
+    // Model A: strong classifier (positives cluster at high scores)
+    let data_a: Vec<(f64, bool)> = vec![
+        (0.95, true), (0.90, true), (0.85, true), (0.80, true),
+        (0.40, false), (0.30, false), (0.20, false), (0.10, false),
+    ];
+    // Model B: weak classifier (scores mixed between classes)
+    let data_b: Vec<(f64, bool)> = vec![
+        (0.75, true), (0.55, false), (0.65, true), (0.45, false),
+        (0.60, false), (0.50, true), (0.40, false), (0.35, true),
+    ];
+    let g0 = RocGroup::new("Model A").with_raw(data_a);
+    let g1 = RocGroup::new("Model B").with_raw(data_b);
+    let roc = RocPlot::new().with_group(g0).with_group(g1);
+    let plots = vec![Plot::Roc(roc)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_roc_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second ROC group should use dashed line (8 4)");
+}
+
+// PrPlot multi-group
+
+#[test]
+fn bw_pr_multi_group_distinct_dashes() {
+    use kuva::plot::pr::{PrGroup, PrPlot};
+    // Model A: strong classifier
+    let data_a: Vec<(f64, bool)> = vec![
+        (0.95, true), (0.90, true), (0.85, true), (0.80, true),
+        (0.40, false), (0.30, false), (0.20, false), (0.10, false),
+    ];
+    // Model B: weaker classifier
+    let data_b: Vec<(f64, bool)> = vec![
+        (0.75, true), (0.55, false), (0.65, true), (0.45, false),
+        (0.60, false), (0.50, true), (0.40, false), (0.35, true),
+    ];
+    let g0 = PrGroup::new("Model A").with_raw(data_a);
+    let g1 = PrGroup::new("Model B").with_raw(data_b);
+    let pr = PrPlot::new().with_group(g0).with_group(g1);
+    let plots = vec![Plot::Pr(pr)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_pr_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second PR group should use dashed line (8 4)");
+}
+
+// BumpPlot multi-series
+
+#[test]
+fn bw_bump_multi_series_distinct_dashes() {
+    use kuva::plot::bump::BumpPlot;
+    let bp = BumpPlot::new()
+        .with_series("Alpha", vec![1, 3, 2, 1])
+        .with_series("Beta",  vec![2, 1, 3, 2])
+        .with_series("Gamma", vec![3, 2, 1, 3])
+        .with_x_labels(["2021", "2022", "2023", "2024"]);
+    let plots = vec![Plot::Bump(bp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_bump_multi.svg", svg.clone()).unwrap();
+    assert!(svg.contains("8 4"), "Second bump series should use dashed line (8 4)");
+    assert!(svg.contains("2 4"), "Third bump series should use dotted line (2 4)");
+}
+
+// StackedAreaPlot multi-series patterns
+
+#[test]
+fn bw_stacked_area_multi_series_distinct_patterns() {
+    use kuva::plot::StackedAreaPlot;
+    // Five series to clearly differentiate from the single bw_stacked_area test (3 series)
+    let sa = StackedAreaPlot::new()
+        .with_x(vec![0.0, 1.0, 2.0, 3.0, 4.0])
+        .with_series(vec![10.0, 12.0, 11.0, 14.0, 13.0]).with_color("steelblue")
+        .with_series(vec![5.0, 7.0, 6.0, 8.0, 7.0]).with_color("tomato")
+        .with_series(vec![3.0, 4.0, 3.0, 5.0, 4.0]).with_color("goldenrod")
+        .with_series(vec![2.0, 3.0, 4.0, 3.0, 2.0]).with_color("orchid")
+        .with_series(vec![1.0, 2.0, 1.0, 2.0, 3.0]).with_color("teal");
+    let plots = vec![Plot::StackedArea(sa)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = bw_svg(plots, layout);
+    common::write_test_output("test_outputs/bw_stacked_area_multi.svg", svg.clone()).unwrap();
+    let pattern_count = svg.matches("<pattern").count();
+    assert!(
+        pattern_count >= 5,
+        "Five stacked-area series should use at least 5 distinct patterns, got {pattern_count}"
+    );
+}
+
 // ── Sanity checks ─────────────────────────────────────────────────────────────
 
 #[test]

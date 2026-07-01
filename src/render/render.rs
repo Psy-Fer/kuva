@@ -623,7 +623,7 @@ fn draw_marker(
     }
 }
 
-fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
+fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     if band.x.len() < 2 {
         return;
     }
@@ -650,12 +650,12 @@ fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout) {
         path.push(' ');
     }
     path.push('Z');
-    path_bw(scene, computed, 0, &band.color, path, Color::None, 0.0, Some(band.opacity), None);
+    path_bw(scene, computed, bw_idx, &band.color, path, Color::None, 0.0, Some(band.opacity), None);
 }
 
-fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayout) {
+fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     if let Some(ref band) = scatter.band {
-        add_band(band, scene, computed);
+        add_band(band, scene, computed, bw_idx);
     }
 
     // Fast path: uniform circle markers with no per-point colors/sizes → emit CircleBatch
@@ -668,6 +668,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             .data
             .iter()
             .any(|p| p.x_err.is_some() || p.y_err.is_some())
+        && !(computed.bw_mode && crate::render::bw::bw_shape(bw_idx) != MarkerShape::Circle)
         && !computed.interactive;
 
     // Precompute stroke color once (matches fill, fully opaque) for the slow path.
@@ -740,9 +741,10 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                 });
             }
             let pt_color = if computed.bw_mode { "#1a1a1a" } else { color };
+            let marker = if computed.bw_mode { crate::render::bw::bw_shape(bw_idx) } else { scatter.marker };
             draw_marker(
                 scene,
-                scatter.marker,
+                marker,
                 computed.map_x(point.x),
                 computed.map_y(point.y),
                 size,
@@ -885,7 +887,7 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     }
 }
 
-fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
+fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     // In interactive mode, wrap the entire series so legend toggle can mute it.
     let interactive_group = computed.interactive && line.legend_label.is_some();
     if interactive_group {
@@ -899,7 +901,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // Draw band behind line if present
     if let Some(ref band) = line.band {
-        add_band(band, scene, computed);
+        add_band(band, scene, computed, bw_idx);
     }
 
     if line.data.len() >= 2 {
@@ -937,12 +939,12 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
             fill_d.push_str(&format!(
                 "L {last_x} {baseline_y} L {first_x} {baseline_y} Z"
             ));
-            path_bw(scene, computed, 0, &line.color, fill_d, Color::None, 0.0, Some(line.fill_opacity), None);
+            path_bw(scene, computed, bw_idx, &line.color, fill_d, Color::None, 0.0, Some(line.fill_opacity), None);
         }
 
         let (line_stroke, line_da) = if computed.bw_mode {
             use crate::render::bw::bw_dash;
-            (Color::from("#1a1a1a"), bw_dash(0).dasharray())
+            (Color::from("#1a1a1a"), bw_dash(bw_idx).dasharray())
         } else {
             (Color::from(&line.color), line.line_style.dasharray())
         };
@@ -1032,7 +1034,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
-fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout) {
+fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     let points: Vec<(f64, f64)> = series
         .values
         .iter()
@@ -1042,7 +1044,7 @@ fn add_series(series: &SeriesPlot, scene: &mut Scene, computed: &ComputedLayout)
 
     let (ser_stroke, ser_da) = if computed.bw_mode {
         use crate::render::bw::bw_dash;
-        (Color::from("#1a1a1a"), bw_dash(0).dasharray())
+        (Color::from("#1a1a1a"), bw_dash(bw_idx).dasharray())
     } else {
         (Color::from(&series.color), None)
     };
@@ -6912,9 +6914,11 @@ fn render_legend_entry(
         }
         LegendShape::Marker(marker) => {
             let color = if computed.bw_mode { "#1a1a1a" } else { &entry.color };
+            let effective_marker =
+                if computed.bw_mode { crate::render::bw::bw_shape(bw_idx) } else { marker };
             draw_marker(
                 scene,
-                marker,
+                effective_marker,
                 legend_x + computed.legend_swatch_x + computed.legend_swatch_r,
                 swatch_cy,
                 computed.legend_swatch_r,
@@ -8245,7 +8249,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
     add_labels_and_title(&mut scene, &computed, &layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
-    add_scatter(scatter, &mut scene, &computed);
+    add_scatter(scatter, &mut scene, &computed, 0);
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
@@ -8264,7 +8268,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     add_labels_and_title(&mut scene, &computed, &layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
-    add_line(line, &mut scene, &computed);
+    add_line(line, &mut scene, &computed, 0);
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
@@ -8453,7 +8457,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     scene
 }
 
-fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
+fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene, bw_idx: usize) {
     use render_utils::{silverman_bandwidth, simple_kde, simple_kde_reflect};
 
     // Determine the (x, y) curve points
@@ -8529,7 +8533,7 @@ fn add_density(dp: &DensityPlot, computed: &ComputedLayout, scene: &mut Scene) {
             round2(first_px),
             round2(y_baseline),
         );
-        path_bw(scene, computed, 0, &dp.color, fill_path, Color::None, 0.0, Some(dp.opacity), None);
+        path_bw(scene, computed, bw_idx, &dp.color, fill_path, Color::None, 0.0, Some(dp.opacity), None);
     }
 
     // Emit the outline
@@ -13972,16 +13976,24 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
     // for each plot, plot it
+    let mut scatter_bw_idx = 0usize;
+    let mut line_bw_idx = 0usize;
+    let mut series_bw_idx = 0usize;
+    let mut band_bw_idx = 0usize;
+    let mut density_bw_idx = 0usize;
     for plot in plots.iter() {
         match plot {
             Plot::Scatter(s) => {
-                add_scatter(s, &mut scene, &computed);
+                add_scatter(s, &mut scene, &computed, scatter_bw_idx);
+                scatter_bw_idx += 1;
             }
             Plot::Line(l) => {
-                add_line(l, &mut scene, &computed);
+                add_line(l, &mut scene, &computed, line_bw_idx);
+                line_bw_idx += 1;
             }
             Plot::Series(s) => {
-                add_series(s, &mut scene, &computed);
+                add_series(s, &mut scene, &computed, series_bw_idx);
+                series_bw_idx += 1;
             }
             Plot::Bar(b) => {
                 add_bar(b, &mut scene, &computed);
@@ -14008,7 +14020,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 add_brickplot(b, &mut scene, &computed);
             }
             Plot::Band(b) => {
-                add_band(b, &mut scene, &computed);
+                add_band(b, &mut scene, &computed, band_bw_idx);
+                band_bw_idx += 1;
             }
             Plot::Waterfall(w) => {
                 add_waterfall(w, &mut scene, &computed);
@@ -14050,7 +14063,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 add_synteny(s, &mut scene, &computed);
             }
             Plot::Density(d) => {
-                add_density(d, &computed, &mut scene);
+                add_density(d, &computed, &mut scene, density_bw_idx);
+                density_bw_idx += 1;
             }
             Plot::Ridgeline(rp) => {
                 add_ridgeline(rp, &computed, &mut scene);
@@ -14406,18 +14420,23 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
 
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
 
+    let mut scatter_bw_idx = 0usize;
+    let mut line_bw_idx = 0usize;
+    let mut series_bw_idx = 0usize;
+    let mut band_bw_idx = 0usize;
+    let mut density_bw_idx = 0usize;
     for plot in primary.iter() {
         match plot {
-            Plot::Scatter(s) => add_scatter(s, &mut scene, &computed),
-            Plot::Line(l) => add_line(l, &mut scene, &computed),
-            Plot::Series(s) => add_series(s, &mut scene, &computed),
-            Plot::Band(b) => add_band(b, &mut scene, &computed),
+            Plot::Scatter(s) => { add_scatter(s, &mut scene, &computed, scatter_bw_idx); scatter_bw_idx += 1; }
+            Plot::Line(l) => { add_line(l, &mut scene, &computed, line_bw_idx); line_bw_idx += 1; }
+            Plot::Series(s) => { add_series(s, &mut scene, &computed, series_bw_idx); series_bw_idx += 1; }
+            Plot::Band(b) => { add_band(b, &mut scene, &computed, band_bw_idx); band_bw_idx += 1; }
             Plot::Bar(b) => add_bar(b, &mut scene, &computed),
             Plot::Histogram(h) => add_histogram(h, &mut scene, &computed),
             Plot::Box(b) => add_boxplot(b, &mut scene, &computed),
             Plot::Violin(v) => add_violin(v, &mut scene, &computed),
             Plot::Strip(s) => add_strip(s, &mut scene, &computed),
-            Plot::Density(d) => add_density(d, &computed, &mut scene),
+            Plot::Density(d) => { add_density(d, &computed, &mut scene, density_bw_idx); density_bw_idx += 1; }
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed),
             Plot::Waterfall(w) => add_waterfall(w, &mut scene, &computed),
             Plot::Candlestick(c) => add_candlestick(c, &mut scene, &computed),
@@ -14430,18 +14449,23 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
             _ => {}
         }
     }
+    let mut scatter_bw_idx = 0usize;
+    let mut line_bw_idx = 0usize;
+    let mut series_bw_idx = 0usize;
+    let mut band_bw_idx = 0usize;
+    let mut density_bw_idx = 0usize;
     for plot in secondary.iter() {
         match plot {
-            Plot::Scatter(s) => add_scatter(s, &mut scene, &computed_y2),
-            Plot::Line(l) => add_line(l, &mut scene, &computed_y2),
-            Plot::Series(s) => add_series(s, &mut scene, &computed_y2),
-            Plot::Band(b) => add_band(b, &mut scene, &computed_y2),
+            Plot::Scatter(s) => { add_scatter(s, &mut scene, &computed_y2, scatter_bw_idx); scatter_bw_idx += 1; }
+            Plot::Line(l) => { add_line(l, &mut scene, &computed_y2, line_bw_idx); line_bw_idx += 1; }
+            Plot::Series(s) => { add_series(s, &mut scene, &computed_y2, series_bw_idx); series_bw_idx += 1; }
+            Plot::Band(b) => { add_band(b, &mut scene, &computed_y2, band_bw_idx); band_bw_idx += 1; }
             Plot::Bar(b) => add_bar(b, &mut scene, &computed_y2),
             Plot::Histogram(h) => add_histogram(h, &mut scene, &computed_y2),
             Plot::Box(b) => add_boxplot(b, &mut scene, &computed_y2),
             Plot::Violin(v) => add_violin(v, &mut scene, &computed_y2),
             Plot::Strip(s) => add_strip(s, &mut scene, &computed_y2),
-            Plot::Density(d) => add_density(d, &computed_y2, &mut scene),
+            Plot::Density(d) => { add_density(d, &computed_y2, &mut scene, density_bw_idx); density_bw_idx += 1; }
             Plot::StackedArea(s) => add_stacked_area(s, &mut scene, &computed_y2),
             Plot::Streamgraph(sg) => add_streamgraph(sg, &mut scene, &computed_y2),
             Plot::Waterfall(w) => add_waterfall(w, &mut scene, &computed_y2),
