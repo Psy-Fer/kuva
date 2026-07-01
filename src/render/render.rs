@@ -7691,14 +7691,8 @@ fn add_colorbar_at(
         }
         let frac = (pos - info.min_value) / range;
         let y = bar_y + bar_height - frac * bar_height; // invert: high values at top
-        if let Some(prev_y) = last_drawn_y {
-            if (y - prev_y).abs() < min_label_gap {
-                continue;
-            }
-        }
-        last_drawn_y = Some(y);
 
-        // tick mark
+        // tick mark — always drawn, even when the label is suppressed
         scene.add(Primitive::Line {
             x1: bar_x + bar_width,
             y1: y,
@@ -7708,6 +7702,13 @@ fn add_colorbar_at(
             stroke_width: computed.axis_stroke_width,
             stroke_dasharray: None,
         });
+
+        if let Some(prev_y) = last_drawn_y {
+            if (y - prev_y).abs() < min_label_gap {
+                continue;
+            }
+        }
+        last_drawn_y = Some(y);
 
         // tick label
         scene.add(Primitive::Text {
@@ -17736,7 +17737,7 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
         Option<Vec<(f64, String)>>,
     ) = if hb.log_color {
         let log_max = (v_max - v_min + 1.0).max(1.0).log10().max(f64::EPSILON);
-        let mut ticks = vec![(0.0_f64, "0".to_string())];
+        let mut ticks = Vec::new();
         let mut k = 0u32;
         loop {
             let count = 10_f64.powi(k as i32);

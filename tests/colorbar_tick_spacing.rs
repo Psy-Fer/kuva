@@ -67,3 +67,72 @@ fn test_data_max_label_kept_when_clear_of_decade() {
         "the data-max tick (299) is clear of the decade and must be kept"
     );
 }
+
+// ── Bug: gap-guard `continue` skips the tick mark as well as the label ───────
+
+#[test]
+fn test_suppressed_tick_label_still_draws_tick_mark() {
+    // peak=112: the "111" data-max label is suppressed (within tick_size of "100").
+    // The tick mark at that position must still be drawn — only the label is redundant.
+    // peak=300: "299" is clearly away from "100"; all 5 tick marks are drawn.
+    // Both plots share identical x/y data ranges so their axis <line> counts are
+    // equal. The only structural difference is the colorbar tick marks.
+    // After the fix both SVGs should contain the same number of <line> elements.
+    // With the bug, peak=112 has one fewer (the suppressed tick's mark is also gone).
+    let plots_112 = make_hexbin_with_peak(112);
+    let layout_112 = Layout::auto_from_plots(&plots_112);
+    let svg_112 = render_svg(plots_112, layout_112);
+
+    let plots_300 = make_hexbin_with_peak(300);
+    let layout_300 = Layout::auto_from_plots(&plots_300);
+    let svg_300 = render_svg(plots_300, layout_300);
+
+    common::write_test_output("test_outputs/colorbar_tick_mark_suppressed_112.svg", &svg_112).unwrap();
+    common::write_test_output("test_outputs/colorbar_tick_mark_full_300.svg", &svg_300).unwrap();
+
+    let line_count_112 = svg_112.matches("<line").count();
+    let line_count_300 = svg_300.matches("<line").count();
+
+    assert_eq!(
+        line_count_112, line_count_300,
+        "a suppressed tick label must not suppress its tick mark: \
+         peak=112 has {line_count_112} <line> elements, peak=300 has {line_count_300}"
+    );
+}
+
+// ── Bug: log colorbar "1" label suppressed by proximity to the "0" origin tick
+
+fn make_hexbin_large_range(peak_count: usize) -> Vec<Plot> {
+    // Use x/y in [10, 50] so axis ticks fall on multiples of 10 and never
+    // produce a bare ">1</text>" that would confuse the colorbar label check.
+    let mut x = vec![30.0_f64; peak_count];
+    let mut y = vec![30.0_f64; peak_count];
+    for (sx, sy) in [(11.0, 11.0), (49.0, 12.0), (11.0, 48.0), (48.0, 49.0), (49.0, 30.0), (11.0, 29.0)] {
+        x.push(sx);
+        y.push(sy);
+    }
+    vec![Plot::Hexbin(
+        HexbinPlot::new().with_data(x, y).with_log_color(true),
+    )]
+}
+
+#[test]
+fn test_log_colorbar_decade_1_not_suppressed_on_short_canvas() {
+    // The hexbin log-color tick list starts with (0.0, "0") then (log10(2)≈0.301, "1").
+    // At large log ranges on a short canvas the pixel gap between these two entries
+    // drops below tick_size, causing the "1" label to be dropped by the gap guard.
+    //
+    // peak=2000  → log_max = log10(2000) ≈ 3.30
+    // with_height(180) → bar_height ≈ 80px
+    // gap = 80 × 0.301/3.30 ≈ 7.3px  < tick_size=12  → "1" suppressed (bug)
+    let plots = make_hexbin_large_range(2000);
+    let layout = Layout::auto_from_plots(&plots).with_height(180.0);
+    let svg = render_svg(plots, layout);
+    common::write_test_output("test_outputs/colorbar_tick_decade_1.svg", &svg).unwrap();
+
+    assert!(
+        svg.contains(">1</text>"),
+        "the '1' decade label must remain visible on a large-range log colorbar \
+         even on a short canvas (currently dropped by proximity to the '0' origin tick)"
+    );
+}
