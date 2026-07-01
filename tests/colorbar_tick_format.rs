@@ -6,7 +6,7 @@
 mod common;
 
 use kuva::backend::svg::SvgBackend;
-use kuva::plot::hexbin::HexbinPlot;
+use kuva::plot::hexbin::{HexbinPlot, ZReduce};
 use kuva::plot::histogram2d::Histogram2D;
 use kuva::render::layout::{Layout, TickFormat};
 use kuva::render::{plots::Plot, render::render_multiple};
@@ -107,5 +107,41 @@ fn test_hist2d_log_colorbar_honors_custom_tick_format() {
     assert!(
         !svg.contains(">1000</text>"),
         "raw 1000 must not appear once the Sci formatter is applied to the log colorbar"
+    );
+}
+
+// ── Mean/Median log-color colorbar: fractional top-tick value ────────────────
+
+/// Two well-separated single-point bins so each bin's Mean/Median reduces to
+/// exactly its own `z` value: 0.0 pins `v_min`, 7.3 pins `v_max`. The top log
+/// tick displays `v_max - v_min`, so it should read the fractional "7.3"
+/// rather than a truncated "7".
+fn make_hexbin_fractional_mean() -> Vec<Plot> {
+    let x = vec![0.0_f64, 10.0];
+    let y = vec![0.0_f64, 10.0];
+    let z = vec![0.0_f64, 7.3];
+    vec![Plot::Hexbin(
+        HexbinPlot::new()
+            .with_data(x, y)
+            .with_z(z, ZReduce::Mean)
+            .with_log_color(true),
+    )]
+}
+
+#[test]
+fn test_hexbin_log_colorbar_mean_shows_fractional_top_tick() {
+    let plots = make_hexbin_fractional_mean();
+    let layout = Layout::auto_from_plots(&plots).with_title("Hexbin Mean fractional tick");
+    let svg = render_svg(plots, layout);
+    common::write_test_output("test_outputs/colorbar_tick_format_hexbin_mean_fractional.svg", &svg)
+        .unwrap();
+
+    assert!(
+        svg.contains(">7.3</text>"),
+        "the Mean log-colorbar's top tick must show the real fractional value 7.3"
+    );
+    assert!(
+        !svg.contains(">7</text>"),
+        "the old truncated integer '7' must not appear once the fractional value is formatted"
     );
 }
