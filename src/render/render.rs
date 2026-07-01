@@ -7681,6 +7681,28 @@ fn add_colorbar_at(
         owned_ticks.as_slice()
     };
 
+    // Shrink the tick-label font if the widest formatted label would overrun the space
+    // between the bar and the canvas right edge. The layout reserves room for the
+    // *estimated* widest label, but a data-dependent or custom-formatted label can still
+    // come out wider than estimated; shrinking keeps labels inside the canvas. The 6px
+    // legibility floor below means this is best-effort: at a pathologically narrow fixed
+    // width (where the reserved band is only a few px) a multi-digit label can still
+    // overrun — legibility wins over the no-clip guarantee there.
+    let label_anchor_x = bar_x + bar_width + computed.tick_mark_major;
+    let avail_label_w = (computed.width - label_anchor_x - 2.0 * computed.axis_stroke_width).max(1.0);
+    let widest_label_w = tick_entries
+        .iter()
+        .map(|(_, l)| l.chars().count())
+        .max()
+        .unwrap_or(0) as f64
+        * computed.tick_size as f64
+        * 0.6;
+    let label_font_size: u32 = if widest_label_w > avail_label_w {
+        ((computed.tick_size as f64 * avail_label_w / widest_label_w).floor() as u32).max(6)
+    } else {
+        computed.tick_size
+    };
+
     // Minimum vertical spacing between adjacent tick labels. Count/log colorbars
     // append a tick at the exact data maximum on top of the nearest power-of-ten
     // tick; in log space the two can sit a fraction of a decade apart so their
@@ -7718,7 +7740,7 @@ fn add_colorbar_at(
             x: bar_x + bar_width + computed.tick_mark_major,
             y: y + 4.0,
             content: label.clone(),
-            size: computed.tick_size,
+            size: label_font_size,
             anchor: TextAnchor::Start,
             rotate: None,
             bold: false,
