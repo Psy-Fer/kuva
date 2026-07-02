@@ -461,19 +461,22 @@ fn legend_height_cap_shows_overflow_line() {
         let end = start + out[start..].find('"').unwrap();
         out[start..end].parse().unwrap()
     };
-    // Find the x position of the overflow text element.
-    let overflow_x: f64 = out
-        .split(">… (+")
-        .next()
-        .and_then(|before| before.rfind("x=\""))
-        .and_then(|pos| {
-            let after = &out[pos + 3..];
-            after.split('"').next()?.parse().ok()
-        })
+    // Find the overflow text element and its x position.
+    let marker = out.find(">… (+").expect("overflow text element present");
+    let overflow_text: String =
+        out[marker + 1..].split('<').next().unwrap_or_default().to_string();
+    let overflow_x: f64 = out[..marker]
+        .rfind("x=\"")
+        .and_then(|pos| out[pos + 3..].split('"').next())
+        .and_then(|s| s.parse().ok())
         .unwrap_or(0.0);
-    // "… (+NN more)" is ~13 chars × 7.5px ≈ 98px. Verify it fits in the canvas.
+    // Legend width is sized from real DejaVu advances (mean ≈ 0.6 em ≈ 7.2px at the
+    // default body size); use that as an upper-bound estimate of the actual overflow
+    // string's width rather than the old fixed 7.5/char heuristic.
+    let est_width = overflow_text.chars().count() as f64 * 7.2;
     assert!(
-        overflow_x + 98.0 <= canvas_width,
-        "overflow text at x={overflow_x} would extend beyond canvas width {canvas_width}"
+        overflow_x + est_width <= canvas_width + 1.0,
+        "overflow text {overflow_text:?} at x={overflow_x} (est width {est_width:.1}px) \
+         would extend beyond canvas width {canvas_width}"
     );
 }

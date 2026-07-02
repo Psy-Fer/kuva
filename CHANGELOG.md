@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Text width is now measured from real DejaVu Sans glyph advances** instead of a per-call-site `char_count × font_size × factor` heuristic. A single `text_metrics` module measures every axis tick label, legend entry, title, and in-plot label against the bundled font's actual advance widths (shipped as a precompiled table, so the SVG-only default build gains real metrics with no new runtime dependency). Layout reservations now match what is rendered — exact for PNG/PDF and `embed_font` SVG, a close fails-safe estimate for bare SVG — which removes a class of label-clipping and label-overlap issues and tightens over-wide legend boxes. Non-ASCII/multi-byte labels are measured by glyph rather than UTF-8 byte length, so they are no longer over-reserved 2–3×.
 - **Default font cascade now lists Verdana before the Arial-family fallbacks** — `DEFAULT_FONT_FAMILY` is now `"DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"`. Layout reserves space using DejaVu Sans metrics, but when DejaVu is unavailable (the common case for bare SVG on Windows/macOS, where it is not installed) the consumer substitutes the next family in the cascade. Verdana shares DejaVu's Bitstream Vera lineage and is a near-exact metric match (~1.5% mean width difference vs. ~12% for Arial/Liberation/Helvetica), and ships on essentially all Windows and macOS systems — so labels render at close to the reserved size. Linux still resolves to DejaVu (exact) or Liberation as before.
 ### Fixed
 
