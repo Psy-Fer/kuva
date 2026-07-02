@@ -528,7 +528,7 @@ Font family and sizes for all text elements. Sizes are in pixels.
 # use kuva::render::plots::Plot;
 # let plots: Vec<Plot> = vec![];
 let layout = Layout::auto_from_plots(&plots)
-    .with_font_family("Arial, sans-serif")  // default: "DejaVu Sans, Liberation Sans, Arial, sans-serif"
+    .with_font_family("Arial, sans-serif")  // default: "DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"
     .with_title_size(20)                    // default: 18
     .with_label_size(14)                    // default: 14  (axis labels)
     .with_tick_size(11)                     // default: 12  (tick labels)
@@ -730,7 +730,7 @@ let layout = Layout::auto_from_plots(&plots)
 
 | Method | Default | Description |
 |--------|---------|-------------|
-| `.with_font_family(s)` | `"DejaVu Sans, Liberation Sans, Arial, sans-serif"` | CSS font-family string |
+| `.with_font_family(s)` | `"DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"` | CSS font-family string |
 | `.with_title_size(n)` | `18` | Title font size (px) |
 | `.with_label_size(n)` | `14` | Axis label font size (px) |
 | `.with_tick_size(n)` | `12` | Tick label font size (px) |

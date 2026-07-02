@@ -42,7 +42,7 @@ White background, black axes and text, light gray grid lines.
 | Grid | `#ccc` |
 | Legend background | `white` |
 | Legend border | `black` |
-| Font | `DejaVu Sans, Liberation Sans, Arial, sans-serif` (default) |
+| Font | `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif` (default) |
 | Grid shown | yes |
 
 ### `dark`
@@ -57,7 +57,7 @@ Dark charcoal background, light gray text and axes.
 | Grid | `#444444` |
 | Legend background | `#2d2d2d` |
 | Legend border | `#666666` |
-| Font | `DejaVu Sans, Liberation Sans, Arial, sans-serif` (default) |
+| Font | `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif` (default) |
 | Grid shown | yes |
 
 ### `minimal`
@@ -85,14 +85,14 @@ Warm cream background based on Ethan Schoonover's Solarized palette.
 | Grid | `#eee8d5` |
 | Legend background | `#fdf6e3` |
 | Legend border | `#93a1a1` |
-| Font | `DejaVu Sans, Liberation Sans, Arial, sans-serif` (default) |
+| Font | `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif` (default) |
 | Grid shown | yes |
 
 ---
 
 ## Fonts and portability
 
-The default font stack — `DejaVu Sans, Liberation Sans, Arial, sans-serif` — is resolved by the viewer or renderer at display time. This works on any desktop system but can fail in minimal environments (containers, CI pipelines, bioconda recipes) where no system fonts are installed.
+The default font stack — `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif` — is resolved by the viewer or renderer at display time. This works on any desktop system but can fail in minimal environments (containers, CI pipelines, bioconda recipes) where no system fonts are installed.
 
 kuva handles this in two ways depending on output format:
 
@@ -133,7 +133,7 @@ let theme = Theme {
     box_median: "#0d1117".into(),
     violin_border: "#8b949e".into(),
     colorbar_border: "#8b949e".into(),
-    font_family: None,  // None inherits the default: "DejaVu Sans, Liberation Sans, Arial, sans-serif"
+    font_family: None,  // None inherits the default: "DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"
     show_grid: true,
 };
 

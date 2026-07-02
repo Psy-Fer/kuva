@@ -135,7 +135,7 @@ These flags are available on every subcommand.
 |---|---|---|
 | `--embed-font` | off | Embed DejaVu Sans directly in SVG output (mutually exclusive with `--terminal`) |
 
-By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Liberation Sans, or Arial is installed. In environments with no system fonts — headless servers, containers, CI pipelines — text may be missing or fall back to an unexpected face.
+By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Verdana, Liberation Sans, or Arial is installed. In environments with no system fonts — headless servers, containers, CI pipelines — text may be missing or fall back to an unexpected face.
 
 `--embed-font` bakes DejaVu Sans as a base64 `@font-face` block into the SVG `<style>` element, making the file fully self-contained at the cost of roughly 1 MB of extra size. PNG and PDF output is unaffected: those backends always have the font available regardless of this flag.
 
