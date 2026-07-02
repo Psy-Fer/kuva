@@ -4,6 +4,7 @@ use crate::render::layout::{
 };
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils;
+use crate::render::text_metrics::{measure_text_width, FontStyle};
 
 fn draw_x_tick(
     scene: &mut Scene,
@@ -120,7 +121,7 @@ impl XLabelPlacer {
     }
 
     fn footprint(&self, x: f64, label: &str, anchor: &TextAnchor) -> (f64, f64) {
-        let text_w = label.chars().count() as f64 * self.tick_size * 0.6;
+        let text_w = measure_text_width(label, self.tick_size, FontStyle::Regular);
         let h_extent = match self.rotate {
             Some(angle) => text_w * angle.to_radians().cos().abs(),
             None => text_w,
