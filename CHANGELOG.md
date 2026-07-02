@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Default font cascade now lists Verdana before the Arial-family fallbacks** — `DEFAULT_FONT_FAMILY` is now `"DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"`. Layout reserves space using DejaVu Sans metrics, but when DejaVu is unavailable (the common case for bare SVG on Windows/macOS, where it is not installed) the consumer substitutes the next family in the cascade. Verdana shares DejaVu's Bitstream Vera lineage and is a near-exact metric match (~1.5% mean width difference vs. ~12% for Arial/Liberation/Helvetica), and ships on essentially all Windows and macOS systems — so labels render at close to the reserved size. Linux still resolves to DejaVu (exact) or Liberation as before.
 ### Fixed
 
 - **Colorbar tick labels no longer clip at the canvas edge** — the colorbar's right-margin reservation was a fixed `90 px`, so a wide tick label (e.g. a 6-digit `100000` on a large-count hexbin) overran the 30 px label allotment and clipped against the canvas edge. The reservation and the colorbar's horizontal inset are now sized to the widest tick label, measured *after* applying `with_colorbar_tick_format` (`Layout::auto_from_plots` collects the colorbar's tick values so the width can be computed once the final format is known). When the canvas width is fixed too narrow for the full reservation, the tick-label font is shrunk to fit the available band rather than clipping. Hand-built layouts (no `auto_from_plots`) keep the previous fixed reservation.
