@@ -3279,3 +3279,5 @@ mod tests {
             layout.legend_width > short + 25.0,
             "legend_width must track the group labels, not the legend label"
         );
+    }
+}
