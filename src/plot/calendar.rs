@@ -458,6 +458,7 @@ impl CalendarPlot {
             max_value: v_max,
             label,
             tick_labels: None,
+            tick_values: None,
         })
     }
 }
