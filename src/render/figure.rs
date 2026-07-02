@@ -953,6 +953,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.x_tick_format = l.x_tick_format.clone();
     new.y_tick_format = l.y_tick_format.clone();
     new.colorbar_tick_format = l.colorbar_tick_format.clone();
+    new.colorbar_tick_values = l.colorbar_tick_values.clone();
     new.y2_range = l.y2_range;
     new.data_y2_range = l.data_y2_range;
     new.y2_label = l.y2_label.clone();

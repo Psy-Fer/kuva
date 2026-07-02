@@ -18354,7 +18354,7 @@ fn treemap_leaf_values(roots: &[TreemapNode]) -> Vec<f64> {
     out
 }
 
-fn compute_treemap_value_range(tm: &TreemapPlot) -> (f64, f64) {
+pub(crate) fn compute_treemap_value_range(tm: &TreemapPlot) -> (f64, f64) {
     if let Some(range) = tm.color_range {
         return range;
     }
@@ -18884,7 +18884,7 @@ fn sunburst_leaf_values(sb: &SunburstPlot) -> Vec<f64> {
     out
 }
 
-fn compute_sunburst_value_range(sb: &SunburstPlot) -> (f64, f64) {
+pub(crate) fn compute_sunburst_value_range(sb: &SunburstPlot) -> (f64, f64) {
     if let Some((lo, hi)) = sb.color_range {
         return (lo, hi);
     }

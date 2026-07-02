@@ -7,6 +7,8 @@ mod common;
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::hexbin::HexbinPlot;
+use kuva::plot::treemap::{ColorMap, TreemapColorMode, TreemapNode, TreemapPlot};
+use kuva::render::figure::Figure;
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
 fn render_svg(plots: Vec<Plot>, layout: Layout) -> String {
@@ -106,4 +108,58 @@ fn test_colorbar_label_font_shrinks_at_constrained_width() {
     let width = canvas_width(&svg);
     let (x, font) = text_x_and_font(&svg, "100000");
     assert!(x + "100000".len() as f64 * font * 0.6 <= width);
+}
+
+// ── Regression: colorbar_tick_values must survive Figure's clone_layout ──────
+
+#[test]
+fn test_figure_embedded_colorbar_label_not_shrunk() {
+    // Same wide-label hexbin as the standalone tests, dropped into a 1x1 Figure cell.
+    // Figure::render always sets a *fixed* per-cell width (ComputedLayout::from_layout's
+    // min-plot-width clamp path), so if colorbar_tick_values doesn't survive
+    // Figure's clone_layout, the reservation falls back to the legacy fixed-size
+    // estimate and the "100000" label is shrunk below the default 12px font.
+    let plots = make_hexbin_peak(100_001);
+    let figure = Figure::new(1, 1).with_plots(vec![plots]);
+    let scene = figure.render();
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/colorbar_label_width_figure.svg", &svg).unwrap();
+
+    let (_x, font) = text_x_and_font(&svg, "100000");
+    assert_eq!(
+        font, 12.0,
+        "colorbar_tick_values must survive Figure's clone_layout so the width-aware \
+         reservation applies inside Figure cells, keeping the label at the default font \
+         instead of shrinking it"
+    );
+}
+
+// ── Regression: Treemap/Sunburst must contribute to the width estimate ──────
+
+fn treemap_with_max(max_val: f64) -> Vec<Plot> {
+    let tm = TreemapPlot::new()
+        .with_node(TreemapNode::leaf("A", 1.0))
+        .with_node(TreemapNode::leaf("B", max_val))
+        .with_color_mode(TreemapColorMode::ByValue(ColorMap::Viridis));
+    vec![Plot::Treemap(tm)]
+}
+
+#[test]
+fn test_treemap_colorbar_reservation_grows_with_value_width() {
+    // colorbar_info() has no Treemap arm, so colorbar_tick_values_for must special-case
+    // Treemap directly or the auto canvas won't widen for large colorbar values.
+    let narrow_plots = treemap_with_max(50.0);
+    let narrow_layout = Layout::auto_from_plots(&narrow_plots);
+    let narrow = render_svg(narrow_plots, narrow_layout);
+    let wide_plots = treemap_with_max(1_234_567.0);
+    let wide_layout = Layout::auto_from_plots(&wide_plots);
+    let wide = render_svg(wide_plots, wide_layout);
+    common::write_test_output("test_outputs/colorbar_label_width_treemap_wide.svg", &wide)
+        .unwrap();
+    assert!(
+        canvas_width(&wide) > canvas_width(&narrow),
+        "7-digit treemap colorbar values should widen the canvas vs 2-digit ({} !> {})",
+        canvas_width(&wide),
+        canvas_width(&narrow),
+    );
 }

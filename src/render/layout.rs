@@ -4,7 +4,7 @@ use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
 use crate::render::datetime::DateTimeAxis;
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
-use crate::render::render::waffle_legend_label;
+use crate::render::render::{compute_sunburst_value_range, compute_treemap_value_range, waffle_legend_label};
 use crate::render::render_utils;
 use crate::render::theme::Theme;
 use std::sync::Arc;
@@ -3035,6 +3035,20 @@ fn colorbar_tick_values_for(plot: &Plot) -> Option<Vec<f64>> {
         Plot::Histogram2d(h2d) => {
             let max = h2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;
             Some(count_or_linear_tick_values(0.0, max, h2d.log_count))
+        }
+        Plot::Treemap(tm)
+            if matches!(tm.color_mode, crate::plot::treemap::TreemapColorMode::ByValue(_))
+                && tm.show_colorbar =>
+        {
+            let (lo, hi) = compute_treemap_value_range(tm);
+            Some(render_utils::generate_ticks(lo, hi, 5))
+        }
+        Plot::Sunburst(sb)
+            if matches!(sb.color_mode, crate::plot::sunburst::SunburstColorMode::ByValue(_))
+                && sb.show_colorbar =>
+        {
+            let (lo, hi) = compute_sunburst_value_range(sb);
+            Some(render_utils::generate_ticks(lo, hi, 5))
         }
         other => {
             let info = other.colorbar_info()?;
