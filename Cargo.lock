@@ -1000,6 +1000,7 @@ dependencies = [
  "fontdue",
  "image 0.24.9",
  "parquet",
+ "pdf-writer",
  "png 0.18.1",
  "rand",
  "rand_distr",

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-page PDF output** — `PdfBackend::render_scenes(&[&Scene])` and the one-shot `render_to_pdf_multi(pages)` render one kuva canvas per PDF page into a single document (like R's `pdf()` device, as used by fgbio/Picard reports). Each scene's SVG is embedded as a vector Form XObject via `svg2pdf::to_chunk` and the pages are assembled with `pdf-writer`, so nothing is rasterized. By default each page takes its scene's natural size; `PdfBackend::with_page_size(PageSize::inches(11.0, 8.5))` instead coerces every page to a fixed size, scaling each scene proportionally to fit and centering it. Fonts are subset and embedded per page (a limitation of the underlying `svg2pdf` conversion). Requires the `pdf` feature.
+
 ### Fixed
 
 - **`Scatter3D`/`Surface3D` instances combined in one panel now share one 3D coordinate box** — each instance previously called `data_ranges()`/drew its own wireframe box independently, so two `Scatter3D` (or a mix with `Surface3D`) in the same `render_multiple` call each normalized to their own min/max and could project completely different data onto identical screen coordinates, with the box itself drawn twice. `render_multiple` now computes one merged `DataRanges3D` and draws the box once, shared by every 3D instance in the call.

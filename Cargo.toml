@@ -30,7 +30,7 @@ all-features = true
 [features]
 default    = []
 png        = ["dep:fontdue", "dep:png", "dep:flate2"]
-pdf        = ["dep:svg2pdf", "dep:flate2"]
+pdf        = ["dep:svg2pdf", "dep:pdf-writer", "dep:flate2"]
 embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
 full       = ["embed_font", "png", "pdf"]
@@ -52,6 +52,11 @@ parquet      = { version = "58.3", features = ["arrow"], optional = true }
 arrow-array  = { version = "58.3", optional = true }
 arrow-schema = { version = "58.3", optional = true }
 svg2pdf     = { version = "0.13", optional = true }
+# Used directly to assemble multi-page PDFs (one page per scene) by embedding
+# each SVG as a Form XObject via `svg2pdf::to_chunk`. svg2pdf does not re-export
+# pdf-writer, so keep this requirement in lockstep with svg2pdf's own pdf-writer
+# dependency — an incompatible bump there surfaces here as a build error.
+pdf-writer  = { version = "0.12", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }
 csv         = { version = "1", optional = true }
