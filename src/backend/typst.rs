@@ -14,7 +14,7 @@
 //! the output. It has zero compiled dependencies — pure string emission.
 //!
 //! For rendering math *without* an external toolchain, see the separate
-//! `math` feature ([`crate::render::math`]), which links the typst compiler
+//! `pdf` feature ([`crate::render::math`]), which links the typst compiler
 //! as a library and embeds rendered `$...$` regions directly into kuva's
 //! SVG/PNG/PDF output. Both routes use Typst's typesetter; they differ only
 //! in whether you run the compiler yourself.
@@ -40,14 +40,20 @@
 //! grows upward. The backend flips y on emission so the output looks the
 //! same as the SVG.
 //!
-//! # Limitations (T0 scaffold — to be lifted iteratively)
+//! # Path and clip support
 //!
-//! - `Path` primitive (arbitrary SVG path data) is not yet translated — kuva
-//!   uses Paths sparingly (mostly arrowheads and curved bands) so this is a
-//!   moderate gap to close later.
+//! - `Path` primitives (SVG path data: arrowheads, chord ribbons, sankey
+//!   flows, venn outlines) are lowered to CETZ `merge-path` calls — lines
+//!   and cubic Béziers, with quadratics promoted and arcs converted via the
+//!   standard endpoint→center parameterisation.
+//! - Clip regions (`ClipStart`/`ClipEnd`) split the output into stacked
+//!   `#place`d canvases; a clipped chunk is wrapped in Typst's
+//!   `box(clip: true)` at the clip rectangle.
+//!
+//! # Limitations
+//!
 //! - Batched primitives (`CircleBatch`, `RectBatch`) unroll to one CETZ call
 //!   per element. Acceptable for typical plot sizes; can be optimized later.
-//! - Clip regions (`ClipStart`/`ClipEnd`) are silently dropped.
 //! - Interactive features (tooltips, scripts) are not applicable to a
 //!   typesetting target and are dropped.
 
@@ -101,17 +107,150 @@ impl TypstBackend {
         // Pull in CETZ for the drawing primitives.
         let _ = writeln!(out, "#import \"@preview/cetz:{}\"", self.cetz_version);
 
-        // Open canvas. `length: 1pt` makes coordinates 1:1 with point units.
-        out.push_str("#cetz.canvas(length: 1pt, {\n  import cetz.draw: *\n");
-
         let h = scene.height;
-        for p in &scene.elements {
-            emit_primitive(&mut out, p, h);
+
+        // Split the element stream into chunks at clip boundaries. A scene
+        // without clip regions stays a single chunk and renders as one plain
+        // canvas (the common case). With clips, each chunk becomes its own
+        // `#place`d canvas so that a clipped chunk can be wrapped in a
+        // `box(clip: true)` — Typst's clipping primitive — while later
+        // chunks still stack above it in paint order.
+        let chunks = split_clip_chunks(&scene.elements);
+        let single = chunks.len() == 1 && chunks[0].0.is_none();
+
+        // An empty scene still emits one (empty) canvas so the document is a
+        // valid, non-degenerate Typst file.
+        if single && chunks[0].1.is_empty() {
+            open_canvas(&mut out, scene.width, h);
+            out.push_str("})\n");
+            return out;
         }
 
-        out.push_str("})\n");
+        for (clip, elems) in &chunks {
+            if elems.is_empty() {
+                continue;
+            }
+            match clip {
+                None => {
+                    if !single {
+                        out.push_str("#place(top + left, dx: 0pt, dy: 0pt)[");
+                    }
+                    open_canvas(&mut out, scene.width, h);
+                    for p in elems {
+                        emit_primitive(&mut out, p, h);
+                    }
+                    out.push_str("})");
+                    if !single {
+                        out.push(']');
+                    }
+                    out.push('\n');
+                }
+                Some(r) => {
+                    // Clip box at the region's page position; inside it, the
+                    // canvas keeps page-absolute coordinates and is shifted
+                    // back by the box offset so geometry lands where the SVG
+                    // backend's <clipPath> would put it.
+                    let _ = write!(
+                        out,
+                        "#place(top + left, dx: {}pt, dy: {}pt)[#box(width: {}pt, height: {}pt, clip: true)[#place(top + left, dx: {}pt, dy: {}pt)[",
+                        r.x, r.y, r.width, r.height, -r.x, -r.y
+                    );
+                    open_canvas(&mut out, scene.width, h);
+                    for p in elems {
+                        emit_primitive(&mut out, p, h);
+                    }
+                    out.push_str("})]]]\n");
+                }
+            }
+        }
         out
     }
+}
+
+/// Rectangular clip region carried between `ClipStart`/`ClipEnd`.
+struct ClipRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+/// Split the primitive stream into `(clip, elements)` chunks at clip
+/// boundaries. Kuva emits flat (non-nested) clip regions — the plot-area
+/// clip around data marks; nested `ClipStart`s are intersected defensively.
+fn split_clip_chunks(elements: &[Primitive]) -> Vec<(Option<ClipRect>, Vec<&Primitive>)> {
+    let mut chunks: Vec<(Option<ClipRect>, Vec<&Primitive>)> = vec![(None, Vec::new())];
+    let mut stack: Vec<ClipRect> = Vec::new();
+    for p in elements {
+        match p {
+            Primitive::ClipStart {
+                x,
+                y,
+                width,
+                height,
+                id: _,
+            } => {
+                let r = match stack.last() {
+                    // Nested clip: intersect with the enclosing rect.
+                    Some(outer) => {
+                        let x0 = x.max(outer.x);
+                        let y0 = y.max(outer.y);
+                        let x1 = (x + width).min(outer.x + outer.width);
+                        let y1 = (y + height).min(outer.y + outer.height);
+                        ClipRect {
+                            x: x0,
+                            y: y0,
+                            width: (x1 - x0).max(0.0),
+                            height: (y1 - y0).max(0.0),
+                        }
+                    }
+                    None => ClipRect {
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                    },
+                };
+                chunks.push((
+                    Some(ClipRect {
+                        x: r.x,
+                        y: r.y,
+                        width: r.width,
+                        height: r.height,
+                    }),
+                    Vec::new(),
+                ));
+                stack.push(r);
+            }
+            Primitive::ClipEnd => {
+                stack.pop();
+                match stack.last() {
+                    None => chunks.push((None, Vec::new())),
+                    Some(outer) => chunks.push((
+                        Some(ClipRect {
+                            x: outer.x,
+                            y: outer.y,
+                            width: outer.width,
+                            height: outer.height,
+                        }),
+                        Vec::new(),
+                    )),
+                }
+            }
+            other => chunks.last_mut().unwrap().1.push(other),
+        }
+    }
+    chunks
+}
+
+/// Open a `cetz.canvas` block. The invisible full-page rect anchors the
+/// canvas's bounding box to the page extent, so drawings keep their absolute
+/// positions even when nothing touches the page corners.
+fn open_canvas(out: &mut String, w: f64, h: f64) {
+    let _ = write!(
+        out,
+        "#cetz.canvas(length: 1pt, {{\n  import cetz.draw: *\n  rect((0, 0), ({w}, {h}), stroke: none)\n"
+    );
 }
 
 // ── Per-primitive emission ────────────────────────────────────────────────────
@@ -341,15 +480,11 @@ fn emit_primitive(out: &mut String, p: &Primitive, scene_h: f64) {
             );
         }
 
-        // TODO: Path primitive — kuva's Path uses SVG path data which would
-        // need conversion to CETZ's bezier()/path()/merge-path() syntax.
-        // Deferred to a follow-up; most kuva plots don't rely on Path.
-        Primitive::Path(_) => {
-            out.push_str("  // TODO: Primitive::Path not yet supported in Typst backend\n");
-        }
+        Primitive::Path(data) => emit_path(out, data, scene_h),
 
-        // Grouping and clipping are dropped — Typst has different concepts
-        // for these and they're not strictly necessary for static output.
+        // Grouping carries no visual state of its own; clipping is handled
+        // structurally in `render_scene` (chunks + `box(clip: true)`), so
+        // both marker pairs are no-ops at the per-primitive level.
         Primitive::GroupStart { .. }
         | Primitive::GroupEnd
         | Primitive::ClipStart { .. }
@@ -532,6 +667,350 @@ fn primary_font(s: &str) -> String {
 #[inline]
 fn flip_y(y: f64, scene_h: f64) -> f64 {
     scene_h - y
+}
+
+// ── Path primitive ────────────────────────────────────────────────────────────
+//
+// Kuva's `PathData.d` is SVG path data, but from a closed vocabulary: the
+// render layer only ever emits absolute `M`, `L`, `C`, `Q`, `A` (circular,
+// unrotated), and `Z` — see `build_path` and the arrowhead/chord/sankey
+// emitters. CETZ has no SVG-path element, so each subpath is lowered to a
+// `merge-path` of `line`/`bezier` calls: quadratics are promoted to cubics
+// and arcs are converted (endpoint → center parameterisation, then split
+// into ≤90° cubic approximations with the standard `4/3·tan(Δ/4)` factor).
+
+/// One parsed segment of SVG path data (absolute coordinates).
+enum PathSeg {
+    Move(f64, f64),
+    LineTo(f64, f64),
+    Cubic([f64; 6]),
+    Quad([f64; 4]),
+    /// rx, ry, large-arc flag, sweep flag, end x, end y (x-rotation is always
+    /// 0 in kuva's output and is ignored).
+    Arc(f64, f64, bool, bool, f64, f64),
+    Close,
+}
+
+/// Parse kuva-emitted SVG path data. Unknown/relative commands end parsing
+/// gracefully (returns what was read so far) rather than panicking — the
+/// backend then draws the prefix, which is still better than dropping the
+/// whole path.
+fn parse_svg_path(d: &str) -> Vec<PathSeg> {
+    let b = d.as_bytes();
+    let mut i = 0usize;
+    let mut cmd = 0u8;
+    let mut nums: Vec<f64> = Vec::with_capacity(8);
+    let mut segs = Vec::new();
+    let mut first_pair_done = false;
+    while i < b.len() {
+        let c = b[i];
+        if c.is_ascii_alphabetic() {
+            match c {
+                b'M' | b'L' | b'C' | b'Q' | b'A' => {
+                    cmd = c;
+                    first_pair_done = false;
+                    nums.clear();
+                }
+                b'Z' | b'z' => segs.push(PathSeg::Close),
+                _ => return segs, // relative/unsupported command: stop here
+            }
+            i += 1;
+            continue;
+        }
+        if c == b' ' || c == b',' || c == b'\t' || c == b'\n' {
+            i += 1;
+            continue;
+        }
+        // Read one float.
+        let start = i;
+        i += 1;
+        while i < b.len() {
+            let ch = b[i];
+            let numeric = ch.is_ascii_digit() || ch == b'.' || ch == b'e' || ch == b'E';
+            let signed_exp = (ch == b'-' || ch == b'+') && (b[i - 1] == b'e' || b[i - 1] == b'E');
+            if numeric || signed_exp {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        match d[start..i].parse::<f64>() {
+            Ok(v) => nums.push(v),
+            Err(_) => return segs,
+        }
+        let need = match cmd {
+            b'M' | b'L' => 2,
+            b'C' => 6,
+            b'Q' => 4,
+            b'A' => 7,
+            _ => return segs, // number before any command
+        };
+        if nums.len() == need {
+            match cmd {
+                b'M' => {
+                    if first_pair_done {
+                        // Extra pairs after an M are implicit line-tos.
+                        segs.push(PathSeg::LineTo(nums[0], nums[1]));
+                    } else {
+                        segs.push(PathSeg::Move(nums[0], nums[1]));
+                        first_pair_done = true;
+                    }
+                }
+                b'L' => segs.push(PathSeg::LineTo(nums[0], nums[1])),
+                b'C' => segs.push(PathSeg::Cubic([
+                    nums[0], nums[1], nums[2], nums[3], nums[4], nums[5],
+                ])),
+                b'Q' => segs.push(PathSeg::Quad([nums[0], nums[1], nums[2], nums[3]])),
+                b'A' => segs.push(PathSeg::Arc(
+                    nums[0],
+                    nums[1],
+                    nums[3] != 0.0,
+                    nums[4] != 0.0,
+                    nums[5],
+                    nums[6],
+                )),
+                _ => {}
+            }
+            nums.clear();
+        }
+    }
+    segs
+}
+
+/// Convert one SVG arc (endpoint parameterisation, x-rotation 0) starting at
+/// `(x1, y1)` into cubic Bézier segments, appended as `[c1x, c1y, c2x, c2y,
+/// x, y]` tuples. Follows the SVG spec's F.6.5/F.6.6 conversion.
+#[allow(clippy::too_many_arguments)]
+fn arc_to_cubics(
+    x1: f64,
+    y1: f64,
+    rx: f64,
+    ry: f64,
+    large: bool,
+    sweep: bool,
+    x2: f64,
+    y2: f64,
+    out: &mut Vec<[f64; 6]>,
+) {
+    let (mut rx, mut ry) = (rx.abs(), ry.abs());
+    if rx == 0.0 || ry == 0.0 || (x1 == x2 && y1 == y2) {
+        out.push([x1, y1, x2, y2, x2, y2]); // degenerate: straight line
+        return;
+    }
+    let x1p = (x1 - x2) / 2.0;
+    let y1p = (y1 - y2) / 2.0;
+    // Scale radii up if the endpoints can't be connected at the given size.
+    let lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+    if lambda > 1.0 {
+        let s = lambda.sqrt();
+        rx *= s;
+        ry *= s;
+    }
+    let num = (rx * rx) * (ry * ry) - (rx * rx) * (y1p * y1p) - (ry * ry) * (x1p * x1p);
+    let den = (rx * rx) * (y1p * y1p) + (ry * ry) * (x1p * x1p);
+    let mut co = (num.max(0.0) / den).sqrt();
+    if large == sweep {
+        co = -co;
+    }
+    let cxp = co * rx * y1p / ry;
+    let cyp = -co * ry * x1p / rx;
+    let cx = cxp + (x1 + x2) / 2.0;
+    let cy = cyp + (y1 + y2) / 2.0;
+
+    let ang = |ux: f64, uy: f64, vx: f64, vy: f64| (ux * vy - uy * vx).atan2(ux * vx + uy * vy);
+    let theta1 = ang(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+    let mut dtheta = ang(
+        (x1p - cxp) / rx,
+        (y1p - cyp) / ry,
+        (-x1p - cxp) / rx,
+        (-y1p - cyp) / ry,
+    );
+    if !sweep && dtheta > 0.0 {
+        dtheta -= std::f64::consts::TAU;
+    } else if sweep && dtheta < 0.0 {
+        dtheta += std::f64::consts::TAU;
+    }
+
+    let n = (dtheta.abs() / std::f64::consts::FRAC_PI_2).ceil().max(1.0) as usize;
+    let step = dtheta / n as f64;
+    let k = 4.0 / 3.0 * (step / 4.0).tan();
+    let point = |a: f64| (cx + rx * a.cos(), cy + ry * a.sin());
+    let deriv = |a: f64| (-rx * a.sin(), ry * a.cos());
+    let mut a1 = theta1;
+    for _ in 0..n {
+        let a2 = a1 + step;
+        let (px1, py1) = point(a1);
+        let (px2, py2) = point(a2);
+        let (dx1, dy1) = deriv(a1);
+        let (dx2, dy2) = deriv(a2);
+        out.push([
+            px1 + k * dx1,
+            py1 + k * dy1,
+            px2 - k * dx2,
+            py2 - k * dy2,
+            px2,
+            py2,
+        ]);
+        a1 = a2;
+    }
+}
+
+/// Emit a `Primitive::Path` as one CETZ `merge-path` per subpath.
+fn emit_path(out: &mut String, data: &crate::render::render::PathData, scene_h: f64) {
+    let segs = parse_svg_path(&data.d);
+    if segs.is_empty() {
+        return;
+    }
+
+    // Style arguments shared by every subpath.
+    let mut style = String::new();
+    match &data.fill {
+        Some(f) => {
+            let _ = write!(style, "fill: {}", paint(f, data.opacity));
+        }
+        None => style.push_str("fill: none"),
+    }
+    if data.stroke_width > 0.0 && !matches!(data.stroke, Color::None) {
+        match &data.stroke_dasharray {
+            Some(dash) => {
+                let _ = write!(
+                    style,
+                    ", stroke: (thickness: {}pt, paint: {}, dash: ({}))",
+                    data.stroke_width,
+                    paint(&data.stroke, data.opacity),
+                    dash_lengths(dash)
+                );
+            }
+            None => {
+                let _ = write!(
+                    style,
+                    ", stroke: {}pt + {}",
+                    data.stroke_width,
+                    paint(&data.stroke, data.opacity)
+                );
+            }
+        }
+    } else {
+        style.push_str(", stroke: none");
+    }
+
+    // Walk the segments, flushing one merge-path per subpath.
+    let mut body = String::new();
+    let mut cur = (0.0f64, 0.0f64);
+    let mut start = cur;
+    let mut closed = false;
+    let flush = |body: &mut String, closed: bool, out: &mut String| {
+        if body.is_empty() {
+            return;
+        }
+        let _ = writeln!(out, "  merge-path({style}, close: {closed}, {{");
+        out.push_str(body);
+        out.push_str("  })\n");
+        body.clear();
+    };
+    let mut cubics: Vec<[f64; 6]> = Vec::new();
+    for seg in &segs {
+        match seg {
+            PathSeg::Move(x, y) => {
+                flush(&mut body, closed, out);
+                closed = false;
+                cur = (*x, *y);
+                start = cur;
+            }
+            PathSeg::LineTo(x, y) => {
+                let _ = writeln!(
+                    body,
+                    "    line(({}, {}), ({}, {}))",
+                    r2(cur.0),
+                    r2(flip_y(cur.1, scene_h)),
+                    r2(*x),
+                    r2(flip_y(*y, scene_h))
+                );
+                cur = (*x, *y);
+            }
+            PathSeg::Cubic([c1x, c1y, c2x, c2y, x, y]) => {
+                write_bezier(&mut body, cur, (*c1x, *c1y), (*c2x, *c2y), (*x, *y), scene_h);
+                cur = (*x, *y);
+            }
+            PathSeg::Quad([qx, qy, x, y]) => {
+                // Promote to cubic: c1 = p + 2/3 (q - p), c2 = e + 2/3 (q - e).
+                let c1 = (cur.0 + 2.0 / 3.0 * (qx - cur.0), cur.1 + 2.0 / 3.0 * (qy - cur.1));
+                let c2 = (x + 2.0 / 3.0 * (qx - x), y + 2.0 / 3.0 * (qy - y));
+                write_bezier(&mut body, cur, c1, c2, (*x, *y), scene_h);
+                cur = (*x, *y);
+            }
+            PathSeg::Arc(rx, ry, large, sweep, x, y) => {
+                cubics.clear();
+                arc_to_cubics(cur.0, cur.1, *rx, *ry, *large, *sweep, *x, *y, &mut cubics);
+                for [c1x, c1y, c2x, c2y, ex, ey] in &cubics {
+                    write_bezier(&mut body, cur, (*c1x, *c1y), (*c2x, *c2y), (*ex, *ey), scene_h);
+                    cur = (*ex, *ey);
+                }
+            }
+            PathSeg::Close => {
+                closed = true;
+                cur = start;
+            }
+        }
+    }
+    flush(&mut body, closed, out);
+}
+
+/// Write one CETZ cubic `bezier(start, end, ctrl1, ctrl2)` call with y-flip.
+fn write_bezier(
+    body: &mut String,
+    from: (f64, f64),
+    c1: (f64, f64),
+    c2: (f64, f64),
+    to: (f64, f64),
+    scene_h: f64,
+) {
+    let _ = writeln!(
+        body,
+        "    bezier(({}, {}), ({}, {}), ({}, {}), ({}, {}))",
+        r2(from.0),
+        r2(flip_y(from.1, scene_h)),
+        r2(to.0),
+        r2(flip_y(to.1, scene_h)),
+        r2(c1.0),
+        r2(flip_y(c1.1, scene_h)),
+        r2(c2.0),
+        r2(flip_y(c2.1, scene_h))
+    );
+}
+
+/// A Typst paint expression for a color with optional SVG-style opacity.
+fn paint(c: &Color, opacity: Option<f64>) -> String {
+    let base = typst_color(c);
+    match opacity {
+        Some(o) if o < 1.0 && base != "none" => {
+            format!("{}.transparentize({}%)", base, r2((1.0 - o) * 100.0))
+        }
+        _ => base,
+    }
+}
+
+/// Convert an SVG `stroke-dasharray` value (`"4 3"`, `"2,2"`) to a Typst
+/// dash-pattern tuple body (`"4pt, 3pt"`).
+fn dash_lengths(dasharray: &str) -> String {
+    let parts: Vec<String> = dasharray
+        .split([' ', ','])
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("{s}pt"))
+        .collect();
+    // A one-element SVG dasharray means equal on/off runs; Typst tuples need
+    // two entries to mean the same thing.
+    if parts.len() == 1 {
+        format!("{}, {}", parts[0], parts[0])
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// Round to 2 decimals for compact output (matches the SVG backend's floats).
+#[inline]
+fn r2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
 }
 
 #[cfg(test)]

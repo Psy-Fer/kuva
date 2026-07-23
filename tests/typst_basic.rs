@@ -137,3 +137,132 @@ fn typst_y_axis_is_flipped() {
     // inside the plot area, so flipped y is on the opposite side.
     assert!(y > 0.0 && y < scene_h, "y={y} out of expected range");
 }
+
+// ── Path primitive ────────────────────────────────────────────────────────────
+
+// Quiver arrowheads are `Primitive::Path` (M/L/Z triangles). Pre-Path support
+// they were silently dropped — the typst output had no arrowheads at all.
+#[test]
+fn quiver_arrowheads_emit_merge_paths() {
+    use kuva::plot::quiver::QuiverPlot;
+    use kuva::render::plots::Plot;
+    use kuva::render::render::render_multiple;
+
+    let quiver = QuiverPlot::new().with_arrows(vec![
+        (0.0_f64, 0.0_f64, 1.0_f64, 1.0_f64),
+        (1.0, 1.0, -0.5, 0.5),
+    ]);
+    let layout = Layout::auto_from_plots(&[Plot::Quiver(quiver.clone())]);
+    let scene = render_multiple(vec![Plot::Quiver(quiver)], layout);
+    let typst_src = TypstBackend::default().render_scene(&scene);
+
+    std::fs::create_dir_all("test_outputs").ok();
+    std::fs::write("test_outputs/typst_quiver.typ", &typst_src).unwrap();
+
+    assert!(
+        typst_src.contains("merge-path("),
+        "arrowhead Paths must emit merge-path calls"
+    );
+    assert!(
+        !typst_src.contains("TODO"),
+        "no TODO placeholders in emitted output"
+    );
+    // Arrowheads are filled triangles: closed, with a fill paint.
+    assert!(typst_src.contains("close: true"));
+}
+
+// Arcs (venn/chord/sankey `A` commands) must lower to cubic bezier() calls.
+#[test]
+fn path_arcs_lower_to_beziers() {
+    use kuva::render::render::{PathData, Primitive, Scene};
+
+    let mut s = Scene::new(200.0, 200.0);
+    s.elements.push(Primitive::Path(Box::new(PathData {
+        // Half circle from (50,100) to (150,100), then close.
+        d: "M 50 100 A 50 50 0 0 1 150 100 Z".to_string(),
+        fill: Some(kuva::render::color::Color::Css("#ff8800".into())),
+        stroke: kuva::render::color::Color::Css("black".into()),
+        stroke_width: 1.0,
+        opacity: Some(0.5),
+        stroke_dasharray: None,
+    })));
+    let typst_src = TypstBackend::default().render_scene(&s);
+
+    assert!(typst_src.contains("merge-path("));
+    assert!(
+        typst_src.contains("bezier(("),
+        "arc must be approximated by cubic beziers"
+    );
+    assert!(
+        typst_src.contains("transparentize("),
+        "opacity must map to transparentize()"
+    );
+}
+
+// ── Clip regions ──────────────────────────────────────────────────────────────
+
+// A ClipStart/ClipEnd pair must produce a `box(clip: true)` at the clip rect,
+// with content before/after the region in separate stacked canvases.
+#[test]
+fn clip_region_becomes_clipped_box() {
+    use kuva::render::color::Color;
+    use kuva::render::render::{Primitive, Scene, TextAnchor};
+
+    let mut s = Scene::new(400.0, 300.0);
+    s.elements.push(Primitive::Circle {
+        cx: 10.0,
+        cy: 10.0,
+        r: 3.0,
+        fill: Color::Css("black".into()),
+        fill_opacity: None,
+        stroke: None,
+        stroke_width: None,
+    });
+    s.elements.push(Primitive::ClipStart {
+        x: 50.0,
+        y: 40.0,
+        width: 300.0,
+        height: 200.0,
+        id: "clip0".to_string(),
+    });
+    s.elements.push(Primitive::Circle {
+        cx: 60.0,
+        cy: 60.0,
+        r: 5.0,
+        fill: Color::Css("red".into()),
+        fill_opacity: None,
+        stroke: None,
+        stroke_width: None,
+    });
+    s.elements.push(Primitive::ClipEnd);
+    s.elements.push(Primitive::Text {
+        x: 200.0,
+        y: 280.0,
+        content: "after clip".to_string(),
+        size: 12,
+        anchor: TextAnchor::Middle,
+        rotate: None,
+        bold: false,
+        color: None,
+    });
+    let typst_src = TypstBackend::default().render_scene(&s);
+
+    std::fs::create_dir_all("test_outputs").ok();
+    std::fs::write("test_outputs/typst_clip.typ", &typst_src).unwrap();
+
+    assert!(
+        typst_src.contains("box(width: 300pt, height: 200pt, clip: true)"),
+        "clip rect must become a clipped box"
+    );
+    assert!(
+        typst_src.contains("dx: 50pt, dy: 40pt"),
+        "clip box placed at the region origin"
+    );
+    assert!(
+        typst_src.contains("dx: -50pt, dy: -40pt"),
+        "inner canvas shifted back so coordinates stay page-absolute"
+    );
+    // Three chunks → three canvases (before, clipped, after).
+    assert_eq!(typst_src.matches("#cetz.canvas(").count(), 3);
+    assert!(typst_src.contains("after clip"));
+}
