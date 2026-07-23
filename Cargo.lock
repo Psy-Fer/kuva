@@ -985,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "kuva"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
