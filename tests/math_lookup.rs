@@ -78,8 +78,10 @@ fn svg_escaped_dollar_is_literal() {
     assert!(!svg.contains("\\$"), "backslash must not render");
 }
 
-// Math also works inside markdown TextPlot bodies (rich text). It's lowered to
-// inline Unicode after markdown markers are parsed.
+// Math also works inside markdown TextPlot bodies (rich text). Without the
+// `pdf` feature it's lowered to inline Unicode after markdown markers are
+// parsed (with `pdf`, body math becomes typeset fragments — see math_smoke).
+#[cfg(not(feature = "pdf"))]
 #[test]
 fn markdown_textplot_lowers_math() {
     use kuva::plot::text::TextPlot;

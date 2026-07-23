@@ -2294,10 +2294,53 @@ impl RasterBackend {
                         .unwrap_or(default_text);
                     let sz = *size as f32 * s;
 
-                    // Compute total width for anchor alignment using metrics (no cache needed).
-                    let total_w: f32 = spans
+                    // Typeset math spans up front (typst tier): the pixmap
+                    // width feeds anchor alignment, and the same pixmap is
+                    // blitted in the pen loop. A failed compile leaves None
+                    // and the span degrades to lookup-tier text below.
+                    #[cfg(feature = "pdf")]
+                    let math_frags: Vec<Option<crate::render::math::MathPixmap>> = spans
                         .iter()
                         .map(|sp| {
+                            if sp.math {
+                                crate::render::math::render_label_pixmap(
+                                    &format!("${}$", sp.text),
+                                    *size as f64,
+                                    color.as_ref(),
+                                    s,
+                                )
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    // Lookup-tier text for math spans whose fragment is
+                    // unavailable (compile failure, or no `pdf` feature —
+                    // in which case spans never carry math anyway).
+                    let lowered_math = |sp: &crate::render::render::TextSpan| {
+                        crate::render::math::to_unicode(&format!("${}$", sp.text))
+                    };
+
+                    // Compute total width for anchor alignment using metrics (no cache needed).
+                    // (the index is only read when `pdf` is compiled in)
+                    #[allow(clippy::unused_enumerate_index)]
+                    let total_w: f32 = spans
+                        .iter()
+                        .enumerate()
+                        .map(|(_i, sp)| {
+                            if sp.math {
+                                #[cfg(feature = "pdf")]
+                                if let Some(pm) = &math_frags[_i] {
+                                    // Advance minus the fragment's baked-in
+                                    // margin (see math::FRAGMENT_MARGIN_EM).
+                                    let margin =
+                                        (crate::render::math::FRAGMENT_MARGIN_EM * *size as f64)
+                                            as f32
+                                            * s;
+                                    return (pm.width_px as f32 - 2.0 * margin).max(1.0);
+                                }
+                                return measure_text_direct(&lowered_math(sp), sz, font);
+                            }
                             let f = if sp.bold {
                                 shared_font_bold()
                             } else if sp.code {
@@ -2318,7 +2361,44 @@ impl RasterBackend {
                     };
 
                     let mut pen_x = start_x;
-                    for sp in spans {
+                    #[allow(clippy::unused_enumerate_index)]
+                    for (_i, sp) in spans.iter().enumerate() {
+                        if sp.math {
+                            #[cfg(feature = "pdf")]
+                            if let Some(pm) = &math_frags[_i] {
+                                // Blit at the shared baseline, shifted a
+                                // margin early; advance minus both margins so
+                                // the fragment spaces like a word.
+                                let margin =
+                                    (crate::render::math::FRAGMENT_MARGIN_EM * *size as f64)
+                                        as f32
+                                        * s;
+                                let dx = (pen_x - margin).round() as i32;
+                                let dy = (sy!(*y) - pm.baseline_offset_px as f32).round() as i32;
+                                let dx = dx.max(clip.x0);
+                                let dy = dy.max(clip.y0);
+                                canvas.blit_pixmap(pm, dx, dy, clip);
+                                pen_x += (pm.width_px as f32 - 2.0 * margin).max(1.0);
+                                continue;
+                            }
+                            // Fallback: draw the lookup-tier form as text.
+                            let lowered = lowered_math(sp);
+                            let w = measure_text_direct(&lowered, sz, font);
+                            canvas.draw_text(
+                                pen_x,
+                                sy!(*y),
+                                &lowered,
+                                sz,
+                                rgba,
+                                TextAnchor::Start,
+                                None,
+                                font,
+                                &mut glyph_cache,
+                                clip,
+                            );
+                            pen_x += w;
+                            continue;
+                        }
                         // Draw with the appropriate font/cache; advance pen by span width.
                         let w = if sp.bold {
                             let w = measure_text_direct(&sp.text, sz, shared_font_bold());

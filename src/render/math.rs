@@ -606,15 +606,41 @@ mod typst_tier {
 
     /// Render the whole label (text + `$...$`) to an SVG fragment. `None` on
     /// compile failure (caller falls back to the lookup tier + warns).
+    ///
+    /// Results are memoized per process: TextPlot body splicing needs each
+    /// fragment twice (once for wrapping metrics, once for drawing), and
+    /// axis labels repeat across re-renders. The set of distinct
+    /// (label, size, color) keys in a process is small — one per unique
+    /// math label — so the map is unbounded by design.
     pub fn render_label_svg(label: &str, size_pt: f64, color: Option<&Color>) -> Option<MathSvg> {
-        let doc = compile(label, size_pt, color)?;
-        let page = doc.pages.first()?;
-        Some(MathSvg {
-            inner_svg: extract_inner(&typst_svg::svg(page)),
-            width_pt: page.frame.width().to_pt(),
-            height_pt: page.frame.height().to_pt(),
-            baseline_offset_pt: page.frame.baseline().to_pt(),
-        })
+        type Key = (String, u64, Option<String>);
+        static CACHE: OnceLock<Mutex<std::collections::HashMap<Key, Option<MathSvg>>>> =
+            OnceLock::new();
+        let key: Key = (
+            label.to_string(),
+            size_pt.to_bits(),
+            color.map(|c| c.to_svg_string()),
+        );
+        let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        if let Ok(map) = cache.lock() {
+            if let Some(hit) = map.get(&key) {
+                return hit.clone();
+            }
+        }
+        let result = (|| {
+            let doc = compile(label, size_pt, color)?;
+            let page = doc.pages.first()?;
+            Some(MathSvg {
+                inner_svg: extract_inner(&typst_svg::svg(page)),
+                width_pt: page.frame.width().to_pt(),
+                height_pt: page.frame.height().to_pt(),
+                baseline_offset_pt: page.frame.baseline().to_pt(),
+            })
+        })();
+        if let Ok(mut map) = cache.lock() {
+            map.insert(key, result.clone());
+        }
+        result
     }
 
     /// Render the whole label to an RGBA pixmap at `pixels_per_pt`.
@@ -687,7 +713,7 @@ mod typst_tier {
         // (relative to the font) leaves room without visible padding, and the
         // reported baseline/width include it so positioning stays correct.
         format!(
-            "#set page(width: auto, height: auto, margin: 0.3em, fill: none)\n\
+            "#set page(width: auto, height: auto, margin: {FRAGMENT_MARGIN_EM}em, fill: none)\n\
              #set text(font: \"DejaVu Sans\", size: {size_pt}pt{fill})\n\
              {markup}"
         )
@@ -807,6 +833,23 @@ mod typst_tier {
 
 #[cfg(feature = "pdf")]
 pub use typst_tier::{render_label_pixmap, render_label_svg, MathPixmap, MathSvg};
+
+/// Margin baked into every typeset fragment, in em (× the label's font
+/// size). Needed so `height: auto` pages don't clip descenders and italic
+/// overhang. Inline splicing (TextPlot bodies) subtracts it again so the
+/// fragment advances like a word rather than a padded box.
+#[cfg(feature = "pdf")]
+pub(crate) const FRAGMENT_MARGIN_EM: f64 = 0.3;
+
+/// Typeset dimensions of a label: `(width_pt, height_pt, baseline_offset_pt)`.
+/// Used by the render layer to wrap TextPlot lines around math fragments and
+/// grow line leading for tall ones. `None` when the label fails to compile
+/// (callers fall back to lookup-tier text metrics).
+#[cfg(feature = "pdf")]
+pub(crate) fn fragment_size(label: &str, size_pt: f64) -> Option<(f64, f64, f64)> {
+    render_label_svg(label, size_pt, None)
+        .map(|m| (m.width_pt, m.height_pt, m.baseline_offset_pt))
+}
 
 /// Translate a `$...$` body from LaTeX-ish syntax to Typst math syntax:
 /// commands → Unicode symbols (Typst renders them natively), `\frac{a}{b}` →

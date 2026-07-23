@@ -142,3 +142,71 @@ fn box_not_undersized_so_descenders_are_captured() {
         size
     );
 }
+
+// ── TextPlot body splicing ────────────────────────────────────────────────────
+
+// With `pdf`, `$...$` inside a markdown TextPlot body is spliced into the
+// wrapped line as a typeset fragment; surrounding words stay real SVG text.
+#[test]
+fn textplot_body_math_splices_fragment() {
+    use kuva::backend::svg::SvgBackend;
+    use kuva::plot::text::TextPlot;
+    use kuva::render::layout::Layout;
+    use kuva::render::plots::Plot;
+    use kuva::render::render::render_multiple;
+
+    let tp = TextPlot::new()
+        .with_title("Result")
+        .with_body("The **variance** is $\\frac{\\sigma^2}{n}$ across samples.");
+    let layout = Layout::new((0.0, 1.0), (0.0, 1.0));
+    let svg = SvgBackend::default().render_scene(&render_multiple(vec![Plot::Text(tp)], layout));
+
+    // The math body must be typeset (fragment markers present), not lowered.
+    assert!(
+        svg.contains("typst-text") || svg.contains("<use"),
+        "expected an embedded typst fragment in the TextPlot body"
+    );
+    // The words around the math stay real, selectable SVG text.
+    assert!(svg.contains("is "), "text before the fragment must remain");
+    assert!(
+        svg.contains(" across samples."),
+        "text after the fragment must remain"
+    );
+    assert!(svg.contains("variance"), "styled span must remain text");
+    // The raw math source must not leak into text output.
+    assert!(!svg.contains("\\frac"), "raw LaTeX-ish source must not appear");
+}
+
+// A long body with several math regions still wraps: every fragment counts
+// toward the line length, so the output has multiple RichText baselines.
+#[test]
+fn textplot_body_math_wraps_lines() {
+    use kuva::backend::svg::SvgBackend;
+    use kuva::plot::text::TextPlot;
+    use kuva::render::layout::Layout;
+    use kuva::render::plots::Plot;
+    use kuva::render::render::render_multiple;
+
+    let body = "Estimate $\\hat{x}$ with error $\\frac{\\sigma^2}{n}$ and bound \
+                $\\sqrt{x^2 + y^2}$ over many repeated trials until convergence \
+                of the posterior mean under the usual regularity conditions.";
+    let tp = TextPlot::new().with_body(body);
+    // Narrow cell forces wrapping.
+    let layout = Layout::new((0.0, 1.0), (0.0, 1.0)).with_width(360.0);
+    let svg = SvgBackend::default().render_scene(&render_multiple(vec![Plot::Text(tp)], layout));
+
+    // At least two distinct baselines → the paragraph wrapped.
+    let mut ys: Vec<&str> = Vec::new();
+    for part in svg.split("y=\"") {
+        if let Some(end) = part.find('"') {
+            ys.push(&part[..end]);
+        }
+    }
+    ys.sort();
+    ys.dedup();
+    assert!(
+        ys.len() > 2,
+        "expected multiple baselines (wrapped lines), got {ys:?}"
+    );
+    assert!(!svg.contains("\\sqrt"), "raw math must not leak");
+}

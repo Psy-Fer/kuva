@@ -306,6 +306,28 @@ impl SvgBackend {
                     anchor,
                     color,
                 } => {
+                    // Splice path (typst tier): a line containing math spans
+                    // is laid out manually — text runs measured with the
+                    // bundled-font metrics, fragments with their typeset
+                    // width — so each piece can be positioned absolutely and
+                    // the math embeds inline at the shared baseline.
+                    #[cfg(feature = "pdf")]
+                    if spans.iter().any(|sp| sp.math) {
+                        rich_text_with_math(
+                            &mut svg,
+                            *x,
+                            *y,
+                            spans,
+                            *size,
+                            *anchor,
+                            color.as_ref(),
+                            depth,
+                            p,
+                            &mut math_uid,
+                        );
+                        continue;
+                    }
+
                     let anchor_str = match anchor {
                         TextAnchor::Start => "start",
                         TextAnchor::Middle => "middle",
@@ -687,3 +709,123 @@ impl SvgBackend {
 // TODO: To phase out later: add #[deprecated(note = "Use SvgBackend::new()")] here.
 #[allow(non_upper_case_globals)]
 pub const SvgBackend: SvgBackend = SvgBackend::new();
+
+/// Draw one rich-text line that contains typeset math spans (typst tier).
+///
+/// The tspan flow used for plain rich text cannot host an embedded SVG
+/// fragment, so this path lays the line out itself: every span gets an
+/// absolute x from the bundled-font metrics (text) or the fragment's typeset
+/// width (math), all sharing the baseline `y`. Anchoring shifts the whole
+/// line by its total width. A fragment that fails to compile degrades to its
+/// lookup-tier text in place.
+#[cfg(feature = "pdf")]
+#[allow(clippy::too_many_arguments)]
+fn rich_text_with_math(
+    svg: &mut String,
+    x: f64,
+    y: f64,
+    spans: &[crate::render::render::TextSpan],
+    size: u32,
+    anchor: TextAnchor,
+    color: Option<&crate::render::color::Color>,
+    depth: usize,
+    pretty: bool,
+    math_uid: &mut usize,
+) {
+    use crate::render::math;
+    use crate::render::text_metrics::{measure_text_width, FontStyle};
+
+    // Resolve each span to (drawable, advance) up front so anchoring can use
+    // the exact total width.
+    enum Piece<'a> {
+        Text(&'a crate::render::render::TextSpan, String),
+        Math(math::MathSvg),
+    }
+    let fs = size as f64;
+    // The fragment page bakes in a margin (descender/overhang safety);
+    // inline, the fragment must advance like a word — subtract it from the
+    // advance and start the embed a margin early so glyphs align optically.
+    let frag_margin = math::FRAGMENT_MARGIN_EM * fs;
+    let mut pieces: Vec<(Piece, f64)> = Vec::with_capacity(spans.len());
+    for sp in spans {
+        if sp.math {
+            match math::render_label_svg(&format!("${}$", sp.text), fs, color) {
+                Some(m) => {
+                    let w = (m.width_pt - 2.0 * frag_margin).max(1.0);
+                    pieces.push((Piece::Math(m), w));
+                    continue;
+                }
+                None => {
+                    // Lookup-tier fallback, drawn as ordinary text.
+                    let lowered = math::to_unicode(&format!("${}$", sp.text));
+                    let w =
+                        measure_text_width(&lowered, fs, FontStyle::from_flags(sp.bold, sp.italic));
+                    pieces.push((Piece::Text(sp, lowered), w));
+                    continue;
+                }
+            }
+        }
+        let w = measure_text_width(&sp.text, fs, FontStyle::from_flags(sp.bold, sp.italic));
+        pieces.push((Piece::Text(sp, sp.text.clone()), w));
+    }
+
+    let total: f64 = pieces.iter().map(|(_, w)| w).sum();
+    let mut cursor = match anchor {
+        TextAnchor::Start => x,
+        TextAnchor::Middle => x - total / 2.0,
+        TextAnchor::End => x - total,
+    };
+
+    for (piece, w) in &pieces {
+        match piece {
+            Piece::Text(sp, text) => {
+                write_indent(svg, depth, pretty);
+                svg.push_str(r#"<text x=""#);
+                write_float(svg, cursor);
+                svg.push_str(r#"" y=""#);
+                write_float(svg, y);
+                svg.push_str(r#"" font-size=""#);
+                let _ = write!(svg, "{size}");
+                svg.push_str(r#"" text-anchor="start""#);
+                if sp.code {
+                    svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                }
+                if sp.bold {
+                    svg.push_str(r#" font-weight="bold""#);
+                }
+                if sp.italic {
+                    svg.push_str(r#" font-style="italic""#);
+                }
+                if sp.underline {
+                    svg.push_str(r#" text-decoration="underline""#);
+                }
+                if let Some(c) = color {
+                    svg.push_str(r#" fill=""#);
+                    c.write_svg(svg);
+                    svg.push('"');
+                }
+                // Leading/trailing inter-word spaces are significant here
+                // (each run is its own <text> element).
+                svg.push_str(r#" xml:space="preserve">"#);
+                write_escaped(svg, text);
+                svg.push_str("</text>");
+                write_newline(svg, pretty);
+            }
+            Piece::Math(m) => {
+                write_indent(svg, depth, pretty);
+                crate::backend::svg_math::embed_label(
+                    svg,
+                    cursor - frag_margin,
+                    y,
+                    TextAnchor::Start,
+                    None,
+                    m,
+                    *math_uid,
+                );
+                *math_uid += 1;
+                write_newline(svg, pretty);
+            }
+        }
+        cursor += w;
+    }
+}

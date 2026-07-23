@@ -101,3 +101,28 @@ fn colored_math_label_renders() {
     assert_eq!(pm_red.width_px, pm_black.width_px, "same glyphs, same size");
     assert_ne!(pm_red.rgba, pm_black.rgba, "red vs black pixels differ");
 }
+
+// TextPlot body splicing in the raster backend: the fragment pixmap is
+// blitted inline, so the composited PNG must differ from a lookup-only body
+// of the same text (structure check: it renders without error and produces
+// non-trivial output).
+#[test]
+fn textplot_body_math_composites() {
+    use kuva::plot::text::TextPlot;
+    use kuva::render::plots::Plot;
+    use kuva::render::render::render_multiple;
+
+    let tp = TextPlot::new()
+        .with_title("Estimates")
+        .with_body("Mean error $\\frac{\\sigma^2}{n}$ with bound $\\sqrt{x^2+y^2}$.");
+    let layout = Layout::new((0.0, 1.0), (0.0, 1.0));
+    let scene = render_multiple(vec![Plot::Text(tp)], layout).with_background(Some("white"));
+    let png = kuva::backend::raster::RasterBackend::new()
+        .render_scene(&scene)
+        .expect("raster render");
+    assert_eq!(&png[1..4], b"PNG");
+    assert!(png.len() > 4000, "non-trivial PNG ({} bytes)", png.len());
+
+    std::fs::create_dir_all("test_outputs").ok();
+    std::fs::write("test_outputs/textplot_math.png", &png).unwrap();
+}
