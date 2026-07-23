@@ -34,7 +34,11 @@ impl Color {
                 buf.push_str(unsafe { std::str::from_utf8_unchecked(&bytes) });
             }
             Color::None => buf.push_str("none"),
-            Color::Css(s) => buf.push_str(s),
+            // `Css` is a catch-all for anything not recognized as hex/rgb()/a
+            // named color, so it may hold arbitrary data-derived text (e.g. an
+            // unrecognized `--color-by` value). Escape it so it can't break out
+            // of the surrounding `fill="..."`/`stroke="..."` attribute.
+            Color::Css(s) => buf.push_str(&crate::render::render_utils::escape_attr(s)),
         }
     }
 

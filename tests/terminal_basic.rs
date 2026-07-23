@@ -111,6 +111,38 @@ fn ylabel_renders_vertically() {
 }
 
 #[test]
+fn bar_label_control_chars_are_sanitized() {
+    // GHSA-3c48-9r95-hqhr — a data-derived label (e.g. a bar category name
+    // read straight from a user's data file) must not be able to smuggle a
+    // raw ANSI/OSC escape sequence into the operator's real terminal via
+    // `--terminal`. kuva's own color codes are always `\x1b[...m`; a label
+    // containing `\x1b` followed by anything else (here an OSC 52 clipboard
+    // write terminated by BEL) would be such a smuggled sequence if it
+    // survived unfiltered.
+    let malicious_label = "A\u{1b}]52;c;ZXZpbA==\u{07}";
+    let bar = BarPlot::new()
+        .with_bar(malicious_label, 10.0)
+        .with_bar("B", 20.0);
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let out = TerminalBackend::new(80, 24).render_scene(&scene);
+
+    assert!(
+        !out.contains('\u{07}'),
+        "BEL character from a data label must not reach terminal output"
+    );
+    for (i, _) in out.match_indices('\u{1b}') {
+        assert_eq!(
+            out.as_bytes().get(i + 1).copied(),
+            Some(b'['),
+            "found an ESC not belonging to kuva's own SGR color codes — \
+             a label's escape sequence leaked into terminal output"
+        );
+    }
+}
+
+#[test]
 fn legend_swatches_show_series_color() {
     // Two scatter series with distinct colors and legend labels.
     // The legend swatch for each series should appear in the terminal output
