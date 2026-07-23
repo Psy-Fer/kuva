@@ -102,12 +102,12 @@ impl SvgBackend {
         svg.push('"');
         if let Some(ref family) = scene.font_family {
             svg.push_str(r#" font-family=""#);
-            svg.push_str(family);
+            write_escaped(&mut svg, family);
             svg.push('"');
         }
         if let Some(ref color) = scene.text_color {
             svg.push_str(r#" fill=""#);
-            svg.push_str(color);
+            write_escaped(&mut svg, color);
             svg.push('"');
         }
         // Emit axis metadata as data-* attrs when interactive.
@@ -142,7 +142,7 @@ impl SvgBackend {
         if let Some(color) = &scene.background_color {
             write_indent(&mut svg, 1, p);
             svg.push_str(r#"<rect width="100%" height="100%" fill=""#);
-            svg.push_str(color);
+            write_escaped(&mut svg, color);
             svg.push_str(r#"" />"#);
             write_newline(&mut svg, p);
         }
@@ -353,7 +353,7 @@ impl SvgBackend {
                     svg.push('"');
                     if let Some(dash) = stroke_dasharray {
                         svg.push_str(r#" stroke-dasharray=""#);
-                        svg.push_str(dash);
+                        write_escaped(&mut svg, dash);
                         svg.push('"');
                     }
                     svg.push_str(" />");
@@ -386,7 +386,7 @@ impl SvgBackend {
                     svg.push_str(r#"" fill="none""#);
                     if let Some(ref dash) = stroke_dasharray {
                         svg.push_str(r#" stroke-dasharray=""#);
-                        svg.push_str(dash);
+                        write_escaped(&mut svg, dash);
                         svg.push('"');
                     }
                     svg.push_str(" />");
@@ -415,7 +415,7 @@ impl SvgBackend {
                     }
                     if let Some(ref dash) = pd.stroke_dasharray {
                         svg.push_str(r#" stroke-dasharray=""#);
-                        svg.push_str(dash);
+                        write_escaped(&mut svg, dash);
                         svg.push('"');
                     }
                     svg.push_str(" />");

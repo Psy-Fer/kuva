@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] — 2026-07-23
+
+### Security
+
+- **Data-derived text (group names, legend/category labels) is now XML-escaped before being written into SVG attribute values** (e.g. `data-group="..."`, `data-x="..."`) in interactive-mode output. Previously these were interpolated raw, so a crafted data file's label could break out of the attribute and inject arbitrary markup (a stored-XSS-style issue) into the rendered SVG. Fixed at every `extra_attrs` call site in `src/render/render.rs` via a new `render_utils::escape_attr`.
+- **Arbitrary/unrecognized color strings (`Color::Css`, e.g. an unrecognized `--color-by` value) are now XML-escaped when written into `fill`/`stroke` attributes**, and `stroke-dasharray`, root `font-family`/`fill`, and the background-rect `fill` in the SVG backend are now escaped as well, closing the same class of attribute-breakout issue for CSS-derived values.
+- **`--terminal` output now filters control characters (ESC, C0/C1, DEL) out of data-derived labels** before they reach the character grid, replacing them with `U+FFFD`. Previously a label containing a raw escape sequence (e.g. from an untrusted data file) could be replayed into the operator's real terminal when the rendered grid was printed, potentially triggering an ANSI/OSC-based terminal escape injection.
+- `Scene::defs`/`Scene::scripts` gained doc-comment warnings that they are raw/unescaped and must never be populated from untrusted data.
+
+Reported via private disclosure (GHSA-3c48-9r95-hqhr). See the advisory for full details once published.
+
 ## [0.4.0] — 2026-07-09
 
 ### Added

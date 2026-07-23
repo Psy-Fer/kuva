@@ -1,3 +1,24 @@
+/// XML/attribute-escape a data-derived string before it is interpolated into
+/// a raw SVG attribute string (e.g. `data-group="{value}"`).
+///
+/// Values reaching these call sites (group names, legend labels, category
+/// labels) originate from user data files, not from code, so they must never
+/// be trusted to be free of `"`, `<`, `>`, or `&`.
+pub(crate) fn escape_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Build an SVG path string for a filled arrow-head triangle.
 ///
 /// Tip sits at `(tip_x, tip_y)` and the head points along the unit vector

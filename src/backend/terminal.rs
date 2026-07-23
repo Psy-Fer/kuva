@@ -194,6 +194,11 @@ impl Canvas {
         if cx >= self.cols || cy >= self.rows {
             return;
         }
+        // `ch` may come from untrusted data-file text (axis/category/tick
+        // labels). Control characters — ESC, C0/C1, DEL — would otherwise let
+        // a label smuggle an ANSI/OSC escape sequence into the operator's
+        // terminal once this grid is emitted by `to_ansi_string`.
+        let ch = if ch.is_control() { '\u{FFFD}' } else { ch };
         self.char_grid[cy][cx] = Some((ch, color));
     }
 
