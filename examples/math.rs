@@ -4,8 +4,12 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run --example math
+//! cargo run --features full --example math
 //! ```
+//!
+//! With `full` (which includes `pdf`), labels render through the typst tier
+//! — real typeset math. Without features the same code emits the lookup
+//! tier's inline-Unicode forms.
 //!
 //! SVGs are written to `docs/src/assets/math/`.
 
@@ -58,13 +62,13 @@ fn main() {
 
     let (p, l) = scatter(
         "Quadratic formula",
-        "$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$",
+        "$x = \\frac{-b \\pm \\sqrt{b^2 - 4 a c}}{2 a}$",
         "roots",
     );
     write("quadratic", p, l);
 
     // ── Rotated y-axis title + mixed text/math ────────────────────────────
-    let (p, l) = scatter("Mass–energy equivalence", "time", "Energy $E = mc^2$");
+    let (p, l) = scatter("Mass–energy equivalence", "time", "Energy $E = m c^2$");
     write("rotated_ylabel", p, l);
 
     let (p, l) = scatter(
@@ -128,6 +132,21 @@ fn main() {
             .with_x_label("time (s)")
             .with_y_label("$\\exp(-t)$");
         write("exp_decay", vec![Plot::Line(plot)], layout);
+    }
+
+    // ── TextPlot body: math spliced into wrapped prose ────────────────────
+    {
+        use kuva::plot::text::TextPlot;
+        let tp = TextPlot::new()
+            .with_title("Model summary")
+            .with_body(
+                "The estimator $\\hat{x} = \\frac{1}{n} \\sum_{i=1}^{n} x_i$ has \
+                 variance $\\frac{\\sigma^2}{n}$, and the **bound** \
+                 $\\sqrt{x^2 + y^2}$ shrinks as $n$ grows.",
+            )
+            .with_border("#999", 1.0);
+        let layout = Layout::new((0.0, 1.0), (0.0, 1.0)).with_width(420.0);
+        write("textplot_body", vec![Plot::Text(tp)], layout);
     }
 
     println!("Math SVGs written to {OUT}/");
