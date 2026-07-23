@@ -67,15 +67,15 @@ pub(crate) fn dejavu_sans_mono() -> &'static [u8] {
 }
 
 /// Gzip-compressed New Computer Modern Math (OFL/GUST), embedded at compile
-/// time. Used only by the `math` feature, as the math font fed to the typst
+/// time. Used only by the `pdf` feature's typst tier, as the math font fed to the typst
 /// compiler. ~1.1 MB inflated; ~0.75 MB on disk.
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 const NEWCM_MATH_GZ: &[u8] = include_bytes!("../assets/fonts/NewCMMath-Regular.otf.gz");
 
 /// Returns the inflated New Computer Modern Math OTF bytes. Inflated once and
-/// cached. Bundled (rather than pulled from `typst-assets`) so the `math`
-/// feature ships ~1 MB of font rather than ~15 MB.
-#[cfg(feature = "math")]
+/// cached. Bundled (rather than pulled from `typst-assets`) so the typst tier
+/// ships ~1 MB of font rather than ~15 MB.
+#[cfg(feature = "pdf")]
 pub(crate) fn newcm_math() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| inflate(NEWCM_MATH_GZ, 1_200_000, "NewCM Math"))

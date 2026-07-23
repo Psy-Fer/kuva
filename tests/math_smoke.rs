@@ -4,7 +4,7 @@
 //! byte-exact golden SVGs would break on every typst/font bump. The
 //! deterministic logic (the lookup tier) is unit-tested in `render::math`.
 
-#![cfg(feature = "math")]
+#![cfg(feature = "pdf")]
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;

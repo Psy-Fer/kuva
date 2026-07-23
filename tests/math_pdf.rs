@@ -5,7 +5,7 @@
 //! `xlink:href` → `href` so usvg (which rejects the undeclared `xlink`
 //! namespace prefix once the outer `<svg>` is stripped) can parse it.
 
-#![cfg(all(feature = "math", feature = "pdf"))]
+#![cfg(feature = "pdf")]
 
 use kuva::backend::pdf::PdfBackend;
 use kuva::plot::scatter::ScatterPlot;

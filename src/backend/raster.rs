@@ -103,7 +103,7 @@ impl Canvas {
     /// into the canvas with its top-left corner at device pixel (dx, dy),
     /// clipped to `clip`. Used by the math feature to composite rendered
     /// `$...$` regions.
-    #[cfg(feature = "math")]
+    #[cfg(feature = "pdf")]
     fn blit_pixmap(&mut self, src: &crate::render::math::MathPixmap, dx: i32, dy: i32, clip: Clip) {
         let sw = src.width_px as i32;
         let sh = src.height_px as i32;
@@ -1071,7 +1071,7 @@ impl Canvas {
     /// inverse-rotation bilinear-sample it into the canvas around the anchor
     /// point `(anchor_x, anchor_y)`. The pixmap's anchor is at
     /// `(off_ax, baseline_offset_px)`, where `off_ax` depends on text anchor.
-    #[cfg(feature = "math")]
+    #[cfg(feature = "pdf")]
     fn blit_pixmap_rotated(
         &mut self,
         pm: &crate::render::math::MathPixmap,
@@ -1705,7 +1705,7 @@ fn parse_dasharray(s: &str) -> Vec<f32> {
 /// Un-premultiply a premultiplied-alpha pixel to straight RGB. typst-render
 /// outputs premultiplied RGBA; `blend()` expects straight color + coverage.
 /// Callers must ensure `a > 0`.
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 #[inline]
 fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> (u8, u8, u8) {
     if a == 255 {
@@ -2213,11 +2213,11 @@ impl RasterBackend {
                         .as_ref()
                         .and_then(kcolor_to_rgba)
                         .unwrap_or(default_text);
-                    // Math routing: typst tier (feature `math`) renders the
+                    // Math routing: typst tier (feature `pdf`) renders the
                     // whole label to a pixmap and composites it; otherwise the
                     // always-on lookup tier lowers `$...$` to inline Unicode
                     // text drawn through the normal glyph path.
-                    #[cfg(feature = "math")]
+                    #[cfg(feature = "pdf")]
                     if crate::render::math::contains_math(content) {
                         if let Some(pm) = crate::render::math::render_label_pixmap(
                             content,

@@ -24,7 +24,7 @@
 //! failure the backend falls back to the lookup tier and warns once per
 //! distinct label.
 
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 use std::sync::{Mutex, OnceLock};
 
 // ─────────────────────────── detection ─────────────────────────────────────
@@ -571,7 +571,7 @@ fn read_script_group(s: &str, pos: usize) -> Option<(&str, usize)> {
     Some((&s[pos..pos + ch_len], pos + ch_len))
 }
 
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 mod typst_tier {
     use super::*;
     use crate::render::color::Color;
@@ -805,7 +805,7 @@ mod typst_tier {
     }
 }
 
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 pub use typst_tier::{render_label_pixmap, render_label_svg, MathPixmap, MathSvg};
 
 /// Translate a `$...$` body from LaTeX-ish syntax to Typst math syntax:
@@ -903,7 +903,7 @@ pub fn to_typst_math(body: &str) -> String {
 /// backend. Covers the markup-significant characters: `#`, `$`, `*`, `_`,
 /// `` ` ``, `<`, `>`, `@`, `\`, `"`, and the content-block delimiters `[` `]`
 /// (a label like `signal [dB]` would otherwise lose its brackets).
-#[cfg(any(feature = "math", feature = "typst"))]
+#[cfg(any(feature = "pdf", feature = "typst"))]
 pub(crate) fn escape_typst_markup(s: &str, out: &mut String) {
     for c in s.chars() {
         if matches!(

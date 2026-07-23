@@ -177,7 +177,7 @@ impl SvgBackend {
 
         let mut depth: usize = 1;
         // Unique tag per embedded math fragment, to namespace Typst's element IDs.
-        #[cfg(feature = "math")]
+        #[cfg(feature = "pdf")]
         let mut math_uid: usize = 0;
         for elem in &scene.elements {
             match elem {
@@ -229,10 +229,10 @@ impl SvgBackend {
                     color,
                 } => {
                     // Math routing: a `$...$` label is either typeset by the
-                    // typst tier (feature `math`) and embedded as a fragment,
+                    // typst tier (feature `pdf`) and embedded as a fragment,
                     // or lowered to inline Unicode by the always-on lookup
                     // tier and emitted as ordinary text.
-                    #[cfg(feature = "math")]
+                    #[cfg(feature = "pdf")]
                     if crate::render::math::contains_math(content) {
                         if let Some(m) = crate::render::math::render_label_svg(
                             content,

@@ -1,7 +1,7 @@
 //! Structural tests for the typst math tier in the raster (PNG) backend,
 //! including rotated labels (y-axis titles).
 
-#![cfg(all(feature = "math", feature = "png"))]
+#![cfg(all(feature = "pdf", feature = "png"))]
 
 use kuva::backend::png::PngBackend;
 use kuva::plot::scatter::ScatterPlot;

@@ -1,6 +1,6 @@
 pub mod interactive_js;
 pub mod svg;
-#[cfg(feature = "math")]
+#[cfg(feature = "pdf")]
 pub mod svg_math;
 pub mod terminal;
 
