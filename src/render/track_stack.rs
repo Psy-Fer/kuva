@@ -4,25 +4,37 @@
 //! of each track's own y-scale. This is the reusable core; `CoveragePlot` (issue #2) will be a
 //! preset assembled on top of it. See `analysis/genome_browser_design.md` for the full design.
 //!
-//! **Step 1 scope** (this file, so far): the load-bearing invariant [`XScale`], the [`Track`]
-//! extension seam, the [`TrackStack`] container with an explicit [`TrackStack::x_axis`] element,
-//! and [`PlotTrack`] (wraps any continuous-x `Vec<Plot>` by reusing `render_multiple` with forced
-//! shared margins). The go/no-go it proves: two stacked line tracks of very different y-magnitude
-//! align on x — the exact case `Figure`'s independent-per-cell margins get wrong.
+//! **Implemented so far** (build order in `analysis/genome_browser_design.md` §9):
+//! - Step 1 — the load-bearing invariant [`XScale`], the [`Track`] extension seam, the
+//!   [`TrackStack`] container with an explicit [`TrackStack::x_axis`] element, and [`PlotTrack`]
+//!   (wraps any continuous-x `Vec<Plot>` by reusing `render_multiple` with forced shared margins).
+//!   The go/no-go it proved: two stacked line tracks of very different y-magnitude align on x —
+//!   the exact case `Figure`'s independent-per-cell margins get wrong.
+//! - Step 2 — [`Track::right_margin`] (shared right gutter), [`Track::label`] (gutter track-names,
+//!   drawn by the stack), [`Track::legend_entries`] → one deduplicated shared legend, and
+//!   `PlotTrack::with_y_label`.
 //!
-//! Not yet here (later build-order steps): `right_margin`/gutter labels/shared legend (step 2),
-//! non-plot tracks + `StackLayer` under/overlays (step 3), genomic x-axis formatting (step 4).
+//! Not yet here: non-plot tracks + `StackLayer` under/overlays (step 3), genomic x-axis
+//! formatting (step 4), `CoveragePlot` preset (step 5), CLI (step 6).
 
+use crate::plot::legend::LegendEntry;
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
-use crate::render::render::{render_multiple, Primitive, Scene, TextAnchor};
+use crate::render::render::{
+    collect_legend_entries, render_legend_at, render_multiple, Primitive, Scene, TextAnchor,
+};
+use crate::render::text_metrics::{measure_text_width, FontStyle};
 use crate::render::theme::Theme;
 
 /// Fixed vertical band an axis element reserves (tick marks + tick labels).
 const AXIS_BAND_PX: f64 = 34.0;
 /// Default height a `Flex` track is assumed to want when auto-sizing the canvas.
 const DEFAULT_FLEX_PX: f64 = 160.0;
+/// Body font size for gutter track-labels and the shared legend.
+const LABEL_SIZE: f64 = 12.0;
+/// Padding added to a measured label/legend width when reserving a gutter.
+const GUTTER_PAD: f64 = 8.0;
 
 /// The shared horizontal scale for one [`TrackStack`]: maps data-x to absolute canvas pixel-x
 /// within the pixel band `[px_left, px_right]` that every track's plot area occupies.
@@ -133,6 +145,25 @@ pub trait Track {
     /// across tracks — that shared max is the x-alignment mechanism. 0 = no y-axis.
     fn left_margin(&self) -> f64 {
         0.0
+    }
+
+    /// Width needed at the shared right edge (colorbar, right-side legend, secondary y-axis).
+    /// Mirror of [`left_margin`](Self::left_margin); the stack takes the max. 0 = nothing.
+    fn right_margin(&self) -> f64 {
+        0.0
+    }
+
+    /// Optional track name. The stack draws it in the left gutter, vertically centred on this
+    /// track's band, and folds its width into the shared left gutter. Tracks that draw their own
+    /// y-axis (e.g. [`PlotTrack`]) return `None` — their y-axis label already names them.
+    fn label(&self) -> Option<&str> {
+        None
+    }
+
+    /// Legend entries this track contributes to the stack-level shared legend (deduplicated by
+    /// label across tracks). Default: none.
+    fn legend_entries(&self) -> Vec<LegendEntry> {
+        Vec::new()
     }
 
     /// Draw into the band `[cx.y_top, cx.y_bottom()]`, using `cx.x` for all x. Push primitives
@@ -259,17 +290,39 @@ impl TrackStack {
             x_max += pad;
         }
 
-        // Shared left gutter = max over tracks (this is the x-alignment mechanism). Right edge is
-        // a fixed inset for now (right_margin() arrives in step 2).
+        // Collect the shared legend up front (from &entries, before the consuming render loop),
+        // deduplicated by label across tracks.
+        let legend = dedup_legend(
+            entries
+                .iter()
+                .filter_map(|e| match e {
+                    Entry::Track(t) => Some(t.legend_entries()),
+                    Entry::Axis(_) => None,
+                })
+                .flatten()
+                .collect(),
+        );
+
+        // Shared LEFT gutter = max over tracks of (y-axis width, track-label width). This shared
+        // max is the x-alignment mechanism. Shared RIGHT edge reserves the max of every track's
+        // right_margin() and the shared legend's width.
         let px_left = entries
             .iter()
             .filter_map(|e| match e {
-                Entry::Track(t) => Some(t.left_margin()),
+                Entry::Track(t) => Some(t.left_margin().max(label_gutter_width(t.label()))),
                 Entry::Axis(_) => None,
             })
             .fold(0.0_f64, f64::max)
             .max(10.0);
-        let px_right = width - 12.0;
+        let legend_reserve = legend_block_width(&legend);
+        let max_track_right = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Track(t) => Some(t.right_margin()),
+                Entry::Axis(_) => None,
+            })
+            .fold(0.0_f64, f64::max);
+        let px_right = width - max_track_right.max(legend_reserve).max(12.0);
         let x = XScale {
             x_min,
             x_max,
@@ -279,6 +332,10 @@ impl TrackStack {
         };
 
         let bands = layout_bands(&entries, height, spacing);
+        let (y_top, y_bottom) = (
+            bands.first().map_or(0.0, |b| b.y_top),
+            bands.last().map_or(height, |b| b.y_bottom()),
+        );
 
         // One background for the whole stack; tracks render transparent over it.
         let mut scene = Scene::new(width, height);
@@ -294,9 +351,33 @@ impl TrackStack {
                 theme: &theme,
             };
             match entry {
-                Entry::Track(t) => t.render(&cx, &mut scene),
+                Entry::Track(t) => {
+                    // The stack draws the track-name label in the gutter (uniform placement);
+                    // clone it out before `render` consumes the boxed track.
+                    let label = t.label().map(str::to_owned);
+                    t.render(&cx, &mut scene);
+                    if let Some(name) = label {
+                        draw_gutter_label(&mut scene, &name, &cx, &theme);
+                    }
+                }
                 Entry::Axis(spec) => draw_shared_x_axis(&mut scene, &x, band, &spec, &theme),
             }
+        }
+
+        // Shared legend in the reserved right band, vertically centred over the stack.
+        if !legend.is_empty() {
+            render_legend_at(
+                &legend,
+                None,
+                None,
+                true,
+                &mut scene,
+                px_right + GUTTER_PAD,
+                (y_top + y_bottom) / 2.0,
+                legend_reserve,
+                LABEL_SIZE as u32,
+                &theme,
+            );
         }
         scene
     }
@@ -316,6 +397,7 @@ impl TrackStack {
 pub struct PlotTrack {
     plots: Vec<Plot>,
     height: TrackHeight,
+    y_label: Option<String>,
 }
 
 impl PlotTrack {
@@ -323,12 +405,31 @@ impl PlotTrack {
         Self {
             plots,
             height: TrackHeight::Flex(1.0),
+            y_label: None,
         }
     }
 
     pub fn with_height(mut self, height: TrackHeight) -> Self {
         self.height = height;
         self
+    }
+
+    /// Label for this track's y-axis (drawn in the shared left gutter). A `PlotTrack` names
+    /// itself via its y-axis label rather than a gutter `label()`, so this doubles as its name.
+    pub fn with_y_label(mut self, label: impl Into<String>) -> Self {
+        self.y_label = Some(label.into());
+        self
+    }
+
+    /// The y-side `Layout` for this track's plots, before the stack forces shared x-geometry.
+    /// Shared by the sizing methods and `render` so `left_margin`/`right_margin` predict exactly
+    /// what `render` will produce.
+    fn base_layout(&self) -> Layout {
+        let mut l = Layout::auto_from_plots(&self.plots);
+        if let Some(lbl) = &self.y_label {
+            l = l.with_y_label(lbl.clone());
+        }
+        l
     }
 }
 
@@ -346,14 +447,23 @@ impl Track for PlotTrack {
 
     fn left_margin(&self) -> f64 {
         // Margins are canvas-size-independent, so a provisional ComputedLayout reads the exact
-        // y-driven left margin cheaply.
-        ComputedLayout::from_layout(&Layout::auto_from_plots(&self.plots)).margin_left
+        // y-driven left margin cheaply — and matches what `render` will force.
+        ComputedLayout::from_layout(&self.base_layout()).margin_left
+    }
+
+    fn right_margin(&self) -> f64 {
+        ComputedLayout::from_layout(&self.base_layout()).margin_right
+    }
+
+    fn legend_entries(&self) -> Vec<LegendEntry> {
+        collect_legend_entries(&self.plots)
     }
 
     fn render(self: Box<Self>, cx: &TrackCtx<'_>, scene: &mut Scene) {
         let (x_min, x_max) = cx.x.x_range();
         let s = *self;
-        let mut layout = Layout::auto_from_plots(&s.plots)
+        let mut layout = s
+            .base_layout()
             .with_width(cx.width)
             .with_height(cx.height)
             // Pin the range exactly (bypass nice-rounding) so map_x == XScale::map.
@@ -526,6 +636,52 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
     }
 }
 
+/// Width to reserve in the left gutter for a track's name label (0 if none).
+fn label_gutter_width(label: Option<&str>) -> f64 {
+    match label {
+        Some(s) => measure_text_width(s, LABEL_SIZE, FontStyle::Regular) + GUTTER_PAD,
+        None => 0.0,
+    }
+}
+
+/// Width of the shared-legend block: widest entry label + swatch/padding. 0 if empty.
+fn legend_block_width(entries: &[LegendEntry]) -> f64 {
+    if entries.is_empty() {
+        return 0.0;
+    }
+    let widest = entries
+        .iter()
+        .map(|e| measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular))
+        .fold(0.0_f64, f64::max);
+    widest + 35.0
+}
+
+/// Deduplicate legend entries by label, preserving first-seen order.
+fn dedup_legend(entries: Vec<LegendEntry>) -> Vec<LegendEntry> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(entries.len());
+    for e in entries {
+        if seen.insert(e.label.clone()) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// Draw a track's name in the left gutter, vertically centred on its band, left-aligned.
+fn draw_gutter_label(scene: &mut Scene, name: &str, cx: &TrackCtx<'_>, theme: &Theme) {
+    scene.add(Primitive::Text {
+        x: 2.0,
+        y: cx.inset(0.5) + LABEL_SIZE / 2.5,
+        content: name.to_string(),
+        size: LABEL_SIZE as u32,
+        anchor: TextAnchor::Start,
+        rotate: None,
+        bold: false,
+        color: Some(Color::Css(theme.text_color.as_str().into())),
+    });
+}
+
 fn fmt_tick(v: f64) -> String {
     if (v.round() - v).abs() < 1e-9 {
         format!("{}", v.round() as i64)
@@ -626,5 +782,108 @@ mod tests {
             .track(PlotTrack::new(vec![line(&[1.0, 2.0, 3.0])]))
             .render(600.0);
         assert!(scene.height > 0.0);
+    }
+
+    // ---- step 2 ----
+
+    use crate::plot::legend::{LegendEntry, LegendShape};
+
+    fn legend_entry(label: &str) -> LegendEntry {
+        LegendEntry {
+            label: label.into(),
+            color: "#000000".into(),
+            shape: LegendShape::Line,
+            dasharray: None,
+        }
+    }
+
+    /// A minimal non-plot track for exercising `label()` / `legend_entries()` without depending on
+    /// any real plot type's legend API (annotation tracks land properly in step 3).
+    struct DummyTrack {
+        label: Option<String>,
+        legend: Vec<LegendEntry>,
+    }
+    impl Track for DummyTrack {
+        fn height(&self) -> TrackHeight {
+            TrackHeight::Fixed(40.0)
+        }
+        fn label(&self) -> Option<&str> {
+            self.label.as_deref()
+        }
+        fn legend_entries(&self) -> Vec<LegendEntry> {
+            self.legend.clone()
+        }
+        fn render(self: Box<Self>, _cx: &TrackCtx<'_>, _scene: &mut Scene) {}
+    }
+
+    fn count_text(scene: &Scene, needle: &str) -> usize {
+        scene
+            .elements
+            .iter()
+            .filter(|p| matches!(p, Primitive::Text { content, .. } if content == needle))
+            .count()
+    }
+
+    #[test]
+    fn dedup_legend_removes_duplicate_labels_preserving_order() {
+        let out = dedup_legend(vec![
+            legend_entry("A"),
+            legend_entry("B"),
+            legend_entry("A"),
+            legend_entry("C"),
+            legend_entry("B"),
+        ]);
+        let labels: Vec<_> = out.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["A", "B", "C"]);
+    }
+
+    /// The stack draws a track's `label()` in the gutter and a deduplicated shared legend, both as
+    /// top-level Text primitives.
+    #[test]
+    fn gutter_label_and_shared_legend_render() {
+        let track = DummyTrack {
+            label: Some("Genes".into()),
+            legend: vec![
+                legend_entry("SNV"),
+                legend_entry("SNV"),
+                legend_entry("InDel"),
+            ],
+        };
+        let scene = TrackStack::new()
+            .x_range(0.0, 10.0)
+            .track(track)
+            .x_axis()
+            .render_sized(600.0, 200.0);
+        assert_eq!(count_text(&scene, "Genes"), 1, "gutter label missing");
+        assert_eq!(count_text(&scene, "SNV"), 1, "legend not deduped");
+        assert_eq!(count_text(&scene, "InDel"), 1, "legend entry missing");
+    }
+
+    /// A `PlotTrack`'s y-axis label actually renders (it names the track via its y-axis, so it has
+    /// no separate gutter `label()`). Margins don't change — `from_layout` reserves the label band
+    /// as a fixed `label_size` regardless of text — but the label text must appear in the output.
+    #[test]
+    fn y_label_renders() {
+        let scene = TrackStack::new()
+            .x_range(0.0, 2.0)
+            .track(PlotTrack::new(vec![line(&[0.0, 1.0, 2.0])]).with_y_label("coverage depth"))
+            .x_axis()
+            .render(600.0);
+        assert_eq!(count_text(&scene, "coverage depth"), 1);
+    }
+
+    /// Alignment still holds when tracks have different right reservations: a legend-bearing track
+    /// and a bare track both map x identically (px_right is shared).
+    #[test]
+    fn alignment_holds_with_shared_right_reserve() {
+        // Two PlotTracks; both go through the same forced shared margins regardless of their own
+        // right reservations, so a rendered stack keeps x aligned. Smoke: renders without panic.
+        let scene = TrackStack::new()
+            .x_range(0.0, 100.0)
+            .track(PlotTrack::new(vec![line(&[0.0, 50.0, 100.0])]).with_y_label("depth"))
+            .track(PlotTrack::new(vec![line(&[0.0, 1.0, 2.0])]))
+            .x_axis()
+            .render(700.0);
+        assert_eq!(scene.width, 700.0);
     }
 }
