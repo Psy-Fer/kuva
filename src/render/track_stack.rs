@@ -20,7 +20,11 @@
 //!   (via `render_utils::generate_ticks`) and a `Genomic` mode picking one bp/kb/Mb/Gb unit for the
 //!   whole axis.
 //!
-//! Not yet here: `CoveragePlot` preset (step 5), CLI `kuva coverage` + `--emit-code` + docs (step 6).
+//! - Step 5 — the [`CoveragePlot`](crate::render::coverage::CoveragePlot) genomics preset
+//!   (issue #2), assembled entirely from this primitive (depth tracks + variant lane + feature
+//!   bands + genomic axis). Lives in `src/render/coverage.rs`.
+//!
+//! Not yet here: CLI `kuva coverage` + `--emit-code` + docs (step 6).
 
 use crate::plot::legend::{LegendEntry, LegendShape};
 use crate::render::color::Color;

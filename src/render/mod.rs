@@ -3,6 +3,7 @@ pub mod annotations;
 pub mod axis;
 pub mod bw;
 pub mod color;
+pub mod coverage;
 pub mod datetime;
 pub mod figure;
 pub mod layout;
