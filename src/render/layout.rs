@@ -411,6 +411,13 @@ pub struct Layout {
     /// Override the upper bound of the secondary (twin-Y) y-axis after
     /// auto-ranging. See `y2_axis_min`.
     pub y2_axis_max: Option<f64>,
+    /// Force `ComputedLayout::margin_left` to an exact pixel value, bypassing the
+    /// auto-computation from y-tick-label width. Used by `TrackStack` to give every
+    /// stacked panel an identical left margin so their x-axes pixel-align regardless
+    /// of differing y-tick-label widths. `None` = auto (the normal path).
+    pub force_margin_left: Option<f64>,
+    /// Force `ComputedLayout::margin_right` to an exact pixel value. See `force_margin_left`.
+    pub force_margin_right: Option<f64>,
     /// Explicit major tick step for the x-axis.  Skips auto computation when set.
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis.  Skips auto computation when set.
@@ -575,6 +582,8 @@ impl Layout {
             y_axis_max: None,
             y2_axis_min: None,
             y2_axis_max: None,
+            force_margin_left: None,
+            force_margin_right: None,
             x_tick_step: None,
             y_tick_step: None,
             minor_ticks: None,
@@ -2593,6 +2602,14 @@ impl Layout {
         self
     }
 
+    /// Force the left/right margins to exact pixel values (bypassing auto-computation).
+    /// Used by `TrackStack` to pixel-align stacked panels' x-axes. See `force_margin_left`.
+    pub fn with_force_margins(mut self, left: f64, right: f64) -> Self {
+        self.force_margin_left = Some(left);
+        self.force_margin_right = Some(right);
+        self
+    }
+
     pub fn with_x_axis_min(mut self, v: f64) -> Self {
         self.x_axis_min = Some(v);
         self
@@ -3516,6 +3533,14 @@ impl ComputedLayout {
             bw_mode: layout.bw_mode,
             label_background: layout.label_background.unwrap_or(layout.bw_mode),
         };
+        // Forced margins (TrackStack shared-x alignment) override the auto-computed
+        // values, applied after the struct is built so recompute_transforms picks them up.
+        if let Some(l) = layout.force_margin_left {
+            s.margin_left = l;
+        }
+        if let Some(r) = layout.force_margin_right {
+            s.margin_right = r;
+        }
         s.recompute_transforms();
         s
     }
