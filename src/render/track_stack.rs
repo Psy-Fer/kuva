@@ -16,8 +16,11 @@
 //! - Step 3 — the first non-plot tracks drawing directly against [`XScale`]: [`IntervalTrack`]
 //!   (labelled bands) and [`VariantTrack`] (typed tick marks + legend entries); plus the
 //!   [`StackLayer`] seam ([`TrackStack::underlay`] / [`TrackStack::overlay`]) with [`RegionHighlight`].
+//! - Step 4 — shared x-axis formatting ([`XAxisFormat`] on [`AxisSpec`]): nice 1-2-5 tick positions
+//!   (via `render_utils::generate_ticks`) and a `Genomic` mode picking one bp/kb/Mb/Gb unit for the
+//!   whole axis.
 //!
-//! Not yet here: genomic x-axis formatting (step 4), `CoveragePlot` preset (step 5), CLI (step 6).
+//! Not yet here: `CoveragePlot` preset (step 5), CLI `kuva coverage` + `--emit-code` + docs (step 6).
 
 use crate::plot::legend::{LegendEntry, LegendShape};
 use crate::render::color::Color;
@@ -226,10 +229,40 @@ impl StackLayer for RegionHighlight {
     }
 }
 
-/// Config for the one shared x-axis. (Formatting/label sizing land in later steps.)
+/// How the shared x-axis formats its tick labels.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub enum XAxisFormat {
+    /// Plain numbers (nice-rounded; integers or up to 2 decimals).
+    #[default]
+    Numeric,
+    /// Genomic coordinates with a single bp/kb/Mb/Gb unit chosen for the whole axis
+    /// (e.g. `1.5 Mb`, `25 kb`, `800 bp`).
+    Genomic,
+}
+
+/// Config for the one shared x-axis.
 #[derive(Clone, Default)]
 pub struct AxisSpec {
     pub label: Option<String>,
+    pub format: XAxisFormat,
+}
+
+impl AxisSpec {
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+    pub fn with_format(mut self, format: XAxisFormat) -> Self {
+        self.format = format;
+        self
+    }
+    /// Shorthand for `AxisSpec { format: Genomic, .. }` with a label.
+    pub fn genomic(label: impl Into<String>) -> Self {
+        Self {
+            label: Some(label.into()),
+            format: XAxisFormat::Genomic,
+        }
+    }
 }
 
 /// One entry in the stack's ordered sequence. The x-axis is an explicit, positioned element —
@@ -894,9 +927,11 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
     });
 
     let (x_min, x_max) = x.x_range();
-    let n = 6usize;
-    for i in 0..=n {
-        let val = x_min + (i as f64 / n as f64) * (x_max - x_min);
+    // Nice tick positions (1-2-5 rounded), shared with the rest of kuva's axes.
+    let ticks = crate::render::render_utils::generate_ticks(x_min, x_max, 6);
+    // For Genomic, pick ONE unit for the whole axis so labels don't mix bp/kb/Mb.
+    let unit = genomic_unit(x_min, x_max);
+    for &val in &ticks {
         let px = x.map(val);
         scene.add(Primitive::Line {
             x1: px,
@@ -910,7 +945,7 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
         scene.add(Primitive::Text {
             x: px,
             y: y + 18.0,
-            content: fmt_tick(val),
+            content: format_tick(val, spec.format, unit),
             size: 11,
             anchor: TextAnchor::Middle,
             rotate: None,
@@ -979,11 +1014,54 @@ fn draw_gutter_label(scene: &mut Scene, name: &str, cx: &TrackCtx<'_>, theme: &T
     });
 }
 
-fn fmt_tick(v: f64) -> String {
+/// A genomic unit chosen for a whole axis: the divisor + suffix that keeps tick numbers small.
+#[derive(Clone, Copy)]
+struct GenomicUnit {
+    divisor: f64,
+    suffix: &'static str,
+}
+
+/// Pick one bp/kb/Mb/Gb unit for the axis from its largest-magnitude endpoint, so every tick
+/// label shares a unit instead of mixing (e.g. an axis to 5 Mb never shows a tick in "kb").
+fn genomic_unit(x_min: f64, x_max: f64) -> GenomicUnit {
+    let mag = x_min.abs().max(x_max.abs());
+    if mag >= 1e9 {
+        GenomicUnit {
+            divisor: 1e9,
+            suffix: "Gb",
+        }
+    } else if mag >= 1e6 {
+        GenomicUnit {
+            divisor: 1e6,
+            suffix: "Mb",
+        }
+    } else if mag >= 1e3 {
+        GenomicUnit {
+            divisor: 1e3,
+            suffix: "kb",
+        }
+    } else {
+        GenomicUnit {
+            divisor: 1.0,
+            suffix: "bp",
+        }
+    }
+}
+
+fn format_tick(v: f64, format: XAxisFormat, unit: GenomicUnit) -> String {
+    match format {
+        XAxisFormat::Numeric => fmt_numeric(v),
+        XAxisFormat::Genomic => format!("{} {}", fmt_numeric(v / unit.divisor), unit.suffix),
+    }
+}
+
+/// Integer when whole, else up to 3 decimals with trailing zeros trimmed.
+fn fmt_numeric(v: f64) -> String {
     if (v.round() - v).abs() < 1e-9 {
         format!("{}", v.round() as i64)
     } else {
-        format!("{v:.2}")
+        let s = format!("{v:.3}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
 
@@ -1230,6 +1308,43 @@ mod tests {
         assert_eq!(count_text(&scene, "Variants"), 1, "gutter track-name");
         assert_eq!(count_text(&scene, "SNV"), 1, "SNV legend entry");
         assert_eq!(count_text(&scene, "InDel"), 1, "InDel legend entry");
+    }
+
+    // ---- step 4 ----
+
+    #[test]
+    fn genomic_unit_is_chosen_from_axis_magnitude() {
+        assert_eq!(genomic_unit(0.0, 800.0).suffix, "bp");
+        assert_eq!(genomic_unit(1000.0, 5000.0).suffix, "kb");
+        assert_eq!(genomic_unit(1_000_000.0, 5_000_000.0).suffix, "Mb");
+        assert_eq!(genomic_unit(0.0, 3.2e9).suffix, "Gb");
+    }
+
+    #[test]
+    fn format_tick_genomic_and_numeric() {
+        let mb = genomic_unit(0.0, 5_000_000.0);
+        assert_eq!(format_tick(1_500_000.0, XAxisFormat::Genomic, mb), "1.5 Mb");
+        assert_eq!(format_tick(2_000_000.0, XAxisFormat::Genomic, mb), "2 Mb");
+        let kb = genomic_unit(0.0, 5000.0);
+        assert_eq!(format_tick(2500.0, XAxisFormat::Genomic, kb), "2.5 kb");
+        // Numeric ignores the unit.
+        assert_eq!(format_tick(2500.0, XAxisFormat::Numeric, kb), "2500");
+    }
+
+    /// A `Genomic` axis emits at least one unit-suffixed tick label in the rendered scene.
+    #[test]
+    fn genomic_axis_labels_render_with_unit() {
+        let scene = TrackStack::new()
+            .x_range(1_000_000.0, 5_000_000.0)
+            .track(PlotTrack::new(vec![line(&[0.0, 1.0, 2.0])]))
+            .x_axis_with(AxisSpec::genomic("chr1"))
+            .render(700.0);
+        let has_mb = scene
+            .elements
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { content, .. } if content.ends_with(" Mb")));
+        assert!(has_mb, "expected an axis tick labelled in Mb");
+        assert_eq!(count_text(&scene, "chr1"), 1, "axis label present");
     }
 
     /// A `RegionHighlight` underlay renders as a rect BEFORE the first track group — i.e. behind the
