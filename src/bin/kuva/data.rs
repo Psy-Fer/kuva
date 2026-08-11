@@ -232,6 +232,50 @@ impl DataTable {
             .collect()
     }
 
+    /// Extract a numeric column, treating empty / NA-token cells as missing (`None`) rather than
+    /// erroring. A non-empty cell that is neither an NA token nor a number is still a hard error
+    /// (keeps the wrong-column-selection safety net). See issue #108.
+    ///
+    /// `clamp = (min, max)` clips finite values into the given bounds and, crucially, maps `+inf`
+    /// to `max` and `-inf` to `min` (so an infinite value can be capped at a real number rather
+    /// than dropped). Any value still non-finite after clamping (e.g. `-inf` with no lower bound,
+    /// or `NaN`) is treated as missing, because it is not plottable and would corrupt axis
+    /// auto-ranging. Pass `(None, None)` for no clamping (the default: all non-finite → missing).
+    pub fn col_f64_opt(
+        &self,
+        col: &ColSpec,
+        na: &NaSet,
+        clamp: (Option<f64>, Option<f64>),
+    ) -> Result<Vec<Option<f64>>, String> {
+        let idx = self.resolve(col)?;
+        self.rows
+            .iter()
+            .enumerate()
+            .map(|(row_i, row)| {
+                let s = row
+                    .get(idx)
+                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?;
+                if na.is_na(s) {
+                    return Ok(None);
+                }
+                match s.parse::<f64>() {
+                    Ok(mut v) => {
+                        // Cap at max (clips finite outliers and +inf); floor at min (finite and -inf).
+                        if let Some(mx) = clamp.1 {
+                            v = v.min(mx);
+                        }
+                        if let Some(mn) = clamp.0 {
+                            v = v.max(mn);
+                        }
+                        // Anything still non-finite is not plottable: treat as missing.
+                        Ok(v.is_finite().then_some(v))
+                    }
+                    Err(_) => Err(format!("Row {row_i}: cannot parse '{s}' as a number")),
+                }
+            })
+            .collect()
+    }
+
     /// Extract a column as f64 Unix timestamps (seconds), parsing each cell with
     /// `format` (a chrono strftime pattern, e.g. `"%Y-%m-%d"` or `"%m/%d/%Y %H:%M"`).
     ///
@@ -637,6 +681,85 @@ fn arrow_dict_to_string(
 /// yellow-orange-red, blues, greens, grayscale (grey/gray), oranges, purples, reds,
 /// brown-green, pink-green, purple-green, purple-orange, red-blue, red-grey,
 /// red-yellow-blue, red-yellow-green, spectral, rainbow, sinebow.
+/// The set of cell values treated as "missing" by [`DataTable::col_f64_opt`]. An empty (or
+/// whitespace-only) cell is ALWAYS missing; the token set adds named sentinels, matched
+/// case-insensitively.
+#[derive(Debug, Clone)]
+pub struct NaSet {
+    tokens: std::collections::HashSet<String>,
+}
+
+impl NaSet {
+    /// The default NA tokens: `NA`, `NaN`, `null`, `N/A`, `.` (plus empty cells always).
+    pub fn default_tokens() -> Self {
+        Self::from_tokens(
+            ["na", "nan", "null", "n/a", "."]
+                .iter()
+                .map(|s| s.to_string()),
+        )
+    }
+    pub fn from_tokens(tokens: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            tokens: tokens
+                .into_iter()
+                .map(|t| t.trim().to_ascii_lowercase())
+                .collect(),
+        }
+    }
+    pub fn is_na(&self, s: &str) -> bool {
+        let t = s.trim();
+        t.is_empty() || self.tokens.contains(&t.to_ascii_lowercase())
+    }
+}
+
+/// How to handle missing values in selected numeric columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaStrategy {
+    /// Drop any row that has a missing value in a selected column (default).
+    Drop,
+    /// Replace missing values with 0.
+    Zero,
+    /// Treat any missing value as a hard error (the pre-#108 behaviour).
+    Error,
+}
+
+/// Resolve a missing-value strategy over a set of aligned numeric columns, returning the row
+/// indices to keep. The caller uses these to filter every column (numeric and string) in lockstep,
+/// building each numeric column as `col[i].unwrap_or(0.0)` (already `Some` under Drop/Error; filled
+/// with 0 under Zero). For `Drop`, prints a one-line note to stderr when rows are removed.
+pub fn apply_na(
+    strategy: NaStrategy,
+    cols: &[&[Option<f64>]],
+    n: usize,
+) -> Result<Vec<usize>, String> {
+    match strategy {
+        NaStrategy::Drop => {
+            let keep: Vec<usize> = (0..n)
+                .filter(|&i| cols.iter().all(|c| c[i].is_some()))
+                .collect();
+            let dropped = n - keep.len();
+            if dropped > 0 {
+                eprintln!(
+                    "note: dropped {dropped} row(s) with missing or non-finite values \
+                     (use --na-strategy zero to keep them as 0, or error to fail)"
+                );
+            }
+            Ok(keep)
+        }
+        NaStrategy::Zero => Ok((0..n).collect()),
+        NaStrategy::Error => {
+            for c in cols {
+                if let Some(i) = c.iter().position(|v| v.is_none()) {
+                    return Err(format!(
+                        "Row {i}: missing value (use --na-strategy drop or zero to handle it)"
+                    ));
+                }
+            }
+            Ok((0..n).collect())
+        }
+    }
+}
+
 pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
     use kuva::plot::ColorMap;
     match name.to_ascii_lowercase().replace('_', "-").as_str() {
@@ -692,6 +815,87 @@ pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
             );
             ColorMap::Viridis
         }
+    }
+}
+
+#[cfg(test)]
+mod na_tests {
+    use super::*;
+
+    fn table(content: &str) -> DataTable {
+        DataTable::parse_str(content, None, HeaderMode::Header, Some(',')).unwrap()
+    }
+
+    #[test]
+    fn na_set_matches_empty_and_tokens_case_insensitively() {
+        let na = NaSet::default_tokens();
+        assert!(na.is_na(""));
+        assert!(na.is_na("  "));
+        assert!(na.is_na("NA") && na.is_na("na") && na.is_na("nan"));
+        assert!(na.is_na("null") && na.is_na("."));
+        assert!(!na.is_na("0") && !na.is_na("3.5") && !na.is_na("foo"));
+    }
+
+    #[test]
+    fn col_f64_opt_marks_missing_but_errors_on_real_garbage() {
+        let t = table("x,y\n1,10\n2,\n3,NA\n");
+        let ys = t
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .unwrap();
+        assert_eq!(ys, vec![Some(10.0), None, None]);
+        // A non-NA, non-numeric cell is still a hard error.
+        let bad = table("x,y\n1,10\n2,foo\n");
+        assert!(bad
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .is_err());
+    }
+
+    #[test]
+    fn col_f64_opt_treats_non_finite_as_missing() {
+        // inf / -inf / infinity parse to non-finite floats; treat them as missing (not real values)
+        // so they can't corrupt axis ranges. (nan is already caught as an NA token.)
+        let t = table("x,y\n1,inf\n2,-inf\n3,Infinity\n4,5\n");
+        let ys = t
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .unwrap();
+        assert_eq!(ys, vec![None, None, None, Some(5.0)]);
+    }
+
+    #[test]
+    fn col_f64_opt_clamp_maps_inf_and_clips_finite() {
+        let t = table("x,y\n1,inf\n2,-inf\n3,500\n4,-7\n5,50\n");
+        let na = NaSet::default_tokens();
+        // clamp [0, 300]: +inf -> 300, -inf -> 0, 500 -> 300, -7 -> 0, 50 unchanged.
+        let two_sided = t
+            .col_f64_opt(&ColSpec::Index(1), &na, (Some(0.0), Some(300.0)))
+            .unwrap();
+        assert_eq!(
+            two_sided,
+            vec![Some(300.0), Some(0.0), Some(300.0), Some(0.0), Some(50.0)]
+        );
+        // Only a max bound: +inf -> 300, but -inf has no floor so stays non-finite -> missing.
+        let max_only = t
+            .col_f64_opt(&ColSpec::Index(1), &na, (None, Some(300.0)))
+            .unwrap();
+        assert_eq!(
+            max_only,
+            vec![Some(300.0), None, Some(300.0), Some(-7.0), Some(50.0)]
+        );
+    }
+
+    #[test]
+    fn apply_na_drop_keeps_rows_where_all_present() {
+        let xs = vec![Some(1.0), None, Some(3.0), Some(4.0)];
+        let ys = vec![Some(10.0), Some(20.0), None, Some(40.0)];
+        let keep = apply_na(NaStrategy::Drop, &[&xs, &ys], 4).unwrap();
+        assert_eq!(keep, vec![0, 3]); // rows 1 (x missing) and 2 (y missing) dropped
+    }
+
+    #[test]
+    fn apply_na_zero_keeps_all_and_error_fails() {
+        let xs = vec![Some(1.0), None];
+        assert_eq!(apply_na(NaStrategy::Zero, &[&xs], 2).unwrap(), vec![0, 1]);
+        assert!(apply_na(NaStrategy::Error, &[&xs], 2).is_err());
     }
 }
 

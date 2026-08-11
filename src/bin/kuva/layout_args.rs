@@ -271,6 +271,73 @@ pub struct DateArgs {
     pub x_date_tick_step: Option<usize>,
 }
 
+/// Missing-value handling for numeric columns (issue #108). Flattened into the subcommands that
+/// read continuous numeric data (scatter, line, bar, histogram).
+#[derive(Args, Debug)]
+#[command(next_help_heading = "Missing values")]
+pub struct NaArgs {
+    /// Comma-separated tokens to treat as missing, replacing the default set
+    /// (NA, NaN, null, N/A, .). Empty cells are always missing. Case-insensitive.
+    /// Accepts negative sentinels like -999 (e.g. `--na-values -999,NA`).
+    #[arg(
+        long,
+        value_name = "TOKENS",
+        value_delimiter = ',',
+        allow_hyphen_values = true
+    )]
+    pub na_values: Vec<String>,
+
+    /// What to do with a missing value in a selected numeric column:
+    /// drop (remove the row, default), zero (replace with 0), or error (fail).
+    #[arg(long, value_name = "STRATEGY", default_value = "drop")]
+    pub na_strategy: String,
+
+    /// Clip numeric values to a lower bound. Values below it (and -inf) become this number.
+    #[arg(long, value_name = "N", allow_hyphen_values = true)]
+    pub clamp_min: Option<f64>,
+
+    /// Clip numeric values to an upper bound. Values above it (and +inf) become this number.
+    /// e.g. cap infinite -log10(p) at a ceiling: `--clamp-max 300`.
+    #[arg(long, value_name = "N", allow_hyphen_values = true)]
+    pub clamp_max: Option<f64>,
+}
+
+/// Missing-value config resolved from [`NaArgs`]: token set, strategy, and clamp bounds.
+pub type NaConfig = (
+    crate::data::NaSet,
+    crate::data::NaStrategy,
+    (Option<f64>, Option<f64>),
+);
+
+impl NaArgs {
+    /// Resolve to a token set, a strategy, and clamp bounds `(min, max)`.
+    pub fn resolve(&self) -> Result<NaConfig, String> {
+        let na_set = if self.na_values.is_empty() {
+            crate::data::NaSet::default_tokens()
+        } else {
+            crate::data::NaSet::from_tokens(self.na_values.iter().cloned())
+        };
+        let strategy = match self.na_strategy.to_ascii_lowercase().as_str() {
+            "drop" => crate::data::NaStrategy::Drop,
+            "zero" => crate::data::NaStrategy::Zero,
+            "error" => crate::data::NaStrategy::Error,
+            other => {
+                return Err(format!(
+                    "unknown --na-strategy '{other}': expected drop, zero, or error"
+                ))
+            }
+        };
+        if let (Some(lo), Some(hi)) = (self.clamp_min, self.clamp_max) {
+            if lo > hi {
+                return Err(format!(
+                    "--clamp-min ({lo}) must not exceed --clamp-max ({hi})"
+                ));
+            }
+        }
+        Ok((na_set, strategy, (self.clamp_min, self.clamp_max)))
+    }
+}
+
 /// Controls for a secondary (right-hand) Y axis — currently only meaningful
 /// on `kuva twin-y`, which is the only subcommand with a real secondary Y axis
 /// exposed to CLI configuration (`ParetoPlot`'s secondary axis is fixed 0-100%

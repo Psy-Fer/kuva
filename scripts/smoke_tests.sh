@@ -135,6 +135,23 @@ check "scatter date x-axis explicit unit" \
         --x-date-format "%Y-%m-%d" --x-date-unit months --x-date-tick-format "%b %y" \
         --title "Close price by month"
 
+# ── missing values (#108) ───────────────────────────────────────────────────
+check "scatter missing values (drop)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --title "Missing values dropped"
+
+check "scatter missing values (zero)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --na-strategy zero
+
+check "histogram missing values" \
+    "$BIN" histogram "$DATA/missing.tsv" --value-col y
+
+check_error "scatter missing values (error strategy)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --na-strategy error
+
+check "scatter clamp infinities" \
+    "$BIN" scatter "$DATA/inf_data.tsv" --x x --y y --clamp-min 0 --clamp-max 300 \
+        --title "Infinities capped to [0, 300]"
+
 # ── line ──────────────────────────────────────────────────────────────────────
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \

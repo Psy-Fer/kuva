@@ -6,10 +6,10 @@ use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{apply_na, ColSpec, DataTable, InputArgs};
 use crate::layout_args::{
     apply_axis_args, apply_base_args, apply_log_args, date_axis_from_args, AxisArgs, BaseArgs,
-    DateArgs, LogArgs,
+    DateArgs, LogArgs, NaArgs,
 };
 use crate::output::write_output;
 
@@ -66,6 +66,8 @@ pub struct LineArgs {
     pub log: LogArgs,
     #[command(flatten)]
     pub date: DateArgs,
+    #[command(flatten)]
+    pub na: NaArgs,
 }
 
 pub fn run(args: LineArgs) -> Result<(), String> {
@@ -106,11 +108,23 @@ pub fn run(args: LineArgs) -> Result<(), String> {
     // When --x-date-format is set, the X column holds date/time strings, not
     // plain numbers — parse it accordingly wherever `col_f64` would otherwise
     // be used for X.
-    let read_x = |t: &DataTable, c: &ColSpec| -> Result<Vec<f64>, String> {
+    let (na_set, na_strat, clamp) = args.na.resolve()?;
+    let read_x_opt = |t: &DataTable, c: &ColSpec| -> Result<Vec<Option<f64>>, String> {
         match &args.date.x_date_format {
-            Some(fmt) => t.col_date_f64(c, fmt),
-            None => t.col_f64(c),
+            Some(fmt) => Ok(t.col_date_f64(c, fmt)?.into_iter().map(Some).collect()),
+            None => t.col_f64_opt(c, &na_set, clamp),
         }
+    };
+    // Build cleaned, x-sorted (x, y) pairs applying the missing-value strategy.
+    let clean = |xs: Vec<Option<f64>>, ys: Vec<Option<f64>>| -> Result<Vec<(f64, f64)>, String> {
+        let n = xs.len();
+        let keep = apply_na(na_strat, &[&xs, &ys], n)?;
+        let mut data: Vec<(f64, f64)> = keep
+            .iter()
+            .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
+            .collect();
+        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(data)
     };
 
     let line_plots: Vec<LinePlot> = if let Some(color_by) = args.color_by {
@@ -130,10 +144,10 @@ pub fn run(args: LineArgs) -> Result<(), String> {
             .into_iter()
             .zip(colors)
             .map(|((name, subtable), grp_color)| {
-                let xs = read_x(&subtable, &x_col)?;
-                let ys = subtable.col_f64(y_col)?;
-                let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
-                data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                let data = clean(
+                    read_x_opt(&subtable, &x_col)?,
+                    subtable.col_f64_opt(y_col, &na_set, clamp)?,
+                )?;
 
                 let mut plot = LinePlot::new()
                     .with_data(data)
@@ -154,16 +168,14 @@ pub fn run(args: LineArgs) -> Result<(), String> {
     } else if y_cols.len() > 1 {
         // Multi-column mode: one series per y column, auto-colored by palette.
         let palette = Palette::category10();
-        let xs = read_x(&table, &x_col)?;
+        let xs = read_x_opt(&table, &x_col)?;
 
         y_cols
             .iter()
             .enumerate()
             .map(|(i, y_col)| {
                 let series_name = col_display_name(&table, y_col);
-                let ys = table.col_f64(y_col)?;
-                let mut data: Vec<(f64, f64)> = xs.iter().copied().zip(ys).collect();
-                data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                let data = clean(xs.clone(), table.col_f64_opt(y_col, &na_set, clamp)?)?;
                 let grp_color = palette[i].to_string();
 
                 let mut plot = LinePlot::new()
@@ -184,10 +196,10 @@ pub fn run(args: LineArgs) -> Result<(), String> {
             .collect::<Result<Vec<_>, String>>()?
     } else {
         let y_col = &y_cols[0];
-        let xs = read_x(&table, &x_col)?;
-        let ys = table.col_f64(y_col)?;
-        let mut data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
-        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let data = clean(
+            read_x_opt(&table, &x_col)?,
+            table.col_f64_opt(y_col, &na_set, clamp)?,
+        )?;
 
         let mut plot = LinePlot::new()
             .with_data(data)

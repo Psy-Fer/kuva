@@ -6,9 +6,9 @@ use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{apply_na, ColSpec, DataTable, InputArgs};
 use crate::layout_args::{
-    apply_axis_args, apply_base_args, apply_log_args, AxisArgs, BaseArgs, LogArgs,
+    apply_axis_args, apply_base_args, apply_log_args, AxisArgs, BaseArgs, LogArgs, NaArgs,
 };
 use crate::output::write_output;
 
@@ -50,6 +50,8 @@ pub struct HistogramArgs {
     pub axis: AxisArgs,
     #[command(flatten)]
     pub log: LogArgs,
+    #[command(flatten)]
+    pub na: NaArgs,
 }
 
 pub fn run(args: HistogramArgs) -> Result<(), String> {
@@ -68,11 +70,19 @@ pub fn run(args: HistogramArgs) -> Result<(), String> {
 
     let bins = args.bins.unwrap_or(10);
 
+    let (na_set, na_strat, clamp) = args.na.resolve()?;
+    // Drop/zero/error missing values before binning.
+    let clean_values = |vals: Vec<Option<f64>>| -> Result<Vec<f64>, String> {
+        let n = vals.len();
+        let keep = apply_na(na_strat, &[&vals], n)?;
+        Ok(keep.iter().map(|&i| vals[i].unwrap_or(0.0)).collect())
+    };
+
     // Multi-column overlay mode
     if y_specs.len() > 1 {
         let all_values: Vec<Vec<f64>> = y_specs
             .iter()
-            .map(|c| table.col_f64(c))
+            .map(|c| clean_values(table.col_f64_opt(c, &na_set, clamp)?))
             .collect::<Result<_, _>>()?;
         if all_values.iter().any(|v| v.is_empty()) {
             return Err("No data values found".to_string());
@@ -143,7 +153,7 @@ pub fn run(args: HistogramArgs) -> Result<(), String> {
     let value_col = y_specs.into_iter().next().unwrap();
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
 
-    let values = table.col_f64(&value_col)?;
+    let values = clean_values(table.col_f64_opt(&value_col, &na_set, clamp)?)?;
     if values.is_empty() {
         return Err("No data values found".to_string());
     }

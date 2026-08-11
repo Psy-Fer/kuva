@@ -104,6 +104,30 @@ kuva scatter data.tsv --x 0 --y 1          # by index
 kuva scatter data.tsv --x time --y value   # by name (requires header)
 ```
 
+### Missing values *(scatter, line, histogram)*
+
+Empty cells, cells holding a missing-value token (`NA`, `NaN`, `null`, `N/A`, `.` by default,
+case-insensitive), and non-finite values (`inf`, `-inf`) are treated as missing rather than
+aborting the command (non-finite values would otherwise corrupt axis ranges). A cell that is
+neither empty, a token, nor a number is still an error, so selecting the wrong column is caught.
+
+- `--na-strategy <drop|zero|error>`: what to do with a missing value in a selected numeric column.
+  `drop` (default) removes the row and prints a one-line note; `zero` replaces it with 0; `error`
+  restores the old strict behaviour.
+- `--na-values <tokens>`: comma-separated tokens to treat as missing, replacing the default set.
+  Empty cells are always missing. Accepts negative sentinels, e.g. `--na-values -999,NA`.
+- `--clamp-min <N>` / `--clamp-max <N>`: clip numeric values to a bound. Finite values outside the
+  bound are clipped, and crucially `+inf` becomes the max and `-inf` becomes the min, so an infinite
+  value can be capped at a real number rather than dropped. A common case is capping an infinite
+  `-log10(p)` (from a p-value of exactly 0): `--clamp-max 300`. If only one side is set, an infinity
+  on the other side stays missing.
+
+```bash
+kuva scatter data.tsv --x time --y value                 # drops rows with missing x or y
+kuva histogram data.tsv --value-col v --na-strategy zero # missing -> 0
+kuva scatter data.tsv --x pos --y logp --clamp-max 300   # +inf -> 300 instead of dropped
+```
+
 ### Parquet input
 
 Every subcommand that reads tabular data also accepts **`.parquet`** files, not just scatter or any single subcommand: parquet support lives in the shared input layer every subcommand goes through, so it applies uniformly across all of them.
