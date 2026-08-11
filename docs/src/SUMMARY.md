@@ -82,6 +82,7 @@
 
 # Genomics & Bioinformatics
 
+- [Coverage Plot](./plots/coverage.md)
 - [Manhattan Plot](./plots/manhattan.md)
 - [Volcano Plot](./plots/volcano.md)
 - [Synteny Plot](./plots/synteny.md)

@@ -19,6 +19,7 @@ EXAMPLES=(
     clustermap
     colormap_swatches
     contour
+    coverage
     datetime
     density
     diceplot

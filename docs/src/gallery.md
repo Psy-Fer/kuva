@@ -140,6 +140,12 @@ Click any image to go to the full documentation page.
 <div class="gallery-desc">GWAS p-values across chromosomes with genome-wide threshold and gene labels.</div>
 </a></div>
 
+<div class="gallery-card"><a href="./plots/coverage.html">
+<img src="./assets/coverage/covarplot.svg" alt="Coverage Plot">
+<div class="gallery-caption">Coverage Plot</div>
+<div class="gallery-desc">Genome-browser tracks on a shared locus: read depth, variants, tiled amplicons, and gene annotations.</div>
+</a></div>
+
 <div class="gallery-card"><a href="./plots/upset.html">
 <img src="./assets/upset/custom.svg" alt="UpSet Plot">
 <div class="gallery-caption">UpSet Plot</div>
