@@ -6,8 +6,8 @@ use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
-use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs};
+use crate::data::{parse_cell_opt, ColSpec, DataTable, InputArgs, NaStrategy};
+use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs, NaArgs};
 use crate::output::write_output;
 
 /// Parallel coordinates plot — multi-dimensional comparison.
@@ -52,6 +52,8 @@ pub struct ParallelArgs {
     pub base: BaseArgs,
     #[command(flatten)]
     pub axis: AxisArgs,
+    #[command(flatten)]
+    pub na: NaArgs,
 }
 
 pub fn run(args: ParallelArgs) -> Result<(), String> {
@@ -107,6 +109,39 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
         plot = plot.with_legend(legend);
     }
 
+    let (na_set, na_strat, clamp) = args.na.resolve()?;
+    // Build one row's axis values NA-aware. A parallel-coords line needs every axis, so a row with
+    // any missing value is dropped as a whole (or zero-filled / errored, per --na-strategy).
+    // Returns Ok(None) to skip the row (drop).
+    let row_values = |t: &DataTable, row: &[String]| -> Result<Option<Vec<f64>>, String> {
+        let mut vals = Vec::with_capacity(args.value_cols.len());
+        let mut any_missing = false;
+        for col in &args.value_cols {
+            let idx = t.resolve(col)?;
+            let s = row
+                .get(idx)
+                .ok_or_else(|| format!("no column at index {idx}"))?;
+            match parse_cell_opt(s, &na_set, clamp)? {
+                Some(v) => vals.push(v),
+                None => {
+                    any_missing = true;
+                    vals.push(0.0);
+                }
+            }
+        }
+        if any_missing {
+            match na_strat {
+                NaStrategy::Drop => return Ok(None),
+                NaStrategy::Zero => {} // missing already filled with 0.0
+                NaStrategy::Error => {
+                    return Err("missing value (use --na-strategy drop or zero)".to_string())
+                }
+            }
+        }
+        Ok(Some(vals))
+    };
+
+    let mut dropped = 0usize;
     if let Some(ref gc) = args.group_col {
         let groups = table.group_by(gc)?;
         let colors: Vec<String> = groups
@@ -117,39 +152,25 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
         plot = plot.with_group_colors(colors);
         for (name, subtable) in groups {
             for row in &subtable.rows {
-                let values: Result<Vec<f64>, String> = args
-                    .value_cols
-                    .iter()
-                    .map(|col| {
-                        let idx = subtable.resolve(col)?;
-                        row.get(idx)
-                            .ok_or_else(|| format!("no column at index {idx}"))
-                            .and_then(|s| {
-                                s.parse::<f64>()
-                                    .map_err(|_| format!("cannot parse '{s}' as a number"))
-                            })
-                    })
-                    .collect();
-                plot = plot.with_row_group(name.clone(), values?);
+                match row_values(&subtable, row)? {
+                    Some(values) => plot = plot.with_row_group(name.clone(), values),
+                    None => dropped += 1,
+                }
             }
         }
     } else {
         for row in &table.rows {
-            let values: Result<Vec<f64>, String> = args
-                .value_cols
-                .iter()
-                .map(|col| {
-                    let idx = table.resolve(col)?;
-                    row.get(idx)
-                        .ok_or_else(|| format!("no column at index {idx}"))
-                        .and_then(|s| {
-                            s.parse::<f64>()
-                                .map_err(|_| format!("cannot parse '{s}' as a number"))
-                        })
-                })
-                .collect();
-            plot = plot.with_row(values?);
+            match row_values(&table, row)? {
+                Some(values) => plot = plot.with_row(values),
+                None => dropped += 1,
+            }
         }
+    }
+    if dropped > 0 {
+        eprintln!(
+            "note: dropped {dropped} row(s) with missing or non-finite values \
+             (use --na-strategy zero to keep them as 0, or error to fail)"
+        );
     }
 
     #[cfg(feature = "emit_code")]

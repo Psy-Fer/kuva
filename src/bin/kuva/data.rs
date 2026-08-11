@@ -222,12 +222,20 @@ impl DataTable {
             .iter()
             .enumerate()
             .map(|(row_i, row)| {
-                row.get(idx)
-                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))
-                    .and_then(|s| {
-                        s.parse::<f64>()
-                            .map_err(|_| format!("Row {row_i}: cannot parse '{s}' as a number"))
-                    })
+                let s = row
+                    .get(idx)
+                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?;
+                let v = s
+                    .parse::<f64>()
+                    .map_err(|_| format!("Row {row_i}: cannot parse '{s}' as a number"))?;
+                // Reject non-finite values (inf / NaN) here rather than letting them silently
+                // corrupt axis auto-ranging. Subcommands that read via `col_f64_opt` (scatter,
+                // line, histogram) instead treat them as missing / clampable (issue #108).
+                if v.is_finite() {
+                    Ok(v)
+                } else {
+                    Err(format!("Row {row_i}: value '{s}' is not finite (inf/NaN)"))
+                }
             })
             .collect()
     }
@@ -255,23 +263,7 @@ impl DataTable {
                 let s = row
                     .get(idx)
                     .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?;
-                if na.is_na(s) {
-                    return Ok(None);
-                }
-                match s.parse::<f64>() {
-                    Ok(mut v) => {
-                        // Cap at max (clips finite outliers and +inf); floor at min (finite and -inf).
-                        if let Some(mx) = clamp.1 {
-                            v = v.min(mx);
-                        }
-                        if let Some(mn) = clamp.0 {
-                            v = v.max(mn);
-                        }
-                        // Anything still non-finite is not plottable: treat as missing.
-                        Ok(v.is_finite().then_some(v))
-                    }
-                    Err(_) => Err(format!("Row {row_i}: cannot parse '{s}' as a number")),
-                }
+                parse_cell_opt(s, na, clamp).map_err(|e| format!("Row {row_i}: {e}"))
             })
             .collect()
     }
@@ -709,6 +701,32 @@ impl NaSet {
     pub fn is_na(&self, s: &str) -> bool {
         let t = s.trim();
         t.is_empty() || self.tokens.contains(&t.to_ascii_lowercase())
+    }
+}
+
+/// Parse one cell into an optional number, NA-aware. Empty / NA-token cells become `None`; a
+/// parsed value is clamped (`+inf`→max, `-inf`→min, finite outliers clipped) and anything still
+/// non-finite becomes `None` (missing). A non-empty, non-NA, non-numeric cell is an error. Shared
+/// by [`DataTable::col_f64_opt`] and the row-wise readers (parallel coords).
+pub fn parse_cell_opt(
+    s: &str,
+    na: &NaSet,
+    clamp: (Option<f64>, Option<f64>),
+) -> Result<Option<f64>, String> {
+    if na.is_na(s) {
+        return Ok(None);
+    }
+    match s.parse::<f64>() {
+        Ok(mut v) => {
+            if let Some(mx) = clamp.1 {
+                v = v.min(mx);
+            }
+            if let Some(mn) = clamp.0 {
+                v = v.max(mn);
+            }
+            Ok(v.is_finite().then_some(v))
+        }
+        Err(_) => Err(format!("cannot parse '{s}' as a number")),
     }
 }
 

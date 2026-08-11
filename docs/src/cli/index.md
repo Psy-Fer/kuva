@@ -104,7 +104,7 @@ kuva scatter data.tsv --x 0 --y 1          # by index
 kuva scatter data.tsv --x time --y value   # by name (requires header)
 ```
 
-### Missing values *(scatter, line, histogram)*
+### Missing values *(scatter, line, histogram, bar, parallel)*
 
 Empty cells, cells holding a missing-value token (`NA`, `NaN`, `null`, `N/A`, `.` by default,
 case-insensitive), and non-finite values (`inf`, `-inf`) are treated as missing rather than

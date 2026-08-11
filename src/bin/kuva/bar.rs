@@ -8,8 +8,8 @@ use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
-use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs};
+use crate::data::{apply_na, ColSpec, DataTable, InputArgs};
+use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs, NaArgs};
 use crate::output::write_output;
 
 /// Bar chart from label and value columns.
@@ -60,9 +60,22 @@ pub struct BarArgs {
     pub base: BaseArgs,
     #[command(flatten)]
     pub axis: AxisArgs,
+    #[command(flatten)]
+    pub na: NaArgs,
 }
 
 pub fn run(args: BarArgs) -> Result<(), String> {
+    let (na_set, na_strat, clamp) = args.na.resolve()?;
+    // Drop/zero/error missing values in a value column, keeping labels aligned (row-level).
+    let clean_lv =
+        |labels: Vec<String>, vals: Vec<Option<f64>>| -> Result<(Vec<String>, Vec<f64>), String> {
+            let keep = apply_na(na_strat, &[&vals], vals.len())?;
+            Ok((
+                keep.iter().map(|&i| labels[i].clone()).collect(),
+                keep.iter().map(|&i| vals[i].unwrap_or(0.0)).collect(),
+            ))
+        };
+
     // Multi-column --y mode: wide-format grouped bar (rows = categories, columns = series)
     if args.y.len() > 1 && args.color_by.is_none() {
         let label_spec = args.label_col.clone().unwrap_or(ColSpec::Index(0));
@@ -79,11 +92,19 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         // This handles both pre-aggregated wide data (one row per label) and
         // long-format data (many rows per label, values averaged per group).
         let raw_labels = table.col_str(&label_spec)?;
-        let y_data: Vec<Vec<f64>> = args
+        // Read each series NA-aware, then drop any row missing in one or more series (row-level).
+        let y_opt: Vec<Vec<Option<f64>>> = args
             .y
             .iter()
-            .map(|c| table.col_f64(c))
+            .map(|c| table.col_f64_opt(c, &na_set, clamp))
             .collect::<Result<_, _>>()?;
+        let cols_ref: Vec<&[Option<f64>]> = y_opt.iter().map(|v| v.as_slice()).collect();
+        let keep = apply_na(na_strat, &cols_ref, raw_labels.len())?;
+        let raw_labels: Vec<String> = keep.iter().map(|&i| raw_labels[i].clone()).collect();
+        let y_data: Vec<Vec<f64>> = y_opt
+            .iter()
+            .map(|col| keep.iter().map(|&i| col[i].unwrap_or(0.0)).collect())
+            .collect();
         let series_names: Vec<String> = args.y.iter().map(|c| table.col_display_name(c)).collect();
 
         // Collect unique labels in first-seen order, accumulating values per (label, series).
@@ -200,7 +221,12 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let value_col = effective_value_col.clone();
         let labels = table.col_str(&label_col)?;
         let series = table.col_str(color_by_col)?;
-        let values = table.col_f64(&value_col)?;
+        let values_opt = table.col_f64_opt(&value_col, &na_set, clamp)?;
+        // Drop rows with a missing value, keeping labels + series aligned.
+        let keep = apply_na(na_strat, &[&values_opt], values_opt.len())?;
+        let labels: Vec<String> = keep.iter().map(|&i| labels[i].clone()).collect();
+        let series: Vec<String> = keep.iter().map(|&i| series[i].clone()).collect();
+        let values: Vec<f64> = keep.iter().map(|&i| values_opt[i].unwrap_or(0.0)).collect();
 
         // Collect unique labels and series in insertion order
         let mut label_order: Vec<String> = Vec::new();
@@ -341,7 +367,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
         let value_col = effective_value_col.clone();
         let labels = table.col_str(&label_col)?;
-        let values = table.col_f64(&value_col)?;
+        let (labels, values) = clean_lv(labels, table.col_f64_opt(&value_col, &na_set, clamp)?)?;
         // Accumulate values per group (preserve insertion order via Vec).
         let mut order: Vec<String> = Vec::new();
         let mut groups: BTreeMap<String, Vec<f64>> = BTreeMap::new();
@@ -377,7 +403,10 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     } else {
         let label_col = args.label_col.unwrap_or(ColSpec::Index(0));
         let labels = table.col_str(&label_col)?;
-        let values = table.col_f64(&effective_value_col)?;
+        let (labels, values) = clean_lv(
+            labels,
+            table.col_f64_opt(&effective_value_col, &na_set, clamp)?,
+        )?;
         labels.into_iter().zip(values).collect()
     };
 

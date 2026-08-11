@@ -74,6 +74,33 @@ fn histogram_and_line_handle_missing() {
 }
 
 #[test]
+fn bar_and_parallel_handle_missing() {
+    let (b_out, _e, b_code) = run(&[
+        "bar",
+        &data("missing.tsv"),
+        "--label-col",
+        "x",
+        "--value-col",
+        "y",
+    ]);
+    assert_eq!(b_code, 0);
+    assert!(b_out.contains("<svg"));
+
+    let (p_out, _e, p_code) = run(&["parallel", &data("missing.tsv"), "--value-cols", "x", "y"]);
+    assert_eq!(p_code, 0);
+    assert!(p_out.contains("<svg"));
+}
+
+/// A subcommand that reads via the strict `col_f64` (not yet NA-wired) fails fast on a non-finite
+/// value instead of silently corrupting the plot.
+#[test]
+fn non_na_wired_subcommand_rejects_inf() {
+    let (_o, stderr, code) = run(&["box", &data("inf_data.tsv"), "--value-col", "y"]);
+    assert_ne!(code, 0);
+    assert!(stderr.to_lowercase().contains("not finite"));
+}
+
+#[test]
 fn clamp_caps_infinities_instead_of_dropping() {
     // inf_data.tsv has inf / -inf / 500 rows. Without clamp they'd be dropped (inf) or plotted
     // (500); with --clamp-min/--clamp-max they are capped to the bounds and all rows are kept.

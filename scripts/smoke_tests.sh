@@ -152,6 +152,12 @@ check "scatter clamp infinities" \
     "$BIN" scatter "$DATA/inf_data.tsv" --x x --y y --clamp-min 0 --clamp-max 300 \
         --title "Infinities capped to [0, 300]"
 
+check "bar missing values (drop)" \
+    "$BIN" bar "$DATA/missing.tsv" --label-col x --value-col y
+
+check "parallel missing values (drop)" \
+    "$BIN" parallel "$DATA/missing.tsv" --value-cols x y
+
 # ── line ──────────────────────────────────────────────────────────────────────
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
