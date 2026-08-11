@@ -1201,6 +1201,36 @@ check_error "twin-y unsupported plot type" \
 
 rm -f "$TWIN_Y_DATA"
 
+# ── coverage ──────────────────────────────────────────────────────────────────
+check "coverage full (depth+variants+features+locus)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal \
+        --variants "$DATA/coverage_variants.tsv" --features "$DATA/coverage_features.tsv" \
+        --locus-start 1000000 --locus-end 1040000 --x-label "chr7 position"
+
+check "coverage depth only (default sample)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv"
+
+check "coverage multi-sample" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal
+
+check "coverage variants only" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --variants "$DATA/coverage_variants.tsv"
+
+check "coverage features only" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --features "$DATA/coverage_features.tsv" --feature-name amplicons
+
+check "coverage real CoVarPlot ARTIC data" \
+    "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 \
+        --variants "$DATA/covar_variants.tsv" --features "$DATA/covar_amplicons.tsv" \
+        --feature-name amplicons --regions "$DATA/covar_genes.tsv" --region-name genes \
+        --x-label "MN908947.3" --title "SARS-CoV-2 amplicon coverage"
+
+check "coverage real pools overlaid" \
+    "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 --overlay-samples \
+        --regions "$DATA/covar_genes.tsv" --region-name genes --x-label "MN908947.3"
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -545,7 +545,7 @@ fn default_date_tick_format(unit: &str) -> &'static str {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn theme_from_name(name: &str) -> Theme {
+pub(crate) fn theme_from_name(name: &str) -> Theme {
     match name {
         "dark" => Theme::dark(),
         "solarized" | "solar" => Theme::solarized(),

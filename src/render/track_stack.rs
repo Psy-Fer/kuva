@@ -23,10 +23,13 @@
 //! - Step 5 — the [`CoveragePlot`](crate::render::coverage::CoveragePlot) genomics preset
 //!   (issue #2), assembled entirely from this primitive (depth tracks + variant lane + feature
 //!   bands + genomic axis). Lives in `src/render/coverage.rs`.
+//! - Step 6 — CLI `kuva coverage` subcommand (`src/bin/kuva/coverage.rs`).
 //!
-//! Not yet here: CLI `kuva coverage` + `--emit-code` + docs (step 6).
+//! Visual-inspection SVGs for the library path are emitted to `test_outputs/` by
+//! `tests/track_stack_svg.rs` / `tests/coverage_svg.rs` (skipped under CI). Still open:
+//! `--emit-code`, docs pages, gallery, man-page regen.
 
-use crate::plot::legend::{LegendEntry, LegendShape};
+use crate::plot::legend::{LegendEntry, LegendGroup, LegendShape};
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
@@ -44,6 +47,14 @@ const DEFAULT_FLEX_PX: f64 = 160.0;
 const LABEL_SIZE: f64 = 12.0;
 /// Padding added to a measured label/legend width when reserving a gutter.
 const GUTTER_PAD: f64 = 8.0;
+/// Gap between the plot area's right edge and the shared legend box.
+const LEGEND_LEFT_GAP: f64 = 10.0;
+/// Padding kept clear to the right of the legend box so its border is visible.
+const LEGEND_RIGHT_PAD: f64 = 12.0;
+/// Vertical band reserved for the figure title when one is set.
+const TITLE_BAND_PX: f64 = 30.0;
+/// Title font size.
+const TITLE_SIZE: u32 = 18;
 
 /// The shared horizontal scale for one [`TrackStack`]: maps data-x to absolute canvas pixel-x
 /// within the pixel band `[px_left, px_right]` that every track's plot area occupies.
@@ -169,10 +180,17 @@ pub trait Track {
         None
     }
 
-    /// Legend entries this track contributes to the stack-level shared legend (deduplicated by
-    /// label across tracks). Default: none.
+    /// Legend entries this track contributes. Rendered as one titled section (group) per track in
+    /// the shared right-margin legend. Default: none.
     fn legend_entries(&self) -> Vec<LegendEntry> {
         Vec::new()
+    }
+
+    /// Title for this track's legend section. Defaults to the track's gutter [`label`](Self::label),
+    /// so a named track gets a titled section for free; override to decouple them, or return `None`
+    /// for an untitled section (entries with no heading).
+    fn legend_group_title(&self) -> Option<String> {
+        self.label().map(str::to_string)
     }
 
     /// Draw into the band `[cx.y_top, cx.y_bottom()]`, using `cx.x` for all x. Push primitives
@@ -242,6 +260,10 @@ pub enum XAxisFormat {
     /// Genomic coordinates with a single bp/kb/Mb/Gb unit chosen for the whole axis
     /// (e.g. `1.5 Mb`, `25 kb`, `800 bp`).
     Genomic,
+    /// Date/time axis. X values are Unix timestamps (seconds); tick positions and labels are
+    /// derived by [`DateTimeAxis::auto`](crate::render::datetime::DateTimeAxis) — the non-genomic
+    /// use case (financial / sensor time series).
+    DateTime,
 }
 
 /// Config for the one shared x-axis.
@@ -267,6 +289,13 @@ impl AxisSpec {
             format: XAxisFormat::Genomic,
         }
     }
+    /// Shorthand for `AxisSpec { format: DateTime, .. }` with a label (x = Unix seconds).
+    pub fn datetime(label: impl Into<String>) -> Self {
+        Self {
+            label: Some(label.into()),
+            format: XAxisFormat::DateTime,
+        }
+    }
 }
 
 /// One entry in the stack's ordered sequence. The x-axis is an explicit, positioned element —
@@ -283,6 +312,7 @@ pub struct TrackStack {
     log_x: bool,
     spacing: f64,
     theme: Theme,
+    title: Option<String>,
     underlays: Vec<Box<dyn StackLayer>>,
     overlays: Vec<Box<dyn StackLayer>>,
 }
@@ -301,6 +331,7 @@ impl TrackStack {
             log_x: false,
             spacing: 6.0,
             theme: Theme::default(),
+            title: None,
             underlays: Vec::new(),
             overlays: Vec::new(),
         }
@@ -308,6 +339,12 @@ impl TrackStack {
 
     pub fn track(mut self, t: impl Track + 'static) -> Self {
         self.entries.push(Entry::Track(Box::new(t)));
+        self
+    }
+
+    /// Figure title, drawn centred in a reserved band at the top (pushes the tracks down).
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
@@ -362,7 +399,12 @@ impl TrackStack {
     /// to force one.
     pub fn render(mut self, width: f64) -> Scene {
         self.ensure_axis();
-        let height = total_height(&self.entries, self.spacing);
+        let title_h = if self.title.is_some() {
+            TITLE_BAND_PX
+        } else {
+            0.0
+        };
+        let height = total_height(&self.entries, self.spacing) + title_h;
         self.render_sized(width, height)
     }
 
@@ -374,6 +416,7 @@ impl TrackStack {
             log_x,
             spacing,
             theme,
+            title,
             underlays,
             overlays,
         } = self;
@@ -399,31 +442,48 @@ impl TrackStack {
             x_max += pad;
         }
 
-        // Collect the shared legend up front (from &entries, before the consuming render loop),
-        // deduplicated by label across tracks.
-        let legend = dedup_legend(
-            entries
-                .iter()
-                .filter_map(|e| match e {
-                    Entry::Track(t) => Some(t.legend_entries()),
-                    Entry::Axis(_) => None,
-                })
-                .flatten()
-                .collect(),
-        );
+        // Build the shared legend as one titled SECTION (group) per track that contributes entries
+        // — so each track shows its own info (e.g. sample colours, variant types, per-gene colours)
+        // instead of everything being merged into one flat list. Consecutive tracks with the same
+        // section title merge (e.g. the depth tracks form one untitled "samples" block).
+        let legend_groups: Vec<LegendGroup> = {
+            let mut groups: Vec<LegendGroup> = Vec::new();
+            for e in &entries {
+                if let Entry::Track(t) = e {
+                    let entries = t.legend_entries();
+                    if entries.is_empty() {
+                        continue;
+                    }
+                    let title = t.legend_group_title().unwrap_or_default();
+                    match groups.last_mut() {
+                        Some(g) if g.title == title => g.entries.extend(entries),
+                        _ => groups.push(LegendGroup { title, entries }),
+                    }
+                }
+            }
+            groups
+        };
 
-        // Shared LEFT gutter = max over tracks of (y-axis width, track-label width). This shared
-        // max is the x-alignment mechanism. Shared RIGHT edge reserves the max of every track's
-        // right_margin() and the shared legend's width.
+        // Shared LEFT gutter = max over ALL entries (tracks' y-axis/name width AND the axis
+        // entry's own label — the x-axis label lives in the gutter like a track label now, not
+        // centred under the axis). This shared max is the x-alignment mechanism.
         let px_left = entries
             .iter()
-            .filter_map(|e| match e {
-                Entry::Track(t) => Some(t.left_margin().max(label_gutter_width(t.label()))),
-                Entry::Axis(_) => None,
+            .map(|e| match e {
+                Entry::Track(t) => t.left_margin().max(label_gutter_width(t.label())),
+                Entry::Axis(s) => label_gutter_width(s.label.as_deref()),
             })
             .fold(0.0_f64, f64::max)
             .max(10.0);
-        let legend_reserve = legend_block_width(&legend);
+
+        // Shared RIGHT edge reserves the widest track right_margin OR the legend block (its own
+        // content width + a left gap + right padding so the box border stays clear of the canvas).
+        let legend_w = legend_groups_width(&legend_groups);
+        let legend_reserve = if legend_w > 0.0 {
+            legend_w + LEGEND_LEFT_GAP + LEGEND_RIGHT_PAD
+        } else {
+            0.0
+        };
         let max_track_right = entries
             .iter()
             .filter_map(|e| match e {
@@ -431,7 +491,7 @@ impl TrackStack {
                 Entry::Axis(_) => None,
             })
             .fold(0.0_f64, f64::max);
-        let px_right = width - max_track_right.max(legend_reserve).max(12.0);
+        let px_right = width - max_track_right.max(legend_reserve).max(LEGEND_RIGHT_PAD);
         let x = XScale {
             x_min,
             x_max,
@@ -440,16 +500,31 @@ impl TrackStack {
             px_right,
         };
 
-        let bands = layout_bands(&entries, height, spacing);
+        // Reserve a title band at the top; tracks lay out in the space below it.
+        let title_h = if title.is_some() { TITLE_BAND_PX } else { 0.0 };
+        let bands = layout_bands(&entries, height - title_h, spacing);
         let (y_top, y_bottom) = (
-            bands.first().map_or(0.0, |b| b.y_top),
-            bands.last().map_or(height, |b| b.y_bottom()),
+            title_h + bands.first().map_or(0.0, |b| b.y_top),
+            title_h + bands.last().map_or(height - title_h, |b| b.y_bottom()),
         );
 
         // One background for the whole stack; tracks render transparent over it.
         let mut scene = Scene::new(width, height);
         scene.background_color = Some(theme.background.clone());
         scene.font_family = theme.font_family.clone();
+
+        if let Some(title) = &title {
+            scene.add(Primitive::Text {
+                x: (px_left + px_right) / 2.0,
+                y: TITLE_BAND_PX * 0.62,
+                content: title.clone(),
+                size: TITLE_SIZE,
+                anchor: TextAnchor::Middle,
+                rotate: None,
+                bold: true,
+                color: Some(Color::Css(theme.text_color.as_str().into())),
+            });
+        }
 
         // Underlays first, spanning the full track region behind everything.
         for layer in &underlays {
@@ -459,9 +534,10 @@ impl TrackStack {
         }
 
         for (entry, band) in entries.into_iter().zip(bands.iter()) {
+            // Offset each band below the title band.
             let cx = TrackCtx {
                 x,
-                y_top: band.y_top,
+                y_top: band.y_top + title_h,
                 height: band.height,
                 width,
                 theme: &theme,
@@ -476,7 +552,13 @@ impl TrackStack {
                         draw_gutter_label(&mut scene, &name, &cx, &theme);
                     }
                 }
-                Entry::Axis(spec) => draw_shared_x_axis(&mut scene, &x, band, &spec, &theme),
+                Entry::Axis(spec) => {
+                    let axis_band = Band {
+                        y_top: band.y_top + title_h,
+                        height: band.height,
+                    };
+                    draw_shared_x_axis(&mut scene, &x, &axis_band, &spec, &theme);
+                }
             }
         }
 
@@ -487,17 +569,23 @@ impl TrackStack {
             }
         }
 
-        // Shared legend in the reserved right band, vertically centred over the stack.
-        if !legend.is_empty() {
+        // Shared legend (one titled section per track) in the reserved right band, vertically
+        // centred over the stack, with a gap from the plot area and padding kept clear on its right.
+        if !legend_groups.is_empty() {
+            let total_rows: usize = legend_groups
+                .iter()
+                .map(|g| g.entries.len() + usize::from(!g.title.is_empty()))
+                .sum();
+            let legend_h = total_rows as f64 * (LABEL_SIZE * 1.5).max(12.0);
             render_legend_at(
-                &legend,
-                None,
+                &[],
+                Some(&legend_groups),
                 None,
                 true,
                 &mut scene,
-                px_right + GUTTER_PAD,
-                (y_top + y_bottom) / 2.0,
-                legend_reserve,
+                px_right + LEGEND_LEFT_GAP,
+                (y_top + y_bottom - legend_h) / 2.0,
+                legend_w,
                 LABEL_SIZE as u32,
                 &theme,
             );
@@ -597,6 +685,9 @@ impl Track for PlotTrack {
         // The stack draws the one shared x-axis; each track suppresses its own.
         layout.suppress_x_ticks = true;
         layout.log_x = cx.x.log_x;
+        // The stack draws ONE shared legend (collected via `legend_entries`); suppress the
+        // per-plot legend `render_multiple` would otherwise draw inside this track's band.
+        layout.show_legend = false;
 
         let sub = render_multiple(s.plots, layout);
         merge_translated(scene, sub, 0.0, cx.y_top);
@@ -625,12 +716,21 @@ impl Interval {
 }
 
 /// A thin annotation lane drawing labelled bands over x-intervals. Draws directly against the
-/// shared [`XScale`] — no y-axis, no `render_multiple`. The first proof of the non-plot `Track` seam.
+/// shared [`XScale`] — no y-axis, no `render_multiple`.
+///
+/// **Overlapping intervals tile onto multiple rows** (greedy minimum-row packing, the same idea
+/// as brick/terminal label packing): each interval takes the lowest row where it doesn't overlap
+/// one already placed, so N mutually-overlapping intervals need N rows. This gives the classic
+/// tiled-amplicon layout (e.g. ARTIC's two alternating primer pools land on two rows). Rows can be
+/// coloured independently via [`with_row_colors`](Self::with_row_colors) — a natural fit for
+/// per-pool colouring. The track's height grows with the row count (`row_height_px` per row).
 pub struct IntervalTrack {
     intervals: Vec<Interval>,
     name: Option<String>,
-    height_px: f64,
+    row_height_px: f64,
     fill: Color,
+    row_colors: Option<Vec<Color>>,
+    item_colors: Option<Vec<Color>>,
 }
 
 impl IntervalTrack {
@@ -638,8 +738,10 @@ impl IntervalTrack {
         Self {
             intervals,
             name: None,
-            height_px: 18.0,
+            row_height_px: 20.0,
             fill: Color::from("#7aa6c2"),
+            row_colors: None,
+            item_colors: None,
         }
     }
     /// Track name, drawn by the stack in the left gutter.
@@ -647,23 +749,90 @@ impl IntervalTrack {
         self.name = Some(name.into());
         self
     }
-    pub fn with_height(mut self, px: f64) -> Self {
-        self.height_px = px;
+    /// Per-row band height in pixels (total track height = this × row count). Default 20.
+    pub fn with_row_height(mut self, px: f64) -> Self {
+        self.row_height_px = px;
         self
     }
+    /// Single fill colour for every band (used when no per-row / per-item colours are set).
     pub fn with_fill(mut self, fill: impl Into<Color>) -> Self {
         self.fill = fill.into();
         self
+    }
+    /// Colour bands by their packed row, cycling through these colours — e.g. two colours for the
+    /// two alternating amplicon pools in a tiled scheme.
+    pub fn with_row_colors<C: Into<Color>>(mut self, colors: Vec<C>) -> Self {
+        self.row_colors = Some(colors.into_iter().map(Into::into).collect());
+        self
+    }
+    /// Colour each interval individually, cycling through these colours by item index, AND expose
+    /// each interval as a legend entry (label + its colour). Use for a gene/region track where the
+    /// legend is the key — small bands stay identifiable by colour even when their label doesn't
+    /// fit inside. Takes precedence over `with_row_colors`/`with_fill`.
+    pub fn with_item_colors<C: Into<Color>>(mut self, colors: Vec<C>) -> Self {
+        self.item_colors = Some(colors.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Assign each interval to a row via greedy minimum-row packing (interval-graph colouring):
+    /// sort by start, then place each into the lowest row whose last interval ends at or before
+    /// this one's start. Returns `(row_per_interval, row_count)`; `row_count` is the maximum
+    /// overlap depth, so the layout uses exactly as many rows as needed.
+    fn pack_rows(&self) -> (Vec<usize>, usize) {
+        let mut order: Vec<usize> = (0..self.intervals.len()).collect();
+        order.sort_by(|&a, &b| {
+            self.intervals[a]
+                .start
+                .partial_cmp(&self.intervals[b].start)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut row_end: Vec<f64> = Vec::new(); // end of the last interval placed in each row
+        let mut row_of = vec![0usize; self.intervals.len()];
+        for &i in &order {
+            let iv = &self.intervals[i];
+            match row_end.iter().position(|&end| iv.start >= end) {
+                Some(r) => {
+                    row_end[r] = iv.end;
+                    row_of[i] = r;
+                }
+                None => {
+                    row_of[i] = row_end.len();
+                    row_end.push(iv.end);
+                }
+            }
+        }
+        (row_of, row_end.len().max(1))
     }
 }
 
 impl Track for IntervalTrack {
     fn height(&self) -> TrackHeight {
-        TrackHeight::Fixed(self.height_px)
+        // Height scales with the number of packed rows (overlap depth).
+        let (_, rows) = self.pack_rows();
+        TrackHeight::Fixed(self.row_height_px * rows as f64)
     }
 
     fn label(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    fn legend_entries(&self) -> Vec<LegendEntry> {
+        // Only a per-item-coloured track carries a legend (one entry per interval). Row-coloured /
+        // single-fill tracks are self-labelled inline and contribute nothing.
+        match &self.item_colors {
+            Some(cs) if !cs.is_empty() => self
+                .intervals
+                .iter()
+                .enumerate()
+                .map(|(i, iv)| LegendEntry {
+                    label: iv.label.clone().unwrap_or_default(),
+                    color: cs[i % cs.len()].to_svg_string(),
+                    shape: LegendShape::Rect,
+                    dasharray: None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     fn x_bounds(&self) -> Option<(f64, f64)> {
@@ -681,31 +850,50 @@ impl Track for IntervalTrack {
     }
 
     fn render(self: Box<Self>, cx: &TrackCtx<'_>, scene: &mut Scene) {
-        let bar_h = (cx.height * 0.55).max(4.0);
-        let y = cx.inset(0.15);
-        for iv in &self.intervals {
+        let (row_of, rows) = self.pack_rows();
+        let row_h = cx.height / rows as f64;
+        let bar_h = (row_h * 0.7).max(4.0);
+        let text_color = Color::Css(cx.theme.text_color.as_str().into());
+
+        for (i, iv) in self.intervals.iter().enumerate() {
+            let row = row_of[i];
+            let row_top = cx.y_top + row as f64 * row_h;
+            let y = row_top + (row_h - bar_h) * 0.5;
             let (x0, x1) = (cx.x.map(iv.start), cx.x.map(iv.end));
+            // Per-item colours win, then per-row (pool) colours, then the single fill.
+            let fill = if let Some(cs) = self.item_colors.as_ref().filter(|c| !c.is_empty()) {
+                cs[i % cs.len()].clone()
+            } else if let Some(cs) = self.row_colors.as_ref().filter(|c| !c.is_empty()) {
+                cs[row % cs.len()].clone()
+            } else {
+                self.fill.clone()
+            };
             scene.add(Primitive::Rect {
                 x: x0.min(x1),
                 y,
                 width: (x1 - x0).abs().max(1.0),
                 height: bar_h,
-                fill: self.fill.clone(),
+                fill,
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
             });
+            // Draw the label centred inside the band only if it fits; tiny bands (e.g. the small
+            // 3' SARS-CoV-2 genes) stay as bare coloured boxes rather than spilling overlapping text.
             if let Some(label) = &iv.label {
-                scene.add(Primitive::Text {
-                    x: (x0 + x1) / 2.0,
-                    y: cx.y_bottom() - 1.0,
-                    content: label.clone(),
-                    size: 9,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: Some(Color::Css(cx.theme.text_color.as_str().into())),
-                });
+                let box_w = (x1 - x0).abs();
+                if measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
+                    scene.add(Primitive::Text {
+                        x: (x0 + x1) / 2.0,
+                        y: row_top + row_h * 0.5 + 3.0,
+                        content: label.clone(),
+                        size: 9,
+                        anchor: TextAnchor::Middle,
+                        rotate: None,
+                        bold: false,
+                        color: Some(text_color.clone()),
+                    });
+                }
             }
         }
     }
@@ -912,8 +1100,9 @@ fn merge_translated(master: &mut Scene, sub: Scene, dx: f64, dy: f64) {
     }
 }
 
-/// Draw the one shared x-axis for the stack at the top edge of its band. Minimal for step 1
-/// (line + evenly spaced numeric ticks); genomic/datetime formatting arrives in step 4.
+/// Draw the one shared x-axis for the stack at the top edge of its band. The axis *label* is drawn
+/// in the LEFT GUTTER (left-aligned, like a track name) rather than centred under the axis — it
+/// then reads consistently with every other track label and stays clear of any track below it.
 fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpec, theme: &Theme) {
     let y = band.y_top;
     let axis = || Color::Css(theme.axis_color.as_str().into());
@@ -931,11 +1120,26 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
     });
 
     let (x_min, x_max) = x.x_range();
-    // Nice tick positions (1-2-5 rounded), shared with the rest of kuva's axes.
-    let ticks = crate::render::render_utils::generate_ticks(x_min, x_max, 6);
-    // For Genomic, pick ONE unit for the whole axis so labels don't mix bp/kb/Mb.
-    let unit = genomic_unit(x_min, x_max);
-    for &val in &ticks {
+    // Tick positions + labels depend on the format.
+    let (ticks, labels): (Vec<f64>, Vec<String>) = match spec.format {
+        XAxisFormat::DateTime => {
+            // X values are Unix seconds; DateTimeAxis picks a calendar-aligned unit + format.
+            let axis = crate::render::datetime::DateTimeAxis::auto(x_min, x_max);
+            let t = axis.generate_ticks(x_min, x_max);
+            let l = t.iter().map(|&v| axis.format_tick(v)).collect();
+            (t, l)
+        }
+        fmt => {
+            // Nice 1-2-5 tick positions, shared with the rest of kuva's axes.
+            let t = crate::render::render_utils::generate_ticks(x_min, x_max, 6);
+            // For Genomic, pick ONE unit for the whole axis so labels don't mix bp/kb/Mb.
+            let unit = genomic_unit(x_min, x_max);
+            let l = t.iter().map(|&v| format_tick(v, fmt, unit)).collect();
+            (t, l)
+        }
+    };
+
+    for (&val, label) in ticks.iter().zip(labels.iter()) {
         let px = x.map(val);
         scene.add(Primitive::Line {
             x1: px,
@@ -949,7 +1153,7 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
         scene.add(Primitive::Text {
             x: px,
             y: y + 18.0,
-            content: format_tick(val, spec.format, unit),
+            content: label.clone(),
             size: 11,
             anchor: TextAnchor::Middle,
             rotate: None,
@@ -958,13 +1162,15 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
         });
     }
 
+    // Axis label in the left gutter, on the SAME baseline as the tick labels (y + 18) so it lines
+    // up with the tick numbers and the axis line rather than floating at the band centre.
     if let Some(label) = &spec.label {
         scene.add(Primitive::Text {
-            x: (x.px_left() + x.px_right()) / 2.0,
-            y: band.y_bottom() - 1.0,
+            x: 2.0,
+            y: y + 18.0,
             content: label.clone(),
-            size: 12,
-            anchor: TextAnchor::Middle,
+            size: 11,
+            anchor: TextAnchor::Start,
             rotate: None,
             bold: false,
             color: text(),
@@ -980,28 +1186,25 @@ fn label_gutter_width(label: Option<&str>) -> f64 {
     }
 }
 
-/// Width of the shared-legend block: widest entry label + swatch/padding. 0 if empty.
-fn legend_block_width(entries: &[LegendEntry]) -> f64 {
-    if entries.is_empty() {
-        return 0.0;
-    }
-    let widest = entries
-        .iter()
-        .map(|e| measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular))
-        .fold(0.0_f64, f64::max);
-    widest + 35.0
-}
-
-/// Deduplicate legend entries by label, preserving first-seen order.
-fn dedup_legend(entries: Vec<LegendEntry>) -> Vec<LegendEntry> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::with_capacity(entries.len());
-    for e in entries {
-        if seen.insert(e.label.clone()) {
-            out.push(e);
+/// Width of the shared-legend box: widest entry-or-title label across all groups + swatch/padding.
+/// 0 if there are no entries.
+fn legend_groups_width(groups: &[LegendGroup]) -> f64 {
+    let mut widest = 0.0_f64;
+    for g in groups {
+        if !g.title.is_empty() {
+            widest = widest.max(measure_text_width(&g.title, LABEL_SIZE, FontStyle::Regular));
+        }
+        for e in &g.entries {
+            // Entries are inset past the swatch, so account for that in the content width.
+            widest =
+                widest.max(measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular) + 20.0);
         }
     }
-    out
+    if widest == 0.0 {
+        0.0
+    } else {
+        widest + 20.0
+    }
 }
 
 /// Draw a track's name in the left gutter, vertically centred on its band, left-aligned.
@@ -1054,7 +1257,9 @@ fn genomic_unit(x_min: f64, x_max: f64) -> GenomicUnit {
 
 fn format_tick(v: f64, format: XAxisFormat, unit: GenomicUnit) -> String {
     match format {
-        XAxisFormat::Numeric => fmt_numeric(v),
+        // DateTime is formatted upstream via DateTimeAxis and never reaches here; fall back to
+        // plain numbers if it ever does.
+        XAxisFormat::Numeric | XAxisFormat::DateTime => fmt_numeric(v),
         XAxisFormat::Genomic => format!("{} {}", fmt_numeric(v / unit.divisor), unit.suffix),
     }
 }
@@ -1176,10 +1381,11 @@ mod tests {
         }
     }
 
-    /// A minimal non-plot track for exercising `label()` / `legend_entries()` without depending on
-    /// any real plot type's legend API (annotation tracks land properly in step 3).
+    /// A minimal non-plot track for exercising `label()` / `legend_entries()` /
+    /// `legend_group_title()` without depending on any real plot type's legend API.
     struct DummyTrack {
         label: Option<String>,
+        legend_title: Option<String>,
         legend: Vec<LegendEntry>,
     }
     impl Track for DummyTrack {
@@ -1192,6 +1398,9 @@ mod tests {
         fn legend_entries(&self) -> Vec<LegendEntry> {
             self.legend.clone()
         }
+        fn legend_group_title(&self) -> Option<String> {
+            self.legend_title.clone()
+        }
         fn render(self: Box<Self>, _cx: &TrackCtx<'_>, _scene: &mut Scene) {}
     }
 
@@ -1203,30 +1412,14 @@ mod tests {
             .count()
     }
 
+    /// The stack draws a track's `label()` in the gutter and its legend as a titled section
+    /// (group heading + entries), all as top-level Text primitives.
     #[test]
-    fn dedup_legend_removes_duplicate_labels_preserving_order() {
-        let out = dedup_legend(vec![
-            legend_entry("A"),
-            legend_entry("B"),
-            legend_entry("A"),
-            legend_entry("C"),
-            legend_entry("B"),
-        ]);
-        let labels: Vec<_> = out.iter().map(|e| e.label.as_str()).collect();
-        assert_eq!(labels, vec!["A", "B", "C"]);
-    }
-
-    /// The stack draws a track's `label()` in the gutter and a deduplicated shared legend, both as
-    /// top-level Text primitives.
-    #[test]
-    fn gutter_label_and_shared_legend_render() {
+    fn gutter_label_and_legend_section_render() {
         let track = DummyTrack {
             label: Some("Genes".into()),
-            legend: vec![
-                legend_entry("SNV"),
-                legend_entry("SNV"),
-                legend_entry("InDel"),
-            ],
+            legend_title: Some("variants".into()),
+            legend: vec![legend_entry("SNV"), legend_entry("InDel")],
         };
         let scene = TrackStack::new()
             .x_range(0.0, 10.0)
@@ -1234,7 +1427,12 @@ mod tests {
             .x_axis()
             .render_sized(600.0, 200.0);
         assert_eq!(count_text(&scene, "Genes"), 1, "gutter label missing");
-        assert_eq!(count_text(&scene, "SNV"), 1, "legend not deduped");
+        assert_eq!(
+            count_text(&scene, "variants"),
+            1,
+            "legend section title missing"
+        );
+        assert_eq!(count_text(&scene, "SNV"), 1, "legend entry missing");
         assert_eq!(count_text(&scene, "InDel"), 1, "legend entry missing");
     }
 
@@ -1309,7 +1507,13 @@ mod tests {
             .track(track)
             .x_axis()
             .render_sized(600.0, 160.0);
-        assert_eq!(count_text(&scene, "Variants"), 1, "gutter track-name");
+        // "Variants" appears twice: the gutter track-name AND the legend section title (which
+        // defaults to the track name).
+        assert_eq!(
+            count_text(&scene, "Variants"),
+            2,
+            "gutter name + legend section title"
+        );
         assert_eq!(count_text(&scene, "SNV"), 1, "SNV legend entry");
         assert_eq!(count_text(&scene, "InDel"), 1, "InDel legend entry");
     }

@@ -13,6 +13,7 @@ use crate::render::color::Color;
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
 use crate::render::render::Scene;
+use crate::render::theme::Theme;
 use crate::render::track_stack::{
     AxisSpec, Interval, IntervalTrack, PlotTrack, TrackStack, VariantTrack,
 };
@@ -41,8 +42,13 @@ pub struct CoveragePlot {
     variant_groups: Vec<VariantGroup>,
     features: Vec<Interval>,
     feature_track_name: String,
+    regions: Vec<Interval>,
+    region_track_name: String,
     locus: Option<(f64, f64)>,
     x_label: String,
+    theme: Option<Theme>,
+    title: Option<String>,
+    overlay_samples: bool,
 }
 
 impl Default for CoveragePlot {
@@ -58,9 +64,33 @@ impl CoveragePlot {
             variant_groups: Vec::new(),
             features: Vec::new(),
             feature_track_name: "features".to_string(),
+            regions: Vec::new(),
+            region_track_name: "genes".to_string(),
             locus: None,
             x_label: "position".to_string(),
+            theme: None,
+            title: None,
+            overlay_samples: false,
         }
+    }
+
+    /// Visual theme for the whole figure (default light).
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
+    /// Draw all sample depths overlaid in ONE shared track (each a coloured filled line on a common
+    /// y-axis) instead of one stacked track per sample. Useful for directly comparing pools/samples.
+    pub fn with_overlaid_samples(mut self) -> Self {
+        self.overlay_samples = true;
+        self
+    }
+
+    /// Figure title, drawn centred above the tracks.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Add one sample's depth track: `(genomic position, depth)` pairs. Rendered as a filled-area
@@ -99,9 +129,30 @@ impl CoveragePlot {
         self
     }
 
-    /// Name for the below-axis feature lane (default `"features"`).
+    /// Name for the feature lane (default `"features"`).
     pub fn with_feature_track_name(mut self, name: impl Into<String>) -> Self {
         self.feature_track_name = name.into();
+        self
+    }
+
+    /// Add a labelled genome region (gene / ORF / annotation), drawn in a lane just above the axis.
+    /// Regions are a *reference* annotation of the coordinate (distinct from `--features`/amplicons,
+    /// which annotate the assay). Labels that don't fit their band are omitted (kept as bare boxes).
+    pub fn with_region(mut self, start: f64, end: f64, label: impl Into<String>) -> Self {
+        self.regions
+            .push(Interval::new(start, end).with_label(label));
+        self
+    }
+
+    /// Add several genome regions at once.
+    pub fn with_regions(mut self, regions: Vec<Interval>) -> Self {
+        self.regions.extend(regions);
+        self
+    }
+
+    /// Name for the region/gene lane (default `"genes"`).
+    pub fn with_region_track_name(mut self, name: impl Into<String>) -> Self {
+        self.region_track_name = name.into();
         self
     }
 
@@ -120,25 +171,62 @@ impl CoveragePlot {
     /// Assemble the underlying [`TrackStack`] without rendering — an escape hatch for callers who
     /// want to add underlays / extra tracks before `render`.
     ///
-    /// Layout: one filled-area depth `PlotTrack` per sample (above the axis), then a variant lane
-    /// if any, then the genomic x-axis, then the feature bands below it.
+    /// Layout, top to bottom: title (if any), one filled-area depth `PlotTrack` per sample, a
+    /// variant lane (if any), the feature-band lane (amplicons tile onto rows when they overlap,
+    /// coloured by pool), then the genomic x-axis at the bottom. Features sit *above* the axis
+    /// (with the data), not below it.
     pub fn build(self) -> TrackStack {
+        // Two-colour pool palette for tiled feature rows (e.g. ARTIC's alternating primer pools).
+        const POOL_COLORS: [&str; 2] = ["#8ecae6", "#ffb703"];
+        // A 12-colour categorical palette for per-gene colouring of the region track.
+        const GENE_COLORS: [&str; 12] = [
+            "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", "#b07aa1", "#ff9da7",
+            "#9c755f", "#bab0ac", "#86bcb6", "#d37295",
+        ];
+
         let palette = Palette::wong();
         let colors = palette.colors();
 
         let mut stack = TrackStack::new();
+        if let Some(theme) = self.theme {
+            stack = stack.with_theme(theme);
+        }
+        if let Some(title) = self.title {
+            stack = stack.with_title(title);
+        }
         if let Some((lo, hi)) = self.locus {
             stack = stack.x_range(lo, hi);
         }
 
-        for (i, (name, depth)) in self.samples.into_iter().enumerate() {
-            let color = colors[i % colors.len()].clone();
-            let line = LinePlot::new()
-                .with_data(depth)
-                .with_fill()
-                .with_fill_opacity(0.6)
-                .with_color(color);
-            stack = stack.track(PlotTrack::new(vec![Plot::Line(line)]).with_y_label(name));
+        let line = |name: String, depth: Vec<(f64, f64)>, color: String, opacity: f64| {
+            // `with_legend` makes each sample a coloured entry in the shared legend.
+            Plot::Line(
+                LinePlot::new()
+                    .with_data(depth)
+                    .with_fill()
+                    .with_fill_opacity(opacity)
+                    .with_color(color)
+                    .with_legend(name),
+            )
+        };
+        if self.overlay_samples {
+            // All samples overlaid in one shared "depth" track on a common y-axis.
+            let plots: Vec<Plot> = self
+                .samples
+                .into_iter()
+                .enumerate()
+                .map(|(i, (name, depth))| line(name, depth, colors[i % colors.len()].clone(), 0.5))
+                .collect();
+            if !plots.is_empty() {
+                stack = stack.track(PlotTrack::new(plots).with_y_label("depth"));
+            }
+        } else {
+            // One stacked track per sample; the y-axis label names it.
+            for (i, (name, depth)) in self.samples.into_iter().enumerate() {
+                let color = colors[i % colors.len()].clone();
+                let plot = line(name.clone(), depth, color, 0.6);
+                stack = stack.track(PlotTrack::new(vec![plot]).with_y_label(name));
+            }
         }
 
         if !self.variant_groups.is_empty() {
@@ -149,15 +237,27 @@ impl CoveragePlot {
             stack = stack.track(vt);
         }
 
-        stack = stack.x_axis_with(AxisSpec::genomic(self.x_label));
-
+        // Feature bands go ABOVE the axis, tiled onto pool-coloured rows when they overlap.
         if !self.features.is_empty() {
             stack = stack.track(
-                IntervalTrack::new(self.features).with_name(self.feature_track_name.clone()),
+                IntervalTrack::new(self.features)
+                    .with_name(self.feature_track_name.clone())
+                    .with_row_colors(POOL_COLORS.to_vec()),
             );
         }
 
-        stack
+        // Genome regions (genes/ORFs) sit just above the axis — the reference annotation closest to
+        // the coordinate. Per-gene colours + a titled legend section, so even the tiny 3' ORFs
+        // (whose labels don't fit inside their band) stay identifiable by colour.
+        if !self.regions.is_empty() {
+            stack = stack.track(
+                IntervalTrack::new(self.regions)
+                    .with_name(self.region_track_name.clone())
+                    .with_item_colors(GENE_COLORS.to_vec()),
+            );
+        }
+
+        stack.x_axis_with(AxisSpec::genomic(self.x_label))
     }
 
     /// Render at the given width with an auto total height.
@@ -205,13 +305,14 @@ mod tests {
             .with_feature(1_110_000.0, 1_170_000.0, "amp2")
             .render(1000.0);
 
-        // Sample names appear as y-axis labels.
-        assert_eq!(count_text(&scene, "tumour"), 1);
-        assert_eq!(count_text(&scene, "normal"), 1);
+        // Sample names appear twice: the y-axis label AND a shared-legend entry (untitled samples
+        // section).
+        assert_eq!(count_text(&scene, "tumour"), 2);
+        assert_eq!(count_text(&scene, "normal"), 2);
         // Variant types appear in the shared legend.
         assert_eq!(count_text(&scene, "SNV"), 1);
         assert_eq!(count_text(&scene, "InDel"), 1);
-        // Feature bands + their gutter track-name.
+        // Feature bands (labelled inline) + their gutter track-name.
         assert_eq!(count_text(&scene, "amp1"), 1);
         assert_eq!(count_text(&scene, "amp2"), 1);
         assert_eq!(count_text(&scene, "features"), 1);

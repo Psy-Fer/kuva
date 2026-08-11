@@ -12598,7 +12598,11 @@ pub fn render_legend_at(
     let line_height = (body_size as f64 * 1.5).max(12.0);
 
     let entry_rows = if let Some(groups) = groups {
-        groups.iter().map(|g| g.entries.len() + 1).sum::<usize>()
+        // Each group adds its entries plus a title row, except untitled (empty) groups.
+        groups
+            .iter()
+            .map(|g| g.entries.len() + usize::from(!g.title.is_empty()))
+            .sum::<usize>()
     } else {
         entries.len()
     };
@@ -12723,17 +12727,20 @@ pub fn render_legend_at(
 
     if let Some(groups) = groups {
         for group in groups {
-            scene.add(Primitive::Text {
-                x: x + 5.0,
-                y: cur_y + 5.0,
-                content: group.title.clone(),
-                anchor: TextAnchor::Start,
-                size: body_size,
-                rotate: None,
-                bold: true,
-                color: None,
-            });
-            cur_y += line_height;
+            // Untitled groups (empty title) render their entries with no heading row.
+            if !group.title.is_empty() {
+                scene.add(Primitive::Text {
+                    x: x + 5.0,
+                    y: cur_y + 5.0,
+                    content: group.title.clone(),
+                    anchor: TextAnchor::Start,
+                    size: body_size,
+                    rotate: None,
+                    bold: true,
+                    color: None,
+                });
+                cur_y += line_height;
+            }
             for entry in &group.entries {
                 render_entry(entry, scene, cur_y);
                 cur_y += line_height;
