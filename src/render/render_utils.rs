@@ -547,6 +547,76 @@ where
     Some((slope, intercept, r))
 }
 
+/// LOESS / LOWESS: locally-weighted linear regression smoother.
+///
+/// For each of `n_out` query points evenly spaced across the data's x-range, fits
+/// a degree-1 weighted least-squares line to the `span` fraction of nearest points
+/// (weighted by the tricube kernel of scaled distance) and evaluates it there.
+/// Returns `(x, y_smoothed)` pairs sorted by x. `span` is clamped to `[0.05, 1.0]`;
+/// returns an empty vec if there are fewer than 3 points or the x-range is degenerate.
+pub fn loess<I>(points: I, span: f64, n_out: usize) -> Vec<(f64, f64)>
+where
+    I: IntoIterator,
+    I::Item: Into<(f64, f64)>,
+{
+    let mut pts: Vec<(f64, f64)> = points.into_iter().map(Into::into).collect();
+    if pts.len() < 3 || n_out == 0 {
+        return Vec::new();
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let n = pts.len();
+    let x_min = pts[0].0;
+    let x_max = pts[n - 1].0;
+    if !(x_max - x_min).is_finite() || x_max <= x_min {
+        return Vec::new();
+    }
+    let span = span.clamp(0.05, 1.0);
+    let k = ((span * n as f64).ceil() as usize).clamp(2, n);
+
+    let tricube = |u: f64| {
+        let a = (1.0 - u.abs().powi(3)).max(0.0);
+        a * a * a
+    };
+
+    let mut out = Vec::with_capacity(n_out);
+    for i in 0..n_out {
+        let t = i as f64 / (n_out - 1) as f64;
+        let x0 = x_min + t * (x_max - x_min);
+
+        // The k nearest neighbours by |x - x0| set the local bandwidth.
+        let mut dist: Vec<f64> = pts.iter().map(|(x, _)| (x - x0).abs()).collect();
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&a, &b| dist[a].total_cmp(&dist[b]));
+        let d_max = dist[idx[k - 1]].max(1e-12);
+
+        // Weighted degree-1 fit over the k neighbours.
+        let (mut sw, mut swx, mut swy, mut swxx, mut swxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        for &j in idx.iter().take(k) {
+            let (x, y) = pts[j];
+            let w = tricube(dist[j] / d_max);
+            sw += w;
+            swx += w * x;
+            swy += w * y;
+            swxx += w * x * x;
+            swxy += w * x * y;
+        }
+        dist.clear();
+
+        let denom = sw * swxx - swx * swx;
+        let y0 = if sw <= 0.0 {
+            continue;
+        } else if denom.abs() < 1e-12 {
+            swy / sw // degenerate (all neighbours share an x) -> weighted mean
+        } else {
+            let slope = (sw * swxy - swx * swy) / denom;
+            let intercept = (swy - slope * swx) / sw;
+            slope * x0 + intercept
+        };
+        out.push((x0, y0));
+    }
+    out
+}
+
 /// Greedy beeswarm layout: returns x pixel offsets from group center for each
 /// point such that no two points overlap (Euclidean distance ≥ 2*point_r).
 /// Placement tries x=0, then ±step, ±2×step, … (step = point_r).
@@ -902,6 +972,66 @@ pub fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── loess ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn loess_recovers_a_linear_relationship() {
+        // Exactly-linear data: the smoother should reproduce y = 2x + 1 closely.
+        let data: Vec<(f64, f64)> = (0..40).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
+        let curve = loess(data.iter().copied(), 0.5, 50);
+        assert_eq!(curve.len(), 50);
+        for &(x, y) in &curve {
+            assert!(
+                (y - (2.0 * x + 1.0)).abs() < 1e-6,
+                "loess off at x={x}: y={y}"
+            );
+        }
+        // Endpoints span the data range.
+        assert!((curve.first().unwrap().0 - 0.0).abs() < 1e-9);
+        assert!((curve.last().unwrap().0 - 39.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn loess_smooths_noise_within_data_range() {
+        // Noisy sine: the smoothed curve must stay within the data's y-range (no blow-up)
+        // and be smoother than the raw data (small point-to-point deltas).
+        let data: Vec<(f64, f64)> = (0..120)
+            .map(|i| {
+                let x = i as f64 / 120.0 * 10.0;
+                let noise = ((i as f64 * 12.9898).sin() * 43758.5453).fract() - 0.5;
+                (x, x.sin() + 0.6 * noise)
+            })
+            .collect();
+        let (dmin, dmax) = data
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |a, &(_, y)| {
+                (a.0.min(y), a.1.max(y))
+            });
+        let curve = loess(data.iter().copied(), 0.4, 60);
+        assert!(!curve.is_empty());
+        for &(_, y) in &curve {
+            assert!(
+                y >= dmin - 1e-9 && y <= dmax + 1e-9,
+                "loess left data range: {y}"
+            );
+        }
+        let max_step = curve
+            .windows(2)
+            .map(|w| (w[1].1 - w[0].1).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_step < 0.5,
+            "smoothed curve should have small steps, got {max_step}"
+        );
+    }
+
+    #[test]
+    fn loess_degenerate_inputs_return_empty() {
+        assert!(loess([(0.0, 1.0), (1.0, 2.0)], 0.5, 10).is_empty()); // < 3 points
+                                                                      // All same x -> degenerate range.
+        assert!(loess([(1.0, 1.0), (1.0, 2.0), (1.0, 3.0)], 0.5, 10).is_empty());
+    }
 
     // ── wrap_text ────────────────────────────────────────────────────────
 

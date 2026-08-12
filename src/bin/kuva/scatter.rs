@@ -1,6 +1,6 @@
 use clap::Args;
 
-use kuva::plot::scatter::{ScatterPlot, TrendLine};
+use kuva::plot::scatter::{MarkerShape, ScatterPlot, TrendLine};
 use kuva::render::layout::Layout;
 use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
@@ -39,9 +39,23 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub size: Option<f64>,
 
+    /// Marker shape: circle (default), square, triangle, triangle-down, diamond,
+    /// cross, plus, star, pentagon, hexagon.
+    #[arg(long)]
+    pub marker: Option<String>,
+
     /// Overlay a linear trend line.
     #[arg(long)]
     pub trend: bool,
+
+    /// Overlay a LOESS smoother (local regression) instead of a linear trend.
+    #[arg(long)]
+    pub loess: bool,
+
+    /// LOESS span: fraction of points per local fit, 0.05–1.0 (default 0.5).
+    /// Smaller = wigglier. Implies --loess.
+    #[arg(long)]
+    pub loess_span: Option<f64>,
 
     /// Annotate with the regression equation (requires --trend).
     #[arg(long)]
@@ -185,7 +199,17 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
         vec![plot]
     };
 
-    if trend {
+    if let Some(ref m) = args.marker {
+        let shape = MarkerShape::parse(m)
+            .ok_or_else(|| format!("unknown --marker '{m}' (see --help for shapes)"))?;
+        plots = plots.into_iter().map(|p| p.with_marker(shape)).collect();
+    }
+
+    // LOESS takes precedence over --trend when both are given.
+    if args.loess || args.loess_span.is_some() {
+        let span = args.loess_span.unwrap_or(0.5);
+        plots = plots.into_iter().map(|p| p.with_loess_span(span)).collect();
+    } else if trend {
         plots = plots
             .into_iter()
             .map(|p| p.with_trend(TrendLine::Linear))

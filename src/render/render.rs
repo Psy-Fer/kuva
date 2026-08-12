@@ -804,7 +804,66 @@ fn draw_marker(
                 stroke_dasharray: None,
             });
         }
+        MarkerShape::TriangleDown => {
+            let h = size * 1.7;
+            let verts = [
+                (cx, cy + h * 0.6),
+                (cx - size, cy - h * 0.4),
+                (cx + size, cy - h * 0.4),
+            ];
+            add_filled_polygon(scene, &verts, fill);
+        }
+        MarkerShape::Star => {
+            // 5-pointed star: outer radius `r`, inner radius ~0.4r, first point up.
+            let r = size * 1.25;
+            let inner = r * 0.4;
+            let mut verts = Vec::with_capacity(10);
+            for k in 0..10 {
+                let ang = -std::f64::consts::FRAC_PI_2 + k as f64 * std::f64::consts::PI / 5.0;
+                let rad = if k % 2 == 0 { r } else { inner };
+                verts.push((cx + rad * ang.cos(), cy + rad * ang.sin()));
+            }
+            add_filled_polygon(scene, &verts, fill);
+        }
+        MarkerShape::Pentagon => {
+            add_filled_polygon(scene, &regular_polygon(cx, cy, size * 1.2, 5), fill);
+        }
+        MarkerShape::Hexagon => {
+            add_filled_polygon(scene, &regular_polygon(cx, cy, size * 1.15, 6), fill);
+        }
     }
+}
+
+/// Vertices of a regular `n`-gon centred at `(cx, cy)`, first vertex pointing up.
+fn regular_polygon(cx: f64, cy: f64, r: f64, n: usize) -> Vec<(f64, f64)> {
+    (0..n)
+        .map(|k| {
+            let ang = -std::f64::consts::FRAC_PI_2 + k as f64 * std::f64::consts::TAU / n as f64;
+            (cx + r * ang.cos(), cy + r * ang.sin())
+        })
+        .collect()
+}
+
+/// Add a closed filled polygon path (thin same-colour stroke, matching Triangle/Diamond).
+fn add_filled_polygon(scene: &mut Scene, verts: &[(f64, f64)], fill: &str) {
+    let mut d = String::with_capacity(verts.len() * 16 + 8);
+    let mut rb = ryu::Buffer::new();
+    for (i, &(x, y)) in verts.iter().enumerate() {
+        d.push(if i == 0 { 'M' } else { 'L' });
+        d.push_str(rb.format(round2(x)));
+        d.push(',');
+        d.push_str(rb.format(round2(y)));
+        d.push(' ');
+    }
+    d.push('Z');
+    scene.add(Primitive::Path(Box::new(PathData {
+        d,
+        fill: Some(fill.into()),
+        stroke: fill.into(),
+        stroke_width: 0.5,
+        opacity: None,
+        stroke_dasharray: None,
+    })));
 }
 
 fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
@@ -1084,7 +1143,31 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                         });
                     }
                 }
-            } // _ => {}
+            }
+            TrendLine::Loess { span } => {
+                // Locally-weighted smoother, drawn as a clipped polyline. Evaluate at a
+                // fixed resolution across the x-range; equation/correlation don't apply.
+                let curve = render_utils::loess(&scatter.data, span, 100);
+                if curve.len() >= 2 {
+                    let screen: Vec<(f64, f64)> = curve
+                        .iter()
+                        .map(|&(x, y)| (computed.map_x(x), computed.map_y(y)))
+                        .collect();
+                    let stroke = if computed.bw_mode {
+                        Color::from("#1a1a1a")
+                    } else {
+                        Color::from(&scatter.trend_color)
+                    };
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d: build_path(&screen),
+                        fill: None,
+                        stroke,
+                        stroke_width: scatter.trend_width.max(1.5),
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                }
+            }
         }
     }
 }

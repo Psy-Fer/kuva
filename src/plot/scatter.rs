@@ -6,10 +6,40 @@ pub enum MarkerShape {
     #[default]
     Circle,
     Square,
+    /// Upward-pointing triangle.
     Triangle,
     Diamond,
+    /// Diagonal cross (×).
     Cross,
+    /// Upright cross (+).
     Plus,
+    /// Downward-pointing triangle.
+    TriangleDown,
+    /// Five-pointed star.
+    Star,
+    /// Regular pentagon (point up).
+    Pentagon,
+    /// Regular hexagon (point up).
+    Hexagon,
+}
+
+impl MarkerShape {
+    /// Parse a CLI-friendly shape name. Accepts common aliases; case-insensitive.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().replace('_', "-").as_str() {
+            "circle" | "o" => Some(MarkerShape::Circle),
+            "square" | "s" => Some(MarkerShape::Square),
+            "triangle" | "triangle-up" | "^" => Some(MarkerShape::Triangle),
+            "diamond" | "d" => Some(MarkerShape::Diamond),
+            "cross" | "x" => Some(MarkerShape::Cross),
+            "plus" | "+" => Some(MarkerShape::Plus),
+            "triangle-down" | "v" => Some(MarkerShape::TriangleDown),
+            "star" | "*" => Some(MarkerShape::Star),
+            "pentagon" | "p" => Some(MarkerShape::Pentagon),
+            "hexagon" | "hex" | "h" => Some(MarkerShape::Hexagon),
+            _ => None,
+        }
+    }
 }
 
 /// Trend line variant to overlay on a scatter plot.
@@ -17,6 +47,11 @@ pub enum MarkerShape {
 pub enum TrendLine {
     /// Ordinary least-squares linear fit: y = mx + b.
     Linear,
+    /// LOESS / LOWESS locally-weighted regression smoother. `span` is the
+    /// fraction of points (0, 1] included in each local fit (a.k.a. bandwidth);
+    /// smaller = wigglier, larger = smoother. ggplot2 `geom_smooth(method='loess')`,
+    /// plotly `trendline='lowess'`.
+    Loess { span: f64 },
     // Polynomial(u8),
     // Exponential,
 }
@@ -286,6 +321,22 @@ impl ScatterPlot {
     /// Overlay a trend line computed from the scatter data.
     pub fn with_trend(mut self, trend: TrendLine) -> Self {
         self.trend = Some(trend);
+        self
+    }
+
+    /// Overlay a LOESS smoother with the default span (`0.5`).
+    /// Equivalent to `with_trend(TrendLine::Loess { span: 0.5 })`.
+    pub fn with_loess(mut self) -> Self {
+        self.trend = Some(TrendLine::Loess { span: 0.5 });
+        self
+    }
+
+    /// Overlay a LOESS smoother with an explicit span (fraction of points per
+    /// local fit, clamped to `[0.05, 1.0]`). Smaller = more local detail.
+    pub fn with_loess_span(mut self, span: f64) -> Self {
+        self.trend = Some(TrendLine::Loess {
+            span: span.clamp(0.05, 1.0),
+        });
         self
     }
 

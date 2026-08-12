@@ -1312,6 +1312,10 @@ fn marker_shape_ctor(m: MarkerShape) -> &'static str {
         MarkerShape::Diamond => "MarkerShape::Diamond",
         MarkerShape::Cross => "MarkerShape::Cross",
         MarkerShape::Plus => "MarkerShape::Plus",
+        MarkerShape::TriangleDown => "MarkerShape::TriangleDown",
+        MarkerShape::Star => "MarkerShape::Star",
+        MarkerShape::Pentagon => "MarkerShape::Pentagon",
+        MarkerShape::Hexagon => "MarkerShape::Hexagon",
     }
 }
 
@@ -1331,10 +1335,12 @@ pub fn emit_scatter_plot(p: &ScatterPlot) -> String {
         frags.push(format!(".with_legend({})", str_lit(label)));
     }
     if let Some(ref t) = p.trend {
-        let ctor = match t {
-            TrendLine::Linear => "TrendLine::Linear",
-        };
-        frags.push(format!(".with_trend({ctor})"));
+        match t {
+            TrendLine::Linear => frags.push(".with_trend(TrendLine::Linear)".to_string()),
+            TrendLine::Loess { span } => {
+                frags.push(format!(".with_loess_span({})", f64_lit(*span)))
+            }
+        }
     }
     if p.show_equation {
         frags.push(".with_equation()".to_string());

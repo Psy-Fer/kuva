@@ -100,6 +100,14 @@ check "scatter numeric column names" \
     "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --header \
         --title "Expression 2023 vs 2024" --x-label "2023" --y-label "2024"
 
+check "scatter marker star" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --marker star --size 5 \
+        --title "Star markers"
+
+check "scatter loess" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --loess-span 0.4 \
+        --title "LOESS smoother"
+
 # Explicit selection prefixes: name:/col: force a name, idx:/# force an index.
 check "scatter name: prefix" \
     "$BIN" scatter "$DATA/year_columns.tsv" --x name:2023 --y name:2024 --header \

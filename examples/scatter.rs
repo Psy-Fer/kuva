@@ -22,6 +22,7 @@ fn main() {
 
     basic();
     trend();
+    loess();
     confidence_band();
     error_bars();
     markers();
@@ -98,6 +99,35 @@ fn trend() {
     std::fs::write(format!("{OUT}/trend.svg"), svg).unwrap();
 }
 
+/// LOESS smoother over noisy non-linear data.
+fn loess() {
+    // Deterministic noisy sine.
+    let data: Vec<(f64, f64)> = (0..120)
+        .map(|i| {
+            let x = i as f64 / 120.0 * 10.0;
+            let noise = ((i as f64 * 12.9898).sin() * 43758.5453).fract() - 0.5;
+            (x, x.sin() + 0.6 * noise)
+        })
+        .collect();
+
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_color("steelblue")
+        .with_size(3.0)
+        .with_loess_span(0.3)
+        .with_trend_color("crimson")
+        .with_trend_width(2.5);
+
+    let plots = vec![Plot::Scatter(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("LOESS Smoother (span 0.3)")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/loess.svg"), svg).unwrap();
+}
+
 /// Scatter with a shaded confidence band.
 fn confidence_band() {
     let xs: Vec<f64> = (1..=10).map(|i| i as f64).collect();
@@ -154,15 +184,19 @@ fn error_bars() {
 
 /// All six marker shapes shown together.
 fn markers() {
-    let y_offsets = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
     let shapes = [
         (MarkerShape::Circle, "Circle", "steelblue"),
         (MarkerShape::Square, "Square", "crimson"),
         (MarkerShape::Triangle, "Triangle", "seagreen"),
+        (MarkerShape::TriangleDown, "TriangleDown", "#2a9d8f"),
         (MarkerShape::Diamond, "Diamond", "darkorange"),
         (MarkerShape::Cross, "Cross", "purple"),
         (MarkerShape::Plus, "Plus", "saddlebrown"),
+        (MarkerShape::Star, "Star", "#e9c46a"),
+        (MarkerShape::Pentagon, "Pentagon", "#8e44ad"),
+        (MarkerShape::Hexagon, "Hexagon", "#264653"),
     ];
+    let y_offsets: Vec<f64> = (1..=shapes.len()).map(|i| i as f64).collect();
 
     let plots: Vec<Plot> = shapes
         .iter()
