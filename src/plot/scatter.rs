@@ -147,6 +147,11 @@ pub struct ScatterPlot {
     /// Series/group name used for `data-group` in interactive SVGs.
     /// Does not affect legend rendering; set independently of `legend_label`.
     pub group_name: Option<String>,
+    /// Per-point text labels, aligned to `data` by index. An empty string leaves
+    /// that point unlabelled. Placed according to [`label_style`](Self::label_style).
+    pub point_labels: Option<Vec<String>>,
+    /// How point labels are placed (default [`LabelStyle::Nudge`]).
+    pub label_style: crate::plot::volcano::LabelStyle,
 }
 
 impl Default for ScatterPlot {
@@ -180,6 +185,8 @@ impl ScatterPlot {
             show_tooltips: false,
             tooltip_labels: None,
             group_name: None,
+            point_labels: None,
+            label_style: crate::plot::volcano::LabelStyle::Nudge,
         }
     }
 
@@ -365,6 +372,27 @@ impl ScatterPlot {
     /// Set the trend line stroke width in pixels (default `1.0`).
     pub fn with_trend_width(mut self, width: f64) -> Self {
         self.trend_width = width;
+        self
+    }
+
+    /// Attach per-point text labels, aligned to the data by index. An empty
+    /// string leaves that point unlabelled. Placed per [`with_label_style`](Self::with_label_style)
+    /// (default [`LabelStyle::Nudge`](crate::plot::LabelStyle::Nudge)).
+    pub fn with_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.point_labels = Some(labels.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Choose how point labels are placed (`Exact`, `Nudge`, `Arrow`, `Repel`).
+    pub fn with_label_style(mut self, style: crate::plot::volcano::LabelStyle) -> Self {
+        self.label_style = style;
+        self
+    }
+
+    /// Convenience: place point labels with force-directed (ggrepel-style) repulsion.
+    /// Equivalent to `with_label_style(LabelStyle::Repel)`.
+    pub fn with_repel_labels(mut self) -> Self {
+        self.label_style = crate::plot::volcano::LabelStyle::Repel;
         self
     }
 

@@ -108,6 +108,10 @@ check "scatter loess" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --loess-span 0.4 \
         --title "LOESS smoother"
 
+check "scatter repel labels" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --label-col gene \
+        --label-style repel --header --title "Repel labels"
+
 # Explicit selection prefixes: name:/col: force a name, idx:/# force an index.
 check "scatter name: prefix" \
     "$BIN" scatter "$DATA/year_columns.tsv" --x name:2023 --y name:2024 --header \
@@ -378,6 +382,10 @@ check "volcano pvalue-col-is-log" \
     "$BIN" volcano "$DATA/volcano_logp.tsv" --name-col gene --x-col log2fc --y-col neg_log10_pvalue --pvalue-col-is-log \
         --title "Differential Expression (log p input)" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
 
+check "volcano repel labels" \
+    "$BIN" volcano "$DATA/volcano.tsv" --name-col gene --x-col log2fc --y-col pvalue --top-n 12 --label-style repel \
+        --title "Differential Expression" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
+
 # ── manhattan ─────────────────────────────────────────────────────────────────
 check "manhattan sequential" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue \
@@ -385,6 +393,10 @@ check "manhattan sequential" \
 
 check "manhattan top-n" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue --top-n 10 \
+        --title "GWAS Results" --x-label "Chromosome" "--y-label=-log10(p-value)"
+
+check "manhattan repel labels" \
+    "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue --top-n 8 --label-style repel \
         --title "GWAS Results" --x-label "Chromosome" "--y-label=-log10(p-value)"
 
 check "manhattan hg38" \

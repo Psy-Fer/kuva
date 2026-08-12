@@ -523,3 +523,56 @@ fn test_scatter_loess_span_controls_smoothness() {
         "smaller span should wiggle more than a larger span"
     );
 }
+
+// ── Point labels + repel ─────────────────────────────────────────────────────
+
+/// Per-point labels with force-directed (Repel) placement draw the label text plus
+/// thin leader lines back to clustered points. Written to test_outputs/ for review.
+#[test]
+fn test_scatter_repel_labels() {
+    use kuva::plot::LabelStyle;
+    // Two tight clusters so repulsion has to move labels off each other.
+    let pts = [
+        (1.0, 2.0, "Alpha"),
+        (1.1, 2.1, "Beta"),
+        (1.05, 1.95, "Gamma"),
+        (4.0, 5.0, "Delta"),
+        (4.1, 4.9, "Epsilon"),
+        (3.95, 5.05, "Zeta"),
+    ];
+    let plot = ScatterPlot::new()
+        .with_data(pts.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>())
+        .with_size(5.0)
+        .with_color("#4e79a7")
+        .with_labels(
+            pts.iter()
+                .map(|(_, _, l)| l.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .with_label_style(LabelStyle::Repel);
+
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(plot.clone())]).with_title("Repel labels");
+    let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Scatter(plot)], layout));
+    common::write_test_output("test_outputs/scatter_repel_labels.svg", &svg).unwrap();
+
+    for name in ["Alpha", "Delta", "Zeta"] {
+        assert!(svg.contains(&format!(">{name}<")), "label {name} missing");
+    }
+    // Leader lines are thin gray strokes.
+    assert!(
+        svg.contains("stroke=\"#888888\""),
+        "repel should draw leader lines"
+    );
+}
+
+/// Empty label strings leave their points unlabelled.
+#[test]
+fn test_scatter_labels_skip_empty() {
+    let plot = ScatterPlot::new()
+        .with_data(vec![(1.0, 1.0), (2.0, 2.0), (3.0, 3.0)])
+        .with_labels(vec!["keep", "", "alsokeep"]);
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(plot.clone())]);
+    let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Scatter(plot)], layout));
+    common::write_test_output("test_outputs/scatter_labels_partial.svg", &svg).unwrap();
+    assert!(svg.contains(">keep<") && svg.contains(">alsokeep<"));
+}

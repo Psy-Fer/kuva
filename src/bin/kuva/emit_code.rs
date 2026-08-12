@@ -1351,6 +1351,20 @@ pub fn emit_scatter_plot(p: &ScatterPlot) -> String {
     if p.marker != MarkerShape::Circle {
         frags.push(format!(".with_marker({})", marker_shape_ctor(p.marker)));
     }
+    if let Some(ref labels) = p.point_labels {
+        let list = labels
+            .iter()
+            .map(|l| str_lit(l))
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_labels(vec![{list}])"));
+        if !matches!(p.label_style, LabelStyle::Nudge) {
+            frags.push(format!(
+                ".with_label_style({})",
+                label_style_ctor(&p.label_style)
+            ));
+        }
+    }
     chain("ScatterPlot::new()", frags)
 }
 
@@ -3246,6 +3260,7 @@ fn label_style_ctor(style: &LabelStyle) -> String {
             f64_lit(*offset_x),
             f64_lit(*offset_y)
         ),
+        LabelStyle::Repel => "LabelStyle::Repel".to_string(),
     }
 }
 

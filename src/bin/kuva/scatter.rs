@@ -44,6 +44,14 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub marker: Option<String>,
 
+    /// Label each point with the values of this column (single-series mode only).
+    #[arg(long)]
+    pub label_col: Option<ColSpec>,
+
+    /// Point-label placement: nudge (default), exact, or repel (force-directed).
+    #[arg(long)]
+    pub label_style: Option<String>,
+
     /// Overlay a linear trend line.
     #[arg(long)]
     pub trend: bool,
@@ -95,6 +103,9 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     if let Some(ref c) = args.color_by {
         proj.push(c.clone());
     }
+    if let Some(ref c) = args.label_col {
+        proj.push(c.clone());
+    }
     let table = DataTable::parse(
         args.input.input.as_deref(),
         args.input.header_mode(),
@@ -132,6 +143,13 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
             .collect())
     };
+
+    if args.label_col.is_some() && (args.color_by.is_some() || y_cols.len() > 1) {
+        return Err(
+            "--label-col is only supported in single-series mode (no --color-by, a single --y)"
+                .to_string(),
+        );
+    }
 
     let mut plots: Vec<ScatterPlot> = if let Some(color_by) = args.color_by {
         if y_cols.len() > 1 {
@@ -188,14 +206,27 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .collect::<Result<Vec<_>, String>>()?
     } else {
         let y_col = &y_cols[0];
-        let data = clean(
-            read_x_opt(&table, &x_col)?,
-            table.col_f64_opt(y_col, &na_set, clamp)?,
-        )?;
-        let plot = ScatterPlot::new()
+        // Compute the kept-row indices explicitly so point labels stay aligned to the
+        // (x, y) pairs after missing-value rows are dropped.
+        let xs = read_x_opt(&table, &x_col)?;
+        let ys = table.col_f64_opt(y_col, &na_set, clamp)?;
+        let keep = apply_na(na_strat, &[&xs, &ys], xs.len())?;
+        let data: Vec<(f64, f64)> = keep
+            .iter()
+            .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
+            .collect();
+        let mut plot = ScatterPlot::new()
             .with_data(data)
             .with_color(&color)
             .with_size(size);
+        if let Some(ref lcol) = args.label_col {
+            let all = table.col_str(lcol)?;
+            let labels: Vec<String> = keep
+                .iter()
+                .map(|&i| all.get(i).cloned().unwrap_or_default())
+                .collect();
+            plot = plot.with_labels(labels);
+        }
         vec![plot]
     };
 
@@ -203,6 +234,16 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
         let shape = MarkerShape::parse(m)
             .ok_or_else(|| format!("unknown --marker '{m}' (see --help for shapes)"))?;
         plots = plots.into_iter().map(|p| p.with_marker(shape)).collect();
+    }
+
+    if let Some(ref s) = args.label_style {
+        let style = kuva::plot::LabelStyle::parse(s).ok_or_else(|| {
+            format!("unknown --label-style '{s}' (expected nudge, exact, or repel)")
+        })?;
+        plots = plots
+            .into_iter()
+            .map(|p| p.with_label_style(style.clone()))
+            .collect();
     }
 
     // LOESS takes precedence over --trend when both are given.

@@ -1170,6 +1170,24 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
             }
         }
     }
+
+    // Per-point text labels (Exact / Nudge / Arrow / Repel), drawn last so they sit on top.
+    if let Some(labels) = &scatter.point_labels {
+        let anchors: Vec<(f64, f64, String)> = scatter
+            .data
+            .iter()
+            .zip(labels.iter())
+            .filter(|(_, l)| !l.is_empty())
+            .map(|(p, l)| (computed.map_x(p.x), computed.map_y(p.y), l.clone()))
+            .collect();
+        draw_labels(
+            scene,
+            computed,
+            &anchors,
+            scatter.size,
+            &scatter.label_style,
+        );
+    }
 }
 
 fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
@@ -9294,6 +9312,178 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
     add_colorbar_at(info, scene, computed, bar_x, bar_y, bar_height);
 }
 
+/// Force-directed (ggrepel-style) label placement shared by volcano, manhattan,
+/// and scatter. `anchors` are `(cx, cy, text)` in screen coordinates; `point_size`
+/// is the marker radius so leader lines stop just outside each point.
+fn draw_repel_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    anchors: &[(f64, f64, String)],
+    point_size: f64,
+) {
+    if anchors.is_empty() {
+        return;
+    }
+    let fs = computed.body_size as f64;
+    let half_h = text_height(fs, FontStyle::Regular) * 0.5;
+    let mut items: Vec<render_utils::RepelItem> = anchors
+        .iter()
+        .map(|(cx, cy, text)| {
+            let w = measure_text_width(text, fs, FontStyle::Regular);
+            render_utils::RepelItem {
+                anchor: (*cx, *cy),
+                half_w: w * 0.5 + 2.0,
+                half_h: half_h + 1.0,
+                // Start just above the point.
+                pos: (*cx, cy - point_size - half_h - 3.0),
+            }
+        })
+        .collect();
+    let bounds = (
+        computed.margin_left,
+        computed.margin_top,
+        computed.width - computed.margin_right,
+        computed.height - computed.margin_bottom,
+    );
+    render_utils::repel_labels(&mut items, bounds, 150);
+
+    let leader = if computed.bw_mode {
+        "#1a1a1a"
+    } else {
+        "#888888"
+    };
+    // Leader lines first so the text draws over them.
+    for (item, (ax, ay, _)) in items.iter().zip(anchors) {
+        let dx = ax - item.pos.0;
+        let dy = ay - item.pos.1;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist <= item.half_h + point_size + 2.0 {
+            continue; // label sits on its point; no leader needed
+        }
+        // Start at the label-box edge facing the anchor.
+        let scale_edge = (item.half_w / dx.abs().max(1e-6)).min(item.half_h / dy.abs().max(1e-6));
+        let ex = item.pos.0 + dx * scale_edge;
+        let ey = item.pos.1 + dy * scale_edge;
+        // Stop just outside the marker.
+        let (ux, uy) = (dx / dist, dy / dist);
+        scene.add(Primitive::Line {
+            x1: ex,
+            y1: ey,
+            x2: ax - ux * (point_size + 1.5),
+            y2: ay - uy * (point_size + 1.5),
+            stroke: leader.into(),
+            stroke_width: 0.7,
+            stroke_dasharray: None,
+        });
+    }
+    // Text.
+    let baseline = center_offset(fs, FontStyle::Regular);
+    for (item, (_, _, text)) in items.iter().zip(anchors) {
+        scene.add(Primitive::Text {
+            x: item.pos.0,
+            y: item.pos.1 + baseline,
+            content: text.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
+    }
+}
+
+/// Draw a set of top-N labels in the requested [`LabelStyle`]. `anchors` are
+/// `(cx, cy, text)` in screen coordinates. Shared by volcano, manhattan, and
+/// scatter so all four placement styles behave identically.
+fn draw_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    anchors: &[(f64, f64, String)],
+    point_size: f64,
+    style: &LabelStyle,
+) {
+    match style {
+        LabelStyle::Exact => {
+            for (cx, cy, name) in anchors {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: cy - point_size - 2.0,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Nudge => {
+            // Sort left-to-right, then push each label up when it crowds its neighbour.
+            let mut labels: Vec<(f64, f64, String)> = anchors
+                .iter()
+                .map(|(cx, cy, name)| (*cx, cy - point_size - 2.0, name.clone()))
+                .collect();
+            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let min_gap = computed.body_size as f64 + 2.0;
+            for j in 1..labels.len() {
+                let prev_y = labels[j - 1].1;
+                if (prev_y - labels[j].1).abs() < min_gap {
+                    labels[j].1 = prev_y - min_gap;
+                }
+            }
+            for (cx, label_y, name) in &labels {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: *label_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Arrow { offset_x, offset_y } => {
+            for (cx, cy, name) in anchors {
+                let text_x = cx + offset_x;
+                let text_y = cy - offset_y;
+                let dx = cx - text_x;
+                let dy = cy - text_y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > point_size + 3.0 {
+                    let scale = (len - point_size - 3.0) / len;
+                    scene.add(Primitive::Line {
+                        x1: text_x,
+                        y1: text_y,
+                        x2: text_x + dx * scale,
+                        y2: text_y + dy * scale,
+                        stroke: "#666666".into(),
+                        stroke_width: 0.8,
+                        stroke_dasharray: None,
+                    });
+                }
+                let anchor = if *offset_x >= 0.0 {
+                    TextAnchor::Start
+                } else {
+                    TextAnchor::End
+                };
+                scene.add(Primitive::Text {
+                    x: text_x,
+                    y: text_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Repel => draw_repel_labels(scene, computed, anchors, point_size),
+    }
+}
+
 fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let floor = vp.floor();
 
@@ -9441,96 +9631,11 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
     sig_points.truncate(vp.label_top);
 
-    match vp.label_style {
-        LabelStyle::Exact => {
-            for (cx, cy, name) in &sig_points {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: cy - vp.point_size - 2.0,
-                    content: name.to_string(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Nudge => {
-            // Build label positions: initially just above each point
-            let mut labels: Vec<(f64, f64, String)> = sig_points
-                .iter()
-                .map(|(cx, cy, name)| (*cx, cy - vp.point_size - 2.0, name.to_string()))
-                .collect();
-
-            // Sort by cx (x screen position, left to right)
-            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
-
-            // Greedy vertical nudge: push y up when adjacent labels are too close
-            let min_gap = computed.body_size as f64 + 2.0;
-            for j in 1..labels.len() {
-                let prev_y = labels[j - 1].1;
-                let curr_y = labels[j].1;
-                if (prev_y - curr_y).abs() < min_gap {
-                    labels[j].1 = prev_y - min_gap;
-                }
-            }
-
-            for (cx, label_y, name) in &labels {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: *label_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Arrow { offset_x, offset_y } => {
-            for (cx, cy, name) in &sig_points {
-                let text_x = cx + offset_x;
-                let text_y = cy - offset_y;
-
-                // Leader line from text toward point, stopping short
-                let dx = cx - text_x;
-                let dy = cy - text_y;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > vp.point_size + 3.0 {
-                    let scale = (len - vp.point_size - 3.0) / len;
-                    let end_x = text_x + dx * scale;
-                    let end_y = text_y + dy * scale;
-                    scene.add(Primitive::Line {
-                        x1: text_x,
-                        y1: text_y,
-                        x2: end_x,
-                        y2: end_y,
-                        stroke: "#666666".into(),
-                        stroke_width: 0.8,
-                        stroke_dasharray: None,
-                    });
-                }
-
-                let anchor = if offset_x >= 0.0 {
-                    TextAnchor::Start
-                } else {
-                    TextAnchor::End
-                };
-                scene.add(Primitive::Text {
-                    x: text_x,
-                    y: text_y,
-                    content: name.to_string(),
-                    size: computed.body_size,
-                    anchor,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-    }
+    let anchors: Vec<(f64, f64, String)> = sig_points
+        .iter()
+        .map(|(cx, cy, name)| (*cx, *cy, name.to_string()))
+        .collect();
+    draw_labels(scene, computed, &anchors, vp.point_size, &vp.label_style);
 }
 
 fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -9674,86 +9779,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
     sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
     sig_points.truncate(mp.label_top);
 
-    match mp.label_style {
-        LabelStyle::Exact => {
-            for (cx, cy, name) in &sig_points {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: cy - mp.point_size - 2.0,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Nudge => {
-            let mut labels: Vec<(f64, f64, String)> = sig_points
-                .iter()
-                .map(|(cx, cy, name)| (*cx, cy - mp.point_size - 2.0, name.clone()))
-                .collect();
-            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let min_gap = computed.body_size as f64 + 2.0;
-            for j in 1..labels.len() {
-                let prev_y = labels[j - 1].1;
-                if (prev_y - labels[j].1).abs() < min_gap {
-                    labels[j].1 = prev_y - min_gap;
-                }
-            }
-            for (cx, label_y, name) in &labels {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: *label_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Arrow { offset_x, offset_y } => {
-            for (cx, cy, name) in &sig_points {
-                let text_x = cx + offset_x;
-                let text_y = cy - offset_y;
-                let dx = cx - text_x;
-                let dy = cy - text_y;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > mp.point_size + 3.0 {
-                    let scale = (len - mp.point_size - 3.0) / len;
-                    let end_x = text_x + dx * scale;
-                    let end_y = text_y + dy * scale;
-                    scene.add(Primitive::Line {
-                        x1: text_x,
-                        y1: text_y,
-                        x2: end_x,
-                        y2: end_y,
-                        stroke: "#666666".into(),
-                        stroke_width: 0.8,
-                        stroke_dasharray: None,
-                    });
-                }
-                let anchor = if offset_x >= 0.0 {
-                    TextAnchor::Start
-                } else {
-                    TextAnchor::End
-                };
-                scene.add(Primitive::Text {
-                    x: text_x,
-                    y: text_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-    }
+    draw_labels(scene, computed, &sig_points, mp.point_size, &mp.label_style);
 }
 
 pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {

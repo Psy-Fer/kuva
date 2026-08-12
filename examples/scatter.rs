@@ -23,6 +23,7 @@ fn main() {
     basic();
     trend();
     loess();
+    labels_repel();
     confidence_band();
     error_bars();
     markers();
@@ -126,6 +127,35 @@ fn loess() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/loess.svg"), svg).unwrap();
+}
+
+/// Force-directed (repel) point labels over two tight clusters.
+fn labels_repel() {
+    let pts = [
+        (1.0, 2.0, "Alpha"),
+        (1.15, 2.1, "Beta"),
+        (1.05, 1.9, "Gamma"),
+        (1.1, 2.05, "Delta"),
+        (4.0, 5.0, "Epsilon"),
+        (4.15, 4.9, "Zeta"),
+        (3.95, 5.1, "Eta"),
+        (4.05, 4.95, "Theta"),
+    ];
+    let plot = ScatterPlot::new()
+        .with_data(pts.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>())
+        .with_color("#4e79a7")
+        .with_size(5.0)
+        .with_labels(pts.iter().map(|(_, _, l)| l.to_string()).collect::<Vec<_>>())
+        .with_repel_labels();
+
+    let plots = vec![Plot::Scatter(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Force-directed Point Labels")
+        .with_x_label("X")
+        .with_y_label("Y");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/labels_repel.svg"), svg).unwrap();
 }
 
 /// Scatter with a shaded confidence band.

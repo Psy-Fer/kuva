@@ -727,3 +727,17 @@ fn test_manhattan_labels_stagger_all_drawn_two_rows() {
         distinct
     );
 }
+
+/// Force-directed (Repel) top-hit labels on a Manhattan plot.
+#[test]
+fn test_manhattan_repel_labels() {
+    let mp = ManhattanPlot::new()
+        .with_data(make_gwas_seq_data())
+        .with_label_top(8)
+        .with_label_style(LabelStyle::Repel);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Manhattan — Repel labels");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/manhattan_repel.svg", &svg).unwrap();
+    assert!(svg.contains("<svg"));
+}

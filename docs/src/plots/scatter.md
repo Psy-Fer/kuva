@@ -401,6 +401,31 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Point labels
+
+Attach a text label to each point with `.with_labels(iter)` (aligned to the data by index; an empty string leaves a point unlabelled). The placement is controlled by `.with_label_style(LabelStyle::…)`, shared with the volcano and Manhattan plots:
+
+| Style | Placement |
+|-------|-----------|
+| `LabelStyle::Exact` | At the point, no adjustment (may overlap) |
+| `LabelStyle::Nudge` (default) | Sorted left-to-right and nudged vertically |
+| `LabelStyle::Arrow { offset_x, offset_y }` | Fixed pixel offset with a leader line |
+| `LabelStyle::Repel` | Force-directed (ggrepel / adjustText style): labels pushed off each other and off the points in 2-D, with thin leader lines |
+
+`.with_repel_labels()` is shorthand for `.with_label_style(LabelStyle::Repel)`, the best choice for dense, clustered labels.
+
+```rust,no_run
+# use kuva::plot::ScatterPlot;
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_labels(vec!["Alpha", "Beta", "Gamma", "Delta"])
+    .with_repel_labels();
+```
+
+<img src="../assets/scatter/labels_repel.svg" alt="Scatter with force-directed point labels" width="560">
+
+---
+
 ## Multiple series
 
 Wrap multiple `ScatterPlot` structs in a `Vec<Plot>` and pass them to `render_multiple()`. Legends are shown when any series has a label attached via `.with_legend()`.
@@ -461,6 +486,9 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_band(lower, upper)` | Confidence band aligned to scatter x positions |
 | `.with_marker_opacity(f)` | Fill alpha: `0.0` = hollow, `1.0` = solid (default: solid) |
 | `.with_marker_stroke_width(w)` | Outline stroke at the fill color; `None` = no stroke (default) |
+| `.with_labels(iter)` | Per-point text labels (aligned by index; `""` skips a point) |
+| `.with_label_style(LabelStyle)` | Label placement: `Exact` / `Nudge` / `Arrow` / `Repel` |
+| `.with_repel_labels()` | Shorthand for `.with_label_style(LabelStyle::Repel)` |
 
 ### `MarkerShape` variants
 
@@ -493,6 +521,8 @@ Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines,
 | `--loess-span <F>` | `0.5` | LOESS span, 0.05–1.0 (implies `--loess`); smaller = wigglier |
 | `--equation` | off | Annotate with regression equation (requires `--trend`) |
 | `--correlation` | off | Annotate with Pearson R² (requires `--trend`) |
+| `--label-col <COL>` | — | Label each point with this column (single-series mode only) |
+| `--label-style <STYLE>` | `nudge` | Point-label placement: `nudge`, `exact`, or `repel` |
 | `--legend` | off | Show legend |
 | `--x-date-format <FMT>` | — | Parse the X column as a date/time (see [Date/time X axis](../cli/index.md#datetime-x-axis-scatter-line)) |
 

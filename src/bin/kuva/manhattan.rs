@@ -40,6 +40,10 @@ pub struct ManhattanArgs {
     #[arg(long)]
     pub top_n: Option<usize>,
 
+    /// Label placement: nudge (default), exact, or repel (force-directed).
+    #[arg(long)]
+    pub label_style: Option<String>,
+
     /// Point radius in pixels (default: 2.5).
     #[arg(long)]
     pub point_size: Option<f64>,
@@ -131,6 +135,12 @@ pub fn run(args: ManhattanArgs) -> Result<(), String> {
     }
     if let Some(n) = args.top_n {
         plot = plot.with_label_top(n);
+    }
+    if let Some(ref s) = args.label_style {
+        let style = kuva::plot::LabelStyle::parse(s).ok_or_else(|| {
+            format!("unknown --label-style '{s}' (expected nudge, exact, or repel)")
+        })?;
+        plot = plot.with_label_style(style);
     }
     if let Some(s) = args.point_size {
         plot = plot.with_point_size(s);

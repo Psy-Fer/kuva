@@ -217,7 +217,7 @@ it expands the bottom margin automatically to accommodate the second row.
 | `.with_palette(p)` | Full palette, overrides alternating colors |
 | `.with_point_size(f)` | Circle radius in pixels (default `2.5`) |
 | `.with_label_top(n)` | Label the `n` top hits above genome-wide threshold |
-| `.with_label_style(s)` | `Nudge` (default), `Exact`, or `Arrow { offset_x, offset_y }` |
+| `.with_label_style(s)` | `Nudge` (default), `Exact`, `Arrow { offset_x, offset_y }`, or `Repel` (force-directed) |
 | `.with_point_labels(iter)` | Attach gene/SNP names to specific `(chrom, x)` positions |
 | `.with_pvalue_floor(f)` | Explicit p-value floor for −log₁₀ transform |
 | `.with_legend(s)` | Show genome-wide and suggestive legend entries |
@@ -246,6 +246,7 @@ Two layout modes:
 | `--genome-wide <F>` | `7.301` | Genome-wide threshold (−log₁₀ scale) |
 | `--suggestive <F>` | `5.0` | Suggestive threshold (−log₁₀ scale) |
 | `--top-n <N>` | `0` | Label N most-significant points above genome-wide threshold |
+| `--label-style <STYLE>` | `nudge` | Label placement: `nudge`, `exact`, or `repel` |
 | `--point-size <PX>` | `2.5` | Point radius |
 | `--color-a <CSS>` | `steelblue` | Even-chromosome color |
 | `--color-b <CSS>` | `#5aadcb` | Odd-chromosome color |

@@ -250,3 +250,25 @@ fn test_volcano_render_volcano_fn() {
     common::write_test_output("test_outputs/volcano_render_fn.svg", svg.clone()).unwrap();
     assert!(svg.contains("<svg"));
 }
+
+/// Force-directed (Repel) gene labels: text plus thin leader lines back to points.
+#[test]
+fn test_volcano_repel_labels() {
+    let vp = VolcanoPlot::new()
+        .with_points(make_test_data())
+        .with_label_top(12)
+        .with_label_style(LabelStyle::Repel);
+    let plots = vec![Plot::Volcano(vp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Volcano — Repel labels")
+        .with_x_label("log2 Fold Change")
+        .with_y_label("-log10(p-value)");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/volcano_repel.svg", &svg).unwrap();
+    assert!(svg.contains("<svg"));
+    // Leader lines from the repel placement.
+    assert!(
+        svg.contains("stroke=\"#888888\""),
+        "repel should draw leader lines"
+    );
+}

@@ -617,6 +617,96 @@ where
     out
 }
 
+/// One label for the force-directed [`repel_labels`] layout. `pos` is the label
+/// box centre (mutated in place); `anchor` is the fixed data point it belongs to;
+/// `half_w`/`half_h` are half the label's bounding-box width/height in pixels.
+#[derive(Debug, Clone, Copy)]
+pub struct RepelItem {
+    pub anchor: (f64, f64),
+    pub half_w: f64,
+    pub half_h: f64,
+    pub pos: (f64, f64),
+}
+
+/// Force-directed label placement (ggrepel / adjustText style).
+///
+/// Iteratively pushes label boxes off each other and off every anchor point,
+/// with a weak spring pulling each label back toward its own anchor, then clamps
+/// each into `bounds` = `(x_min, y_min, x_max, y_max)`. Mutates `items[*].pos`.
+/// O(iterations · n²); intended for the small top-N label set, not every point.
+pub fn repel_labels(items: &mut [RepelItem], bounds: (f64, f64, f64, f64), iterations: usize) {
+    let n = items.len();
+    if n == 0 {
+        return;
+    }
+    let (xmin, ymin, xmax, ymax) = bounds;
+    let pad = 2.0;
+    let spring = 0.02;
+    let step = 0.6;
+
+    for _ in 0..iterations {
+        let mut force = vec![(0.0_f64, 0.0_f64); n];
+
+        // Label vs label: resolve AABB overlap along the axis of least penetration.
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dx = items[i].pos.0 - items[j].pos.0;
+                let dy = items[i].pos.1 - items[j].pos.1;
+                let ox = (items[i].half_w + items[j].half_w + pad) - dx.abs();
+                let oy = (items[i].half_h + items[j].half_h + pad) - dy.abs();
+                if ox > 0.0 && oy > 0.0 {
+                    if ox <= oy {
+                        let s = if dx == 0.0 { 1.0 } else { dx.signum() };
+                        force[i].0 += ox * 0.5 * s;
+                        force[j].0 -= ox * 0.5 * s;
+                    } else {
+                        let s = if dy == 0.0 { 1.0 } else { dy.signum() };
+                        force[i].1 += oy * 0.5 * s;
+                        force[j].1 -= oy * 0.5 * s;
+                    }
+                }
+            }
+        }
+
+        // Label vs every anchor point: push the label box off overlapping points.
+        for i in 0..n {
+            for k in 0..n {
+                let (ax, ay) = items[k].anchor;
+                let dx = items[i].pos.0 - ax;
+                let dy = items[i].pos.1 - ay;
+                let ox = (items[i].half_w + pad) - dx.abs();
+                let oy = (items[i].half_h + pad) - dy.abs();
+                if ox > 0.0 && oy > 0.0 {
+                    if ox <= oy {
+                        let s = if dx == 0.0 { 1.0 } else { dx.signum() };
+                        force[i].0 += ox * s;
+                    } else {
+                        // Prefer pushing labels upward when directly over their point.
+                        let s = if dy == 0.0 { -1.0 } else { dy.signum() };
+                        force[i].1 += oy * s;
+                    }
+                }
+            }
+        }
+
+        // Weak spring back to the anchor, then integrate and clamp into bounds.
+        for i in 0..n {
+            force[i].0 += spring * (items[i].anchor.0 - items[i].pos.0);
+            force[i].1 += spring * (items[i].anchor.1 - items[i].pos.1);
+            items[i].pos.0 += force[i].0 * step;
+            items[i].pos.1 += force[i].1 * step;
+            items[i].pos.0 = items[i]
+                .pos
+                .0
+                .clamp(xmin + items[i].half_w, xmax - items[i].half_w);
+            items[i].pos.1 = items[i]
+                .pos
+                .1
+                .clamp(ymin + items[i].half_h, ymax - items[i].half_h);
+        }
+    }
+}
+
 /// Greedy beeswarm layout: returns x pixel offsets from group center for each
 /// point such that no two points overlap (Euclidean distance ≥ 2*point_r).
 /// Placement tries x=0, then ±step, ±2×step, … (step = point_r).
@@ -972,6 +1062,59 @@ pub fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── repel_labels ─────────────────────────────────────────────────────
+
+    #[test]
+    fn repel_separates_overlapping_labels() {
+        // Three identical boxes stacked on the same spot must end up non-overlapping.
+        let mk = |x: f64, y: f64| RepelItem {
+            anchor: (x, y),
+            half_w: 20.0,
+            half_h: 6.0,
+            pos: (x, y),
+        };
+        let mut items = vec![mk(100.0, 100.0), mk(100.0, 100.0), mk(100.0, 100.0)];
+        repel_labels(&mut items, (0.0, 0.0, 400.0, 400.0), 300);
+        // Force-directed layout minimizes but does not guarantee zero overlap; allow a
+        // small tolerance (roughly the internal padding). The key property is that the
+        // stacked boxes are pushed clearly apart rather than staying coincident.
+        let tol = 3.0;
+        for i in 0..items.len() {
+            for j in (i + 1)..items.len() {
+                let dx = (items[i].pos.0 - items[j].pos.0).abs();
+                let dy = (items[i].pos.1 - items[j].pos.1).abs();
+                let overlap = dx < items[i].half_w + items[j].half_w - tol
+                    && dy < items[i].half_h + items[j].half_h - tol;
+                assert!(
+                    !overlap,
+                    "labels {i} and {j} still overlap: dx={dx}, dy={dy}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn repel_keeps_labels_within_bounds() {
+        let mut items: Vec<RepelItem> = (0..8)
+            .map(|_| RepelItem {
+                anchor: (200.0, 200.0),
+                half_w: 15.0,
+                half_h: 6.0,
+                pos: (200.0, 200.0),
+            })
+            .collect();
+        let bounds = (10.0, 10.0, 390.0, 390.0);
+        repel_labels(&mut items, bounds, 200);
+        for it in &items {
+            assert!(
+                it.pos.0 >= bounds.0 + it.half_w - 1e-6 && it.pos.0 <= bounds.2 - it.half_w + 1e-6
+            );
+            assert!(
+                it.pos.1 >= bounds.1 + it.half_h - 1e-6 && it.pos.1 <= bounds.3 - it.half_h + 1e-6
+            );
+        }
+    }
 
     // ── loess ────────────────────────────────────────────────────────────
 
