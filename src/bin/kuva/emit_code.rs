@@ -1921,6 +1921,46 @@ pub fn emit_histogram_plot(p: &Histogram) -> String {
             frags.push(format!(".with_kde_samples({})", p.kde_samples));
         }
     }
+    if let Some(method) = p.bin_method {
+        // Fully-qualified so the emitted snippet needs no extra `use`.
+        let variant = match method {
+            kuva::plot::BinMethod::Sturges => "Sturges",
+            kuva::plot::BinMethod::Scott => "Scott",
+            kuva::plot::BinMethod::FreedmanDiaconis => "FreedmanDiaconis",
+        };
+        frags.push(format!(
+            ".with_bin_method(kuva::plot::BinMethod::{variant})"
+        ));
+    }
+    if p.step {
+        frags.push(".with_step(true)".to_string());
+    }
+    if p.cumulative {
+        frags.push(".with_cumulative(true)".to_string());
+    }
+    if let Some(ref w) = p.weights {
+        let list = w.iter().map(|v| f64_lit(*v)).collect::<Vec<_>>().join(", ");
+        frags.push(format!(".with_weights(vec![{list}])"));
+    }
+    for g in &p.groups {
+        let data = g
+            .data
+            .iter()
+            .map(|v| f64_lit(*v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let label = match &g.label {
+            Some(l) => format!("Some({}.to_string())", str_lit(l)),
+            None => "None".to_string(),
+        };
+        frags.push(format!(
+            ".with_group(vec![{data}], {}, {label})",
+            str_lit(&g.color)
+        ));
+    }
+    if p.stacked {
+        frags.push(".with_stacked(true)".to_string());
+    }
     chain("Histogram::new()", frags)
 }
 

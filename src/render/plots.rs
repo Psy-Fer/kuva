@@ -707,33 +707,18 @@ impl Plot {
                     };
                     return Some(((x_min, x_max), (0.0, max_y)));
                 }
-                // Auto-binning path: use explicit range if set, else derive from data
-                // (mirrors the fallback in the renderer so bounds() always returns a usable range)
-                let range = h.range.unwrap_or_else(|| {
-                    if h.data.is_empty() {
-                        return (0.0, 1.0);
-                    }
-                    let min = h.data.iter().cloned().fold(f64::INFINITY, f64::min);
-                    let max = h.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    (min, max)
-                });
-                let bins = h.bins;
-                let bin_width = (range.1 - range.0) / bins as f64;
+                // Auto-binning path: reuse the renderer's shared binning so bounds()
+                // agrees on bin count and peak for every mode (step/cumulative/stacked/
+                // weighted/bin-method).
+                let Some(binned) = h.compute_bins() else {
+                    return Some(((0.0, 1.0), (0.0, 1.0)));
+                };
+                let range = binned.range;
+                let mut max_y = binned.max_y;
 
-                let mut counts = vec![0usize; bins];
-                for &value in &h.data {
-                    if value < range.0 || value > range.1 {
-                        continue;
-                    }
-                    let bin = ((value - range.0) / bin_width).floor() as usize;
-                    let bin = if bin == bins { bin - 1 } else { bin };
-                    counts[bin] += 1;
-                }
-
-                let max_count = *counts.iter().max().unwrap_or(&1) as f64;
-                let mut max_y = if h.normalize { 1.0 } else { max_count };
-
-                if h.show_kde && h.data.len() >= 2 {
+                // KDE overlay only applies to a single, non-cumulative series (matches the
+                // renderer guard); extend the y-extent to fit its peak when present.
+                if h.show_kde && h.groups.is_empty() && !h.cumulative && h.data.len() >= 2 {
                     let bw = h
                         .kde_bandwidth
                         .unwrap_or_else(|| render_utils::silverman_bandwidth(&h.data));
@@ -741,8 +726,8 @@ impl Plot {
                     let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
                     let kde = render_utils::simple_kde(&h.data, bw, h.kde_samples);
                     let peak_density = kde.iter().map(|(_, y)| *y).fold(0.0_f64, f64::max);
-                    let scale_norm = if h.normalize { 1.0 / max_count } else { 1.0 };
-                    let kde_peak_height = peak_density * density_norm * n * bin_width * scale_norm;
+                    let kde_peak_height =
+                        peak_density * density_norm * n * binned.bin_width * binned.norm;
                     max_y = max_y.max(kde_peak_height);
                 }
 

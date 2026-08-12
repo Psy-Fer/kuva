@@ -941,6 +941,19 @@ impl Layout {
                 }
             }
 
+            if let Plot::Histogram(h) = plot {
+                // Primary series label plus any stacked/overlaid group labels (kept in sync
+                // with collect_legend_entries).
+                if let Some(ref label) = h.legend_label {
+                    has_legend = true;
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
+                }
+                for label in h.groups.iter().filter_map(|g| g.label.as_ref()) {
+                    has_legend = true;
+                    note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
+                }
+            }
+
             if let Plot::DicePlot(dp) = plot {
                 x_labels = Some(dp.x_categories.clone());
                 // Reverse so y_cat[0] appears at the TOP

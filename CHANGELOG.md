@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Histogram distribution modes** — five matplotlib/seaborn-parity options on `Histogram`, all sharing one binning path (so `bounds()` and the renderer always agree): `.with_step(bool)` draws outline-only staircases for clean overlays (matplotlib `histtype='step'`); `.with_cumulative(bool)` accumulates counts left-to-right (`cumulative=True`); `.with_bin_method(BinMethod::{Sturges,Scott,FreedmanDiaconis})` picks the bin count from the data, overriding `.with_bins`; `.with_weights(Vec<f64>)` weights each sample into its bin (`weights=`); and `.with_group(data, color, label)` + `.with_stacked(bool)` stack multiple series per bin (`stacked=True`, seaborn `multiple='stack'`). CLI: `--step`, `--cumulative`, `--bin-method <sturges|scott|fd>`, `--weight-col <COL>`, and `--stacked` (stacks the `--y` columns instead of overlaying them). `BinMethod`/`HistGroup` are re-exported from `kuva::plot`.
+- **LTC colour palettes** ([#112](https://github.com/Psy-Fer/kuva/issues/112)) — 15 curated qualitative palettes from [loukesio/ltc-color-palettes](https://github.com/loukesio/ltc-color-palettes) (MIT), added as `Palette` constructors (`Palette::paloma()` … `Palette::casa_natal()`). CLI `--palette` accepts each by name with an optional `ltc-` prefix (e.g. `ltc-maya`). The *Reference → Color Palettes* page gains a visual swatch section with copyable hex values.
+
+### Fixed
+
+- **Histogram legends never rendered** — `Layout::auto_from_plots` had no `has_legend` wiring for `Plot::Histogram`, so `.with_legend(...)` (and the CLI `--legend`) silently produced no legend. Now wired for both the primary series and stacked/overlaid groups, matching `collect_legend_entries`.
+
 ## [0.5.0] — 2026-08-07
 
 ### Added

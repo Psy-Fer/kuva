@@ -1878,72 +1878,119 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
         return;
     }
 
-    // fold is basically a fancy for loop
-    let range: (f64, f64) = hist.range.unwrap_or_else(|| {
-        let min: f64 = hist.data.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max: f64 = hist.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        (min, max)
-    });
+    // Shared binning (weights, cumulative, stacking, bin-method, normalize) so the
+    // renderer and bounds() never disagree.
+    let Some(binned) = hist.compute_bins() else {
+        return;
+    };
+    let range = binned.range;
+    let bin_width = binned.bin_width;
+    let norm = binned.norm;
 
-    let bin_width: f64 = (range.1 - range.0) / hist.bins as f64;
-    let mut counts: Vec<usize> = vec![0; hist.bins];
+    // Running per-bin baseline for stacking; stays zero when layers overlay.
+    let mut baseline = vec![0.0_f64; binned.bins];
 
-    for &value in &hist.data {
-        if value < range.0 || value > range.1 {
-            continue;
+    for (layer_idx, heights) in binned.layers.iter().enumerate() {
+        let color = &binned.colors[layer_idx];
+
+        if hist.step {
+            // Outline-only staircase. Overlay layers sit on y=0 (open profile);
+            // stacked layers trace a closed band between baseline and baseline+height.
+            let mut path = String::with_capacity(binned.bins * 24);
+            let mut rb = ryu::Buffer::new();
+            let mut cmd = |p: &mut String, c: char, x: f64, y: f64| {
+                p.push(c);
+                p.push(' ');
+                p.push_str(rb.format(round2(x)));
+                p.push(' ');
+                p.push_str(rb.format(round2(y)));
+                p.push(' ');
+            };
+            let top_px = |i: usize| computed.map_y((baseline[i] + heights[i]) * norm);
+            // Left-to-right across the tops.
+            cmd(&mut path, 'M', computed.map_x(range.0), top_px(0));
+            for i in 0..binned.bins {
+                let xl = computed.map_x(range.0 + i as f64 * bin_width);
+                let xr = computed.map_x(range.0 + (i + 1) as f64 * bin_width);
+                cmd(&mut path, 'L', xl, top_px(i));
+                cmd(&mut path, 'L', xr, top_px(i));
+            }
+            if binned.stacked {
+                // Close the band back along the baseline profile, right-to-left.
+                for i in (0..binned.bins).rev() {
+                    let xl = computed.map_x(range.0 + i as f64 * bin_width);
+                    let xr = computed.map_x(range.0 + (i + 1) as f64 * bin_width);
+                    cmd(&mut path, 'L', xr, computed.map_y(baseline[i] * norm));
+                    cmd(&mut path, 'L', xl, computed.map_y(baseline[i] * norm));
+                }
+                path.push('Z');
+            } else {
+                // Drop to the axis at the right edge for a clean open staircase.
+                cmd(&mut path, 'L', computed.map_x(range.1), computed.map_y(0.0));
+            }
+            let stroke = if computed.bw_mode {
+                Color::from("#1a1a1a")
+            } else {
+                Color::from(color.as_str())
+            };
+            scene.add(Primitive::Path(Box::new(PathData {
+                d: path,
+                fill: None,
+                stroke,
+                stroke_width: 2.0,
+                opacity: None,
+                stroke_dasharray: None,
+            })));
+        } else {
+            for (i, &count) in heights.iter().enumerate() {
+                if count == 0.0 {
+                    continue;
+                }
+                let base = if binned.stacked { baseline[i] } else { 0.0 };
+                let x = range.0 + i as f64 * bin_width;
+                let x0 = computed.map_x(x);
+                let x1 = computed.map_x(x + bin_width);
+                let yb = computed.map_y(base * norm);
+                let yt = computed.map_y((base + count) * norm);
+
+                let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
+                    format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                });
+                if let Some(ref t) = tip {
+                    scene.add(Primitive::GroupStart {
+                        transform: None,
+                        title: Some(t.clone()),
+                        extra_attrs: None,
+                    });
+                }
+                rect_bw(
+                    scene,
+                    computed,
+                    bw_idx,
+                    color,
+                    x0,
+                    yt.min(yb),
+                    (x1 - x0).abs(),
+                    (yb - yt).abs(),
+                    None,
+                    None,
+                    None,
+                );
+                if tip.is_some() {
+                    scene.add(Primitive::GroupEnd);
+                }
+            }
         }
-        let bin: usize = ((value - range.0) / bin_width).floor() as usize;
-        let bin: usize = if bin == hist.bins { bin - 1 } else { bin };
-        counts[bin] += 1;
+
+        if binned.stacked {
+            for (b, h) in baseline.iter_mut().zip(heights.iter()) {
+                *b += *h;
+            }
+        }
     }
 
-    let max_count: f64 = *counts.iter().max().unwrap_or(&1) as f64;
-    let norm: f64 = if hist.normalize { 1.0 / max_count } else { 1.0 };
-
-    for (i, count) in counts.iter().enumerate() {
-        if *count == 0 {
-            continue;
-        }
-        let x = range.0 + i as f64 * bin_width;
-        let height = *count as f64 * norm;
-
-        let x0 = computed.map_x(x);
-        let x1 = computed.map_x(x + bin_width);
-        let y0 = computed.map_y(0.0);
-        let y1 = computed.map_y(height);
-
-        let rect_width = (x1 - x0).abs();
-        let rect_height = (y0 - y1).abs();
-
-        let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-            format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
-        });
-        if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart {
-                transform: None,
-                title: Some(t.clone()),
-                extra_attrs: None,
-            });
-        }
-        rect_bw(
-            scene,
-            computed,
-            bw_idx,
-            &hist.color,
-            x0,
-            y1.min(y0),
-            rect_width,
-            rect_height,
-            None,
-            None,
-            None,
-        );
-        if tip.is_some() {
-            scene.add(Primitive::GroupEnd);
-        }
-    }
-
-    if hist.show_kde && hist.data.len() >= 2 {
+    // KDE overlay applies only to a single, non-cumulative series.
+    if hist.show_kde && hist.groups.is_empty() && !hist.cumulative && hist.data.len() >= 2 {
         let bw = hist
             .kde_bandwidth
             .unwrap_or_else(|| render_utils::silverman_bandwidth(&hist.data));
@@ -11728,6 +11775,17 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         shape: LegendShape::Rect,
                         dasharray: None,
                     });
+                }
+                // Stacked/overlaid group series each contribute their own entry.
+                for g in &hist.groups {
+                    if let Some(label) = &g.label {
+                        entries.push(LegendEntry {
+                            label: label.clone(),
+                            color: g.color.clone(),
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
                 }
             }
             Plot::Waterfall(wp) => {

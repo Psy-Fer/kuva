@@ -444,3 +444,196 @@ fn test_histogram_kde_overlay_matches_manual_density_curve() {
          from the same public render_utils functions with the documented scaling formula"
     );
 }
+
+// ── Distribution modes (step / cumulative / stacked / weighted / bin-method) ─────
+// These render SVGs to test_outputs/ for visual inspection and assert light
+// structural invariants; numeric correctness lives in the compute_bins unit tests.
+
+#[test]
+fn test_histogram_step_svg() {
+    // Step mode draws an outline-only staircase: a stroked path with fill="none"
+    // in the series colour, and no filled bin rectangles.
+    let data = vec![
+        1.1, 2.3, 2.7, 3.2, 3.8, 3.9, 4.0, 1.5, 2.1, 3.5, 2.9, 3.1, 2.4, 3.6, 2.2,
+    ];
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(10)
+        .with_range((0.0, 5.0))
+        .with_color("#4682b4")
+        .with_step(true);
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Step Histogram")
+        .with_x_label("Value")
+        .with_y_label("Count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_step.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(
+        svg.contains("stroke=\"#4682b4\"") && svg.contains("fill=\"none\""),
+        "step histogram must draw a stroked outline in the series colour"
+    );
+    // No filled bin bars in the series colour.
+    assert!(
+        !svg.contains("fill=\"#4682b4\""),
+        "step mode must not emit filled bin rects"
+    );
+}
+
+#[test]
+fn test_histogram_step_overlay_svg() {
+    // Two step histograms overlaid — the clean multi-distribution use case.
+    let a = vec![1.0, 1.2, 1.5, 1.8, 2.0, 2.1, 2.3, 2.5, 2.7, 3.0];
+    let b = vec![3.0, 3.2, 3.5, 3.8, 4.0, 4.1, 4.3, 4.5, 4.7, 5.0];
+    let range = (0.0, 6.0);
+    let ha = Histogram::new()
+        .with_data(a)
+        .with_bins(12)
+        .with_range(range)
+        .with_color("#4682b4")
+        .with_step(true)
+        .with_legend("Group A");
+    let hb = Histogram::new()
+        .with_data(b)
+        .with_bins(12)
+        .with_range(range)
+        .with_color("#dc143c")
+        .with_step(true)
+        .with_legend("Group B");
+
+    let plots = vec![Plot::Histogram(ha), Plot::Histogram(hb)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Overlaid Step Histograms")
+        .with_x_label("Value")
+        .with_y_label("Count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_step_overlay.svg", &svg).unwrap();
+
+    assert!(svg.contains("stroke=\"#4682b4\""));
+    assert!(svg.contains("stroke=\"#dc143c\""));
+    // Both series appear in the legend.
+    assert!(svg.contains(">Group A<") && svg.contains(">Group B<"));
+}
+
+#[test]
+fn test_histogram_cumulative_svg() {
+    // Cumulative bars are non-decreasing, so the final (rightmost) bar is the
+    // tallest: its top y-coordinate is the smallest of all bars.
+    let data: Vec<f64> = (0..50).map(|i| i as f64 * 0.1).collect(); // uniform over [0, 4.9]
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(10)
+        .with_range((0.0, 5.0))
+        .with_color("steelblue")
+        .with_cumulative(true);
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Cumulative Histogram")
+        .with_x_label("Value")
+        .with_y_label("Cumulative count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_cumulative.svg", &svg).unwrap();
+
+    assert!(svg.contains("<rect"));
+    // The y-axis should reach the full sample count (50) as the top tick region.
+    assert!(
+        svg.contains(">50<") || svg.contains(">40<"),
+        "cumulative y-axis should climb to the total count"
+    );
+}
+
+#[test]
+fn test_histogram_stacked_svg() {
+    // Three groups stacked; each group colour and legend label must appear.
+    let a = vec![1.0, 1.2, 1.4, 1.6, 1.8];
+    let b = vec![2.0, 2.2, 2.4, 2.6, 2.8];
+    let c = vec![3.0, 3.2, 3.4, 3.6, 3.8];
+    let hist = Histogram::new()
+        .with_data(a)
+        .with_bins(12)
+        .with_range((0.0, 5.0))
+        .with_color("#4e79a7")
+        .with_stacked(true)
+        .with_legend("Group A")
+        .with_group(b, "#f28e2b", Some("Group B".to_string()))
+        .with_group(c, "#59a14f", Some("Group C".to_string()));
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Stacked Histogram")
+        .with_x_label("Value")
+        .with_y_label("Count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_stacked.svg", &svg).unwrap();
+
+    for color in ["#4e79a7", "#f28e2b", "#59a14f"] {
+        assert!(
+            svg.contains(&format!("fill=\"{color}\"")),
+            "stacked histogram must draw bars in {color}"
+        );
+    }
+    for label in [">Group A<", ">Group B<", ">Group C<"] {
+        assert!(svg.contains(label), "legend must include {label}");
+    }
+}
+
+#[test]
+fn test_histogram_weighted_svg() {
+    // Weighted samples: a single heavily-weighted sample dominates its bin.
+    let data = vec![0.5, 1.5, 2.5, 2.6, 2.7];
+    let weights = vec![1.0, 1.0, 20.0, 1.0, 1.0];
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_weights(weights)
+        .with_bins(5)
+        .with_range((0.0, 5.0))
+        .with_color("darkorange");
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Weighted Histogram")
+        .with_x_label("Value")
+        .with_y_label("Weighted count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_weighted.svg", &svg).unwrap();
+
+    assert!(svg.contains("<rect"));
+    // The weighted bin pushes the y-axis well past a plain count of 5.
+    assert!(
+        svg.contains(">20<") || svg.contains(">15<"),
+        "weighted y-axis should reflect the summed weights, not raw counts"
+    );
+}
+
+#[test]
+fn test_histogram_bin_method_svg() {
+    // Freedman-Diaconis picks the bin count from the data, overriding with_bins.
+    let data: Vec<f64> = (0..200).map(|i| (i as f64 * 0.05).sin() + 2.0).collect();
+    // Use a hex colour so the SVG fill matches verbatim (named CSS colours are
+    // normalized to hex on output, e.g. "mediumpurple" -> "#9370db").
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(3) // deliberately wrong; bin_method must override
+        .with_range((0.0, 4.0))
+        .with_color("#9370db")
+        .with_bin_method(kuva::plot::BinMethod::FreedmanDiaconis);
+
+    let plots = vec![Plot::Histogram(hist)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Freedman-Diaconis Bins")
+        .with_x_label("Value")
+        .with_y_label("Count");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_bin_method_fd.svg", &svg).unwrap();
+
+    // More than 3 filled bars means the auto rule overrode with_bins(3).
+    let bar_count = svg.matches("fill=\"#9370db\"").count();
+    assert!(
+        bar_count > 3,
+        "Freedman-Diaconis should override with_bins(3); got {bar_count} bars"
+    );
+}

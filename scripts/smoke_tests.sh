@@ -226,7 +226,27 @@ check "histogram bin-aligned 6 bins" \
 
 check "histogram bin-aligned 7 bins normalize" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bins 7 --normalize \
-        --title "Bin-Aligned Ticks (7 bins)" --x-label "Value" --y-label "Density"
+        --title "Bin-Aligned Ticks (7 bins)" --x-label "Value" --y-label "Count"
+
+check "histogram step" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --step \
+        --title "Step Histogram" --x-label "Value" --y-label "Count"
+
+check "histogram cumulative" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --cumulative \
+        --title "Cumulative" --x-label "Value" --y-label "Cumulative count"
+
+check "histogram bin-method fd" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bin-method fd \
+        --title "Freedman-Diaconis bins" --x-label "Value" --y-label "Count"
+
+check "histogram weighted" \
+    "$BIN" histogram "$DATA/parallel.tsv" --header --value-col sepal_length \
+        --weight-col petal_length --title "Weighted" --x-label "Sepal length"
+
+check "histogram stacked" \
+    "$BIN" histogram "$DATA/parallel.tsv" --header --y sepal_length,petal_length \
+        --stacked --legend --title "Stacked" --x-label "Length"
 
 # ── box ───────────────────────────────────────────────────────────────────────
 check "box basic" \

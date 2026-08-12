@@ -164,6 +164,90 @@ The `AA` byte in the hex color controls opacity: `ff` = fully opaque, `80` ≈ 5
 
 ---
 
+## Step (outline) mode
+
+`.with_step(true)` draws each histogram as an outline-only staircase instead of filled bars. This is the cleanest way to overlay several distributions: the outlines never occlude each other, so you can skip the semi-transparent fills.
+
+```rust,no_run
+# use kuva::plot::Histogram;
+let hist_a = Histogram::new()
+    .with_data(group_a).with_bins(24).with_range(range)
+    .with_color("#4682b4").with_step(true).with_legend("Group A");
+let hist_b = Histogram::new()
+    .with_data(group_b).with_bins(24).with_range(range)
+    .with_color("#dc143c").with_step(true).with_legend("Group B");
+```
+
+<img src="../assets/histogram/step.svg" alt="Step histograms" width="560">
+
+---
+
+## Cumulative mode
+
+`.with_cumulative(true)` accumulates counts left-to-right, so each bar includes everything to its left and the final bar equals the total sample count. Combine with `.with_normalize()` for an empirical CDF-style view (peak scaled to 1.0).
+
+```rust,no_run
+# use kuva::plot::Histogram;
+let hist = Histogram::new()
+    .with_data(data).with_bins(30).with_range((-3.0, 3.0))
+    .with_color("steelblue").with_cumulative(true);
+```
+
+<img src="../assets/histogram/cumulative.svg" alt="Cumulative histogram" width="560">
+
+---
+
+## Stacked groups
+
+Add extra series with `.with_group(data, color, label)` and turn on `.with_stacked(true)` to sum them per bin, each group drawn on top of the one below. The primary series (from `.with_data`) is the bottom layer. Without `.with_stacked(true)`, groups draw from a shared baseline (overlaid) instead.
+
+```rust,no_run
+# use kuva::plot::Histogram;
+let hist = Histogram::new()
+    .with_data(group_a).with_bins(24).with_range(range)
+    .with_color("#4e79a7").with_stacked(true).with_legend("Group A")
+    .with_group(group_b, "#f28e2b", Some("Group B".to_string()))
+    .with_group(group_c, "#59a14f", Some("Group C".to_string()));
+```
+
+<img src="../assets/histogram/stacked.svg" alt="Stacked histogram" width="560">
+
+---
+
+## Automatic bin count
+
+`.with_bin_method(BinMethod::…)` picks the bin count from the data, overriding `.with_bins`. Three rules are available:
+
+| Rule | Bin width / count | Best for |
+|------|-------------------|----------|
+| `BinMethod::Sturges` | `ceil(log2(n)) + 1` bins | Small, roughly Gaussian samples |
+| `BinMethod::Scott` | width `3.49·sd·n^(-1/3)` | Smooth data |
+| `BinMethod::FreedmanDiaconis` | width `2·IQR·n^(-1/3)` | Data with outliers (robust) |
+
+Scott and Freedman-Diaconis fall back to Sturges on degenerate data (zero variance or IQR).
+
+```rust,no_run
+# use kuva::plot::{Histogram, BinMethod};
+let hist = Histogram::new()
+    .with_data(data).with_range(range)
+    .with_bin_method(BinMethod::FreedmanDiaconis);
+```
+
+---
+
+## Weighted samples
+
+`.with_weights(weights)` gives each sample a weight, so it contributes its weight to its bin instead of `1`. The vector length must match the data (a mismatch falls back to plain counts).
+
+```rust,no_run
+# use kuva::plot::Histogram;
+let hist = Histogram::new()
+    .with_data(values).with_bins(20).with_range(range)
+    .with_weights(weights);   // one weight per sample
+```
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -175,6 +259,12 @@ The `AA` byte in the hex color controls opacity: `ff` = fully opaque, `80` ≈ 5
 | `.with_color(s)` | Bar fill color; use 8-digit hex (`#RRGGBBAA`) for alpha transparency |
 | `.with_normalize()` | Scale heights so peak bar = 1.0 (relative frequency) |
 | `.with_legend(s)` | Attach a legend label to this series |
+| `.with_step(bool)` | Draw an outline-only staircase instead of filled bars |
+| `.with_cumulative(bool)` | Accumulate counts left-to-right (final bar = total) |
+| `.with_bin_method(m)` | Auto bin count (`Sturges` / `Scott` / `FreedmanDiaconis`); overrides `.with_bins` |
+| `.with_weights(v)` | Per-sample weights (length must match the data) |
+| `.with_group(data, color, label)` | Add another series, stacked or overlaid |
+| `.with_stacked(bool)` | Stack `groups` on the primary series instead of overlaying |
 
 **See also:** [Density Plot](./density.md) for a smoothed alternative, [Ridgeline Plot](./ridgeline.md) for comparing many groups, [Q-Q Plot](./qq.md) for checking normality.
 
@@ -191,9 +281,14 @@ Frequency histogram from one or more numeric columns.
 | `--value-col <COL>` | `0` | Value column (single-column mode) |
 | `--y <COL>[,<COL>…]` | — | Comma-separated columns; overlays one histogram per column over a shared x-range (overrides `--value-col`) |
 | `--color <CSS>` | `steelblue` | Bar fill color (single-column mode) |
-| `--bins <N>` | `10` | Number of bins |
+| `--bins <N>` | `10` | Number of bins (ignored when `--bin-method` is set) |
+| `--bin-method <RULE>` | — | Auto bin count: `sturges`, `scott`, or `fd`; overrides `--bins` |
 | `--normalize` | off | Normalize to probability density (area = 1) |
-| `--legend` | off | Show a legend entry for each series (multi-column mode) |
+| `--step` | off | Outline-only staircases instead of filled bars |
+| `--cumulative` | off | Accumulate counts left-to-right |
+| `--stacked` | off | Stack the `--y` columns instead of overlaying them |
+| `--weight-col <COL>` | — | Per-sample weight column (single-column mode) |
+| `--legend` | off | Show a legend entry for each series |
 
 ```bash
 kuva histogram histogram.tsv --value-col value --bins 30
@@ -201,8 +296,14 @@ kuva histogram histogram.tsv --value-col value --bins 30
 kuva histogram histogram.tsv --bins 20 --normalize \
     --title "Expression distribution" --y-label "Density"
 
-# overlay distributions of two columns
-kuva histogram data.tsv --y col_a,col_b --bins 20 --legend
+# automatic bin count (Freedman-Diaconis) and a cumulative view
+kuva histogram histogram.tsv --value-col value --bin-method fd --cumulative
+
+# overlay two columns as clean step outlines
+kuva histogram data.tsv --y col_a,col_b --step --legend
+
+# stack three columns into one histogram
+kuva histogram data.tsv --y col_a,col_b,col_c --stacked --legend
 ```
 
 ---

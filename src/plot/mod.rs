@@ -91,7 +91,7 @@ pub use funnel::{FunnelColorMode, FunnelOrientation, FunnelPlot, FunnelStage};
 pub use gantt::{GanttDisplayRow, GanttPlot, GanttTask};
 pub use heatmap::Heatmap;
 pub use hexbin::{HexbinPlot, ZReduce};
-pub use histogram::Histogram;
+pub use histogram::{BinMethod, HistGroup, Histogram};
 pub use histogram2d::Histogram2D;
 pub use horizon::{HorizonPlot, HorizonSeries};
 pub use jointplot::{JointGroup, JointPlot, MarginalType};
