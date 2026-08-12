@@ -44,7 +44,9 @@ pub struct BaseArgs {
     pub theme: Option<String>,
 
     /// Named color palette: category10, wong, okabe-ito, pastel, bold,
-    /// tol-bright, tol-muted, tol-light, ibm
+    /// tol-bright, tol-muted, tol-light, ibm, or an LTC palette (paloma, maya,
+    /// dora, ploen, olga, mterese, franscoise, fernande, sylvie, expevo, minou,
+    /// alger, seafarer, luminaries, casa-natal; optional `ltc-` prefix)
     #[arg(long)]
     pub palette: Option<String>,
 
@@ -632,7 +634,25 @@ pub fn palette_from_name(name: &str) -> Option<Palette> {
         "tol-muted" | "tol_muted" => Some(Palette::tol_muted()),
         "tol-light" | "tol_light" => Some(Palette::tol_light()),
         "ibm" => Some(Palette::ibm()),
-        _ => None,
+        // LTC palettes (loukesio/ltc-color-palettes, MIT). Accept an optional `ltc-` prefix.
+        other => match other.strip_prefix("ltc-").unwrap_or(other) {
+            "paloma" => Some(Palette::paloma()),
+            "maya" => Some(Palette::maya()),
+            "dora" => Some(Palette::dora()),
+            "ploen" => Some(Palette::ploen()),
+            "olga" => Some(Palette::olga()),
+            "mterese" => Some(Palette::mterese()),
+            "franscoise" => Some(Palette::franscoise()),
+            "fernande" => Some(Palette::fernande()),
+            "sylvie" => Some(Palette::sylvie()),
+            "expevo" => Some(Palette::expevo()),
+            "minou" => Some(Palette::minou()),
+            "alger" => Some(Palette::alger()),
+            "seafarer" => Some(Palette::seafarer()),
+            "luminaries" => Some(Palette::luminaries()),
+            "casa-natal" | "casa_natal" => Some(Palette::casa_natal()),
+            _ => None,
+        },
     }
 }
 
