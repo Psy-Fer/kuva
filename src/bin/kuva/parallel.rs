@@ -76,8 +76,12 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
             .iter()
             .enumerate()
             .map(|(fallback_i, col)| match col {
-                ColSpec::Index(i) => header
-                    .get(*i)
+                // Resolve first so an all-numeric column name (e.g. "2024") maps to its
+                // header label instead of an out-of-range index miss (issue #109).
+                ColSpec::Index(_) | ColSpec::ForcedIndex(_) => table
+                    .resolve(col)
+                    .ok()
+                    .and_then(|idx| header.get(idx))
                     .cloned()
                     .unwrap_or_else(|| format!("Axis {fallback_i}")),
                 ColSpec::Name(n) => n.clone(),

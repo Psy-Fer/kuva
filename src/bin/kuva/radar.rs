@@ -85,7 +85,20 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
         .iter()
         .map(|cs| match cs {
             crate::data::ColSpec::Name(n) => n.clone(),
-            crate::data::ColSpec::Index(i) => format!("axis{}", i),
+            // An out-of-range numeric token that matches a header column name (e.g. a year
+            // like "2024") resolves to that column; otherwise keep the "axisN" index label
+            // (issue #109).
+            crate::data::ColSpec::Index(i) | crate::data::ColSpec::ForcedIndex(i) => {
+                match table.resolve(cs) {
+                    Ok(idx) if idx != *i => table
+                        .header
+                        .as_ref()
+                        .and_then(|h| h.get(idx))
+                        .cloned()
+                        .unwrap_or_else(|| format!("axis{i}")),
+                    _ => format!("axis{i}"),
+                }
+            }
         })
         .collect();
 

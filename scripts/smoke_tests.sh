@@ -95,6 +95,20 @@ check "scatter color-by" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --color-by group --legend \
         --title "Scatter by Group" --x-label "X" --y-label "Y"
 
+# Issue #109: select all-numeric column NAMES (years), not positional indices.
+check "scatter numeric column names" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --header \
+        --title "Expression 2023 vs 2024" --x-label "2023" --y-label "2024"
+
+# Explicit selection prefixes: name:/col: force a name, idx:/# force an index.
+check "scatter name: prefix" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x name:2023 --y name:2024 --header \
+        --title "Forced names"
+
+check "scatter idx: prefix" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x idx:1 --y idx:3 --header \
+        --title "Forced indices"
+
 check "scatter trend" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --trend --equation --correlation \
         --title "Scatter with Trend" --x-label "X" --y-label "Y"

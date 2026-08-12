@@ -104,6 +104,24 @@ kuva scatter data.tsv --x 0 --y 1          # by index
 kuva scatter data.tsv --x time --y value   # by name (requires header)
 ```
 
+An all-numeric column name (such as a year) works too. A bare numeric argument is read as an index first; if that index is out of range and the file has a header column literally named by that number, it selects that column instead:
+
+```bash
+kuva scatter expression.tsv --x 2023 --y 2024 --header   # columns named "2023" / "2024"
+```
+
+In-range indices are never reinterpreted, so `--x 0` always means the first column. This bare-number fallback only resolves names whose numeric value exceeds the column count (years and similar).
+
+To remove the ambiguity entirely, prefix the value:
+
+| Prefix | Meaning | Example |
+|--------|---------|---------|
+| `name:` or `col:` | Always a column name, even an all-digit one | `--x name:2024`, `--group-col col:1` |
+| `idx:` or `index:` or `#` | Always a 0-based index, never resolved to a name | `--x idx:2`, `--y #3` |
+| *(none)* | Bare token: numeric = index-first (with the fallback above), otherwise a name | `--x time`, `--y 4` |
+
+`name:` is the way to select a column whose name is a small number that would otherwise be read as an index (e.g. a column literally named `1` in a 5-column file: `--x name:1`). `idx:` forces a pure index, so an out-of-range `idx:` errors rather than falling back to a name. Prefixes work on every column argument (`--x`, `--y`, `--value-col`, `--group-col`, `--color-by`, `--axes`, …) in every subcommand.
+
 ### Missing values *(scatter, line, histogram, bar, parallel)*
 
 Empty cells, cells holding a missing-value token (`NA`, `NaN`, `null`, `N/A`, `.` by default,

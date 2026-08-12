@@ -4,16 +4,43 @@ use std::str::FromStr;
 
 use clap::Args;
 
-/// A column selector: either a 0-based integer index or a header name.
+/// A column selector.
+///
+/// From the CLI, a value may be prefixed to force an interpretation:
+/// - `idx:N` / `index:N` / `#N` -> a 0-based index, never reinterpreted (`ForcedIndex`)
+/// - `name:X` / `col:X` -> always a column name (`Name`), even if `X` is all-digits
+/// - a bare all-digit token -> `Index` (index-first, with the out-of-range name fallback in
+///   [`DataTable::resolve`]); a bare non-numeric token -> `Name`.
 #[derive(Debug, Clone)]
 pub enum ColSpec {
+    /// Bare numeric token: a 0-based index that falls back to a header column *named* by that
+    /// number when the index is out of range (issue #109).
     Index(usize),
+    /// A column name (from `name:`/`col:`, or any non-numeric bare token).
     Name(String),
+    /// An explicit 0-based index (from `idx:`/`index:`/`#`): never resolved to a name.
+    ForcedIndex(usize),
 }
 
 impl FromStr for ColSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Explicit index override: `idx:N`, `index:N`, or `#N`.
+        for pfx in ["idx:", "index:", "#"] {
+            if let Some(rest) = s.strip_prefix(pfx) {
+                let i = rest.parse::<usize>().map_err(|_| {
+                    format!("'{s}': '{rest}' after '{pfx}' is not a 0-based column index")
+                })?;
+                return Ok(ColSpec::ForcedIndex(i));
+            }
+        }
+        // Explicit name override: `name:X` or `col:X` (X may be all-digits or contain colons).
+        for pfx in ["name:", "col:"] {
+            if let Some(rest) = s.strip_prefix(pfx) {
+                return Ok(ColSpec::Name(rest.to_string()));
+            }
+        }
+        // Bare token: numeric -> index (heuristic), else name.
         if let Ok(i) = s.parse::<usize>() {
             Ok(ColSpec::Index(i))
         } else {
@@ -196,7 +223,24 @@ impl DataTable {
     /// Resolve a `ColSpec` to a 0-based column index.
     pub fn resolve(&self, col: &ColSpec) -> Result<usize, String> {
         match col {
-            ColSpec::Index(i) => Ok(*i),
+            ColSpec::Index(i) => {
+                // A numeric token is normally a 0-based index. But because `--x 2024` parses to
+                // `Index(2024)`, an all-numeric column *name* (e.g. a year) could never be selected.
+                // So when the index is out of range and the file has a header, fall back to a column
+                // literally named by that number. In-range indices are untouched, keeping existing
+                // "numeric = index" behaviour fully backward compatible (issue #109).
+                if let Some(header) = self.header.as_ref() {
+                    if *i >= header.len() {
+                        let as_name = i.to_string();
+                        if let Some(pos) = header.iter().position(|h| h == &as_name) {
+                            return Ok(pos);
+                        }
+                    }
+                }
+                Ok(*i)
+            }
+            // Explicit `idx:`/`#`: a pure index, never reinterpreted as a name.
+            ColSpec::ForcedIndex(i) => Ok(*i),
             ColSpec::Name(name) => {
                 let header = self.header.as_ref().ok_or_else(|| {
                     format!(
@@ -309,12 +353,16 @@ impl DataTable {
     pub fn col_display_name(&self, col: &ColSpec) -> String {
         match col {
             ColSpec::Name(n) => n.clone(),
-            ColSpec::Index(i) => self
-                .header
-                .as_ref()
-                .and_then(|h| h.get(*i))
-                .cloned()
-                .unwrap_or_else(|| format!("col_{i}")),
+            ColSpec::Index(i) | ColSpec::ForcedIndex(i) => {
+                // Route through resolve() so a numeric name that fell back to a header column
+                // (e.g. "2024") shows its label rather than "col_2024".
+                let idx = self.resolve(col).unwrap_or(*i);
+                self.header
+                    .as_ref()
+                    .and_then(|h| h.get(idx))
+                    .cloned()
+                    .unwrap_or_else(|| format!("col_{i}"))
+            }
         }
     }
 
@@ -474,6 +522,25 @@ where
         for spec in project {
             let (idx, name) = match spec {
                 ColSpec::Index(i) => {
+                    if *i >= fields.len() {
+                        // Out of range: fall back to a column literally named by that number
+                        // (e.g. a year column "2024"), matching the TSV/CSV path (issue #109).
+                        let as_name = i.to_string();
+                        match fields.iter().position(|f| f.name() == &as_name) {
+                            Some(pos) => (pos, fields[pos].name().clone()),
+                            None => {
+                                return Err(format!(
+                                    "Column index {i} out of range (file has {} columns)",
+                                    fields.len()
+                                ));
+                            }
+                        }
+                    } else {
+                        (*i, fields[*i].name().clone())
+                    }
+                }
+                // Explicit `idx:`/`#`: a pure index, no name fallback.
+                ColSpec::ForcedIndex(i) => {
                     if *i >= fields.len() {
                         return Err(format!(
                             "Column index {i} out of range (file has {} columns)",
@@ -1056,5 +1123,114 @@ mod tests {
             vec![99.0],
             "col 'b' returned a's value — on-disk order bug"
         );
+    }
+}
+
+// ── Issue #109: all-numeric column names ────────────────────────────────────────
+// `--x 2024` parses to `ColSpec::Index(2024)`; when that index is out of range and a
+// header column is literally named "2024", resolve to that column. Not parquet-gated,
+// so this runs on every test build.
+#[cfg(test)]
+mod colspec_tests {
+    use super::*;
+
+    fn headered(content: &str) -> DataTable {
+        DataTable::parse_str(content, None, HeaderMode::Header, Some(',')).unwrap()
+    }
+
+    #[test]
+    fn numeric_name_out_of_range_resolves_to_header_column() {
+        let t = headered("gene,2023,2024\nBRCA,5,9\nTP53,6,10\n");
+        // Index 2024 is way out of range -> falls back to the column named "2024".
+        let idx = t.resolve(&ColSpec::Index(2024)).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(t.col_f64(&ColSpec::Index(2024)).unwrap(), vec![9.0, 10.0]);
+        assert_eq!(t.col_f64(&ColSpec::Index(2023)).unwrap(), vec![5.0, 6.0]);
+        // Display name reflects the header label, not "col_2024".
+        assert_eq!(t.col_display_name(&ColSpec::Index(2024)), "2024");
+    }
+
+    #[test]
+    fn in_range_index_is_untouched_by_numeric_name_fallback() {
+        // Header cells are themselves numbers, but an in-range index must still mean the index.
+        let t = headered("10,11,12\n1,2,3\n");
+        assert_eq!(t.resolve(&ColSpec::Index(0)).unwrap(), 0); // NOT a name lookup
+        assert_eq!(t.col_f64(&ColSpec::Index(0)).unwrap(), vec![1.0]);
+        // Index 1 is in range -> stays index 1 (the "11" column), not a name lookup.
+        assert_eq!(t.resolve(&ColSpec::Index(1)).unwrap(), 1);
+        assert_eq!(t.col_f64(&ColSpec::Index(1)).unwrap(), vec![2.0]);
+    }
+
+    #[test]
+    fn out_of_range_numeric_with_no_matching_name_still_errors() {
+        let t = headered("gene,value\nBRCA,5\n");
+        // No column named "7" and index 7 is out of range -> the later lookup errors.
+        assert!(t.col_f64(&ColSpec::Index(7)).is_err());
+    }
+
+    #[test]
+    fn colspec_parses_all_digit_string_as_index() {
+        // Documents the parse behaviour the resolve() fallback compensates for.
+        assert!(matches!(
+            "2024".parse::<ColSpec>(),
+            Ok(ColSpec::Index(2024))
+        ));
+        assert!(matches!("gene".parse::<ColSpec>(), Ok(ColSpec::Name(_))));
+    }
+
+    // ── Explicit prefixes: name:/col: force a name, idx:/index:/# force an index ─────
+
+    #[test]
+    fn prefixes_parse_to_the_right_variant() {
+        assert!(matches!(
+            "idx:2".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(2))
+        ));
+        assert!(matches!(
+            "index:5".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(5))
+        ));
+        assert!(matches!(
+            "#7".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(7))
+        ));
+        // name:/col: force a Name even for an all-digit body.
+        assert!(matches!(
+            "name:2024".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "2024"
+        ));
+        assert!(matches!(
+            "col:1".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "1"
+        ));
+        // A non-numeric body after idx: is an error.
+        assert!("idx:abc".parse::<ColSpec>().is_err());
+        // name: can carry a literal name that itself contains a colon.
+        assert!(matches!(
+            "name:idx:2".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "idx:2"
+        ));
+    }
+
+    #[test]
+    fn forced_name_selects_a_small_in_range_numeric_column() {
+        // Columns literally named "30","10","20" at indices 0,1,2. The whole point of the
+        // escape hatch: select the column NAMED "10" (index 1), not index 10.
+        let t = headered("30,10,20\n1,7,4\n2,8,5\n");
+        let name10 = "name:10".parse::<ColSpec>().unwrap();
+        assert_eq!(t.resolve(&name10).unwrap(), 1);
+        assert_eq!(t.col_f64(&name10).unwrap(), vec![7.0, 8.0]);
+        assert_eq!(t.col_display_name(&name10), "10");
+    }
+
+    #[test]
+    fn forced_index_is_pure_and_never_falls_back_to_a_name() {
+        let t = headered("gene,2024\nBRCA,9\n");
+        // Bare 2024 -> heuristic -> the "2024" column (index 1).
+        assert_eq!(t.resolve(&ColSpec::Index(2024)).unwrap(), 1);
+        // idx:2024 -> pure index 2024 -> out of range -> hard error, no name rescue.
+        let forced = "idx:2024".parse::<ColSpec>().unwrap();
+        assert_eq!(t.resolve(&forced).unwrap(), 2024);
+        assert!(t.col_f64(&forced).is_err());
     }
 }
