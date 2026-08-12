@@ -3046,6 +3046,9 @@ pub fn emit_strip_plot(p: &StripPlot) -> String {
             .join(", ");
         frags.push(format!(".with_tooltip_labels(vec![{list}])"));
     }
+    if p.horizontal {
+        frags.push(".with_horizontal(true)".to_string());
+    }
     chain("StripPlot::new()", frags)
 }
 

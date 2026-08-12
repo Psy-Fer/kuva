@@ -3744,7 +3744,7 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             strip.tooltip_labels.as_deref(),
             &group.label,
             label_offset,
-            false,
+            strip.horizontal,
             scene,
             computed,
         );

@@ -306,6 +306,14 @@ check "strip center" \
     "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --center \
         --title "Expression Spread" --x-label "Group" --y-label "Expression"
 
+check "strip horizontal swarm" \
+    "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --swarm --horizontal \
+        --title "Expression Spread" --x-label "Expression" --y-label "Group"
+
+check "strip opacity" \
+    "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --swarm --opacity 0.35 \
+        --title "Expression Spread" --x-label "Group" --y-label "Expression"
+
 # ── forest ────────────────────────────────────────────────────────────────────
 check "forest basic" \
     "$BIN" forest "$DATA/forest.tsv" --label-col study --estimate-col estimate \

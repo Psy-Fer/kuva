@@ -689,7 +689,11 @@ impl Layout {
 
             if let Plot::Strip(sp) = plot {
                 let labels = sp.groups.iter().map(|g| g.label.clone()).collect();
-                x_labels = Some(labels);
+                if sp.horizontal {
+                    y_labels = Some(labels);
+                } else {
+                    x_labels = Some(labels);
+                }
                 if let Some(ref label) = sp.legend_label {
                     has_legend = true;
                     if sp.group_colors.is_some() {

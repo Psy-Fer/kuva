@@ -92,6 +92,9 @@ pub struct StripPlot {
     pub marker_stroke_width: Option<f64>,
     pub show_tooltips: bool,
     pub tooltip_labels: Option<Vec<String>>,
+    /// Swap the axes: categories on the Y axis, values on X (seaborn `orient='h'`,
+    /// ggplot2 `coord_flip`). Default `false` (vertical columns).
+    pub horizontal: bool,
 }
 
 impl Default for StripPlot {
@@ -117,6 +120,7 @@ impl StripPlot {
             marker_stroke_width: None,
             show_tooltips: false,
             tooltip_labels: None,
+            horizontal: false,
         }
     }
 
@@ -316,6 +320,14 @@ impl StripPlot {
     /// combining with a violin to show individual points on the density axis.
     pub fn with_center(mut self) -> Self {
         self.style = StripStyle::Center;
+        self
+    }
+
+    /// Draw horizontally: categories on the Y axis, values on X (seaborn
+    /// `orient='h'`, ggplot2 `coord_flip`). Jitter and swarm spread run
+    /// vertically. Default is vertical columns.
+    pub fn with_horizontal(mut self, h: bool) -> Self {
+        self.horizontal = h;
         self
     }
 

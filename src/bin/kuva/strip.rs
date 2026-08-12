@@ -42,6 +42,15 @@ pub struct StripArgs {
     #[arg(long)]
     pub center: bool,
 
+    /// Draw horizontally: categories on the Y axis, values on X (coord_flip).
+    #[arg(long)]
+    pub horizontal: bool,
+
+    /// Marker fill opacity in [0.0, 1.0]. Values below 1 reveal density where
+    /// dense points overlap (recommended for large N). Default: opaque.
+    #[arg(long)]
+    pub opacity: Option<f64>,
+
     /// Color groups by palette and show a legend.
     #[arg(long)]
     pub legend: bool,
@@ -77,6 +86,12 @@ pub fn run(args: StripArgs) -> Result<(), String> {
             plot = plot.with_swarm();
         } else if args.center {
             plot = plot.with_center();
+        }
+        if args.horizontal {
+            plot = plot.with_horizontal(true);
+        }
+        if let Some(op) = args.opacity {
+            plot = plot.with_marker_opacity(op.clamp(0.0, 1.0));
         }
         for col in &args.y {
             let name = table.col_display_name(col);
@@ -140,6 +155,12 @@ pub fn run(args: StripArgs) -> Result<(), String> {
         plot = plot.with_swarm();
     } else if args.center {
         plot = plot.with_center();
+    }
+    if args.horizontal {
+        plot = plot.with_horizontal(true);
+    }
+    if let Some(op) = args.opacity {
+        plot = plot.with_marker_opacity(op.clamp(0.0, 1.0));
     }
 
     for (name, subtable) in groups {

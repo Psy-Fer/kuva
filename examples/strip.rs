@@ -26,6 +26,7 @@ fn main() {
     basic();
     swarm();
     center();
+    horizontal();
     composed();
     palette();
     group_colors();
@@ -130,6 +131,26 @@ fn center() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/center.svg"), svg).unwrap();
+}
+
+/// Horizontal beeswarm — categories on the Y axis, values on X (coord_flip).
+fn horizontal() {
+    let strip = StripPlot::new()
+        .with_group("Control", normal_samples(0.0, 1.0, 150, 10))
+        .with_group("Low dose", normal_samples(0.6, 1.0, 150, 11))
+        .with_group("High dose", normal_samples(1.4, 1.0, 150, 12))
+        .with_color("darkorange")
+        .with_point_size(3.0)
+        .with_swarm()
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Beeswarm")
+        .with_x_label("Value");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/horizontal.svg"), svg).unwrap();
 }
 
 /// BoxPlot + StripPlot composed on the same axes.

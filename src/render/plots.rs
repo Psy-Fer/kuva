@@ -861,20 +861,24 @@ impl Plot {
                 if sp.groups.is_empty() {
                     return None;
                 }
-                let x_min = 0.5;
-                let x_max = sp.groups.len() as f64 + 0.5;
-                let mut y_min = f64::INFINITY;
-                let mut y_max = f64::NEG_INFINITY;
+                let cat_min = 0.5;
+                let cat_max = sp.groups.len() as f64 + 0.5;
+                let mut val_min = f64::INFINITY;
+                let mut val_max = f64::NEG_INFINITY;
                 for g in &sp.groups {
                     for &v in &g.values {
-                        y_min = y_min.min(v);
-                        y_max = y_max.max(v);
+                        val_min = val_min.min(v);
+                        val_max = val_max.max(v);
                     }
                 }
-                if y_min == f64::INFINITY {
+                if val_min == f64::INFINITY {
                     return None;
                 }
-                Some(((x_min, x_max), (y_min, y_max)))
+                if sp.horizontal {
+                    Some(((val_min, val_max), (cat_min, cat_max)))
+                } else {
+                    Some(((cat_min, cat_max), (val_min, val_max)))
+                }
             }
             Plot::Volcano(vp) => {
                 if vp.points.is_empty() {
