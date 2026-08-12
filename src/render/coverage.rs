@@ -177,7 +177,10 @@ impl CoveragePlot {
     /// (with the data), not below it.
     pub fn build(self) -> TrackStack {
         // Two-colour pool palette for tiled feature rows (e.g. ARTIC's alternating primer pools).
-        const POOL_COLORS: [&str; 2] = ["#8ecae6", "#ffb703"];
+        // Ordered warm-then-blue to match the sample depth tracks, which take the Wong palette
+        // (colors[0] = orange, colors[1] = sky blue): the first pool's amplicons then read the same
+        // hue as the first sample's coverage, and likewise for the second.
+        const POOL_COLORS: [&str; 2] = ["#ffb703", "#8ecae6"];
         // A 12-colour categorical palette for per-gene colouring of the region track.
         const GENE_COLORS: [&str; 12] = [
             "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", "#b07aa1", "#ff9da7",
