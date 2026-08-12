@@ -1020,6 +1020,11 @@ check "funnel diverging" \
         --left-label "Treatment" --right-label "Placebo" \
         --title "Diverging Funnel"
 
+check "funnel color-mode" \
+    "$BIN" funnel "$DATA/funnel.tsv" \
+        --label stage --value n_screened --color-mode gradient \
+        --title "Gradient Funnel"
+
 # ── rose ──────────────────────────────────────────────────────────────────────
 check "rose basic" \
     "$BIN" rose "$DATA/rose.tsv" \
