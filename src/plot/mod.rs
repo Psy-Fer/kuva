@@ -1,3 +1,4 @@
+pub mod annotations;
 pub mod band;
 pub mod bar;
 pub mod boxplot;

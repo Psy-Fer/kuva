@@ -9,6 +9,7 @@
 //! underlay, extra tracks, etc.) before rendering.
 
 use crate::plot::LinePlot;
+use crate::render::annotations::ReferenceLine;
 use crate::render::color::Color;
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
@@ -49,6 +50,7 @@ pub struct CoveragePlot {
     theme: Option<Theme>,
     title: Option<String>,
     overlay_samples: bool,
+    depth_thresholds: Vec<ReferenceLine>,
 }
 
 impl Default for CoveragePlot {
@@ -71,7 +73,22 @@ impl CoveragePlot {
             theme: None,
             title: None,
             overlay_samples: false,
+            depth_thresholds: Vec::new(),
         }
+    }
+
+    /// Draw a dashed horizontal reference line across every depth track at `depth`, e.g. a
+    /// minimum-coverage threshold. Call more than once for multiple thresholds.
+    pub fn with_coverage_threshold(mut self, depth: f64) -> Self {
+        self.depth_thresholds.push(ReferenceLine::horizontal(depth));
+        self
+    }
+
+    /// Draw a labelled coverage threshold line at `depth`.
+    pub fn with_coverage_threshold_labeled(mut self, depth: f64, label: impl Into<String>) -> Self {
+        self.depth_thresholds
+            .push(ReferenceLine::horizontal(depth).with_label(label));
+        self
     }
 
     /// Visual theme for the whole figure (default light).
@@ -212,6 +229,14 @@ impl CoveragePlot {
                     .with_legend(name),
             )
         };
+        // Coverage-threshold lines (e.g. minimum depth) applied to every depth track.
+        let thresholds = self.depth_thresholds;
+        let apply_thresholds = |mut pt: PlotTrack| -> PlotTrack {
+            for line in &thresholds {
+                pt = pt.with_reference_line(line.clone());
+            }
+            pt
+        };
         if self.overlay_samples {
             // All samples overlaid in one shared "depth" track on a common y-axis.
             let plots: Vec<Plot> = self
@@ -221,14 +246,18 @@ impl CoveragePlot {
                 .map(|(i, (name, depth))| line(name, depth, colors[i % colors.len()].clone(), 0.5))
                 .collect();
             if !plots.is_empty() {
-                stack = stack.track(PlotTrack::new(plots).with_y_label("depth"));
+                stack = stack.track(apply_thresholds(
+                    PlotTrack::new(plots).with_y_label("depth"),
+                ));
             }
         } else {
             // One stacked track per sample; the y-axis label names it.
             for (i, (name, depth)) in self.samples.into_iter().enumerate() {
                 let color = colors[i % colors.len()].clone();
                 let plot = line(name.clone(), depth, color, 0.6);
-                stack = stack.track(PlotTrack::new(vec![plot]).with_y_label(name));
+                stack = stack.track(apply_thresholds(
+                    PlotTrack::new(vec![plot]).with_y_label(name),
+                ));
             }
         }
 

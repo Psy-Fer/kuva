@@ -67,6 +67,11 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub x_label: Option<String>,
 
+    /// Draw a horizontal threshold line at this depth on every coverage track
+    /// (e.g. a minimum-coverage cutoff). Repeatable.
+    #[arg(long, value_name = "DEPTH")]
+    pub min_coverage: Vec<f64>,
+
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -103,6 +108,9 @@ pub fn run(args: CoverageArgs) -> Result<(), String> {
     }
     if args.overlay_samples {
         cov = cov.with_overlaid_samples();
+    }
+    for &depth in &args.min_coverage {
+        cov = cov.with_coverage_threshold(depth);
     }
 
     for col in &sample_cols {

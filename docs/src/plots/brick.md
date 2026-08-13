@@ -292,6 +292,25 @@ When labels from adjacent runs overlap in pixel space they are staggered vertica
 
 ---
 
+## Marker lines
+
+`with_vline(x)` draws a dashed vertical line across every row at reference coordinate `x`, handy for marking a locus, primer boundary, or variant position. `with_vline_labeled(x, label)` adds a label at the top. For full control over colour, dash pattern, and orientation, pass a [`ReferenceLine`](../reference/layout.md) to `with_marker_line`.
+
+```rust,no_run
+# use kuva::plot::BrickPlot;
+use kuva::render::annotations::ReferenceLine;
+
+let plot = BrickPlot::new()
+    // ... sequences, names, template ...
+    .with_vline_labeled(150.0, "exon boundary")
+    .with_vline(200.0)
+    .with_marker_line(ReferenceLine::vertical(250.0).with_color("blue").with_dasharray("2 2"));
+```
+
+The lines are drawn in the plot's own reference-coordinate system, so they honour `with_x_offset` / `with_x_origin` just like the bricks.
+
+---
+
 ## Row ordering
 
 Row 0 is always rendered at the **top** of the plot. The first entry in `with_names` appears at the top of the y-axis. This matches the natural reading order when row 0 is a reference/consensus sequence.

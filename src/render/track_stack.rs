@@ -30,6 +30,7 @@
 //! `--emit-code`, docs pages, gallery, man-page regen.
 
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendShape};
+use crate::render::annotations::ReferenceLine;
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
@@ -609,6 +610,7 @@ pub struct PlotTrack {
     plots: Vec<Plot>,
     height: TrackHeight,
     y_label: Option<String>,
+    reference_lines: Vec<ReferenceLine>,
 }
 
 impl PlotTrack {
@@ -617,6 +619,7 @@ impl PlotTrack {
             plots,
             height: TrackHeight::Flex(1.0),
             y_label: None,
+            reference_lines: Vec::new(),
         }
     }
 
@@ -629,6 +632,20 @@ impl PlotTrack {
     /// itself via its y-axis label rather than a gutter `label()`, so this doubles as its name.
     pub fn with_y_label(mut self, label: impl Into<String>) -> Self {
         self.y_label = Some(label.into());
+        self
+    }
+
+    /// Draw a dashed horizontal reference line across this track at y = `value` (in the track's
+    /// own y units, e.g. a minimum-coverage threshold on a depth track).
+    pub fn with_hline(mut self, value: f64) -> Self {
+        self.reference_lines.push(ReferenceLine::horizontal(value));
+        self
+    }
+
+    /// Add a fully-styled reference line ([`ReferenceLine::horizontal`]/`vertical` with colour,
+    /// dash, and label).
+    pub fn with_reference_line(mut self, line: ReferenceLine) -> Self {
+        self.reference_lines.push(line);
         self
     }
 
@@ -688,6 +705,8 @@ impl Track for PlotTrack {
         // The stack draws ONE shared legend (collected via `legend_entries`); suppress the
         // per-plot legend `render_multiple` would otherwise draw inside this track's band.
         layout.show_legend = false;
+        // Reference lines (e.g. a coverage threshold) draw in this track's own y-scale.
+        layout.reference_lines = s.reference_lines;
 
         let sub = render_multiple(s.plots, layout);
         merge_translated(scene, sub, 0.0, cx.y_top);

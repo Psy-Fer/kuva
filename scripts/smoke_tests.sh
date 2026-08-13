@@ -1309,6 +1309,9 @@ check "coverage depth only (default sample)" \
 check "coverage multi-sample" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal
 
+check "coverage min-coverage threshold" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal --min-coverage 20
+
 check "coverage variants only" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
         --variants "$DATA/coverage_variants.tsv"

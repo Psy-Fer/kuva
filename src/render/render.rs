@@ -3390,6 +3390,11 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             }
         }
     }
+
+    // Marker lines (vertical/horizontal) drawn over the bricks at reference coords.
+    if !brickplot.vlines.is_empty() {
+        crate::render::annotations::add_reference_lines(&brickplot.vlines, scene, computed);
+    }
 }
 
 /// Render per-block notation labels for a BrickPlot.

@@ -96,6 +96,8 @@ let scene = CoveragePlot::new()
 |--------|--------|
 | `.with_sample(name, depth)` | Add a depth track (filled area). One per sample, or overlaid (below). |
 | `.with_overlaid_samples()` | Overlay all samples in one shared track instead of stacking. |
+| `.with_coverage_threshold(depth)` | Dashed horizontal line at `depth` on every coverage track (e.g. a minimum-depth cutoff). Repeatable. |
+| `.with_coverage_threshold_labeled(depth, label)` | Same, with a label at the line. |
 | `.with_variants(label, color, positions)` | Add a typed variant group to the variant lane (call once per type). |
 | `.with_feature(start, end, label)` | Add one feature band (amplicon / primer). |
 | `.with_features(intervals)` | Add several feature bands at once. |
@@ -160,6 +162,7 @@ kuva coverage depth.tsv --x pos --samples pool1,pool2 \
 | `--x <col>` | Position column in the depth table (default: 0). |
 | `--samples <cols>` | Comma-separated sample depth columns (default: column 1). |
 | `--overlay-samples` | Overlay all samples in one shared track. |
+| `--min-coverage <depth>` | Dashed threshold line at `depth` on every coverage track (repeatable). |
 | `--variants <file>` | Variants file with columns `position,type`. |
 | `--features <file>` / `--feature-name <name>` | Feature bands file (`start,end,label`) and lane name. |
 | `--regions <file>` / `--region-name <name>` | Region / gene file (`start,end,label`) and lane name. |

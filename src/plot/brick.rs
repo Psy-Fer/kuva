@@ -1,3 +1,4 @@
+use crate::plot::annotations::ReferenceLine;
 use std::collections::HashMap;
 
 /// Controls horizontal alignment of brick rows.
@@ -208,6 +209,9 @@ pub struct BrickPlot {
     /// `Figure` computes per-grid-row heights so that panels with different read
     /// counts still have identically-sized bricks.
     pub row_height_px: Option<f64>,
+    /// Vertical (and, if desired, horizontal) marker lines drawn over the bricks
+    /// at reference-coordinate positions. See [`with_vline`](BrickPlot::with_vline).
+    pub vlines: Vec<ReferenceLine>,
 }
 
 impl Default for BrickPlot {
@@ -239,7 +243,35 @@ impl BrickPlot {
             consensus_row: None,
             notations: None,
             row_height_px: None,
+            vlines: Vec::new(),
         }
+    }
+
+    /// Draw a vertical marker line across all rows at reference coordinate `x`
+    /// (dashed, in the default reference-line colour). Handy for marking a locus,
+    /// primer boundary, or variant position.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new().with_vline(150.0);
+    /// ```
+    pub fn with_vline(mut self, x: f64) -> Self {
+        self.vlines.push(ReferenceLine::vertical(x));
+        self
+    }
+
+    /// Vertical marker line at `x` with a text label drawn at the top.
+    pub fn with_vline_labeled(mut self, x: f64, label: impl Into<String>) -> Self {
+        self.vlines
+            .push(ReferenceLine::vertical(x).with_label(label));
+        self
+    }
+
+    /// Add a fully-styled marker line (use [`ReferenceLine::vertical`] /
+    /// [`ReferenceLine::horizontal`] with `.with_color()`, `.with_dasharray()`, etc.).
+    pub fn with_marker_line(mut self, line: ReferenceLine) -> Self {
+        self.vlines.push(line);
+        self
     }
 
     /// Load sequences — one string per row, ordered top to bottom.

@@ -160,3 +160,27 @@ fn coverage_covarplot_shared_pools() {
     assert!(svg.contains("pool 1") && svg.contains("pool 2"));
     assert!(svg.contains("genes") && svg.contains("ORF1ab"));
 }
+
+/// Coverage threshold lines draw one dashed reference line per depth track.
+#[test]
+fn coverage_threshold_lines() {
+    let scene = CoveragePlot::new()
+        .with_title("Coverage with min-depth threshold")
+        .with_locus(1_000_000.0, 1_060_000.0)
+        .with_sample("pool 1", sample(0.0, 420.0))
+        .with_sample("pool 2", sample(1.7, 260.0))
+        .with_coverage_threshold_labeled(50.0, "min 50x")
+        .with_x_label("position")
+        .render_sized(960.0, 400.0);
+
+    let svg = SvgBackend::new().render_scene(&scene);
+    common::write_test_output("test_outputs/coverage_threshold.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"));
+    // One dashed threshold line per stacked depth track (2 samples).
+    assert_eq!(
+        svg.matches("stroke-dasharray=\"6 4\"").count(),
+        2,
+        "expected one threshold line per depth track"
+    );
+    assert!(svg.contains(">min 50x<"), "threshold label missing");
+}
