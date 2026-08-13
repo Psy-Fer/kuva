@@ -78,10 +78,11 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
         args.input.delimiter,
         &proj,
     )?;
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let axes = table.expand_columns(&args.axes)?;
 
     // Axis names from column headers (or indices as strings).
-    let axis_names: Vec<String> = args
-        .axes
+    let axis_names: Vec<String> = axes
         .iter()
         .map(|cs| match cs {
             crate::data::ColSpec::Name(n) => n.clone(),
@@ -98,6 +99,10 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
                         .unwrap_or_else(|| format!("axis{i}")),
                     _ => format!("axis{i}"),
                 }
+            }
+            // Ranges/globs are expanded to indices before this point.
+            crate::data::ColSpec::Range { .. } | crate::data::ColSpec::Glob(_) => {
+                "axis".to_string()
             }
         })
         .collect();
@@ -132,8 +137,8 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
         let groups = table.group_by(grp_col)?;
         for (gi, (group_name, rows)) in groups.iter().enumerate() {
             let color = pal[gi % pal.len()].to_string();
-            let mut vals: Vec<f64> = Vec::with_capacity(args.axes.len());
-            for cs in &args.axes {
+            let mut vals: Vec<f64> = Vec::with_capacity(axes.len());
+            for cs in &axes {
                 let col_vals = rows.col_f64(cs)?;
                 let mean = col_vals.iter().sum::<f64>() / col_vals.len().max(1) as f64;
                 vals.push(mean);
@@ -144,8 +149,8 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
         // Each row is one series.
         let n_rows = table.rows.len();
         for row in 0..n_rows {
-            let mut vals: Vec<f64> = Vec::with_capacity(args.axes.len());
-            for cs in &args.axes {
+            let mut vals: Vec<f64> = Vec::with_capacity(axes.len());
+            for cs in &axes {
                 let col = table.col_f64(cs)?;
                 vals.push(*col.get(row).unwrap_or(&0.0));
             }

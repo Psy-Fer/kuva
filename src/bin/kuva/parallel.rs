@@ -67,12 +67,14 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
         args.input.delimiter,
         &proj,
     )?;
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let value_cols = table.expand_columns(&args.value_cols)?;
 
     // Resolve axis names: explicit > header > "Axis N"
     let axis_names: Vec<String> = if let Some(names) = args.axis_names {
         names
     } else if let Some(ref header) = table.header {
-        args.value_cols
+        value_cols
             .iter()
             .enumerate()
             .map(|(fallback_i, col)| match col {
@@ -85,12 +87,12 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
                     .cloned()
                     .unwrap_or_else(|| format!("Axis {fallback_i}")),
                 ColSpec::Name(n) => n.clone(),
+                // Ranges/globs are expanded to indices before this point.
+                ColSpec::Range { .. } | ColSpec::Glob(_) => format!("Axis {fallback_i}"),
             })
             .collect()
     } else {
-        (0..args.value_cols.len())
-            .map(|i| format!("Axis {i}"))
-            .collect()
+        (0..value_cols.len()).map(|i| format!("Axis {i}")).collect()
     };
 
     let pal = Palette::category10();
@@ -118,9 +120,9 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
     // any missing value is dropped as a whole (or zero-filled / errored, per --na-strategy).
     // Returns Ok(None) to skip the row (drop).
     let row_values = |t: &DataTable, row: &[String]| -> Result<Option<Vec<f64>>, String> {
-        let mut vals = Vec::with_capacity(args.value_cols.len());
+        let mut vals = Vec::with_capacity(value_cols.len());
         let mut any_missing = false;
-        for col in &args.value_cols {
+        for col in &value_cols {
             let idx = t.resolve(col)?;
             let s = row
                 .get(idx)

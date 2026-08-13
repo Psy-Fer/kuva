@@ -94,6 +94,8 @@ pub fn run(args: LineArgs) -> Result<(), String> {
     } else {
         args.y
     };
+    // Expand any column ranges / globs against the parsed table (issue #109).
+    let y_cols = table.expand_columns(&y_cols)?;
     let color = args.color.unwrap_or_else(|| "steelblue".to_string());
     let stroke_width = args.stroke_width.unwrap_or(2.0);
     let line_style = if args.dashed {

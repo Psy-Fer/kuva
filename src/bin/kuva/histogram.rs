@@ -90,6 +90,8 @@ pub fn run(args: HistogramArgs) -> Result<(), String> {
         args.input.delimiter,
         &y_specs,
     )?;
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let y_specs = table.expand_columns(&y_specs)?;
 
     let bins = args.bins.unwrap_or(10);
     let bin_method = match &args.bin_method {

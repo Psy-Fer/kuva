@@ -125,6 +125,8 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     } else {
         args.y
     };
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let y_cols = table.expand_columns(&y_cols)?;
     let (na_set, na_strat, clamp) = args.na.resolve()?;
     // When --x-date-format is set, the X column holds date/time strings, not plain numbers.
     // Read X (and Y) as `Option<f64>` (NA-aware); date-parsed X has no missing handling here.

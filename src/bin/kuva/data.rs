@@ -20,6 +20,16 @@ pub enum ColSpec {
     Name(String),
     /// An explicit 0-based index (from `idx:`/`index:`/`#`): never resolved to a name.
     ForcedIndex(usize),
+    /// A 0-based index range (`2..5`, `2..=5`, `3..`, `..4`, `..`). Multi-column: expands
+    /// via [`DataTable::expand_columns`]; invalid for single-column arguments.
+    Range {
+        start: Option<usize>,
+        end: Option<usize>,
+        inclusive: bool,
+    },
+    /// A glob over header names (`sum_*`, `*_A`, `y*`, `*mid*`). Multi-column: expands via
+    /// [`DataTable::expand_columns`]; invalid for single-column arguments.
+    Glob(String),
 }
 
 impl FromStr for ColSpec {
@@ -34,11 +44,38 @@ impl FromStr for ColSpec {
                 return Ok(ColSpec::ForcedIndex(i));
             }
         }
-        // Explicit name override: `name:X` or `col:X` (X may be all-digits or contain colons).
+        // Explicit name override: `name:X` or `col:X` (X may be all-digits or contain `..`/`*`).
         for pfx in ["name:", "col:"] {
             if let Some(rest) = s.strip_prefix(pfx) {
                 return Ok(ColSpec::Name(rest.to_string()));
             }
+        }
+        // Index range: `a..b`, `a..=b`, `a..`, `..b`, `..`.
+        if s.contains("..") {
+            let (sep, inclusive) = if s.contains("..=") {
+                ("..=", true)
+            } else {
+                ("..", false)
+            };
+            let (lhs, rhs) = s.split_once(sep).unwrap();
+            let parse_end = |t: &str| -> Result<Option<usize>, String> {
+                if t.is_empty() {
+                    Ok(None)
+                } else {
+                    t.parse::<usize>()
+                        .map(Some)
+                        .map_err(|_| format!("'{s}': '{t}' is not a 0-based index in a range"))
+                }
+            };
+            return Ok(ColSpec::Range {
+                start: parse_end(lhs)?,
+                end: parse_end(rhs)?,
+                inclusive,
+            });
+        }
+        // Glob over header names.
+        if s.contains('*') {
+            return Ok(ColSpec::Glob(s.to_string()));
         }
         // Bare token: numeric -> index (heuristic), else name.
         if let Ok(i) = s.parse::<usize>() {
@@ -47,6 +84,45 @@ impl FromStr for ColSpec {
             Ok(ColSpec::Name(s.to_string()))
         }
     }
+}
+
+impl ColSpec {
+    /// True for selectors that expand to (potentially) several columns: ranges and globs.
+    /// Used by subcommands to route a single such selector into their multi-column path.
+    pub fn is_multi(&self) -> bool {
+        matches!(self, ColSpec::Range { .. } | ColSpec::Glob(_))
+    }
+}
+
+/// Simple glob match: `*` matches any run of characters. Supports prefix (`a*`), suffix (`*a`),
+/// contains (`*a*`), and interior (`a*b*c`) patterns. No character classes or escaping.
+pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == name;
+    }
+    if !name.starts_with(parts[0]) {
+        return false;
+    }
+    let mut pos = parts[0].len();
+    let last = parts.len() - 1;
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            continue;
+        }
+        if i == last {
+            // Final literal must be a suffix of the remaining tail.
+            return name[pos..].ends_with(part);
+        }
+        if part.is_empty() {
+            continue;
+        }
+        match name[pos..].find(part) {
+            Some(idx) => pos += idx + part.len(),
+            None => return false,
+        }
+    }
+    true
 }
 
 #[derive(Args, Debug)]
@@ -256,7 +332,74 @@ impl DataTable {
                     )
                 })
             }
+            ColSpec::Range { .. } | ColSpec::Glob(_) => Err(
+                "a column range or glob selects multiple columns and cannot be used for a \
+                 single-column argument (only for multi-column ones like --y)"
+                    .to_string(),
+            ),
         }
+    }
+
+    /// Number of columns: the header width, or the widest data row.
+    fn n_cols(&self) -> usize {
+        self.header
+            .as_ref()
+            .map(|h| h.len())
+            .unwrap_or_else(|| self.rows.iter().map(|r| r.len()).max().unwrap_or(0))
+    }
+
+    /// Expand a list of selectors (which may include ranges and globs) into concrete per-column
+    /// specs, in order, de-duplicated. Single selectors pass through unchanged.
+    pub fn expand_columns(&self, cols: &[ColSpec]) -> Result<Vec<ColSpec>, String> {
+        let mut out: Vec<ColSpec> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push = |idx: usize, out: &mut Vec<ColSpec>| {
+            if seen.insert(idx) {
+                out.push(ColSpec::ForcedIndex(idx));
+            }
+        };
+        let ncols = self.n_cols();
+        for col in cols {
+            match col {
+                ColSpec::Range {
+                    start,
+                    end,
+                    inclusive,
+                } => {
+                    let lo = start.unwrap_or(0);
+                    let hi = match end {
+                        Some(e) if *inclusive => e + 1,
+                        Some(e) => *e,
+                        None => ncols,
+                    }
+                    .min(ncols);
+                    for i in lo..hi {
+                        push(i, &mut out);
+                    }
+                }
+                ColSpec::Glob(pattern) => {
+                    let header = self.header.as_ref().ok_or_else(|| {
+                        format!("glob '{pattern}' needs a header row (use --header)")
+                    })?;
+                    let mut any = false;
+                    for (i, name) in header.iter().enumerate() {
+                        if glob_match(pattern, name) {
+                            push(i, &mut out);
+                            any = true;
+                        }
+                    }
+                    if !any {
+                        return Err(format!(
+                            "glob '{pattern}' matched no columns. Available: {}",
+                            header.join(", ")
+                        ));
+                    }
+                }
+                // Single selectors resolve now so the result is a flat, concrete list.
+                other => push(self.resolve(other)?, &mut out),
+            }
+        }
+        Ok(out)
     }
 
     /// Extract a column as f64 values.
@@ -363,6 +506,10 @@ impl DataTable {
                     .cloned()
                     .unwrap_or_else(|| format!("col_{i}"))
             }
+            // Multi-column selectors are expanded (via expand_columns) before display; a bare
+            // call here is a fallback only.
+            ColSpec::Range { .. } => "range".to_string(),
+            ColSpec::Glob(p) => p.clone(),
         }
     }
 
@@ -506,7 +653,13 @@ where
     let parquet_schema = builder.parquet_schema().clone();
     let fields = arrow_schema.fields();
 
-    let (col_indices, header): (Vec<usize>, Vec<String>) = if project.is_empty() {
+    // Ranges/globs need the full schema to expand, so read every column when any is present
+    // (the caller expands them against the returned header). Explicit specs still project.
+    let read_all = project.is_empty()
+        || project
+            .iter()
+            .any(|s| matches!(s, ColSpec::Range { .. } | ColSpec::Glob(_)));
+    let (col_indices, header): (Vec<usize>, Vec<String>) = if read_all {
         (
             (0..fields.len()).collect(),
             fields.iter().map(|f| f.name().clone()).collect(),
@@ -561,6 +714,11 @@ where
                         )
                     })?;
                     (idx, n.clone())
+                }
+                // `read_all` above is true whenever a range/glob is present, so this branch
+                // only runs for explicit single specs.
+                ColSpec::Range { .. } | ColSpec::Glob(_) => {
+                    unreachable!("ranges/globs force read_all")
                 }
             };
             if seen.insert(idx) {
@@ -1232,5 +1390,107 @@ mod colspec_tests {
         let forced = "idx:2024".parse::<ColSpec>().unwrap();
         assert_eq!(t.resolve(&forced).unwrap(), 2024);
         assert!(t.col_f64(&forced).is_err());
+    }
+
+    // ── Ranges and globs (issue #109) ───────────────────────────────────────
+
+    fn idxs(t: &DataTable, spec: &str) -> Vec<usize> {
+        let cs: Vec<ColSpec> = spec.split(' ').map(|s| s.parse().unwrap()).collect();
+        t.expand_columns(&cs)
+            .unwrap()
+            .iter()
+            .map(|c| t.resolve(c).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn range_parses_all_forms() {
+        assert!(matches!(
+            "2..5".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(2),
+                end: Some(5),
+                inclusive: false
+            })
+        ));
+        assert!(matches!(
+            "2..=5".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(2),
+                end: Some(5),
+                inclusive: true
+            })
+        ));
+        assert!(matches!(
+            "3..".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(3),
+                end: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            "..4".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: None,
+                end: Some(4),
+                ..
+            })
+        ));
+        assert!(matches!("y*".parse::<ColSpec>(), Ok(ColSpec::Glob(_))));
+    }
+
+    #[test]
+    fn expand_ranges() {
+        let t = headered("a,b,c,d,e\n1,2,3,4,5\n");
+        assert_eq!(idxs(&t, "1..4"), vec![1, 2, 3]); // exclusive
+        assert_eq!(idxs(&t, "1..=3"), vec![1, 2, 3]); // inclusive
+        assert_eq!(idxs(&t, "3.."), vec![3, 4]); // to last
+        assert_eq!(idxs(&t, "..2"), vec![0, 1]); // from start
+        assert_eq!(idxs(&t, ".."), vec![0, 1, 2, 3, 4]); // all
+                                                         // Out-of-range end is clamped to the column count.
+        assert_eq!(idxs(&t, "3..99"), vec![3, 4]);
+    }
+
+    #[test]
+    fn expand_globs() {
+        let t = headered("cat,sum_A,sum_B,y1,y2,tot_A\n0,1,2,3,4,5\n");
+        assert_eq!(idxs(&t, "sum_*"), vec![1, 2]); // prefix
+        assert_eq!(idxs(&t, "*_A"), vec![1, 5]); // suffix
+        assert_eq!(idxs(&t, "y*"), vec![3, 4]); // prefix
+    }
+
+    #[test]
+    fn expand_mixes_and_dedupes() {
+        let t = headered("a,b,c,d\n1,2,3,4\n");
+        // Single + range with an overlap: b appears once.
+        assert_eq!(idxs(&t, "b 1..3"), vec![1, 2]);
+    }
+
+    #[test]
+    fn glob_with_no_match_errors() {
+        let t = headered("a,b,c\n1,2,3\n");
+        let cs = vec!["zzz*".parse::<ColSpec>().unwrap()];
+        assert!(t.expand_columns(&cs).is_err());
+    }
+
+    #[test]
+    fn range_glob_invalid_for_single_column() {
+        let t = headered("a,b,c\n1,2,3\n");
+        assert!(t.resolve(&"1..3".parse::<ColSpec>().unwrap()).is_err());
+        assert!(t.resolve(&"a*".parse::<ColSpec>().unwrap()).is_err());
+    }
+
+    #[test]
+    fn glob_match_forms() {
+        assert!(glob_match("sum_*", "sum_A"));
+        assert!(!glob_match("sum_*", "tot_A"));
+        assert!(glob_match("*_A", "sum_A"));
+        assert!(glob_match("*sum*", "x_sum_y"));
+        assert!(glob_match("a*c", "abc"));
+        assert!(glob_match("a*c", "axxxc"));
+        assert!(!glob_match("a*c", "abd"));
+        assert!(glob_match("exact", "exact"));
+        assert!(!glob_match("exact", "exacts"));
     }
 }

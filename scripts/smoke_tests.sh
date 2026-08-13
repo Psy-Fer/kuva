@@ -112,6 +112,13 @@ check "scatter repel labels" \
     "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --label-col gene \
         --label-style repel --header --title "Repel labels"
 
+# Column ranges and globs (issue #109) on multi-column --y.
+check "box column range" \
+    "$BIN" box "$DATA/parallel.tsv" --y "0..4" --header --title "All numeric columns"
+
+check "box column glob" \
+    "$BIN" box "$DATA/parallel.tsv" --y "sepal*" --header --title "Sepal columns"
+
 # Explicit selection prefixes: name:/col: force a name, idx:/# force an index.
 check "scatter name: prefix" \
     "$BIN" scatter "$DATA/year_columns.tsv" --x name:2023 --y name:2024 --header \

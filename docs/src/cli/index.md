@@ -122,6 +122,29 @@ To remove the ambiguity entirely, prefix the value:
 
 `name:` is the way to select a column whose name is a small number that would otherwise be read as an index (e.g. a column literally named `1` in a 5-column file: `--x name:1`). `idx:` forces a pure index, so an out-of-range `idx:` errors rather than falling back to a name. Prefixes work on every column argument (`--x`, `--y`, `--value-col`, `--group-col`, `--color-by`, `--axes`, …) in every subcommand.
 
+#### Ranges and globs (multi-column arguments)
+
+Multi-column arguments (`--y`, `--value-cols`, `--samples`, `--axes`) also accept **index ranges** and **name globs**, which expand to several columns at once:
+
+| Form | Selects | Example |
+|------|---------|---------|
+| `a..b` | Indices `a` up to (but not including) `b` | `--y 1..4` -> columns 1, 2, 3 |
+| `a..=b` | Indices `a` through `b` inclusive | `--y 1..=3` -> columns 1, 2, 3 |
+| `a..` | Index `a` to the last column | `--y 3..` |
+| `..b` | The first column up to `b` (exclusive) | `--y ..4` |
+| `..` | Every column | `--y ..` |
+| `pat*` / `*pat` / `*pat*` | Header names matching the glob (`*` = any run of characters) | `--y sum_*`, `--y *_A` |
+
+You can mix all forms in one comma-separated list (duplicates are removed, order preserved):
+
+```bash
+kuva line data.tsv --x date --y "y1,sum_*"      # y1 plus every sum_* column
+kuva line data.tsv --x 0 --y 3..                 # column 3 to the last
+kuva box  data.tsv --y "a*"                       # a single glob is a valid multi-column selection
+```
+
+A single glob or range on its own still routes into the plot's multi-column (grouped/overlaid) path. Globs need a header row; a glob that matches nothing is an error. Ranges are index-based. (For `--value-cols`/`--axes`, which take space-separated values rather than commas, pass each selector as its own value: `--value-cols a1 b*`.)
+
 ### Missing values *(scatter, line, histogram, bar, parallel)*
 
 Empty cells, cells holding a missing-value token (`NA`, `NaN`, `null`, `N/A`, `.` by default,

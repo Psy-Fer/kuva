@@ -96,6 +96,8 @@ pub fn run(args: CoverageArgs) -> Result<(), String> {
         args.input.delimiter,
         &proj,
     )?;
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let sample_cols = table.expand_columns(&sample_cols)?;
     let xs = table.col_f64(&x_col)?;
 
     let mut cov = CoveragePlot::new();

@@ -77,7 +77,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         };
 
     // Multi-column --y mode: wide-format grouped bar (rows = categories, columns = series)
-    if args.y.len() > 1 && args.color_by.is_none() {
+    if (args.y.len() > 1 || args.y.iter().any(|c| c.is_multi())) && args.color_by.is_none() {
         let label_spec = args.label_col.clone().unwrap_or(ColSpec::Index(0));
         let proj: Vec<ColSpec> = std::iter::once(label_spec.clone())
             .chain(args.y.iter().cloned())
@@ -88,13 +88,14 @@ pub fn run(args: BarArgs) -> Result<(), String> {
             args.input.delimiter,
             &proj,
         )?;
+        // Expand column ranges / globs against the parsed table (issue #109).
+        let y_cols = table.expand_columns(&args.y)?;
         // Aggregate each y-column by label (mean, or --agg func if provided).
         // This handles both pre-aggregated wide data (one row per label) and
         // long-format data (many rows per label, values averaged per group).
         let raw_labels = table.col_str(&label_spec)?;
         // Read each series NA-aware, then drop any row missing in one or more series (row-level).
-        let y_opt: Vec<Vec<Option<f64>>> = args
-            .y
+        let y_opt: Vec<Vec<Option<f64>>> = y_cols
             .iter()
             .map(|c| table.col_f64_opt(c, &na_set, clamp))
             .collect::<Result<_, _>>()?;
@@ -105,7 +106,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
             .iter()
             .map(|col| keep.iter().map(|&i| col[i].unwrap_or(0.0)).collect())
             .collect();
-        let series_names: Vec<String> = args.y.iter().map(|c| table.col_display_name(c)).collect();
+        let series_names: Vec<String> = y_cols.iter().map(|c| table.col_display_name(c)).collect();
 
         // Collect unique labels in first-seen order, accumulating values per (label, series).
         let mut label_order: Vec<String> = Vec::new();
@@ -123,14 +124,14 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let agg_fn = args.agg.as_deref().unwrap_or("mean");
 
         let pal = Palette::category10();
-        let colors: Vec<String> = (0..args.y.len()).map(|i| pal[i].to_string()).collect();
+        let colors: Vec<String> = (0..y_cols.len()).map(|i| pal[i].to_string()).collect();
 
         let mut plot = BarPlot::new();
         if let Some(w) = args.bar_width {
             plot = plot.with_width(w);
         }
         for label in &label_order {
-            let bar_values: Vec<(f64, String)> = (0..args.y.len())
+            let bar_values: Vec<(f64, String)> = (0..y_cols.len())
                 .map(|si| {
                     let key = (label.clone(), si);
                     let val = match agg_fn {
