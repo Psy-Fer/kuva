@@ -145,7 +145,11 @@ fn labels_repel() {
         .with_data(pts.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>())
         .with_color("#4e79a7")
         .with_size(5.0)
-        .with_labels(pts.iter().map(|(_, _, l)| l.to_string()).collect::<Vec<_>>())
+        .with_labels(
+            pts.iter()
+                .map(|(_, _, l)| l.to_string())
+                .collect::<Vec<_>>(),
+        )
         .with_repel_labels();
 
     let plots = vec![Plot::Scatter(plot)];

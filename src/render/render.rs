@@ -5093,10 +5093,48 @@ fn add_survival(
                 });
             }
         }
+
+        // ── Median-survival reference lines ───────────────────────────────
+        if sp.median_lines {
+            if let Some(t_med) = crate::plot::survival::median_survival(&km) {
+                let med_stroke = if computed.bw_mode {
+                    Color::from("#1a1a1a")
+                } else {
+                    color.clone()
+                };
+                let y_half = computed.map_y(0.5);
+                let x_med = computed.map_x(t_med);
+                // Horizontal at S=0.5 from the axis to the median time, then vertical down.
+                scene.add(Primitive::Line {
+                    x1: computed.map_x(0.0),
+                    y1: y_half,
+                    x2: x_med,
+                    y2: y_half,
+                    stroke: med_stroke.clone(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: Some("4,3".into()),
+                });
+                scene.add(Primitive::Line {
+                    x1: x_med,
+                    y1: y_half,
+                    x2: x_med,
+                    y2: computed.map_y(0.0),
+                    stroke: med_stroke,
+                    stroke_width: 1.0,
+                    stroke_dasharray: Some("4,3".into()),
+                });
+            }
+        }
     }
 
     // ── p-value annotation ────────────────────────────────────────────────
-    if let Some(ref txt) = sp.pvalue_text {
+    // A computed log-rank p-value (when requested) overrides any manual text.
+    let pvalue_text: Option<String> = if sp.logrank_pvalue {
+        crate::plot::survival::logrank_pvalue_text(&sp.groups).or_else(|| sp.pvalue_text.clone())
+    } else {
+        sp.pvalue_text.clone()
+    };
+    if let Some(ref txt) = pvalue_text {
         let x = computed.margin_left + computed.plot_width() - 8.0;
         let y = computed.margin_top + computed.body_size as f64 * 1.5;
         scene.add(Primitive::Text {
@@ -5112,6 +5150,98 @@ fn add_survival(
     }
 }
 
+/// Draw the survival "number at risk" table below the plot. Must be called AFTER
+/// `ClipEnd` (the table sits below the plot-area clip rect and would otherwise be
+/// clipped away, like the Manhattan chromosome labels).
+fn add_survival_risk_table(
+    sp: &crate::plot::survival::SurvivalPlot,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+) {
+    if !sp.risk_table || computed.risk_table_extra <= 0.0 || sp.groups.is_empty() {
+        return;
+    }
+    use crate::plot::survival::n_at_risk;
+    use crate::render::palette::Palette;
+    let cat10 = Palette::category10();
+    let t_max = sp
+        .groups
+        .iter()
+        .flat_map(|g| g.times.iter().copied())
+        .fold(0.0_f64, f64::max);
+
+    let rh = line_height(computed.body_size as f64, FontStyle::Regular);
+    // The reserved band sits at the very bottom of the canvas.
+    let table_top = computed.height - computed.risk_table_extra + rh * 0.5;
+
+    // Columns align with the x-axis ticks that fall within [0, t_max].
+    let ticks: Vec<f64> =
+        render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
+            .into_iter()
+            .filter(|&t| t >= computed.x_range.0 - 1e-9 && t <= t_max + 1e-9)
+            .collect();
+
+    // Title row.
+    scene.add(Primitive::Text {
+        x: 3.0,
+        y: table_top,
+        content: "Number at risk".to_string(),
+        size: computed.body_size,
+        anchor: TextAnchor::Start,
+        bold: true,
+        rotate: None,
+        color: None,
+    });
+
+    for (gi, group) in sp.groups.iter().enumerate() {
+        let row_y = table_top + rh * (gi as f64 + 1.0);
+        let color_str: &str = group
+            .color
+            .as_deref()
+            .or_else(|| {
+                sp.group_colors
+                    .as_ref()
+                    .and_then(|c| c.get(gi).map(|s| s.as_str()))
+            })
+            .unwrap_or_else(|| {
+                if sp.groups.len() > 1 {
+                    &cat10[gi]
+                } else {
+                    &sp.color
+                }
+            });
+        let row_color = if computed.bw_mode {
+            Some(Color::from("#1a1a1a"))
+        } else {
+            Some(Color::from(color_str))
+        };
+        // Group label at the far left, in the group colour.
+        scene.add(Primitive::Text {
+            x: 3.0,
+            y: row_y,
+            content: group.label.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::Start,
+            bold: false,
+            rotate: None,
+            color: row_color.clone(),
+        });
+        // Counts under each tick.
+        for &t in &ticks {
+            scene.add(Primitive::Text {
+                x: computed.map_x(t),
+                y: row_y,
+                content: n_at_risk(&group.times, t).to_string(),
+                size: computed.body_size,
+                anchor: TextAnchor::Middle,
+                bold: false,
+                rotate: None,
+                color: row_color.clone(),
+            });
+        }
+    }
+}
+
 /// Render a single Kaplan-Meier survival plot.
 pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
@@ -5122,6 +5252,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_survival(sp, &mut scene, &computed);
+    add_survival_risk_table(sp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
@@ -16135,6 +16266,13 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         if let Plot::Manhattan(m) = plot {
             add_manhattan_chr_labels(m, &mut scene, &computed);
+        }
+    }
+
+    // Survival number-at-risk table sits below the plot area — emit after ClipEnd.
+    for plot in plots.iter() {
+        if let Plot::Survival(sp) = plot {
+            add_survival_risk_table(sp, &mut scene, &computed);
         }
     }
 

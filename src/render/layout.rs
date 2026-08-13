@@ -418,6 +418,10 @@ pub struct Layout {
     pub force_margin_left: Option<f64>,
     /// Force `ComputedLayout::margin_right` to an exact pixel value. See `force_margin_left`.
     pub force_margin_right: Option<f64>,
+    /// Number of group rows for a survival "number at risk" table drawn below the plot.
+    /// Set by `auto_from_plots` when a `SurvivalPlot` has `risk_table` enabled; reserves
+    /// extra `margin_bottom`. `None` = no table.
+    pub risk_table_rows: Option<usize>,
     /// Explicit major tick step for the x-axis.  Skips auto computation when set.
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis.  Skips auto computation when set.
@@ -584,6 +588,7 @@ impl Layout {
             y2_axis_max: None,
             force_margin_left: None,
             force_margin_right: None,
+            risk_table_rows: None,
             x_tick_step: None,
             y_tick_step: None,
             minor_ticks: None,
@@ -638,6 +643,7 @@ impl Layout {
         let mut has_legend: bool = false;
         let mut has_colorbar: bool = false;
         let mut has_manhattan: bool = false;
+        let mut risk_table_rows: Option<usize> = None;
         let mut has_polar: bool = false;
         // Tracks whether any plot type requires the y-axis to be anchored at 0
         // (bar, histogram, stacked-area, etc.).  When false, the axis fits the data.
@@ -1115,6 +1121,9 @@ impl Layout {
                         note_legend_label(&mut max_label_len, &mut max_label_w, &g.label, 0);
                     }
                 }
+                if sp.risk_table && !sp.groups.is_empty() {
+                    risk_table_rows = Some(sp.groups.len());
+                }
             }
 
             if let Plot::Roc(roc) = plot {
@@ -1556,6 +1565,8 @@ impl Layout {
                 false
             }
         });
+
+        layout.risk_table_rows = risk_table_rows;
 
         if has_legend {
             layout = layout.with_show_legend();
@@ -2812,6 +2823,8 @@ pub struct ComputedLayout {
     /// The x-axis label must be offset upward by this amount so it stays
     /// above the legend rather than landing inside it.
     pub legend_bottom_extra: f64,
+    /// Pixels reserved at the bottom for a survival "number at risk" table (0 = none).
+    pub risk_table_extra: f64,
     /// Number of columns for `OutsideBottomColumns` legend layout; 0 for all other positions.
     pub legend_col_count: usize,
     /// Entry limit carried through from `Layout::legend_entry_limit`; 0 means unlimited.
@@ -2986,6 +2999,15 @@ impl ComputedLayout {
                     (x_label_lines - 1) as f64 * line_height(label_size, FontStyle::Regular);
             }
         }
+        // Reserve space below the axis for a survival "number at risk" table: a title
+        // row plus one row per group.
+        let risk_table_extra = if let Some(rows) = layout.risk_table_rows {
+            let rh = line_height(tick_size, FontStyle::Regular);
+            rh * (rows as f64 + 1.0) + 14.0 * s
+        } else {
+            0.0
+        };
+        margin_bottom += risk_table_extra;
         // Left: axis label + y tick label text width + gaps.
         // Compute the actual maximum tick label pixel width from real tick strings so the
         // left margin is exactly as wide as needed and the Y axis label snugs up against
@@ -3545,6 +3567,7 @@ impl ComputedLayout {
             x2_label_wrap: layout.x2_label_wrap,
             legend_wrap: layout.legend_wrap,
             legend_bottom_extra,
+            risk_table_extra,
             legend_col_count,
             legend_entry_limit: layout.legend_entry_limit,
             bw_mode: layout.bw_mode,

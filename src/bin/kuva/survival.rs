@@ -41,6 +41,18 @@ pub struct SurvivalArgs {
     #[arg(long)]
     pub legend: Option<String>,
 
+    /// Draw a "Number at risk" table below the plot.
+    #[arg(long)]
+    pub risk_table: bool,
+
+    /// Draw median-survival reference lines.
+    #[arg(long)]
+    pub median_lines: bool,
+
+    /// Compute and annotate the log-rank test p-value from the data.
+    #[arg(long)]
+    pub logrank: bool,
+
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -85,6 +97,15 @@ pub fn run(args: SurvivalArgs) -> Result<(), String> {
     }
     if let Some(legend) = args.legend {
         plot = plot.with_legend(legend);
+    }
+    if args.risk_table {
+        plot = plot.with_risk_table(true);
+    }
+    if args.median_lines {
+        plot = plot.with_median_lines(true);
+    }
+    if args.logrank {
+        plot = plot.with_logrank_pvalue(true);
     }
 
     if let Some(ref gc) = args.group_col {

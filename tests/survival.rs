@@ -242,3 +242,86 @@ fn test_survival_realistic_os() {
     assert!(svg.contains("Treatment"));
     assert!(svg.contains("p = 0.041"));
 }
+
+// ── Clinical additions: risk table, median lines, log-rank p-value ──────────────
+
+fn two_arms() -> SurvivalPlot {
+    // Arm A tends to have earlier events than arm B (separated survival).
+    let a_t = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0];
+    let a_e = vec![true; 10];
+    let b_t = vec![6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0];
+    let b_e = vec![
+        true, true, false, true, true, false, true, false, true, false,
+    ];
+    SurvivalPlot::new()
+        .with_group("Arm A", a_t, a_e)
+        .with_group("Arm B", b_t, b_e)
+        .with_legend("Treatment")
+}
+
+#[test]
+fn test_survival_risk_table() {
+    let plot = two_arms().with_risk_table(true);
+    let plots = vec![Plot::Survival(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Survival with risk table")
+        .with_x_label("Time (months)")
+        .with_y_label("Survival probability");
+    let svg = write_svg("survival_risk_table", plots, layout);
+    assert!(svg.contains("Number at risk"), "risk table title missing");
+    // Both group labels appear in the table.
+    assert!(svg.matches(">Arm A<").count() >= 1 && svg.matches(">Arm B<").count() >= 1);
+
+    // Regression guard: the table sits below the plot area, so it must be emitted AFTER
+    // the plot-area clip group closes — otherwise it renders but is clipped invisible.
+    let title_pos = svg.find("Number at risk").unwrap();
+    let before = &svg[..title_pos];
+    let last_clip_open = before.rfind("clip-path=");
+    let last_clip_close = before.rfind("</g>");
+    assert!(
+        last_clip_open.is_none() || last_clip_close > last_clip_open,
+        "risk table must be drawn outside the plot-area clip (else it is clipped away)"
+    );
+}
+
+#[test]
+fn test_survival_median_lines() {
+    let plot = two_arms().with_median_lines(true);
+    let plots = vec![Plot::Survival(plot)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Median survival lines");
+    let svg = write_svg("survival_median_lines", plots, layout);
+    // Median reference lines are dashed.
+    assert!(
+        svg.contains("stroke-dasharray=\"4,3\""),
+        "median lines should be dashed"
+    );
+}
+
+#[test]
+fn test_survival_logrank_pvalue() {
+    let plot = two_arms().with_logrank_pvalue(true);
+    let plots = vec![Plot::Survival(plot)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Log-rank p-value");
+    let svg = write_svg("survival_logrank", plots, layout);
+    assert!(
+        svg.contains("log-rank p"),
+        "computed log-rank annotation missing"
+    );
+}
+
+#[test]
+fn test_survival_all_clinical() {
+    let plot = two_arms()
+        .with_risk_table(true)
+        .with_median_lines(true)
+        .with_logrank_pvalue(true);
+    let plots = vec![Plot::Survival(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Overall Survival")
+        .with_x_label("Time (months)")
+        .with_y_label("Survival probability");
+    let svg = write_svg("survival_clinical", plots, layout);
+    assert!(svg.contains("Number at risk"));
+    assert!(svg.contains("log-rank p"));
+    assert!(svg.contains("stroke-dasharray=\"4,3\""));
+}

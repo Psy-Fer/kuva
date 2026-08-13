@@ -992,6 +992,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.y2_axis_max = l.y2_axis_max;
     new.force_margin_left = l.force_margin_left;
     new.force_margin_right = l.force_margin_right;
+    new.risk_table_rows = l.risk_table_rows;
     new.x_datetime = l.x_datetime.clone();
     new.y_datetime = l.y_datetime.clone();
     new.x_tick_rotate = l.x_tick_rotate;

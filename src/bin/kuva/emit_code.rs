@@ -2192,6 +2192,15 @@ pub fn emit_survival_plot(p: &SurvivalPlot) -> String {
     if let Some(ref label) = p.legend_label {
         frags.push(format!(".with_legend({})", str_lit(label)));
     }
+    if p.risk_table {
+        frags.push(".with_risk_table(true)".to_string());
+    }
+    if p.median_lines {
+        frags.push(".with_median_lines(true)".to_string());
+    }
+    if p.logrank_pvalue {
+        frags.push(".with_logrank_pvalue(true)".to_string());
+    }
     chain("SurvivalPlot::new()", frags)
 }
 

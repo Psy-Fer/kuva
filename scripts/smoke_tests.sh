@@ -399,6 +399,12 @@ check "manhattan repel labels" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue --top-n 8 --label-style repel \
         --title "GWAS Results" --x-label "Chromosome" "--y-label=-log10(p-value)"
 
+# ── survival clinical ─────────────────────────────────────────────────────────
+check "survival clinical" \
+    "$BIN" survival "$DATA/survival.tsv" --time-col time --event-col event --group-col group --header \
+        --risk-table --median-lines --logrank --legend "Arm" \
+        --title "Overall Survival" --x-label "Time (months)" --y-label "Survival probability"
+
 check "manhattan hg38" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38 \
         --title "GWAS Results (hg38)" --x-label "Chromosome" "--y-label=-log10(p-value)"
