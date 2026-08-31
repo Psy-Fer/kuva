@@ -174,7 +174,10 @@ fn textplot_body_math_splices_fragment() {
     );
     assert!(svg.contains("variance"), "styled span must remain text");
     // The raw math source must not leak into text output.
-    assert!(!svg.contains("\\frac"), "raw LaTeX-ish source must not appear");
+    assert!(
+        !svg.contains("\\frac"),
+        "raw LaTeX-ish source must not appear"
+    );
 }
 
 // A long body with several math regions still wraps: every fragment counts

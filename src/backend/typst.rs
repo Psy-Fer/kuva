@@ -929,12 +929,22 @@ fn emit_path(out: &mut String, data: &crate::render::render::PathData, scene_h: 
                 cur = (*x, *y);
             }
             PathSeg::Cubic([c1x, c1y, c2x, c2y, x, y]) => {
-                write_bezier(&mut body, cur, (*c1x, *c1y), (*c2x, *c2y), (*x, *y), scene_h);
+                write_bezier(
+                    &mut body,
+                    cur,
+                    (*c1x, *c1y),
+                    (*c2x, *c2y),
+                    (*x, *y),
+                    scene_h,
+                );
                 cur = (*x, *y);
             }
             PathSeg::Quad([qx, qy, x, y]) => {
                 // Promote to cubic: c1 = p + 2/3 (q - p), c2 = e + 2/3 (q - e).
-                let c1 = (cur.0 + 2.0 / 3.0 * (qx - cur.0), cur.1 + 2.0 / 3.0 * (qy - cur.1));
+                let c1 = (
+                    cur.0 + 2.0 / 3.0 * (qx - cur.0),
+                    cur.1 + 2.0 / 3.0 * (qy - cur.1),
+                );
                 let c2 = (x + 2.0 / 3.0 * (qx - x), y + 2.0 / 3.0 * (qy - y));
                 write_bezier(&mut body, cur, c1, c2, (*x, *y), scene_h);
                 cur = (*x, *y);
@@ -943,7 +953,14 @@ fn emit_path(out: &mut String, data: &crate::render::render::PathData, scene_h: 
                 cubics.clear();
                 arc_to_cubics(cur.0, cur.1, *rx, *ry, *large, *sweep, *x, *y, &mut cubics);
                 for [c1x, c1y, c2x, c2y, ex, ey] in &cubics {
-                    write_bezier(&mut body, cur, (*c1x, *c1y), (*c2x, *c2y), (*ex, *ey), scene_h);
+                    write_bezier(
+                        &mut body,
+                        cur,
+                        (*c1x, *c1y),
+                        (*c2x, *c2y),
+                        (*ex, *ey),
+                        scene_h,
+                    );
                     cur = (*ex, *ey);
                 }
             }

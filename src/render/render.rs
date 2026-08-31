@@ -15460,8 +15460,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
             });
         }
         prev_math_flush = false;
-        prev_text_trailing_ws =
-            span.text.ends_with(char::is_whitespace) || span.text.is_empty();
+        prev_text_trailing_ws = span.text.ends_with(char::is_whitespace) || span.text.is_empty();
     }
 
     // The wrapping length of one word, in character units.
@@ -15480,7 +15479,11 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
 
     for word in words {
         let wlen = word_len(&word);
-        let sep = if cur.is_empty() || word.flush_left { 0 } else { 1 };
+        let sep = if cur.is_empty() || word.flush_left {
+            0
+        } else {
+            1
+        };
         if cur_len + sep + wlen > max_chars && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             cur_len = 0;
@@ -15536,7 +15539,11 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
                 }
                 // New span: prefix with a space unless flush against the
                 // previous word (or first on the line).
-                let text = if space { format!(" {}", w.text) } else { w.text };
+                let text = if space {
+                    format!(" {}", w.text)
+                } else {
+                    w.text
+                };
                 line_spans.push(TextSpan {
                     text,
                     bold: w.bold,

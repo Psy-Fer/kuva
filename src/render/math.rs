@@ -678,7 +678,8 @@ mod typst_tier {
     ) -> Option<MathPixmap> {
         let doc = compile(label, size_pt, color)?;
         let page = doc.pages.first()?;
-        let baseline_pt = first_baseline_pt(&page.frame).unwrap_or_else(|| page.frame.height().to_pt());
+        let baseline_pt =
+            first_baseline_pt(&page.frame).unwrap_or_else(|| page.frame.height().to_pt());
         let pixmap = typst_render::render(page, pixels_per_pt);
         Some(MathPixmap {
             width_px: pixmap.width(),
@@ -873,8 +874,7 @@ pub(crate) const FRAGMENT_MARGIN_EM: f64 = 0.3;
 /// (callers fall back to lookup-tier text metrics).
 #[cfg(feature = "pdf")]
 pub(crate) fn fragment_size(label: &str, size_pt: f64) -> Option<(f64, f64, f64)> {
-    render_label_svg(label, size_pt, None)
-        .map(|m| (m.width_pt, m.height_pt, m.baseline_offset_pt))
+    render_label_svg(label, size_pt, None).map(|m| (m.width_pt, m.height_pt, m.baseline_offset_pt))
 }
 
 /// Translate a `$...$` body from LaTeX-ish syntax to Typst math syntax:

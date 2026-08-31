@@ -2299,7 +2299,9 @@ impl RasterBackend {
                     // blitted in the pen loop. A failed compile leaves None
                     // and the span degrades to lookup-tier text below.
                     #[cfg(feature = "pdf")]
-                    let math_frags: Vec<Option<crate::render::math::MathPixmap>> = spans
+                    let math_frags: Vec<
+                        Option<crate::render::math::MathPixmap>,
+                    > = spans
                         .iter()
                         .map(|sp| {
                             if sp.math {
@@ -2333,10 +2335,10 @@ impl RasterBackend {
                                 if let Some(pm) = &math_frags[_i] {
                                     // Advance minus the fragment's baked-in
                                     // margin (see math::FRAGMENT_MARGIN_EM).
-                                    let margin =
-                                        (crate::render::math::FRAGMENT_MARGIN_EM * *size as f64)
-                                            as f32
-                                            * s;
+                                    let margin = (crate::render::math::FRAGMENT_MARGIN_EM
+                                        * *size as f64)
+                                        as f32
+                                        * s;
                                     return (pm.width_px as f32 - 2.0 * margin).max(1.0);
                                 }
                                 return measure_text_direct(&lowered_math(sp), sz, font);
@@ -2370,8 +2372,7 @@ impl RasterBackend {
                                 // margin early; advance minus both margins so
                                 // the fragment spaces like a word.
                                 let margin =
-                                    (crate::render::math::FRAGMENT_MARGIN_EM * *size as f64)
-                                        as f32
+                                    (crate::render::math::FRAGMENT_MARGIN_EM * *size as f64) as f32
                                         * s;
                                 let dx = (pen_x - margin).round() as i32;
                                 let dy = (sy!(*y) - pm.baseline_offset_px as f32).round() as i32;
