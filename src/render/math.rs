@@ -581,7 +581,32 @@ mod typst_tier {
     use typst::text::{Font, FontBook};
     use typst::utils::LazyHash;
     use typst::{Library, LibraryExt, World};
-    use typst_library::layout::PagedDocument;
+    use typst_library::layout::{Frame, FrameItem, PagedDocument};
+
+    /// Find the topmost baseline in the fragment's frame tree, in pt.
+    ///
+    /// `page.frame.baseline()` on a page frame defaults to the frame *height*
+    /// (its `size.y`) because pages don't set an explicit baseline — using it
+    /// as-is places the fragment's bottom at the surrounding text baseline,
+    /// making the math sit above the line. The paragraph-line frame nested
+    /// inside the page carries the real baseline (`has_baseline() == true`);
+    /// we walk to it and add up the y offsets on the way.
+    fn first_baseline_pt(frame: &Frame) -> Option<f64> {
+        fn walk(frame: &Frame, y_off: f64, best: &mut Option<f64>) {
+            if frame.has_baseline() {
+                let cand = y_off + frame.baseline().to_pt();
+                *best = Some(best.map_or(cand, |b: f64| b.min(cand)));
+            }
+            for (pos, item) in frame.items() {
+                if let FrameItem::Group(g) = item {
+                    walk(&g.frame, y_off + pos.y.to_pt(), best);
+                }
+            }
+        }
+        let mut best = None;
+        walk(frame, 0.0, &mut best);
+        best
+    }
 
     /// A whole label rendered to an SVG fragment for embedding.
     #[derive(Debug, Clone)]
@@ -630,11 +655,12 @@ mod typst_tier {
         let result = (|| {
             let doc = compile(label, size_pt, color)?;
             let page = doc.pages.first()?;
+            let height_pt = page.frame.height().to_pt();
             Some(MathSvg {
                 inner_svg: extract_inner(&typst_svg::svg(page)),
                 width_pt: page.frame.width().to_pt(),
-                height_pt: page.frame.height().to_pt(),
-                baseline_offset_pt: page.frame.baseline().to_pt(),
+                height_pt,
+                baseline_offset_pt: first_baseline_pt(&page.frame).unwrap_or(height_pt),
             })
         })();
         if let Ok(mut map) = cache.lock() {
@@ -652,7 +678,7 @@ mod typst_tier {
     ) -> Option<MathPixmap> {
         let doc = compile(label, size_pt, color)?;
         let page = doc.pages.first()?;
-        let baseline_pt = page.frame.baseline().to_pt();
+        let baseline_pt = first_baseline_pt(&page.frame).unwrap_or_else(|| page.frame.height().to_pt());
         let pixmap = typst_render::render(page, pixels_per_pt);
         Some(MathPixmap {
             width_px: pixmap.width(),
