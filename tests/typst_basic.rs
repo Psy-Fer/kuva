@@ -225,10 +225,23 @@ fn clip_region_becomes_clipped_box() {
         height: 200.0,
         id: "clip0".to_string(),
     });
+    // Straddling shape: a large blue circle centered on the clip rect's left
+    // edge — half sits inside the clip, half outside, so the rendered typst
+    // file visibly demonstrates clipping (not just primitive emission).
     s.elements.push(Primitive::Circle {
-        cx: 60.0,
-        cy: 60.0,
-        r: 5.0,
+        cx: 50.0,
+        cy: 140.0,
+        r: 60.0,
+        fill: Color::Rgb(70, 130, 180),
+        fill_opacity: None,
+        stroke: None,
+        stroke_width: None,
+    });
+    // Fully-inside sanity check.
+    s.elements.push(Primitive::Circle {
+        cx: 260.0,
+        cy: 140.0,
+        r: 30.0,
         fill: Color::Css("red".into()),
         fill_opacity: None,
         stroke: None,
