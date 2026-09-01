@@ -27,7 +27,6 @@ fn test_brick_pop_basic() {
     let brick = BrickPlot::new()
         .with_names(names)
         .with_motif_colors(motif_colors)
-        .with_merge_runs(true)
         .with_strigars(strigars);
 
     let plot = BrickPopPlot::new(brick)

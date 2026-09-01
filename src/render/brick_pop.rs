@@ -23,20 +23,25 @@
 
 use crate::plot::brick::BrickPlot;
 use crate::plot::colormap::ColorMap;
+use crate::plot::legend_plot::LegendPlot;
 use crate::render::color::Color;
 use crate::render::layout::Layout;
 use crate::render::plots::Plot;
-use crate::render::render::{render_multiple, Primitive, Scene, TextAnchor};
+use crate::render::render::{
+    collect_legend_entries, render_multiple, Primitive, Scene, TextAnchor,
+};
 use crate::render::text_metrics::{center_offset, measure_text_width, FontStyle};
 use crate::render::theme::Theme;
 use crate::render::track_stack::merge_translated;
 
 const LABEL_SIZE: f64 = 12.0;
 const HEADER_SIZE: u32 = 11;
+const AXIS_LABEL_SIZE: u32 = 10;
 const TITLE_BAND_PX: f64 = 30.0;
 const TITLE_SIZE: u32 = 18;
 const HEADER_BAND_PX: f64 = 26.0;
-const BOTTOM_PAD: f64 = 10.0;
+/// Bottom band reserved for the frequency axis and the embedded brick's x-axis.
+const AXIS_BAND_PX: f64 = 42.0;
 const GUTTER_PAD: f64 = 6.0;
 const PANEL_GAP: f64 = 8.0;
 const FREQ_PANEL_W: f64 = 110.0;
@@ -45,6 +50,26 @@ const HEAT_CELL_GAP: f64 = 3.0;
 const DEFAULT_ROW_HEIGHT: f64 = 18.0;
 const DEFAULT_FREQ_COLOR: &str = "#4c78a8";
 const DEFAULT_NA_COLOR: &str = "#eeeeee";
+/// Bottom band: the motif legend, rendered as an embedded `LegendPlot` grid (kept out of
+/// the way of the right-hand colourbars, since motif lists get large for complex loci).
+const LEGEND_ROW_H: f64 = 18.0;
+/// Uniform legend column width = swatch + widest label + padding (mirrors `LegendPlot`).
+const LEGEND_COL_PAD: f64 = 38.0;
+/// Right-hand region: one metric colourbar per column, drawn side by side.
+const COLORBAR_W: f64 = 14.0;
+const COLORBAR_H: f64 = 64.0;
+const COLORBAR_STEPS: usize = 24;
+/// Width budget for one colourbar unit: [vertical title | bar | value labels].
+const COLORBAR_UNIT_W: f64 = 76.0;
+
+/// Format a scale value compactly (integers without a decimal, else 2 dp).
+fn fmt_num(v: f64) -> String {
+    if v.fract().abs() < 1e-9 && v.abs() < 1e6 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.2}")
+    }
+}
 
 /// One column of per-allele metric heatboxes (e.g. methylation, motif entropy, longest
 /// pure chain). Each row's value is mapped through `colormap` after normalising to the
@@ -220,21 +245,85 @@ impl BrickPopPlot {
         self.brick.num_rows()
     }
 
-    /// Render at the given width, auto-computing the height from the row count.
-    pub fn render(self, width: f64) -> Scene {
-        let n = self.num_rows().max(1) as f64;
-        let title_h = if self.title.is_some() {
+    /// Pixels reserved for the title band (0 when there is no title).
+    fn title_band(&self) -> f64 {
+        if self.title.is_some() {
             TITLE_BAND_PX
         } else {
             0.0
-        };
-        let header_h = if self.frequencies.is_empty() && self.metrics.is_empty() {
+        }
+    }
+
+    /// Pixels reserved for the column-header band. Tall enough for the vertically-drawn
+    /// metric labels; 0 when there is neither a frequency bar nor any metric column.
+    fn header_band(&self) -> f64 {
+        if self.frequencies.is_empty() && self.metrics.is_empty() {
+            return 0.0;
+        }
+        let longest = self
+            .metrics
+            .iter()
+            .map(|m| measure_text_width(&m.label, HEADER_SIZE as f64, FontStyle::Regular))
+            .fold(0.0_f64, f64::max);
+        (longest + 8.0).max(HEADER_BAND_PX)
+    }
+
+    /// Motif display labels (one per motif) for the bottom legend, in the same
+    /// token-sorted order the drawn legend uses (so the wrap-based height estimate matches
+    /// the drawing, and never depends on HashMap iteration order).
+    fn motif_labels(&self) -> Vec<String> {
+        if let Some(m) = &self.brick.motifs {
+            let mut pairs: Vec<(&char, &String)> = m.iter().collect();
+            pairs.sort_by_key(|(k, _)| **k);
+            pairs.into_iter().map(|(_, v)| v.clone()).collect()
+        } else if let Some(t) = &self.brick.template {
+            let mut keys: Vec<char> = t.keys().copied().collect();
+            keys.sort_unstable();
+            keys.into_iter().map(|c| c.to_string()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Width of the right-hand colourbar region (0 when there are no metrics).
+    fn colorbar_region_w(&self) -> f64 {
+        self.metrics.len() as f64 * COLORBAR_UNIT_W
+    }
+
+    /// Column count and pixel height of the bottom motif legend for a given legend width
+    /// (returns `(1, 0.0)` when the brick has no legend). Mirrors `LegendPlot`'s uniform
+    /// grid: a fixed column width from the widest label, as many columns as fit, then rows.
+    fn motif_legend_layout(&self, legend_width: f64) -> (usize, f64) {
+        let labels = self.motif_labels();
+        if labels.is_empty() || legend_width <= 0.0 {
+            return (1, 0.0);
+        }
+        let widest = labels
+            .iter()
+            .map(|l| measure_text_width(l, LABEL_SIZE, FontStyle::Regular))
+            .fold(0.0_f64, f64::max);
+        let col_w = widest + LEGEND_COL_PAD;
+        let avail = (legend_width - 20.0).max(col_w);
+        let cols = ((avail / col_w).floor() as usize).max(1);
+        let rows = labels.len().div_ceil(cols);
+        (cols, rows as f64 * LEGEND_ROW_H + 24.0)
+    }
+
+    /// Render at the given width, auto-computing the height. The canvas is tall enough for
+    /// whichever is larger: the allele rows + axis + bottom motif legend, or the top-right
+    /// colourbars.
+    pub fn render(self, width: f64) -> Scene {
+        let n = self.num_rows().max(1) as f64;
+        let force_top = self.title_band() + self.header_band();
+        let legend_width = (width - self.colorbar_region_w()).max(1.0);
+        let (_, legend_band_h) = self.motif_legend_layout(legend_width);
+        let rows_stack = force_top + n * self.row_height_px + AXIS_BAND_PX + legend_band_h;
+        let colorbar_stack = if self.metrics.is_empty() {
             0.0
         } else {
-            HEADER_BAND_PX
+            force_top + COLORBAR_H + 26.0
         };
-        let height = title_h + header_h + n * self.row_height_px + BOTTOM_PAD;
-        self.render_sized(width, height)
+        self.render_sized(width, rows_stack.max(colorbar_stack))
     }
 
     /// Render at an explicit width and height.
@@ -247,9 +336,14 @@ impl BrickPopPlot {
         if n == 0 {
             return scene;
         }
-        let text = || Color::Css(self.theme.text_color.as_str().into());
+        let text_color = Color::Css(self.theme.text_color.as_str().into());
+        let axis_color = Color::Css(self.theme.axis_color.as_str().into());
 
-        // ── Horizontal regions: [names | freq | heat | bricks] ────────────────────────
+        let has_freq = !self.frequencies.is_empty();
+        let has_metrics = !self.metrics.is_empty();
+        let brick_has_legend = self.brick.template.as_ref().is_some_and(|t| !t.is_empty());
+
+        // ── Horizontal regions: [names | freq | heat | bricks | legend] ───────────────
         let names: Vec<String> = self.brick.names.clone();
         let name_w = names
             .iter()
@@ -261,31 +355,34 @@ impl BrickPopPlot {
             0.0
         };
 
-        let has_freq = !self.frequencies.is_empty();
         let freq_x = gutter_w;
         let freq_w = if has_freq { FREQ_PANEL_W } else { 0.0 };
-
         let heat_x = freq_x + freq_w + if freq_w > 0.0 { PANEL_GAP } else { 0.0 };
         let heat_w = self.metrics.len() as f64 * HEAT_COL_W;
-
         let brick_x = heat_x + heat_w + if heat_w > 0.0 { PANEL_GAP } else { 0.0 };
-        let brick_w = (width - brick_x).max(50.0);
+        // Colourbars occupy a right-hand region (side by side); bricks fill the space between
+        // the heatboxes and that region.
+        let colorbar_region_w = self.colorbar_region_w();
+        let brick_w = (width - brick_x - colorbar_region_w).max(50.0);
 
-        // ── Vertical bands: [title][header][rows...][bottom pad] ───────────────────────
-        let title_h = if self.title.is_some() {
-            TITLE_BAND_PX
+        // The motif legend occupies a bottom band, spanning everything left of the
+        // colourbar region, rendered as an embedded `LegendPlot` grid.
+        let legend_width = width - colorbar_region_w;
+        let (legend_cols, legend_band_h) = if brick_has_legend {
+            self.motif_legend_layout(legend_width)
         } else {
-            0.0
+            (1, 0.0)
         };
-        let header_h = if has_freq || !self.metrics.is_empty() {
-            HEADER_BAND_PX
-        } else {
-            0.0
-        };
-        let force_top = title_h + header_h;
-        let force_bottom = BOTTOM_PAD;
+
+        // ── Vertical bands: [title][header][rows...][axis band] ───────────────────────
+        // Rows keep their natural height (`row_height_px`) when the canvas is taller than
+        // the rows need (e.g. sized up for a tall legend); the surplus becomes the bottom
+        // band. When the canvas is tight, rows compress but the axis band is preserved.
+        let force_top = self.title_band() + self.header_band();
+        let force_bottom = (height - force_top - n as f64 * self.row_height_px).max(AXIS_BAND_PX);
         let band_h = (height - force_top - force_bottom).max(1.0);
         let row_h = band_h / n as f64;
+        let rows_bottom = force_top + band_h;
         let row_center = |i: usize| force_top + (i as f64 + 0.5) * row_h;
 
         // ── Title ─────────────────────────────────────────────────────────────────────
@@ -298,36 +395,36 @@ impl BrickPopPlot {
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: true,
-                color: Some(text()),
+                color: Some(text_color.clone()),
             });
         }
 
-        // ── Column headers ──────────────────────────────────────────────────────────
-        let header_y = force_top - 5.0;
+        // ── Column headers, drawn ABOVE the panels ────────────────────────────────────
         if has_freq {
             scene.add(Primitive::Text {
                 x: freq_x + freq_w / 2.0,
-                y: header_y,
+                y: force_top - 6.0,
                 content: self.freq_label.clone(),
                 size: HEADER_SIZE,
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
-                color: Some(text()),
+                color: Some(text_color.clone()),
             });
         }
+        // Metric labels read bottom-to-top (columns are narrow); anchored at the bottom of
+        // the header band (just above the squares) so `rotate(-90)` extends them upward.
         for (c, metric) in self.metrics.iter().enumerate() {
-            // Column labels are drawn vertically (columns are narrow).
             let cx = heat_x + c as f64 * HEAT_COL_W + HEAT_COL_W / 2.0;
             scene.add(Primitive::Text {
                 x: cx + center_offset(HEADER_SIZE as f64, FontStyle::Regular),
-                y: force_top - 3.0,
+                y: force_top - 4.0,
                 content: metric.label.clone(),
                 size: HEADER_SIZE,
-                anchor: TextAnchor::End,
+                anchor: TextAnchor::Start,
                 rotate: Some(-90.0),
                 bold: false,
-                color: Some(text()),
+                color: Some(text_color.clone()),
             });
         }
 
@@ -344,11 +441,11 @@ impl BrickPopPlot {
                 anchor: TextAnchor::Start,
                 rotate: None,
                 bold: false,
-                color: Some(text()),
+                color: Some(text_color.clone()),
             });
         }
 
-        // ── Frequency bars (baseline at the right of the panel, growing left) ─────────
+        // ── Frequency bars + axis (baseline at panel right, bars grow left) ────────────
         if has_freq {
             let max_freq = self
                 .frequencies
@@ -378,6 +475,40 @@ impl BrickPopPlot {
                     opacity: None,
                 });
             }
+            // Axis line along the bottom band, with 0 at the (right) baseline and max at
+            // the left edge, matching the leftward-growing bars.
+            scene.add(Primitive::Line {
+                x1: baseline_r - avail,
+                y1: rows_bottom,
+                x2: baseline_r,
+                y2: rows_bottom,
+                stroke: axis_color.clone(),
+                stroke_width: 1.0,
+                stroke_dasharray: None,
+            });
+            for k in 0..=2 {
+                let frac = k as f64 / 2.0;
+                let x = baseline_r - frac * avail;
+                scene.add(Primitive::Line {
+                    x1: x,
+                    y1: rows_bottom,
+                    x2: x,
+                    y2: rows_bottom + 4.0,
+                    stroke: axis_color.clone(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: None,
+                });
+                scene.add(Primitive::Text {
+                    x,
+                    y: rows_bottom + 6.0 + AXIS_LABEL_SIZE as f64,
+                    content: fmt_num(frac * max_freq),
+                    size: AXIS_LABEL_SIZE,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: Some(text_color.clone()),
+                });
+            }
         }
 
         // ── Metric heatboxes ──────────────────────────────────────────────────────────
@@ -404,14 +535,97 @@ impl BrickPopPlot {
             }
         }
 
-        // ── Brick column (embedded BrickPlot, row band pinned to align with the panels) ─
+        // Build the brick plot now so its motif legend entries can be harvested for the
+        // bottom legend; the brick itself is rendered last (below).
         let plots = vec![Plot::Brick(self.brick)];
+
+        // ── Metric colourbars: side by side on the right, title vertical on each one's left
+        if has_metrics {
+            let region_x = width - colorbar_region_w;
+            let cb_top = force_top + 8.0;
+            let seg_h = COLORBAR_H / COLORBAR_STEPS as f64;
+            for (c, metric) in self.metrics.iter().enumerate() {
+                let unit_left = region_x + c as f64 * COLORBAR_UNIT_W;
+                let bar_x = unit_left + 18.0;
+                // Vertical title on the bar's left, reading bottom-to-top. Anchored at the
+                // bar's bottom (left-justified) so titles of different lengths still line up
+                // when the bars sit side by side.
+                scene.add(Primitive::Text {
+                    x: unit_left + 8.0 + center_offset(HEADER_SIZE as f64, FontStyle::Regular),
+                    y: cb_top + COLORBAR_H,
+                    content: metric.label.clone(),
+                    size: HEADER_SIZE,
+                    anchor: TextAnchor::Start,
+                    rotate: Some(-90.0),
+                    bold: false,
+                    color: Some(text_color.clone()),
+                });
+                // Gradient bar (max at top, min at bottom).
+                for s in 0..COLORBAR_STEPS {
+                    let t = 1.0 - (s as f64 + 0.5) / COLORBAR_STEPS as f64;
+                    scene.add(Primitive::Rect {
+                        x: bar_x,
+                        y: cb_top + s as f64 * seg_h,
+                        width: COLORBAR_W,
+                        height: seg_h + 0.5,
+                        fill: Color::Css(metric.colormap.map(t).into()),
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                }
+                if let Some((lo, hi)) = metric.range() {
+                    let vx = bar_x + COLORBAR_W + 4.0;
+                    scene.add(Primitive::Text {
+                        x: vx,
+                        y: cb_top + center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
+                        content: fmt_num(hi),
+                        size: AXIS_LABEL_SIZE,
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                        color: Some(text_color.clone()),
+                    });
+                    scene.add(Primitive::Text {
+                        x: vx,
+                        y: cb_top
+                            + COLORBAR_H
+                            + center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
+                        content: fmt_num(lo),
+                        size: AXIS_LABEL_SIZE,
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                        color: Some(text_color.clone()),
+                    });
+                }
+            }
+        }
+
+        // ── Motif legend: an embedded LegendPlot grid along the bottom (like the standalone
+        // brick / bladerunner). Motif lists get large for complex loci, so it wraps into as
+        // many rows as needed across the full width left of the colourbars.
+        if brick_has_legend && legend_band_h > 0.0 {
+            let entries = collect_legend_entries(&plots);
+            if !entries.is_empty() {
+                let lp = LegendPlot::from_entries(entries).with_cols(legend_cols);
+                let llayout = Layout::new((0.0, 1.0), (0.0, 1.0))
+                    .with_width(legend_width)
+                    .with_height(legend_band_h);
+                let lscene = render_multiple(vec![lp.into()], llayout);
+                merge_translated(&mut scene, lscene, 0.0, height - legend_band_h);
+            }
+        }
+
+        // ── Brick column (embedded BrickPlot, row band pinned to align with the panels) ─
         let mut blayout = Layout::auto_from_plots(&plots)
             .with_width(brick_w)
             .with_height(height)
             .with_force_margins_y(force_top, force_bottom);
-        // The allele names live in our own gutter, so drop the brick's y-tick labels.
+        // Allele names live in our gutter, and motif swatches in the shared legend, so drop
+        // the brick's own y-ticks and legend.
         blayout.suppress_y_ticks = true;
+        blayout.show_legend = false;
         let bscene = render_multiple(plots, blayout);
         merge_translated(&mut scene, bscene, brick_x, 0.0);
 
