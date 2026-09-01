@@ -44,6 +44,60 @@ fn canonical_rotation(s: &str) -> String {
         .to_string()
 }
 
+/// Parse a STRIGAR motif map (`"kmer:letter,kmer:letter,..."`) into a
+/// local-letter -> kmer map for one row.
+///
+/// Letters are bijective base-26 (`A..Z, AA, AB, ...`), so the whole field after
+/// the `:` is the letter. Letters are local to the row. Malformed or empty pairs
+/// are skipped rather than erroring. See the bladerunner STRIGAR contract.
+fn parse_motif_map(s: &str) -> HashMap<String, String> {
+    s.split(',')
+        .filter_map(|pair| {
+            let mut parts = pair.trim().splitn(2, ':');
+            let kmer = parts.next()?.trim();
+            let letter = parts.next()?.trim();
+            if kmer.is_empty() || letter.is_empty() {
+                return None;
+            }
+            Some((letter.to_string(), kmer.to_string()))
+        })
+        .collect()
+}
+
+/// Tokenise a STRIGAR string (`"<count><letter>..."`) into `(count, letter)` runs.
+///
+/// `count` is one or more digits (copies of the letter's kmer); `letter` is the
+/// maximal run of one or more uppercase ASCII characters (bijective base-26).
+/// Reading a single char would truncate multi-character letters (`3AA` -> `3A`
+/// plus a stray `A`), so the maximal uppercase run is consumed. Malformed
+/// fragments are dropped and the scan always makes progress, so a bad row
+/// degrades instead of panicking.
+fn parse_strigar_runs(s: &str) -> Vec<(usize, String)> {
+    let mut runs = Vec::new();
+    let mut chars = s.chars().peekable();
+    while chars.peek().is_some() {
+        let mut num = String::new();
+        while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            num.push(chars.next().expect("peeked digit"));
+        }
+        let mut letter = String::new();
+        while chars.peek().is_some_and(|c| c.is_ascii_uppercase()) {
+            letter.push(chars.next().expect("peeked uppercase"));
+        }
+        if num.is_empty() && letter.is_empty() {
+            // Neither a count nor a letter at the cursor (e.g. a leftover `@` or
+            // lowercase char): consume one char to guarantee progress.
+            chars.next();
+        } else if let Ok(count) = num.parse::<usize>() {
+            if !letter.is_empty() {
+                runs.push((count, letter));
+            }
+            // else: count with no letter -> drop this partial run.
+        }
+    }
+    runs
+}
+
 /// Pre-built character-to-color mappings for common biological alphabets.
 ///
 /// Call a constructor method to populate the [`template`](BrickTemplate::template)
@@ -363,8 +417,7 @@ impl BrickPlot {
     ///
     /// Colors are assigned to global letters in order of motif frequency
     /// (most frequent motif gets the first color). If fewer colors are
-    /// supplied than there are motifs, the list cycles. Gap bricks (`@`)
-    /// always render as light grey regardless of this setting.
+    /// supplied than there are motifs, the list cycles.
     ///
     /// Call this **before** [`with_strigars`](Self::with_strigars) so the
     /// palette is available during color assignment.
@@ -399,153 +452,67 @@ impl BrickPlot {
                 .collect(),
         );
 
-        // Returns Some(N) if `seg` is a pure gap token of the form "N@" (only digits + @),
-        // which means it is an inter-candidate gap of N nucleotides.
-        let parse_gap = |seg: &str| -> Option<usize> {
-            let s = seg.trim();
-            if s.ends_with('@') && s.len() > 1 {
-                let num_part = &s[..s.len() - 1];
-                if num_part.chars().all(|c| c.is_ascii_digit()) {
-                    return num_part.parse().ok();
-                }
-            }
-            None
-        };
-
-        // Parses a motif segment (comma-separated "kmer:letter" pairs) into a
-        // local_letter → kmer map for one candidate.
-        let parse_motif_seg = |seg: &str| -> HashMap<char, String> {
-            seg.split(',')
-                .map(|p| p.trim())
-                .filter(|p| !p.is_empty())
-                .filter_map(|pair| {
-                    let mut parts = pair.splitn(2, ':');
-                    let kmer = parts.next()?.trim();
-                    let letter_field = parts.next()?.trim();
-                    let letter = letter_field.chars().next()?;
-                    Some((letter, kmer.to_string()))
-                })
-                .collect()
-        };
-
         let strigars_ref = self.strigars.as_ref().expect("strigars just set");
 
-        // Phase B: Walk every candidate segment across all reads, collect kmers,
-        // build canonical-rotation frequency tables.
-        // Gap segments (pure "N@") and small-gap motif entries ("@:seq") are skipped.
+        // Phase B: walk every row, collecting kmers by canonical rotation into
+        // brick-count frequency tables. One motif namespace per row (the format has
+        // no segments): a run's `count` is copies of that letter's kmer, and we score
+        // canonicals by total copies across all rows so the most-used motif ranks first.
         let mut canonical_freq: HashMap<String, usize> = HashMap::new();
         let mut rotation_freq: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
         for (motif_str, strigar_str) in strigars_ref {
-            let motif_segs: Vec<&str> = motif_str
-                .split('|')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect();
-            let strigar_segs: Vec<&str> = strigar_str
-                .split('|')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            let mut motif_idx = 0usize;
-            for strigar_seg in &strigar_segs {
-                if parse_gap(strigar_seg).is_some() {
-                    // Gap segment: advance motif_idx only if it's a small-gap with motif entry
-                    let is_small_gap = motif_idx < motif_segs.len()
-                        && motif_segs[motif_idx]
-                            .trim_start_matches(|c: char| c.is_whitespace())
-                            .starts_with("@:");
-                    if is_small_gap {
-                        motif_idx += 1;
-                    }
-                } else {
-                    // Candidate segment: parse the STRIGAR tokens ("2A1B2A...") to get
-                    // actual brick counts per letter, then map to canonical kmers.
-                    // This counts bricks, not read presence, so a kmer appearing 14
-                    // times across reads scores 14 rather than the same as a kmer that
-                    // appears once in every read's motif string.
-                    if motif_idx < motif_segs.len() {
-                        let local_map = parse_motif_seg(motif_segs[motif_idx]);
-                        motif_idx += 1;
-
-                        let mut chars = strigar_seg.chars().peekable();
-                        while chars.peek().is_some() {
-                            let mut num_str = String::new();
-                            while let Some(&c) = chars.peek() {
-                                if c.is_ascii_digit() {
-                                    num_str.push(chars.next().expect("peeked"));
-                                } else {
-                                    break;
-                                }
-                            }
-                            if let Some(letter_char) = chars.next() {
-                                let count: usize = num_str.parse().unwrap_or(1);
-                                if let Some(kmer) = local_map.get(&letter_char) {
-                                    let canon = canonical_rotation(kmer);
-                                    *canonical_freq.entry(canon.clone()).or_insert(0) += count;
-                                    *rotation_freq
-                                        .entry(canon)
-                                        .or_default()
-                                        .entry(kmer.clone())
-                                        .or_insert(0) += count;
-                                }
-                            }
-                        }
-                    }
+            let local_map = parse_motif_map(motif_str);
+            for (count, letter) in parse_strigar_runs(strigar_str) {
+                if let Some(kmer) = local_map.get(&letter) {
+                    let canon = canonical_rotation(kmer);
+                    *canonical_freq.entry(canon.clone()).or_insert(0) += count;
+                    *rotation_freq
+                        .entry(canon)
+                        .or_default()
+                        .entry(kmer.clone())
+                        .or_insert(0) += count;
                 }
             }
         }
 
-        // Phase B.5: If consensus_row is set, extract that row's motif rotations so
-        // Phase C can lock the display label to what the consensus sequence uses.
+        // Phase B.5: if consensus_row is set, take that row's motif rotations so Phase C
+        // can lock each canonical's display label to what the consensus sequence uses.
         let mut consensus_rotations: HashMap<String, String> = HashMap::new();
         if let Some(cons_row) = self.consensus_row {
-            if let Some((motif_str, strigar_str)) = strigars_ref.get(cons_row) {
-                let motif_segs: Vec<&str> = motif_str
-                    .split('|')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                let strigar_segs: Vec<&str> = strigar_str
-                    .split('|')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                let mut midx = 0usize;
-                for strigar_seg in &strigar_segs {
-                    if parse_gap(strigar_seg).is_some() {
-                        let is_small_gap =
-                            midx < motif_segs.len() && motif_segs[midx].starts_with("@:");
-                        if is_small_gap {
-                            midx += 1;
-                        }
-                    } else if midx < motif_segs.len() {
-                        let local_map = parse_motif_seg(motif_segs[midx]);
-                        midx += 1;
-                        for kmer in local_map.values() {
-                            let canon = canonical_rotation(kmer);
-                            // First occurrence per canonical wins; entry() guarantees determinism.
-                            consensus_rotations
-                                .entry(canon)
-                                .or_insert_with(|| kmer.clone());
-                        }
-                    }
+            if let Some((motif_str, _strigar_str)) = strigars_ref.get(cons_row) {
+                let local_map = parse_motif_map(motif_str);
+                for kmer in local_map.values() {
+                    let canon = canonical_rotation(kmer);
+                    // First occurrence per canonical wins; entry() guarantees determinism.
+                    consensus_rotations
+                        .entry(canon)
+                        .or_insert_with(|| kmer.clone());
                 }
             }
         }
 
-        // Phase C: Sort canonicals by frequency desc, canonical string asc as tiebreak.
+        // Phase C: sort canonicals by frequency desc, canonical string asc as tiebreak.
         let mut sorted_canonicals: Vec<(String, usize)> = canonical_freq.into_iter().collect();
         sorted_canonicals.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        // Global identifiers are INTERNAL single-char tokens. They are never shown to the
+        // user (the legend and notations use the display kmer via `motifs`), so their exact
+        // value is irrelevant. We draw them from the Unicode Private Use Area in frequency
+        // order, which (a) has no 26-symbol ceiling like `b'A' + idx` did, and (b) keeps the
+        // char-packed `strigar_exp` and char-keyed template/renderer pipeline unchanged.
+        // Bladerunner's LOCAL letters may be multi-character base-26; they are parsed as
+        // strings above and never enter this internal token space.
+        let global_token =
+            |idx: usize| -> char { char::from_u32(0xE000u32 + idx as u32).unwrap_or('\u{E000}') };
 
         let mut canonical_to_global: HashMap<String, char> = HashMap::new();
         let mut global_to_display: HashMap<char, String> = HashMap::new();
         let mut global_to_length: HashMap<char, usize> = HashMap::new();
 
         for (idx, (canon, _freq)) in sorted_canonicals.iter().enumerate() {
-            let global_letter = (b'A' + idx as u8) as char;
-            canonical_to_global.insert(canon.clone(), global_letter);
+            let global = global_token(idx);
+            canonical_to_global.insert(canon.clone(), global);
 
             // Pick the display rotation: consensus row's rotation takes priority;
             // fall back to most-frequent rotation (tiebreak: prefer lexicographically larger).
@@ -562,106 +529,39 @@ impl BrickPlot {
                     .0
                     .clone()
             };
-            global_to_display.insert(global_letter, display.clone());
-            global_to_length.insert(global_letter, display.len());
+            global_to_length.insert(global, display.chars().count());
+            global_to_display.insert(global, display);
         }
 
-        // Phase D: Expand each read's strigar using per-segment local→global maps.
+        // Phase D: expand each row's strigar into a per-brick token string. Each run
+        // contributes `count` copies of its canonical's global token (one brick per copy);
+        // brick width comes from `motif_lengths` (the kmer length). A run whose letter is
+        // absent from the row's motif map, or whose canonical was never scored, is dropped.
         //
-        // Each "|"-separated strigar segment is either:
-        //   • A pure gap ("N@"): emit N '@' chars (large gap), or
-        //     len(gap_seq) '@' chars (small gap with "@:seq" motif entry).
-        //   • A candidate: build local→global from its motif segment, tokenize, expand.
-        //
-        // Because the global letter assignment is canonical-rotation-aware (Phase B/C),
-        // the same STR unit appearing under different local letters across candidates
-        // (e.g. ACCCTA:A in one and TAACCC:A in another) is automatically assigned
-        // the same global letter and colour.
+        // Because the global token is canonical-rotation-aware (Phase B/C), the same STR
+        // unit appearing under different local letters across rows (e.g. ACCCTA:A in one and
+        // TAACCC:A in another) is automatically assigned the same token and colour.
         let mut expanded_strigars: Vec<String> = Vec::new();
-        let mut has_gaps = false;
 
         for (motif_str, strigar_str) in strigars_ref {
-            let motif_segs: Vec<&str> = motif_str
-                .split('|')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect();
-            let strigar_segs: Vec<&str> = strigar_str
-                .split('|')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            let mut expanded = String::new();
-            let mut motif_idx = 0usize;
-
-            for strigar_seg in &strigar_segs {
-                if let Some(gap_n) = parse_gap(strigar_seg) {
-                    // Small gap: motif block contains "@:seq" for this segment
-                    let is_small_gap = motif_idx < motif_segs.len()
-                        && motif_segs[motif_idx]
-                            .trim_start_matches(|c: char| c.is_whitespace())
-                            .starts_with("@:");
-                    let gap_nt = if is_small_gap {
-                        let gap_seq = motif_segs[motif_idx]
-                            .split_once(':')
-                            .map(|x| x.1.trim())
-                            .unwrap_or("");
-                        motif_idx += 1;
-                        gap_seq.len() * gap_n // typically gap_n == 1
-                    } else {
-                        gap_n // large gap: N is already in nt
-                    };
-                    for _ in 0..gap_nt {
-                        expanded.push('@');
-                    }
-                    has_gaps = true;
-                } else {
-                    // Candidate segment
-                    if motif_idx < motif_segs.len() {
-                        // Build local → global letter map for this candidate
-                        let local_map = parse_motif_seg(motif_segs[motif_idx]);
-                        motif_idx += 1;
-
-                        let mut local_to_global: HashMap<char, char> = HashMap::new();
-                        for (local_letter, kmer) in &local_map {
-                            let canon = canonical_rotation(kmer);
-                            if let Some(&global) = canonical_to_global.get(&canon) {
-                                local_to_global.insert(*local_letter, global);
-                            }
-                        }
-
-                        // Tokenize "NL..." and expand
-                        let mut chars = strigar_seg.chars().peekable();
-                        while chars.peek().is_some() {
-                            let mut num_str = String::new();
-                            while let Some(&c) = chars.peek() {
-                                if c.is_ascii_digit() {
-                                    num_str.push(chars.next().unwrap());
-                                } else {
-                                    break;
-                                }
-                            }
-                            if let Some(letter_char) = chars.next() {
-                                let count: usize = num_str
-                                    .parse()
-                                    .expect("STRIGAR repeat count is a valid integer");
-                                let global =
-                                    *local_to_global.get(&letter_char).unwrap_or(&letter_char);
-                                expanded.push_str(&global.to_string().repeat(count));
-                            }
-                        }
-                    }
+            let local_map = parse_motif_map(motif_str);
+            let mut local_to_global: HashMap<String, char> = HashMap::new();
+            for (letter, kmer) in &local_map {
+                let canon = canonical_rotation(kmer);
+                if let Some(&global) = canonical_to_global.get(&canon) {
+                    local_to_global.insert(letter.clone(), global);
                 }
             }
 
+            let mut expanded = String::new();
+            for (count, letter) in parse_strigar_runs(strigar_str) {
+                if let Some(&global) = local_to_global.get(&letter) {
+                    for _ in 0..count {
+                        expanded.push(global);
+                    }
+                }
+            }
             expanded_strigars.push(expanded);
-        }
-
-        if has_gaps {
-            global_to_display
-                .entry('@')
-                .or_insert_with(|| "@".to_string());
         }
 
         // Phase E: Auto-generate template colours
@@ -703,10 +603,6 @@ impl BrickPlot {
                 c
             };
             auto_template.insert(global_letter, color);
-        }
-        // Gaps render as light grey
-        if has_gaps {
-            auto_template.insert('@', "rgb(200,200,200)".to_string());
         }
 
         self.template = Some(auto_template);

@@ -273,36 +273,6 @@ fn test_brick_canonical_freq_counts_bricks_not_reads() {
 }
 
 #[test]
-fn test_brick_stitched_format_with_gaps() {
-    // Bladerunner stitched STRIGAR format: | as segment separator, @ as gap code.
-    // Read_1: 16×A(1nt) + small gap GAA(3nt) + 9×AGA(3nt)
-    //         AGA region starts at nt position 16+3 = 19.
-    // Read_2: 12×AGA(3nt) starting at position 0.
-    //         with_start_positions([0, 19]) aligns read_2's AGA with read_1's.
-    let strigars: Vec<(String, String)> = vec![
-        (
-            "A:A | @:GAA | AGA:B".to_string(),
-            "16A | 1@ | 9B".to_string(),
-        ),
-        ("AGA:A".to_string(), "12A".to_string()),
-    ];
-    let brickplot = BrickPlot::new()
-        .with_names(vec!["read_1", "read_2"])
-        .with_strigars(strigars)
-        .with_x_origin(19.0)
-        .with_start_positions(vec![0.0_f64, 19.0]);
-
-    let plots = vec![Plot::Brick(brickplot)];
-    let layout = Layout::auto_from_plots(&plots);
-    let scene = render_multiple(plots, layout);
-    let svg = SvgBackend.render_scene(&scene);
-    common::write_test_output("test_outputs/brickplot_stitched_gaps.svg", svg.clone()).unwrap();
-    assert!(svg.contains("<svg"));
-    // Gap bricks should be rendered (grey color in template; SVG emits as #c8c8c8)
-    assert!(svg.contains("#c8c8c8"), "gap bricks should use grey color");
-}
-
-#[test]
 fn test_brick_flanked_strigars() {
     // with_flanked_strigars: left flank + STR + right flank per read.
     // Left/right flanks render with DNA colours; STR bricks use strigar colours.
@@ -444,18 +414,13 @@ fn test_brick_notations() {
 }
 
 #[test]
-fn test_brick_stitched_per_segment_canonical() {
-    // Two reads using bladerunner stitched format.
-    // ACCCTA, TAACCC, CCCTAA are all rotations of the same canonical → must get the same
-    // global letter and therefore the same colour across all candidates.
-    // Large gaps (36@, 213@, 31@) have no motif entry; they are scaled by N nt.
-    // Small-gap case exercised by the previous test.
+fn test_brick_strigar_canonical_unification_across_rows() {
+    // ACCCTA and TAACCC are rotations of the same canonical, appearing under the
+    // local letter A in different rows. They must resolve to the same global token,
+    // hence the same colour: only ONE non-DNA motif colour should appear.
     let strigars: Vec<(String, String)> = vec![
-        (
-            "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
-            "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
-        ),
         ("ACCCTA:A".to_string(), "5A".to_string()),
+        ("TAACCC:A".to_string(), "3A".to_string()),
     ];
     let brickplot = BrickPlot::new()
         .with_names(vec!["read_1", "read_2"])
@@ -463,20 +428,14 @@ fn test_brick_stitched_per_segment_canonical() {
 
     let plots = vec![Plot::Brick(brickplot)];
     let layout = Layout::auto_from_plots(&plots);
-    let scene = render_multiple(plots, layout);
-    let svg = SvgBackend.render_scene(&scene);
-    common::write_test_output("test_outputs/brickplot_stitched_canonical.svg", svg.clone())
-        .unwrap();
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/brickplot_canonical_unify.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    // ACCCTA, TAACCC, CCCTAA all same canonical → single motif colour in SVG
-    // Gaps present → grey bricks
-    assert!(svg.contains("#c8c8c8"), "gap bricks should be grey");
-    // Only one non-gap motif colour should appear for the ACCCTA family
-    // (global letter A = blue = #1f77b4)
+    // 6-mer motif → first palette colour (blue), shared by both rotations.
     assert!(
         svg.contains("#1f77b4"),
-        "ACCCTA-family should be blue (global A)"
+        "the ACCCTA/TAACCC canonical family should share global colour A"
     );
 }
 
@@ -486,170 +445,61 @@ fn test_brick_stitched_per_segment_canonical() {
 // motifs, STRIGAR, and traditional (human-readable) encoding.
 
 #[test]
-fn test_brick_spec_form_b_gap_width() {
-    // Spec §6, Form B: N@ in STRIGAR with NO matching @:{seq} motifs entry.
-    // The gap width is N nucleotides, taken directly from the STRIGAR count.
-    // Spec: "gap of N nucleotides … N is already in nt"
-    //
-    // motifs: 2 segments — CAG:A, TGC:A
-    // STRIGAR: 3 segments — 3A | 30@ | 2A
-    // The 30@ has no motifs entry → form B → 30 grey bricks of width 1 each.
-    //
-    // Total row width = 3*3 (CAG) + 30 (gap) + 2*3 (TGC) = 9 + 30 + 6 = 45 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | TGC:A".to_string(),
-        "3A | 30@ | 2A".to_string(),
-    )]);
+fn test_brick_strigar_multichar_letters_no_panic() {
+    // Regression for the bladerunner contract: letters are bijective base-26 strings,
+    // so a row with >26 motifs uses multi-character letters (AA, AB, ...). The parser
+    // must consume the maximal uppercase run as one letter; reading a single char
+    // truncated `1AA` to `1A` + stray `A` and panicked with ParseIntError(Empty).
+    fn motif_letter(mut idx: usize) -> String {
+        let mut out = Vec::new();
+        loop {
+            out.push(b'A' + (idx % 26) as u8);
+            if idx < 26 {
+                break;
+            }
+            idx = idx / 26 - 1;
+        }
+        out.reverse();
+        String::from_utf8(out).unwrap()
+    }
+    // 27 distinct kmers → the 27th letter is "AA"; also forces >26 global tokens.
+    let motifs: String = (0..27)
+        .map(|i| format!("ACG{i}:{}", motif_letter(i)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let strigar = "5A1AA"; // 5 copies of letter A, 1 copy of letter AA
 
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
-    assert!(
-        (x_max - 45.0).abs() < 0.01,
-        "form B 30@ gap: expected total width 45 nt, got {}",
-        x_max
-    );
-}
-
-#[test]
-fn test_brick_spec_form_a_gap_width() {
-    // Spec §6, Form A: 1@ in STRIGAR WITH a matching @:{seq} motifs entry.
-    // The gap width is len(seq) × 1 nucleotides (not 1).
-    // Spec: "nucleotide width = len(seq) from the @:{seq} motifs entry"
-    //
-    // motifs: CAG:A | @:ATGAT | TGC:A  (middle segment is the form A gap with seq "ATGAT", len=5)
-    // STRIGAR: 3A | 1@ | 2A
-    // Gap width = len("ATGAT") * 1 = 5 nt.
-    //
-    // Total row width = 3*3 (CAG) + 5 (gap) + 2*3 (TGC) = 9 + 5 + 6 = 20 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | @:ATGAT | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
-
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
-    assert!(
-        (x_max - 20.0).abs() < 0.01,
-        "form A @:ATGAT gap: expected total width 20 nt, got {}",
-        x_max
-    );
-}
-
-#[test]
-fn test_brick_spec_form_a_vs_b_disambiguation_of_1at() {
-    // Spec §6: disambiguation rule — `1@` behaves differently depending on whether
-    // the current motifs position is `@:{seq}` (form A) or absent (form B).
-    //
-    // Form A: motifs has `@:AT` at the gap position → gap width = len("AT") = 2 nt.
-    //   Total = 3*3 (CAG) + 2 (gap) + 2*3 (TGC) = 17 nt.
-    //
-    // Form B: motifs has no @-entry → gap width = 1 nt (count taken directly).
-    //   Total = 3*3 (CAG) + 1 (gap) + 2*3 (TGC) = 16 nt.
-
-    let form_a = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | @:AT | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
-    let form_b = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
-
-    let x_max_a = Plot::Brick(form_a).bounds().expect("form A bounds").0 .1;
-    let x_max_b = Plot::Brick(form_b).bounds().expect("form B bounds").0 .1;
-
-    // 3×CAG(3nt) + gap + 2×TGC(3nt) = 9 + gap + 6
-    assert!(
-        (x_max_a - 17.0).abs() < 0.01,
-        "form A 1@ with @:AT: expected 17 nt (2-nt gap), got {}",
-        x_max_a
-    );
-    assert!(
-        (x_max_b - 16.0).abs() < 0.01,
-        "form B 1@ no motifs entry: expected 16 nt (1-nt gap), got {}",
-        x_max_b
-    );
-}
-
-#[test]
-fn test_brick_spec_bean1_sca31_renders() {
-    // Full BEAN1/SCA31 locus example from the bladerunner format specification.
-    // 8 segments in both motifs and STRIGAR; segments 5 and 7 are form A gaps
-    // (@:AT → 2 nt wide, @:GAA → 3 nt wide).
-    //
-    // Cross-segment canonical unification: ATGGA (seg 3) and GAATG (seg 6) are
-    // rotations of the same canonical ("AATGG") and must receive the same global
-    // letter and colour. Similarly ATGA (seg 3) and AATG (seg 6) share canonical
-    // "AATG".
-    let strigars = vec![(
-        "ATAAA:A,AT:B | ATA:A | ATGGA:A,TGGA:B,ATGA:C,AGA:D | ATA:A | @:AT | GAATG:A,AATG:B | @:GAA | TAA:A,A:B".to_string(),
-        "22A1B22A | 27A | 61A1B154A1C78A1C18A1D24A1C2A1C75A1C80A1C74A1C117A | 9A | 1@ | 129A1B93A | 1@ | 11A1B1A1B2A2B1A2B2A".to_string(),
-    )];
-    let brickplot = BrickPlot::new()
-        .with_names(vec!["SCA31_read"])
-        .with_strigars(strigars);
-
-    let plots = vec![Plot::Brick(brickplot)];
-    let layout = Layout::auto_from_plots(&plots).with_title("BEAN1/SCA31 locus (spec example)");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    common::write_test_output("test_outputs/brickplot_bean1_sca31.svg", svg.clone()).unwrap();
-
-    assert!(svg.contains("<svg"), "must produce valid SVG");
-    // Form A gaps (AT=2nt, GAA=3nt) produce grey bricks.
-    assert!(
-        svg.contains("#c8c8c8"),
-        "form A gap segments must render as grey bricks"
-    );
-    // At least the primary motif colour must appear.
-    assert!(
-        svg.contains("#1f77b4"),
-        "primary motif (global A) must use the first palette colour"
-    );
-}
-
-#[test]
-fn test_brick_spec_bean1_sca31_gap_widths() {
-    // The BEAN1/SCA31 example has two form A gaps:
-    //   segment 5: @:AT  → 2 nt
-    //   segment 7: @:GAA → 3 nt
-    // Verify the overall row width matches the expected nucleotide total.
-    //
-    // Segment nucleotide widths:
-    //   1: ATAAA(5)×22 + AT(2)×1 + ATAAA(5)×22 = 110 + 2 + 110 = 222
-    //   2: ATA(3)×27 = 81
-    //   3: ATGGA(5)×(61+154+78+18+24+2+75+80+74+117)  [A counts summed]
-    //      + TGGA(4)×1 + ATGA(4)×(1+1+1+1+1+1+1) + AGA(3)×1
-    //      A-runs total: 61+154+78+18+24+2+75+80+74+117 = 683 → 683*5 = 3415
-    //      B-runs: 1*4 = 4
-    //      C-runs: (1+1+1+1+1+1+1)*4 = 7*4 = 28   ← 7 C-tokens in the STRIGAR
-    //      D-runs: 1*3 = 3
-    //      = 3415 + 4 + 28 + 3 = 3450
-    //   4: ATA(3)×9 = 27
-    //   5: gap AT = 2
-    //   6: GAATG(5)×129 + AATG(4)×1 + GAATG(5)×93
-    //      = (129+93)*5 + 4 = 222*5 + 4 = 1110 + 4 = 1114
-    //   7: gap GAA = 3
-    //   8: TAA(3)×(11+1+2+1+2) + A(1)×(1+1+2+2)
-    //      = 17*3 + 6*1 = 51 + 6 = 57
-    //
-    // Grand total = 222 + 81 + 3450 + 27 + 2 + 1114 + 3 + 57 = 4956 nt
-    //
-    // Note: GAATG and ATGGA are rotations of canonical "AATGG" → same global letter
-    // (5-mer, length 5). AATG and ATGA are rotations of canonical "AATG" → same
-    // global letter (4-mer, length 4). AGA (canonical "AAG", 3-mer, length 3).
-    // ATA and TAA are rotations of canonical "AAT" → same global letter (3-mer).
-    let strigars = vec![(
-        "ATAAA:A,AT:B | ATA:A | ATGGA:A,TGGA:B,ATGA:C,AGA:D | ATA:A | @:AT | GAATG:A,AATG:B | @:GAA | TAA:A,A:B".to_string(),
-        "22A1B22A | 27A | 61A1B154A1C78A1C18A1D24A1C2A1C75A1C80A1C74A1C117A | 9A | 1@ | 129A1B93A | 1@ | 11A1B1A1B2A2B1A2B2A".to_string(),
-    )];
     let bp = BrickPlot::new()
-        .with_names(vec!["SCA31_read"])
-        .with_strigars(strigars);
+        .with_names(vec!["row1"])
+        .with_strigars(vec![(motifs, strigar.to_string())]);
 
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
+    let plots = vec![Plot::Brick(bp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(
-        (x_max - 4956.0).abs() < 0.01,
-        "BEAN1/SCA31 total width: expected 4956 nt, got {}",
-        x_max
+        svg.contains("<svg"),
+        "multi-char letters must render, not panic"
     );
+}
+
+#[test]
+fn test_brick_strigar_real_31_motif_row() {
+    // The verbatim 31-motif row from the bladerunner contract doc (CPUM_TYMS). It has
+    // multi-character letters up to AE, a 56 bp kmer (Z), and single-base motifs. Must
+    // build and render without panicking and produce valid SVG.
+    let strigar = "3B1C2B1C4B1C2B3C6B1C2B1D3E1F2A1G3A2H3A1H2A1I4A1J2A1H4A1K5A2H2A1L2M1N2O1P2Q1R1Q2S1T6U2V1W1X1Y2X1Z2T1AA1AB1S2AB1AC1AD1AE2AD";
+    let motifs = "TGATGG:A,TGGTGA:B,TGGAGA:C,TGGAGATGGT:D,GATGGCGATGGA:E,GATGG:F,TGG:G,AGATGG:H,G:I,AGATGGTGAATGG:J,AGAGG:K,TGAGGGGTGGTGCCT:L,ATC:M,TCGATTGC:N,AC:O,AAAAATGGCAAGTTTAA:P,TAT:Q,GTGTACTT:R,CA:S,ATG:T,A:U,GCT:V,GCGTGGGCCAAGTTACTTGTGCA:W,GGT:X,AAGTGTTCTGCA:Y,TGCCTGCACCTCAGTTGTAGGGTGTCCGTAGGATGTGAGGCCAGTCCCCGGGCTTA:Z,CTTTAAATCCTGCCTAGT:AA,ATT:AB,TCTTGTCGCT:AC,TAA:AD,AAGGCC:AE";
+
+    let bp = BrickPlot::new()
+        .with_names(vec!["CPUM_TYMS_read"])
+        .with_mark_primary()
+        .with_strigars(vec![(motifs.to_string(), strigar.to_string())]);
+
+    let plots = vec![Plot::Brick(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("CPUM_TYMS 31-motif row");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/brickplot_cpum_tyms_31motif.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"), "31-motif row must render, not panic");
 }
 
 #[test]
@@ -728,29 +578,6 @@ fn test_brick_spec_multi_segment_single_candidate() {
     assert!(
         (x_max - 48.0).abs() < 0.01,
         "single-segment 3-motif: expected 48 nt, got {}",
-        x_max
-    );
-}
-
-#[test]
-fn test_brick_spec_segment_count_mismatch_form_b() {
-    // Spec §4: "The motifs string has one fewer segment than the STRIGAR string
-    // when a form B gap is present."
-    // motifs: 2 segments, STRIGAR: 3 segments (2 repeat + 1 form-B gap).
-    // Both must parse without panic.
-    //
-    // motifs: ATAAA:A | ATA:A
-    // STRIGAR: 10A | 50@ | 5A
-    // Width = 10*5 + 50 + 5*3 = 50 + 50 + 15 = 115 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "ATAAA:A | ATA:A".to_string(),
-        "10A | 50@ | 5A".to_string(),
-    )]);
-
-    let x_max = Plot::Brick(bp).bounds().expect("bounds").0 .1;
-    assert!(
-        (x_max - 115.0).abs() < 0.01,
-        "form B 50@ gap (2 motif segs, 3 strigar segs): expected 115 nt, got {}",
         x_max
     );
 }

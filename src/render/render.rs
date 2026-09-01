@@ -11964,29 +11964,28 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     .as_ref()
                     .expect("BrickPlot legend requires a template colormap");
                 let motifs = brickplot.motifs.as_ref();
-                // Sort by global letter (A = most frequent first, then B, C, …).
-                // '@' (gap) goes last.
+                // Sort by global token. In strigar mode tokens are assigned in frequency
+                // order, so this lists the most-frequent motif first; the display label
+                // comes from `motifs` (the kmer), never the internal token itself.
                 let mut sorted_labels: Vec<(&char, &String)> = labels.iter().collect();
-                sorted_labels.sort_by(|(a, _), (b, _)| match (*a, *b) {
-                    ('@', '@') => std::cmp::Ordering::Equal,
-                    ('@', _) => std::cmp::Ordering::Greater,
-                    (_, '@') => std::cmp::Ordering::Less,
-                    _ => a.cmp(b),
-                });
-                for (letter, color) in sorted_labels {
+                sorted_labels.sort_by_key(|&(a, _)| *a);
+                for (i, (letter, color)) in sorted_labels.iter().enumerate() {
                     let base_label = if let Some(m) = motifs {
-                        m.get(letter).cloned().unwrap_or(letter.to_string())
+                        m.get(*letter)
+                            .cloned()
+                            .unwrap_or_else(|| letter.to_string())
                     } else {
                         letter.to_string()
                     };
-                    let label = if brickplot.mark_primary && *letter == 'A' {
+                    // The most-frequent motif is the primary (global token 0 = first here).
+                    let label = if brickplot.mark_primary && i == 0 {
                         format!("{}*", base_label)
                     } else {
                         base_label
                     };
                     entries.push(LegendEntry {
                         label,
-                        color: color.clone(),
+                        color: (*color).clone(),
                         shape: LegendShape::Rect,
                         dasharray: None,
                     })
