@@ -3256,13 +3256,16 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             });
 
     // Helper: draw one brick rect. `yr` is the y-flipped row index for pixel mapping.
+    // `gap` scales the drawn width: 0.95 leaves the usual inter-brick gap; 1.0 draws
+    // full-width, used when merging same-colour runs so a run renders as one solid bar.
     let draw_brick = |scene: &mut Scene,
                       x_start: f64,
                       width: f64,
                       yr: usize,
                       eff_offset: f64,
                       bw_idx: usize,
-                      color_str: &str| {
+                      color_str: &str,
+                      gap: f64| {
         let x0 = computed.map_x(x_start - eff_offset);
         let x1 = computed.map_x(x_start + width - eff_offset);
         let y0 = computed.map_y(yr as f64 + 1.0);
@@ -3274,13 +3277,20 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             color_str,
             x0,
             y0,
-            (x1 - x0).abs() * 0.95,
+            (x1 - x0).abs() * gap,
             (y1 - y0).abs() * 0.95,
             None,
             None,
             None,
         );
     };
+
+    // Run-length merging kicks in only when enabled AND the per-unit pixel width is
+    // small enough that the inter-brick gaps would be invisible, so the per-brick
+    // appearance is preserved wherever the gaps could actually be seen.
+    const BRICK_MERGE_MAX_PX_PER_UNIT: f64 = 4.0;
+    let px_per_unit = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+    let merge = brickplot.merge_runs && px_per_unit < BRICK_MERGE_MAX_PX_PER_UNIT;
 
     // Pass 1: brick rects. Row 0 renders at the TOP of the plot (y-flip via yr).
     for i in 0..num_rows {
@@ -3289,25 +3299,21 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
         let ll = left_len(i);
         let sw = str_width(i);
 
-        // 1a. Left flank (negative data positions relative to STR start).
+        // Build the row's segments left-to-right: left flank, STR bricks, right flank.
+        // Each entry is (x_start, width, colour, bw_index). The three sections are
+        // contiguous in x, so a merged run can span section boundaries when colours match.
+        let mut segs: Vec<(f64, f64, &str, usize)> = Vec::new();
+
+        // Left flank (negative data positions relative to STR start).
         if let Some(ref flanks) = brickplot.left_flanks {
             if let Some(flank) = flanks.get(i) {
                 for (k, ch) in flank.chars().enumerate() {
-                    let x_start = -(ll) + k as f64;
-                    draw_brick(
-                        scene,
-                        x_start,
-                        1.0,
-                        yr,
-                        eff_offset,
-                        dna_bw_idx(ch),
-                        dna_color(ch),
-                    );
+                    segs.push((-ll + k as f64, 1.0, dna_color(ch), dna_bw_idx(ch)));
                 }
             }
         }
 
-        // 1b. STR bricks.
+        // STR bricks.
         let row = &rows[i];
         let template = brickplot
             .template
@@ -3325,33 +3331,35 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 .get(&value)
                 .expect("BrickPlot value not found in template colormap");
             let bw_idx = *template_bw_idx.get(&value).unwrap_or(&0);
-            draw_brick(
-                scene,
-                x_start,
-                width,
-                yr,
-                eff_offset,
-                bw_idx,
-                color.as_str(),
-            );
+            segs.push((x_start, width, color.as_str(), bw_idx));
             x_pos += width;
         }
 
-        // 1c. Right flank.
+        // Right flank.
         if let Some(ref flanks) = brickplot.right_flanks {
             if let Some(flank) = flanks.get(i) {
                 for (k, ch) in flank.chars().enumerate() {
-                    let x_start = sw + k as f64;
-                    draw_brick(
-                        scene,
-                        x_start,
-                        1.0,
-                        yr,
-                        eff_offset,
-                        dna_bw_idx(ch),
-                        dna_color(ch),
-                    );
+                    segs.push((sw + k as f64, 1.0, dna_color(ch), dna_bw_idx(ch)));
                 }
+            }
+        }
+
+        if merge {
+            // Collapse maximal runs of identical (colour, bw) into one full-width rect.
+            let mut idx = 0;
+            while idx < segs.len() {
+                let (start_x, mut w, color, bw) = segs[idx];
+                let mut end = idx + 1;
+                while end < segs.len() && segs[end].2 == color && segs[end].3 == bw {
+                    w += segs[end].1;
+                    end += 1;
+                }
+                draw_brick(scene, start_x, w, yr, eff_offset, bw, color, 1.0);
+                idx = end;
+            }
+        } else {
+            for &(x_start, width, color, bw_idx) in &segs {
+                draw_brick(scene, x_start, width, yr, eff_offset, bw_idx, color, 0.95);
             }
         }
     }

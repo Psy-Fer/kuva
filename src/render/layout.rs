@@ -418,6 +418,14 @@ pub struct Layout {
     pub force_margin_left: Option<f64>,
     /// Force `ComputedLayout::margin_right` to an exact pixel value. See `force_margin_left`.
     pub force_margin_right: Option<f64>,
+    /// Force `ComputedLayout::margin_top` to an exact pixel value, bypassing the
+    /// auto-computation from title/subtitle/notation height. The vertical mirror of
+    /// `force_margin_left`, used by row-aligned composites (e.g. `BrickPopPlot`) to pin an
+    /// embedded plot's row band to a known pixel span so per-row decorations align.
+    /// `None` = auto (the normal path).
+    pub force_margin_top: Option<f64>,
+    /// Force `ComputedLayout::margin_bottom` to an exact pixel value. See `force_margin_top`.
+    pub force_margin_bottom: Option<f64>,
     /// Number of group rows for a survival "number at risk" table drawn below the plot.
     /// Set by `auto_from_plots` when a `SurvivalPlot` has `risk_table` enabled; reserves
     /// extra `margin_bottom`. `None` = no table.
@@ -588,6 +596,8 @@ impl Layout {
             y2_axis_max: None,
             force_margin_left: None,
             force_margin_right: None,
+            force_margin_top: None,
+            force_margin_bottom: None,
             risk_table_rows: None,
             x_tick_step: None,
             y_tick_step: None,
@@ -2638,6 +2648,15 @@ impl Layout {
         self
     }
 
+    /// Force the top/bottom margins to exact pixel values (bypassing auto-computation).
+    /// The vertical mirror of `with_force_margins`, used by row-aligned composites to
+    /// pin an embedded plot's row band. See `force_margin_top`.
+    pub fn with_force_margins_y(mut self, top: f64, bottom: f64) -> Self {
+        self.force_margin_top = Some(top);
+        self.force_margin_bottom = Some(bottom);
+        self
+    }
+
     pub fn with_x_axis_min(mut self, v: f64) -> Self {
         self.x_axis_min = Some(v);
         self
@@ -3580,6 +3599,12 @@ impl ComputedLayout {
         }
         if let Some(r) = layout.force_margin_right {
             s.margin_right = r;
+        }
+        if let Some(t) = layout.force_margin_top {
+            s.margin_top = t;
+        }
+        if let Some(b) = layout.force_margin_bottom {
+            s.margin_bottom = b;
         }
         s.recompute_transforms();
         s

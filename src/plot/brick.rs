@@ -212,6 +212,14 @@ pub struct BrickPlot {
     /// Vertical (and, if desired, horizontal) marker lines drawn over the bricks
     /// at reference-coordinate positions. See [`with_vline`](BrickPlot::with_vline).
     pub vlines: Vec<ReferenceLine>,
+    /// Collapse runs of consecutive same-colour bricks into a single rect when the
+    /// per-unit pixel width is small enough that the inter-brick gaps would be
+    /// invisible anyway. Off by default (per-brick rendering). Turning it on is
+    /// essential for very long sequences (e.g. RFC1/BEAN1 expansions of thousands
+    /// of units across many rows), where per-unit bricks are both sub-pixel and
+    /// prohibitively numerous. Above the threshold the per-brick look is preserved,
+    /// so this only ever changes appearance where the gaps could not be seen.
+    pub merge_runs: bool,
 }
 
 impl Default for BrickPlot {
@@ -244,7 +252,20 @@ impl BrickPlot {
             notations: None,
             row_height_px: None,
             vlines: Vec::new(),
+            merge_runs: false,
         }
+    }
+
+    /// Enable (or disable) run-length merging of consecutive same-colour bricks.
+    /// See [`merge_runs`](BrickPlot::merge_runs). Recommended for very long sequences.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new().with_merge_runs(true);
+    /// ```
+    pub fn with_merge_runs(mut self, on: bool) -> Self {
+        self.merge_runs = on;
+        self
     }
 
     /// Draw a vertical marker line across all rows at reference coordinate `x`
