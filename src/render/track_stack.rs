@@ -1097,8 +1097,8 @@ fn total_height(entries: &[Entry], spacing: f64) -> f64 {
 
 /// Merge a sub-scene (a `render_multiple` output) into `master`, translated by `(dx, dy)`.
 /// Wraps the sub-scene's elements in a `translate` group and carries its defs/scripts across.
-/// Factored so `Figure`'s equivalent inline merge can later share it.
-fn merge_translated(master: &mut Scene, sub: Scene, dx: f64, dy: f64) {
+/// Factored so `Figure`'s equivalent inline merge (and `BrickPopPlot`) can share it.
+pub(crate) fn merge_translated(master: &mut Scene, sub: Scene, dx: f64, dy: f64) {
     for def in sub.defs {
         master.defs.push(def);
     }

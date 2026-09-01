@@ -3256,8 +3256,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             });
 
     // Helper: draw one brick rect. `yr` is the y-flipped row index for pixel mapping.
-    // `gap` scales the drawn width: 0.95 leaves the usual inter-brick gap; 1.0 draws
-    // full-width, used when merging same-colour runs so a run renders as one solid bar.
+    // `gap < 1.0` leaves the usual inter-brick gap; `gap == 1.0` draws full-width, used
+    // when merging same-colour runs so a run renders as one solid bar.
     let draw_brick = |scene: &mut Scene,
                       x_start: f64,
                       width: f64,
@@ -3270,6 +3270,14 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
         let x1 = computed.map_x(x_start + width - eff_offset);
         let y0 = computed.map_y(yr as f64 + 1.0);
         let y1 = computed.map_y(yr as f64);
+        // One constant gap per brick, in data units (5% of a single unit), independent of
+        // how wide the brick is. Deriving the gap from the brick's own width made it
+        // proportional, so a 47 bp motif rendered a gap ~50x the normal one (DBQD2_XYLT1).
+        let unit_px = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+        let gap_px = if gap < 1.0 { unit_px * 0.05 } else { 0.0 };
+        let full_w = (x1 - x0).abs();
+        // Clamp so a sub-unit-width brick never shrinks away entirely.
+        let w = (full_w - gap_px).max(full_w * 0.5);
         rect_bw(
             scene,
             computed,
@@ -3277,7 +3285,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             color_str,
             x0,
             y0,
-            (x1 - x0).abs() * gap,
+            w,
             (y1 - y0).abs() * 0.95,
             None,
             None,

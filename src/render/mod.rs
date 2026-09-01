@@ -1,6 +1,7 @@
 pub mod alluvial_order;
 pub mod annotations;
 pub mod axis;
+pub mod brick_pop;
 pub mod bw;
 pub mod color;
 pub mod coverage;
