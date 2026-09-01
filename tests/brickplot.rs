@@ -445,6 +445,46 @@ fn test_brick_strigar_canonical_unification_across_rows() {
 // motifs, STRIGAR, and traditional (human-readable) encoding.
 
 #[test]
+fn test_brick_motif_colors_stable_across_plots() {
+    // Colours keyed by canonical k-mer must be representation-independent: the same
+    // motif gets the same colour regardless of its per-plot frequency rank, and any
+    // rotation of the motif resolves to the same entry. This is the contract that lets
+    // bladerunner stop reproducing kuva's internal token numbering.
+    use std::collections::HashMap;
+    let mut colors: HashMap<String, String> = HashMap::new();
+    colors.insert("AATGG".to_string(), "#123456".to_string());
+    colors.insert("CAG".to_string(), "#abcdef".to_string());
+
+    let render = |motif_map: &str| -> String {
+        let bp = BrickPlot::new()
+            .with_names(vec!["r1"])
+            .with_motif_colors(colors.clone())
+            .with_strigars(vec![(motif_map.to_string(), "20A2B".to_string())]);
+        let plots = vec![Plot::Brick(bp)];
+        let layout = Layout::auto_from_plots(&plots);
+        SvgBackend.render_scene(&render_multiple(plots, layout))
+    };
+
+    // Plot 1: AATGG is the most frequent motif (letter A). Plot 2: CAG is most frequent,
+    // and AATGG is supplied as a DIFFERENT rotation (GGAAT) — must still resolve the same.
+    let svg1 = render("AATGG:A,CAG:B");
+    let svg2 = render("CAG:A,GGAAT:B");
+
+    // Both explicit colours appear in both plots despite differing frequency ranks
+    // and despite AATGG being supplied as the GGAAT rotation in plot 2.
+    for (svg, which) in [(&svg1, "plot1"), (&svg2, "plot2")] {
+        assert!(
+            svg.contains("#123456"),
+            "AATGG must keep its explicit colour in {which}"
+        );
+        assert!(
+            svg.contains("#abcdef"),
+            "CAG must keep its explicit colour in {which}"
+        );
+    }
+}
+
+#[test]
 fn test_brick_strigar_multichar_letters_no_panic() {
     // Regression for the bladerunner contract: letters are bijective base-26 strings,
     // so a row with >26 motifs uses multi-character letters (AA, AB, ...). The parser

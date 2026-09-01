@@ -242,6 +242,13 @@ pub struct BrickPlot {
     /// built-in 20-color default. Colors are assigned in global-letter order
     /// (most-frequent motif first) and cycle if there are more motifs than colors.
     pub strigar_palette: Option<Vec<String>>,
+    /// Explicit per-motif colours keyed by **canonical** k-mer (see
+    /// [`with_motif_colors`](Self::with_motif_colors)). Keys are stored
+    /// canonicalized. A motif listed here takes this colour in strigar mode,
+    /// overriding both the DNA default and the auto-palette; motifs not listed
+    /// fall back to the normal assignment. This is the stable, representation-
+    /// independent way to keep a motif one colour across many plots.
+    pub motif_colors: Option<HashMap<String, String>>,
     /// Horizontal alignment of rows. Default: `BrickAnchor::Left`.
     pub anchor: BrickAnchor,
     /// Per-row left flanking DNA sequences (set by [`with_flanked_strigars`](Self::with_flanked_strigars)).
@@ -298,6 +305,7 @@ impl BrickPlot {
             x_origin: 0.0,
             show_values: false,
             strigar_palette: None,
+            motif_colors: None,
             anchor: BrickAnchor::Left,
             left_flanks: None,
             right_flanks: None,
@@ -436,6 +444,46 @@ impl BrickPlot {
         S: Into<String>,
     {
         self.strigar_palette = Some(colors.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Assign explicit colours to specific motifs, keyed by k-mer sequence.
+    ///
+    /// This is the stable, representation-independent way to keep a motif the
+    /// **same colour across many plots** (e.g. every locus in a cohort). Keys are
+    /// matched by canonical rotation, so you may pass any rotation of a motif
+    /// (`"AATGG"`, `"GGAAT"`, ...) and it resolves to the same entry; you never
+    /// need to know or reproduce kuva's internal colour ordering or token space.
+    ///
+    /// A motif listed here takes the given colour in strigar mode, overriding both
+    /// the built-in DNA colours and the auto-palette. Motifs not listed fall back
+    /// to the normal assignment ([`with_strigar_colors`](Self::with_strigar_colors)
+    /// or the default palette). Call this **before**
+    /// [`with_strigars`](Self::with_strigars) so the colours are applied during
+    /// motif-colour assignment.
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// # use std::collections::HashMap;
+    /// let mut colors = HashMap::new();
+    /// colors.insert("AATGG".to_string(), "#e41a1c".to_string());
+    /// colors.insert("CAG".to_string(), "#377eb8".to_string());
+    /// let plot = BrickPlot::new()
+    ///     .with_motif_colors(colors)
+    ///     .with_strigars(vec![("AATGG:A,CAG:B".to_string(), "10A2B".to_string())]);
+    /// ```
+    pub fn with_motif_colors<K, V, I>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.motif_colors = Some(
+            colors
+                .into_iter()
+                .map(|(k, v)| (canonical_rotation(&k.into()), v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -595,7 +643,12 @@ impl BrickPlot {
         let mut palette_idx = 0usize;
         for (canon, _) in sorted_canonicals.iter() {
             let global_letter = canonical_to_global[canon];
-            let color = if let Some(dna) = dna_brick_color(canon) {
+            // Precedence: explicit per-motif colour (keyed by canonical k-mer) wins over
+            // the DNA default and the auto-palette. Overridden motifs do NOT consume a
+            // palette slot, so the remaining auto-assigned motifs keep a stable order.
+            let color = if let Some(c) = self.motif_colors.as_ref().and_then(|m| m.get(canon)) {
+                c.clone()
+            } else if let Some(dna) = dna_brick_color(canon) {
                 dna.to_string()
             } else {
                 let c = palette[palette_idx % palette.len()].to_string();
