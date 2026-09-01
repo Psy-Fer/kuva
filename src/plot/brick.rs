@@ -524,18 +524,40 @@ impl BrickPlot {
             }
         }
 
-        // Phase B.5: if consensus_row is set, take that row's motif rotations so Phase C
-        // can lock each canonical's display label to what the consensus sequence uses.
+        // Phase B.5: if consensus_row is set, pick each canonical's display rotation from
+        // that row so Phase C can lock the label to what the consensus sequence uses.
+        //
+        // With the flat (single-namespace) format, a consensus row can carry two rotations
+        // of the same canonical under different letters (e.g. an interruption that happens
+        // to be a rotation of a tract's motif). We must NOT let the winner depend on
+        // `HashMap` iteration order (randomised per process), or the label flips run to run.
+        // Pick the rotation with the highest copy count in the consensus row, breaking ties
+        // lexicographically (larger wins) to match Phase C's fallback selection below.
         let mut consensus_rotations: HashMap<String, String> = HashMap::new();
         if let Some(cons_row) = self.consensus_row {
-            if let Some((motif_str, _strigar_str)) = strigars_ref.get(cons_row) {
+            if let Some((motif_str, strigar_str)) = strigars_ref.get(cons_row) {
                 let local_map = parse_motif_map(motif_str);
-                for kmer in local_map.values() {
-                    let canon = canonical_rotation(kmer);
-                    // First occurrence per canonical wins; entry() guarantees determinism.
-                    consensus_rotations
-                        .entry(canon)
-                        .or_insert_with(|| kmer.clone());
+                // Tally copies per rotation within the consensus row.
+                let mut cons_rotation_freq: HashMap<String, HashMap<String, usize>> =
+                    HashMap::new();
+                for (count, letter) in parse_strigar_runs(strigar_str) {
+                    if let Some(kmer) = local_map.get(&letter) {
+                        let canon = canonical_rotation(kmer);
+                        *cons_rotation_freq
+                            .entry(canon)
+                            .or_default()
+                            .entry(kmer.clone())
+                            .or_insert(0) += count;
+                    }
+                }
+                for (canon, rotations) in &cons_rotation_freq {
+                    let display = rotations
+                        .iter()
+                        .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                        .expect("cons_rotation_freq entry is non-empty")
+                        .0
+                        .clone();
+                    consensus_rotations.insert(canon.clone(), display);
                 }
             }
         }

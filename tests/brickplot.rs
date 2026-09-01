@@ -445,6 +445,31 @@ fn test_brick_strigar_canonical_unification_across_rows() {
 // motifs, STRIGAR, and traditional (human-readable) encoding.
 
 #[test]
+fn test_brick_consensus_label_deterministic() {
+    // A consensus row can carry two rotations of the same canonical under different
+    // letters (CAGA and ACAG both canonicalise to ACAG). The display label must lock to
+    // the higher-copy-count rotation (CAGA: 10 vs ACAG: 2), never flipping with HashMap
+    // iteration order. Build many times — each parse builds a freshly-seeded HashMap, so
+    // any residual order dependence would surface as an intermittent wrong winner.
+    for _ in 0..64 {
+        let bp = BrickPlot::new()
+            .with_names(vec!["consensus"])
+            .with_consensus_row(0)
+            .with_strigars(vec![("CAGA:A,ACAG:B".to_string(), "10A2B".to_string())]);
+        let motifs = bp.motifs.as_ref().expect("strigar mode sets motifs");
+        let displays: Vec<&str> = motifs.values().map(String::as_str).collect();
+        assert!(
+            displays.contains(&"CAGA"),
+            "consensus label must lock to higher-count rotation CAGA, got {displays:?}"
+        );
+        assert!(
+            !displays.contains(&"ACAG"),
+            "lower-count rotation ACAG must never win, got {displays:?}"
+        );
+    }
+}
+
+#[test]
 fn test_brick_motif_colors_stable_across_plots() {
     // Colours keyed by canonical k-mer must be representation-independent: the same
     // motif gets the same colour regardless of its per-plot frequency rank, and any
