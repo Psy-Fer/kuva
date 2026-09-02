@@ -303,8 +303,7 @@ impl BrickPopPlot {
             .map(|l| measure_text_width(l, LABEL_SIZE, FontStyle::Regular))
             .fold(0.0_f64, f64::max);
         let col_w = widest + LEGEND_COL_PAD;
-        let avail = (legend_width - 20.0).max(col_w);
-        let cols = ((avail / col_w).floor() as usize).max(1);
+        let cols = ((legend_width / col_w).floor() as usize).max(1);
         let rows = labels.len().div_ceil(cols);
         (cols, rows as f64 * LEGEND_ROW_H + 24.0)
     }
@@ -343,12 +342,21 @@ impl BrickPopPlot {
         let has_metrics = !self.metrics.is_empty();
         let brick_has_legend = self.brick.template.as_ref().is_some_and(|t| !t.is_empty());
 
+        // Allele-name font shrinks to fit dense (many-allele) rows so labels don't overlap;
+        // below ~4 px per row the names are dropped entirely (too dense to label).
+        let name_font = (self.row_height_px * 0.9).clamp(4.0, LABEL_SIZE);
+        let show_names = self.row_height_px >= 4.0;
+
         // ── Horizontal regions: [names | freq | heat | bricks | legend] ───────────────
         let names: Vec<String> = self.brick.names.clone();
-        let name_w = names
-            .iter()
-            .map(|s| measure_text_width(s, LABEL_SIZE, FontStyle::Regular))
-            .fold(0.0_f64, f64::max);
+        let name_w = if show_names {
+            names
+                .iter()
+                .map(|s| measure_text_width(s, name_font, FontStyle::Regular))
+                .fold(0.0_f64, f64::max)
+        } else {
+            0.0
+        };
         let gutter_w = if name_w > 0.0 {
             name_w + 2.0 * GUTTER_PAD
         } else {
@@ -428,21 +436,23 @@ impl BrickPopPlot {
             });
         }
 
-        // ── Allele name gutter ────────────────────────────────────────────────────────
-        for (i, name) in names.iter().enumerate() {
-            if name.is_empty() {
-                continue;
+        // ── Allele name gutter (font scaled to row height; dropped when rows too dense) ─
+        if show_names {
+            for (i, name) in names.iter().enumerate() {
+                if name.is_empty() {
+                    continue;
+                }
+                scene.add(Primitive::Text {
+                    x: GUTTER_PAD,
+                    y: row_center(i) + center_offset(name_font, FontStyle::Regular),
+                    content: name.clone(),
+                    size: name_font.round() as u32,
+                    anchor: TextAnchor::Start,
+                    rotate: None,
+                    bold: false,
+                    color: Some(text_color.clone()),
+                });
             }
-            scene.add(Primitive::Text {
-                x: GUTTER_PAD,
-                y: row_center(i) + center_offset(LABEL_SIZE, FontStyle::Regular),
-                content: name.clone(),
-                size: LABEL_SIZE as u32,
-                anchor: TextAnchor::Start,
-                rotate: None,
-                bold: false,
-                color: Some(text_color.clone()),
-            });
         }
 
         // ── Frequency bars + axis (baseline at panel right, bars grow left) ────────────
@@ -608,7 +618,11 @@ impl BrickPopPlot {
         if brick_has_legend && legend_band_h > 0.0 {
             let entries = collect_legend_entries(&plots);
             if !entries.is_empty() {
-                let lp = LegendPlot::from_entries(entries).with_cols(legend_cols);
+                // Pin both cols and max_cols so LegendPlot's height-driven bump-up can't
+                // diverge from the band we reserved above.
+                let lp = LegendPlot::from_entries(entries)
+                    .with_cols(legend_cols)
+                    .with_max_cols(legend_cols);
                 let llayout = Layout::new((0.0, 1.0), (0.0, 1.0))
                     .with_width(legend_width)
                     .with_height(legend_band_h);

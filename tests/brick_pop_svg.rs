@@ -58,3 +58,111 @@ fn test_brick_pop_basic() {
         "NA metric cell colour (allele_3 methylation)"
     );
 }
+
+/// Scale test: a 120-allele cohort at an RFC1-like locus with long pure AATGG expansions
+/// of widely varying size (frequency-sorted, ragged right edge), run-length merging on,
+/// a frequency bar, and three metric columns (one with periodic missing values). Exercises
+/// many short rows, the leftward freq bar + axis, and per-column colour scales at scale.
+#[test]
+fn test_brick_pop_large_cohort() {
+    let n = 120usize;
+    let mut strigars: Vec<(String, String)> = Vec::with_capacity(n);
+    let mut names: Vec<String> = Vec::with_capacity(n);
+    let mut freqs: Vec<f64> = Vec::with_capacity(n);
+    let mut methyl: Vec<Option<f64>> = Vec::with_capacity(n);
+    let mut entropy: Vec<Option<f64>> = Vec::with_capacity(n);
+    let mut longest: Vec<Option<f64>> = Vec::with_capacity(n);
+
+    for i in 0..n {
+        // Expansion shrinks down the cohort; every 9th allele is interrupted with AAGGG.
+        let units = 560usize.saturating_sub(i * 4).max(6);
+        if i % 9 == 4 {
+            let a = units / 2;
+            let b = 6usize;
+            let c = units.saturating_sub(a + b);
+            strigars.push(("AATGG:A,AAGGG:B".to_string(), format!("{a}A{b}B{c}A")));
+        } else {
+            strigars.push(("AATGG:A".to_string(), format!("{units}A")));
+        }
+        names.push(format!("a{:03}", i + 1));
+        freqs.push((n - i) as f64); // strictly descending sample counts
+        methyl.push(if i % 7 == 0 {
+            None
+        } else {
+            Some((i % 11) as f64 / 10.0)
+        });
+        entropy.push(Some(((i * 13) % 100) as f64 / 100.0));
+        longest.push(Some(units as f64));
+    }
+
+    let mut motif_colors: HashMap<String, String> = HashMap::new();
+    motif_colors.insert("AATGG".to_string(), "#4c78a8".to_string());
+    motif_colors.insert("AAGGG".to_string(), "#e45756".to_string());
+
+    let brick = BrickPlot::new()
+        .with_names(names)
+        .with_motif_colors(motif_colors)
+        .with_merge_runs(true)
+        .with_strigars(strigars);
+
+    let plot = BrickPopPlot::new(brick)
+        .with_title("RFC1 cohort - 120 alleles")
+        .with_row_height(6.0)
+        .with_frequency_label("Samples")
+        .with_frequencies(freqs)
+        .with_metric("methylation", methyl, ColorMap::Viridis)
+        .with_metric_column(
+            MetricColumn::new("motif entropy", entropy, ColorMap::Inferno).with_range(0.0, 1.0),
+        )
+        .with_metric("longest pure run", longest, ColorMap::Turbo);
+
+    let scene = plot.render(1000.0);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/brick_pop_large_cohort.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"), "must render a 120-row cohort");
+}
+
+/// Stress test for the bottom motif legend: a complex locus with ~31 distinct motifs
+/// (the CPUM_TYMS row from the bladerunner contract) plus a few shorter alleles. The
+/// embedded `LegendPlot` must wrap the large motif list into several rows without
+/// overflowing the canvas.
+#[test]
+fn test_brick_pop_complex_locus_many_motifs() {
+    // 31-motif consensus-like allele (verbatim from the STRIGAR contract doc).
+    let big_strigar = "3B1C2B1C4B1C2B3C6B1C2B1D3E1F2A1G3A2H3A1H2A1I4A1J2A1H4A1K5A2H2A1L2M1N2O1P2Q1R1Q2S1T6U2V1W1X1Y2X1Z2T1AA1AB1S2AB1AC1AD1AE2AD";
+    let big_motifs = "TGATGG:A,TGGTGA:B,TGGAGA:C,TGGAGATGGT:D,GATGGCGATGGA:E,GATGG:F,TGG:G,AGATGG:H,G:I,AGATGGTGAATGG:J,AGAGG:K,TGAGGGGTGGTGCCT:L,ATC:M,TCGATTGC:N,AC:O,AAAAATGGCAAGTTTAA:P,TAT:Q,GTGTACTT:R,CA:S,ATG:T,A:U,GCT:V,GCGTGGGCCAAGTTACTTGTGCA:W,GGT:X,AAGTGTTCTGCA:Y,TGCCTGCACCTCAGTTGTAGGGTGTCCGTAGGATGTGAGGCCAGTCCCCGGGCTTA:Z,CTTTAAATCCTGCCTAGT:AA,ATT:AB,TCTTGTCGCT:AC,TAA:AD,AAGGCC:AE";
+
+    let strigars: Vec<(String, String)> = vec![
+        (big_motifs.to_string(), big_strigar.to_string()),
+        ("TGATGG:A,AGATGG:B".to_string(), "20A3B10A".to_string()),
+        ("TGATGG:A,TGGTGA:B".to_string(), "14A2B8A".to_string()),
+        ("TGATGG:A".to_string(), "9A".to_string()),
+    ];
+    let names = vec!["consensus", "allele_2", "allele_3", "allele_4"];
+
+    let brick = BrickPlot::new()
+        .with_names(names)
+        .with_consensus_row(0)
+        .with_mark_primary()
+        .with_strigars(strigars);
+
+    let plot = BrickPopPlot::new(brick)
+        .with_title("CPUM_TYMS - complex locus (many motifs)")
+        .with_row_height(22.0)
+        .with_frequencies(vec![0.40, 0.30, 0.20, 0.10])
+        .with_metric(
+            "methylation",
+            vec![Some(0.8), Some(0.5), None, Some(0.2)],
+            ColorMap::Viridis,
+        );
+
+    let scene = plot.render(1000.0);
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/brick_pop_complex_locus.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"), "complex locus must render");
+    // The long Z motif (56 bp) should appear in the bottom legend.
+    assert!(
+        svg.contains("TGCCTGCACCTCAGTTGTAGGGTGTCCGTAGGATGTGAGGCCAGTCCCCGGGCTTA"),
+        "56 bp Z motif should be listed in the bottom legend"
+    );
+}
