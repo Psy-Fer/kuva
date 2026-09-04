@@ -967,4 +967,45 @@ impl BrickPlot {
             self.sequences.len()
         }
     }
+
+    /// Reorder rows so that new row `k` is old row `order[k]`. `order` must be a
+    /// permutation of `0..num_rows`; otherwise this is a no-op. All row-parallel vectors
+    /// (sequences, names, expanded strigars, flanks, per-row offsets, notations) are
+    /// permuted together; per-motif colour/length maps are untouched, and `consensus_row`
+    /// is remapped to its new position. Used by composites that sort alleles.
+    pub fn permute_rows(mut self, order: &[usize]) -> Self {
+        let n = self.num_rows();
+        if order.len() != n || !order.iter().all(|&i| i < n) {
+            return self;
+        }
+        fn permute<T: Clone>(v: &mut Vec<T>, order: &[usize]) {
+            if v.len() == order.len() {
+                *v = order.iter().map(|&i| v[i].clone()).collect();
+            }
+        }
+        permute(&mut self.sequences, order);
+        permute(&mut self.names, order);
+        if let Some(v) = self.strigar_exp.as_mut() {
+            permute(v, order);
+        }
+        if let Some(v) = self.strigars.as_mut() {
+            permute(v, order);
+        }
+        if let Some(v) = self.left_flanks.as_mut() {
+            permute(v, order);
+        }
+        if let Some(v) = self.right_flanks.as_mut() {
+            permute(v, order);
+        }
+        if let Some(v) = self.x_offsets.as_mut() {
+            permute(v, order);
+        }
+        if let Some(v) = self.notations.as_mut() {
+            permute(v, order);
+        }
+        if let Some(c) = self.consensus_row {
+            self.consensus_row = order.iter().position(|&i| i == c);
+        }
+        self
+    }
 }

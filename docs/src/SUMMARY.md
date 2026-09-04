@@ -87,6 +87,7 @@
 - [Volcano Plot](./plots/volcano.md)
 - [Synteny Plot](./plots/synteny.md)
 - [Brick Plot](./plots/brick.md)
+- [Brick Pop Plot](./plots/brick_pop.md)
 
 # 3D
 

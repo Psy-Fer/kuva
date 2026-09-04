@@ -206,6 +206,12 @@ Click any image to go to the full documentation page.
 <div class="gallery-desc">Read-level alignment bricks with per-base colouring and STRIGAR string support.</div>
 </a></div>
 
+<div class="gallery-card"><a href="./plots/brick_pop.html">
+<img src="./assets/brick_pop/population.svg" alt="Brick Pop Plot">
+<div class="gallery-caption">Brick Pop Plot</div>
+<div class="gallery-desc">Population STR alleles: frequency bar, per-allele metric heatboxes, and motif bricks on shared rows.</div>
+</a></div>
+
 <div class="gallery-card"><a href="./plots/polar.html">
 <img src="./assets/polar/basic.svg" alt="Polar Plot">
 <div class="gallery-caption">Polar Plot</div>

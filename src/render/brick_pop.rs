@@ -158,6 +158,12 @@ pub struct BrickPopPlot {
     freq_bar_color: String,
     /// Fill colour for missing (`None`) metric cells.
     na_color: String,
+    /// Explicit `(min, max)` for the frequency-bar scale. `None` = auto: `[0, 1]` when the
+    /// values look like proportions (all in `[0, 1]`), else `[0, max]`.
+    freq_range: Option<(f64, f64)>,
+    /// When true, metric cells show the numeric value with the heat colour on the cell
+    /// border (instead of a solid fill), where the cell is large enough for text.
+    show_metric_values: bool,
     /// Desired pixel height per allele row (used when auto-sizing the canvas height).
     row_height_px: f64,
     theme: Theme,
@@ -175,14 +181,35 @@ impl BrickPopPlot {
             freq_label: "Frequency".to_string(),
             freq_bar_color: DEFAULT_FREQ_COLOR.to_string(),
             na_color: DEFAULT_NA_COLOR.to_string(),
+            freq_range: None,
+            show_metric_values: false,
             row_height_px: DEFAULT_ROW_HEIGHT,
             theme: Theme::default(),
         }
     }
 
     /// Set the per-row frequency values (one per allele row, same order as the rows).
+    ///
+    /// Everything is positional, so this must have exactly one entry per brick row, in the
+    /// same order (a `debug_assert` enforces this in debug/test builds).
     pub fn with_frequencies<I: IntoIterator<Item = f64>>(mut self, freqs: I) -> Self {
         self.frequencies = freqs.into_iter().collect();
+        debug_assert_eq!(
+            self.frequencies.len(),
+            self.brick.num_rows(),
+            "frequencies must have one entry per allele row"
+        );
+        self
+    }
+
+    /// Pin the frequency-bar scale to `[vmin, vmax]` (mirrors [`MetricColumn::with_range`]).
+    ///
+    /// By default the bars auto-scale to `[0, 1]` when the values look like proportions,
+    /// else to `[0, max]`. Pin an explicit range (e.g. `[0.0, 1.0]`) so bars are comparable
+    /// across loci: a locus with one allele at 0.9 then looks obviously different from one
+    /// with twelve singletons at 0.08, instead of every bar filling to the max.
+    pub fn with_frequency_range(mut self, vmin: f64, vmax: f64) -> Self {
+        self.freq_range = Some((vmin, vmax));
         self
     }
 
@@ -193,6 +220,11 @@ impl BrickPopPlot {
         values: Vec<Option<f64>>,
         colormap: ColorMap,
     ) -> Self {
+        debug_assert_eq!(
+            values.len(),
+            self.brick.num_rows(),
+            "metric values must have one entry per allele row"
+        );
         self.metrics
             .push(MetricColumn::new(label, values, colormap));
         self
@@ -200,7 +232,45 @@ impl BrickPopPlot {
 
     /// Append a fully-specified metric column (e.g. with a pinned range).
     pub fn with_metric_column(mut self, column: MetricColumn) -> Self {
+        debug_assert_eq!(
+            column.values.len(),
+            self.brick.num_rows(),
+            "metric values must have one entry per allele row"
+        );
         self.metrics.push(column);
+        self
+    }
+
+    /// Show each metric cell's numeric value as text, with the heat colour on the cell
+    /// border rather than as a solid fill (where the cell is large enough for text; small
+    /// cells fall back to a solid fill).
+    pub fn with_metric_values(mut self, on: bool) -> Self {
+        self.show_metric_values = on;
+        self
+    }
+
+    /// Sort alleles by descending frequency, permuting the rows, the frequency values, and
+    /// every metric column together so they stay aligned. Removes the need to hand-sort
+    /// each vector in lockstep. No-op if no frequencies are set or lengths don't match.
+    pub fn sorted_by_frequency(mut self) -> Self {
+        let n = self.brick.num_rows();
+        if n == 0 || self.frequencies.len() != n {
+            return self;
+        }
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| {
+            self.frequencies[b]
+                .partial_cmp(&self.frequencies[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.cmp(&b))
+        });
+        self.frequencies = order.iter().map(|&i| self.frequencies[i]).collect();
+        for m in &mut self.metrics {
+            if m.values.len() == n {
+                m.values = order.iter().map(|&i| m.values[i]).collect();
+            }
+        }
+        self.brick = self.brick.permute_rows(&order);
         self
     }
 
@@ -290,6 +360,33 @@ impl BrickPopPlot {
         self.metrics.len() as f64 * COLORBAR_UNIT_W
     }
 
+    /// Resolved `(min, max)` for the frequency-bar scale. Uses the pinned range when set;
+    /// otherwise `[0, 1]` when the values look like proportions (all finite and in `[0, 1]`),
+    /// else `[0, max]`. Bars are thus comparable across loci by default when data are
+    /// proportions, instead of every locus normalising to its own maximum.
+    fn freq_scale(&self) -> (f64, f64) {
+        if let Some(r) = self.freq_range {
+            return r;
+        }
+        let mut max = f64::MIN;
+        let mut looks_proportion = true;
+        for &f in &self.frequencies {
+            if !f.is_finite() {
+                continue;
+            }
+            max = max.max(f);
+            if !(0.0..=1.0).contains(&f) {
+                looks_proportion = false;
+            }
+        }
+        if max == f64::MIN || looks_proportion {
+            // No finite values, or they look like proportions: use the [0, 1] scale.
+            (0.0, 1.0)
+        } else {
+            (0.0, max.max(f64::EPSILON))
+        }
+    }
+
     /// Column count and pixel height of the bottom motif legend for a given legend width
     /// (returns `(1, 0.0)` when the brick has no legend). Mirrors `LegendPlot`'s uniform
     /// grid: a fixed column width from the widest label, as many columns as fit, then rows.
@@ -366,7 +463,13 @@ impl BrickPopPlot {
         let freq_x = gutter_w;
         let freq_w = if has_freq { FREQ_PANEL_W } else { 0.0 };
         let heat_x = freq_x + freq_w + if freq_w > 0.0 { PANEL_GAP } else { 0.0 };
-        let heat_w = self.metrics.len() as f64 * HEAT_COL_W;
+        // Widen the metric columns in value-in-box mode so numbers fit inside the cells.
+        let heat_col_w = if self.show_metric_values {
+            HEAT_COL_W + 14.0
+        } else {
+            HEAT_COL_W
+        };
+        let heat_w = self.metrics.len() as f64 * heat_col_w;
         let brick_x = heat_x + heat_w + if heat_w > 0.0 { PANEL_GAP } else { 0.0 };
         // Colourbars occupy a right-hand region (side by side); bricks fill the space between
         // the heatboxes and that region.
@@ -423,7 +526,7 @@ impl BrickPopPlot {
         // Metric labels read bottom-to-top (columns are narrow); anchored at the bottom of
         // the header band (just above the squares) so `rotate(-90)` extends them upward.
         for (c, metric) in self.metrics.iter().enumerate() {
-            let cx = heat_x + c as f64 * HEAT_COL_W + HEAT_COL_W / 2.0;
+            let cx = heat_x + c as f64 * heat_col_w + heat_col_w / 2.0;
             scene.add(Primitive::Text {
                 x: cx + center_offset(HEADER_SIZE as f64, FontStyle::Regular),
                 y: force_top - 4.0,
@@ -457,23 +560,21 @@ impl BrickPopPlot {
 
         // ── Frequency bars + axis (baseline at panel right, bars grow left) ────────────
         if has_freq {
-            let max_freq = self
-                .frequencies
-                .iter()
-                .cloned()
-                .filter(|v| v.is_finite())
-                .fold(f64::MIN, f64::max);
-            let max_freq = if max_freq > 0.0 { max_freq } else { 1.0 };
+            let (fmin, fmax) = self.freq_scale();
+            let span = (fmax - fmin).max(f64::EPSILON);
             let baseline_r = freq_x + freq_w - GUTTER_PAD;
             let avail = freq_w - GUTTER_PAD;
             let bar_h = (row_h * 0.7).clamp(2.0, 16.0);
             let fill = Color::Css(self.freq_bar_color.as_str().into());
             for i in 0..n {
                 let f = self.frequencies.get(i).copied().unwrap_or(0.0);
-                if !f.is_finite() || f <= 0.0 {
+                if !f.is_finite() {
                     continue;
                 }
-                let w = (f / max_freq * avail).clamp(0.0, avail);
+                let w = (((f - fmin) / span) * avail).clamp(0.0, avail);
+                if w <= 0.0 {
+                    continue;
+                }
                 scene.add(Primitive::Rect {
                     x: baseline_r - w,
                     y: row_center(i) - bar_h / 2.0,
@@ -485,8 +586,8 @@ impl BrickPopPlot {
                     opacity: None,
                 });
             }
-            // Axis line along the bottom band, with 0 at the (right) baseline and max at
-            // the left edge, matching the leftward-growing bars.
+            // Axis line along the bottom band, with `fmin` at the (right) baseline and
+            // `fmax` at the left edge, matching the leftward-growing bars.
             scene.add(Primitive::Line {
                 x1: baseline_r - avail,
                 y1: rows_bottom,
@@ -511,7 +612,7 @@ impl BrickPopPlot {
                 scene.add(Primitive::Text {
                     x,
                     y: rows_bottom + 6.0 + AXIS_LABEL_SIZE as f64,
-                    content: fmt_num(frac * max_freq),
+                    content: fmt_num(fmin + frac * span),
                     size: AXIS_LABEL_SIZE,
                     anchor: TextAnchor::Middle,
                     rotate: None,
@@ -522,26 +623,62 @@ impl BrickPopPlot {
         }
 
         // ── Metric heatboxes ──────────────────────────────────────────────────────────
-        let cell_w = HEAT_COL_W - HEAT_CELL_GAP;
+        let cell_w = heat_col_w - HEAT_CELL_GAP;
         let cell_h = (row_h * 0.85).clamp(2.0, HEAT_COL_W);
         let na_fill = Color::Css(self.na_color.as_str().into());
+        // Value-in-box mode: draw the number with the heat on the border, but only where a
+        // cell is large enough for legible text; otherwise fall back to a solid fill.
+        let value_mode = self.show_metric_values && cell_h >= 11.0 && cell_w >= 16.0;
+        let value_size = (cell_h * 0.55).clamp(5.0, 9.0);
+        let box_bg = Color::Css(self.theme.background.as_str().into());
         for (c, metric) in self.metrics.iter().enumerate() {
-            let cx = heat_x + c as f64 * HEAT_COL_W + HEAT_CELL_GAP / 2.0;
+            let cx = heat_x + c as f64 * heat_col_w + HEAT_CELL_GAP / 2.0;
             for i in 0..n {
-                let fill = match metric.normalized(i) {
-                    Some(t) => Color::Css(metric.colormap.map(t).into()),
-                    None => na_fill.clone(),
-                };
-                scene.add(Primitive::Rect {
-                    x: cx,
-                    y: row_center(i) - cell_h / 2.0,
-                    width: cell_w,
-                    height: cell_h,
-                    fill,
-                    stroke: None,
-                    stroke_width: None,
-                    opacity: None,
-                });
+                let y = row_center(i) - cell_h / 2.0;
+                match (metric.normalized(i), value_mode) {
+                    (Some(t), true) => {
+                        // Heat on the border, value in the box.
+                        let heat = Color::Css(metric.colormap.map(t).into());
+                        scene.add(Primitive::Rect {
+                            x: cx,
+                            y,
+                            width: cell_w,
+                            height: cell_h,
+                            fill: box_bg.clone(),
+                            stroke: Some(heat),
+                            stroke_width: Some(2.0),
+                            opacity: None,
+                        });
+                        if let Some(v) = metric.values.get(i).copied().flatten() {
+                            scene.add(Primitive::Text {
+                                x: cx + cell_w / 2.0,
+                                y: row_center(i) + center_offset(value_size, FontStyle::Regular),
+                                content: fmt_num(v),
+                                size: value_size.round() as u32,
+                                anchor: TextAnchor::Middle,
+                                rotate: None,
+                                bold: false,
+                                color: Some(text_color.clone()),
+                            });
+                        }
+                    }
+                    (opt, _) => {
+                        let fill = match opt {
+                            Some(t) => Color::Css(metric.colormap.map(t).into()),
+                            None => na_fill.clone(),
+                        };
+                        scene.add(Primitive::Rect {
+                            x: cx,
+                            y,
+                            width: cell_w,
+                            height: cell_h,
+                            fill,
+                            stroke: None,
+                            stroke_width: None,
+                            opacity: None,
+                        });
+                    }
+                }
             }
         }
 

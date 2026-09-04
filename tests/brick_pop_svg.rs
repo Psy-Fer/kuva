@@ -166,3 +166,121 @@ fn test_brick_pop_complex_locus_many_motifs() {
         "56 bp Z motif should be listed in the bottom legend"
     );
 }
+
+/// Regression for the frequency-bar normalisation bug: when all alleles are singletons
+/// (equal proportions, the common small-cohort case), bars must NOT all fill to the max.
+/// With the default proportions scale ([0,1]) they should be short and equal, so a
+/// polymorphic locus looks obviously different from one dominated by a single allele.
+#[test]
+fn test_brick_pop_frequency_singletons() {
+    let n = 12usize;
+    let strigars: Vec<(String, String)> = (0..n)
+        .map(|i| ("AATGG:A".to_string(), format!("{}A", 8 + i)))
+        .collect();
+    let names: Vec<String> = (0..n).map(|i| format!("hap{i}")).collect();
+    let freqs: Vec<f64> = vec![1.0 / n as f64; n]; // 12 singletons at ~0.083
+
+    let brick = BrickPlot::new().with_names(names).with_strigars(strigars);
+    let plot = BrickPopPlot::new(brick)
+        .with_title("CPUM_TYMS - 12 singletons")
+        .with_frequencies(freqs);
+    let svg = SvgBackend.render_scene(&plot.render(900.0));
+    common::write_test_output("test_outputs/brick_pop_singletons.svg", svg.clone()).unwrap();
+
+    // Freq bars use the default colour #4c78a8 (no motif is pinned to it here). Every bar
+    // must be short (proportion 0.083 of the ~104 px panel), never near the full width.
+    let widths: Vec<f64> = regex_widths(&svg, "#4c78a8");
+    assert!(!widths.is_empty(), "expected frequency bars");
+    let maxw = widths.iter().cloned().fold(0.0_f64, f64::max);
+    assert!(
+        maxw < 20.0,
+        "singleton bars must be short with the [0,1] default, got max width {maxw}"
+    );
+}
+
+/// Value-in-box metric mode: the numeric value is written in each cell with the heat on the
+/// border. Verifies the values render as text.
+#[test]
+fn test_brick_pop_metric_values_in_box() {
+    let strigars: Vec<(String, String)> = vec![
+        ("AATGG:A".to_string(), "20A".to_string()),
+        ("AATGG:A".to_string(), "10A".to_string()),
+    ];
+    let brick = BrickPlot::new()
+        .with_names(vec!["a1", "a2"])
+        .with_strigars(strigars);
+    let plot = BrickPopPlot::new(brick)
+        .with_row_height(26.0)
+        .with_metric_values(true)
+        .with_frequencies(vec![0.7, 0.3])
+        .with_metric(
+            "methylation",
+            vec![Some(0.90), Some(0.20)],
+            ColorMap::Viridis,
+        );
+    let svg = SvgBackend.render_scene(&plot.render(700.0));
+    common::write_test_output("test_outputs/brick_pop_values_in_box.svg", svg.clone()).unwrap();
+    assert!(
+        svg.contains(">0.90<"),
+        "cell value 0.90 should be written in the box"
+    );
+    assert!(
+        svg.contains(">0.20<"),
+        "cell value 0.20 should be written in the box"
+    );
+}
+
+/// `sorted_by_frequency` permutes rows, frequencies, and metrics together. Given unsorted
+/// input, the highest-frequency allele's name must end up in the top row (smallest y).
+#[test]
+fn test_brick_pop_sorted_by_frequency() {
+    let strigars: Vec<(String, String)> = vec![
+        ("AATGG:A".to_string(), "10A".to_string()),
+        ("AATGG:A".to_string(), "50A".to_string()),
+        ("AATGG:A".to_string(), "30A".to_string()),
+    ];
+    let brick = BrickPlot::new()
+        .with_names(vec!["low", "high", "mid"])
+        .with_strigars(strigars);
+    let plot = BrickPopPlot::new(brick)
+        .with_frequencies(vec![0.1, 0.5, 0.3])
+        .sorted_by_frequency();
+    let svg = SvgBackend.render_scene(&plot.render(700.0));
+
+    let y = |label: &str| -> f64 {
+        let pat = format!(r#">{label}<"#);
+        let idx = svg
+            .find(&pat)
+            .unwrap_or_else(|| panic!("missing label {label}"));
+        // walk back to the y=".." of this <text>
+        let head = &svg[..idx];
+        let ystart = head.rfind(r#" y=""#).unwrap() + 4;
+        let yend = head[ystart..].find('"').unwrap() + ystart;
+        head[ystart..yend].parse().unwrap()
+    };
+    assert!(
+        y("high") < y("mid") && y("mid") < y("low"),
+        "rows must be sorted by descending frequency (high at top)"
+    );
+}
+
+/// Helper: parse the `width` of every `<rect ... fill="COLOR" ...>` in an SVG string.
+fn regex_widths(svg: &str, color: &str) -> Vec<f64> {
+    let needle = format!(r#"fill="{color}""#);
+    let mut out = Vec::new();
+    for chunk in svg.split("<rect ").skip(1) {
+        let end = chunk.find('>').unwrap_or(chunk.len());
+        let tag = &chunk[..end];
+        if tag.contains(&needle) {
+            if let Some(ws) = tag.find(r#"width=""#) {
+                let s = ws + 7;
+                if let Some(e) = tag[s..].find('"') {
+                    if let Ok(w) = tag[s..s + e].parse::<f64>() {
+                        out.push(w);
+                    }
+                }
+            }
+        }
+    }
+    out
+}

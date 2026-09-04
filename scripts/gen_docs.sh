@@ -11,6 +11,7 @@ EXAMPLES=(
     figure
     boxplot
     brick
+    brick_pop
     bump
     bw_mode
     calendar
