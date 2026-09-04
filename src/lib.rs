@@ -56,6 +56,11 @@
 //! This bakes DejaVu Sans as a base64 `@font-face` block into the SVG at the cost
 //! of roughly 1 MB of added file size.
 
+/// The kuva crate version (from `Cargo.toml`), e.g. `"0.5.0"`. Stamped into rendered
+/// output (SVG comment, PNG `Software` text chunk, PDF creator/producer) so a saved figure
+/// records which version produced it.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod backend;
 pub mod plot;
 pub mod prelude;

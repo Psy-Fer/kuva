@@ -1038,6 +1038,8 @@ impl Canvas {
         let mut enc = png::Encoder::new(std::io::Cursor::new(&mut buf), self.width, self.height);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
+        // Standard "Software" text chunk recording the kuva version (best-effort).
+        let _ = enc.add_text_chunk("Software".to_string(), format!("kuva {}", crate::VERSION));
         enc.write_header()
             .and_then(|mut w| w.write_image_data(&self.pixels))
             .map_err(|e| e.to_string())?;

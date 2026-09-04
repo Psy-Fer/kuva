@@ -99,6 +99,13 @@ impl PdfBackend {
 
         let fontdb = Self::fontdb();
         let mut document = Document::new();
+        // Stamp the kuva version into the PDF's document metadata for later issue triage.
+        let stamp = format!("kuva {}", crate::VERSION);
+        document.set_metadata(
+            krilla::metadata::Metadata::new()
+                .creator(stamp.clone())
+                .producer(stamp),
+        );
 
         for scene in scenes {
             let svg_str = SvgBackend::new().render_scene(scene);
