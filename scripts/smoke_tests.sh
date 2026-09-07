@@ -15,7 +15,6 @@ set -euo pipefail
 BIN=""
 SAVE=0
 OUTDIR="smoke_test_outputs"
-
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1126,10 +1125,13 @@ check "quiver grid on + tight bounds" \
         --tight-bounds --pivot middle \
         --title "Quiver Grid + Clip"
 
+
 # ── math in labels ──────────────────────────────────────────────────────────
-# $...$ math regions in labels are lowered to inline Unicode (σ², a/b, √(…), ∑)
-# by every backend. Exercised across plot types and label slots to confirm it
-# is not scatter-specific.
+# $...$ math regions in labels. A cli,full binary includes `pdf`, so these are
+# typeset by the typst tier (real 2-D math embedded in the SVG); a build
+# without `pdf` lowers them to inline Unicode (σ², a/b, √(…), ∑) via the
+# always-on lookup tier. Same commands either way — exercised across plot
+# types and label slots to confirm it is not scatter-specific.
 check "math superscript + sqrt" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
         --x-label 'Variance, $\sigma^2$ (units)' --y-label '$\sqrt{x^2+y^2}$'
@@ -1148,7 +1150,7 @@ check "math greek and operators" \
 
 check "math in rotated y-label" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
-        --y-label 'Energy $E = mc^2$'
+        --y-label 'Energy $E = m c^2$'
 
 check "math on line plot" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value \
@@ -1336,6 +1338,22 @@ check "coverage real CoVarPlot ARTIC data" \
 check "coverage real pools overlaid" \
     "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 --overlay-samples \
         --regions "$DATA/covar_genes.tsv" --region-name genes --x-label "MN908947.3"
+
+# ── math (typst tier) ─────────────────────────────────────────────────────────
+# Deeper 2-D math (stacked fractions, radicals, limits). With cli,full these
+# come back as embedded typst fragments; a pdf-less build still passes via the
+# lookup tier's inline forms.
+check "typst fraction" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title 'Rate $\frac{a + b}{c}$'
+
+check "typst sqrt + sum" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\sqrt{x^2 + y^2}$' --y-label '$\sum_{i=1}^{n} x_i$'
+
+check "typst quadratic in rotated y-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-label '$x = \frac{-b \pm \sqrt{b^2 - 4 a c}}{2 a}$'
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

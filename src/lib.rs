@@ -33,16 +33,29 @@
 //! | `pdf`        | Enables [`PdfBackend`] for vector PDF output via `krilla`. Requires Rust >= 1.92 (higher than the crate's own MSRV — see CHANGELOG.md). |
 //! | `embed_font` | Enables [`backend::svg::SvgBackend::with_embedded_font`] — bakes DejaVu Sans into the SVG as a base64 `@font-face`. Adds `flate2` as a dependency but does **not** pull in `png` or `pdf`. |
 //! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
-//! | `full`       | Enables `embed_font` + `png` + `pdf`. |
+//! | `typst`      | Enables `TypstBackend` for emitting Typst markup (compile externally). |
+//! | `full`       | Enables `embed_font` + `png` + `pdf` + `typst`. |
 //!
 //! # Math in labels
 //!
 //! Any label (title, axis labels, annotations, markdown body text) may contain
 //! `$...$` math regions written in LaTeX-ish syntax: `$\sigma^2$`,
-//! `$\frac{a}{b}$`, `$\sqrt{x^2 + y^2}$`. They are lowered to inline Unicode —
-//! Greek letters, operators, super/subscripts, `\frac`→`a/b`, `\sqrt`→`√(…)` —
-//! by every backend, including the terminal. Zero dependencies; always on.
-//! Write a literal dollar as `\$`. See [`render::math::to_unicode`].
+//! `$\frac{a}{b}$`, `$\sqrt{x^2 + y^2}$`. There are two rendering tiers:
+//!
+//! * **Lookup tier** (always available, zero deps): math is lowered to inline
+//!   Unicode — Greek letters, operators, super/subscripts, `\frac`→`a/b`,
+//!   `\sqrt`→`√(…)`. Every backend without `pdf` uses this, and it is the
+//!   only tier the terminal backend can use. Write a literal dollar as `\$`.
+//!   See [`render::math::to_unicode`].
+//! * **Typst tier** (feature `pdf`): the whole label is typeset by the Typst
+//!   compiler (linked as a library) for real 2-D math (stacked fractions,
+//!   radicals with vinculum, large operators) and embedded into SVG/PNG/PDF
+//!   output. Rides the `pdf` feature — the PDF backend already sits on
+//!   Typst's own rendering stack (`krilla`), so the two share one heavy,
+//!   Rust >= 1.92 feature rather than splitting into two.
+//!
+//! Note: Typst math is **not** LaTeX — a multi-letter run like `mc` is one
+//! identifier, so write `$E = m c^2$`, not `$E = mc^2$`.
 //!
 //! # Fonts
 //!
@@ -79,6 +92,9 @@ pub use backend::raster::RasterBackend;
 
 #[cfg(feature = "pdf")]
 pub use backend::pdf::{PageSize, PdfBackend};
+
+#[cfg(feature = "typst")]
+pub use backend::typst::TypstBackend;
 
 pub use render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};
 /// KDE bandwidth via Silverman's rule of thumb: `h = 1.06 σ n^{-1/5}`.

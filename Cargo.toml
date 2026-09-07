@@ -16,6 +16,7 @@ readme = "README.md"
 # and helper scripts are excluded to stay within the crates.io 10 MB limit.
 exclude = [
     "assets/fonts/*.ttf",           # raw TTFs — only .ttf.gz are used by include_bytes!
+    "assets/fonts/*.otf",           # raw OTFs (NewCM Math) — only .otf.gz is embedded
     "docs/",                         # mdBook source + generated SVG/PNG/GIF/PDF assets
     "scripts/",                      # smoke test and generation scripts
     "examples/*.svg",                # generated SVG outputs
@@ -31,8 +32,10 @@ all-features = true
 # The `pdf` feature's real minimum Rust version — higher than `package.rust-version`
 # above, which intentionally excludes it (see README.md's note and CHANGELOG.md).
 # krilla (the `pdf` feature's PDF backend) sets this floor; bump it in lockstep
-# with krilla's own MSRV. Read by .github/workflows/ci.yml's `pdf-msrv` job so
-# CI actually verifies `--features cli,full` builds at *this* version, not at
+# with krilla's own MSRV. typst (the feature's math typesetter) also rides this
+# floor but currently needs less (1.89 as of typst 0.14). Read by
+# .github/workflows/ci.yml's `pdf-msrv` job so CI actually verifies
+# `--features cli,full` builds at *this* version, not at
 # `package.rust-version` (which is no longer sufficient for that feature combo).
 pdf_feature = "1.92"
 
@@ -47,11 +50,33 @@ png        = ["dep:fontdue", "dep:png", "dep:flate2"]
 # a newer MSRV via Cargo's rust-version-aware resolver. Building with
 # `--features pdf` (or `full`) genuinely requires Rust >= 1.92; documented in
 # README/CHANGELOG rather than enforced through Cargo metadata.
-pdf        = ["dep:krilla", "dep:krilla-svg", "dep:usvg", "dep:flate2"]
+#
+# `pdf` also carries the in-process math typesetter (the "typst tier"): each
+# label containing `$...$` is typeset by the Typst compiler (linked as a
+# library) and embedded in SVG/PNG/PDF output — real math typography (proper
+# italic σ, vinculum √, stacked fractions, sums) with no external typst CLI.
+# It rides `pdf` rather than being its own feature because krilla *is* Typst's
+# PDF stack — this is the one deliberately heavy, higher-MSRV feature, and
+# splitting it in two bought nothing but combinatorics. Builds without `pdf`
+# lower `$...$` to inline Unicode via the always-on lookup tier instead.
+pdf        = [
+    "dep:krilla",
+    "dep:krilla-svg",
+    "dep:usvg",
+    "dep:flate2",
+    "dep:typst",
+    "dep:typst-svg",
+    "dep:typst-render",
+    "dep:typst-library",
+]
 embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full       = ["embed_font", "png", "pdf"]
+full       = ["embed_font", "png", "pdf", "typst"]
 parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
+# Typst markup output backend. Emits .typ source the user compiles externally
+# with `typst compile fig.typ` — pure string emission, no deps. The TypstBackend
+# itself handles `$...$` math via native Typst math syntax. Upstream issue #16.
+typst      = []
 # Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
 # Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
 # Run once: cargo build --bin kuva --features cli,doom
@@ -82,6 +107,10 @@ usvg        = { version = "=0.47.0", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }
 csv         = { version = "1", optional = true }
+typst         = { version = "0.14", optional = true }
+typst-svg     = { version = "0.14", optional = true }
+typst-render  = { version = "0.14", optional = true }
+typst-library = { version = "0.14", optional = true }
 
 [dev-dependencies]
 rand = "0.9.3"

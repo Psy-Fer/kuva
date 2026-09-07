@@ -66,6 +66,24 @@ pub(crate) fn dejavu_sans_mono() -> &'static [u8] {
     BYTES.get_or_init(|| inflate(DEJAVU_SANS_MONO_GZ, 380_000, "DejaVu Sans Mono"))
 }
 
+/// Gzip-compressed New Computer Modern Math (OFL/GUST), embedded at compile
+/// time. Used only by the `pdf` feature's typst tier, as the math font fed to the typst
+/// compiler. ~1.1 MB inflated; ~0.75 MB on disk.
+#[cfg(feature = "pdf")]
+const NEWCM_MATH_GZ: &[u8] = include_bytes!("../assets/fonts/NewCMMath-Regular.otf.gz");
+
+/// Returns the inflated New Computer Modern Math OTF bytes. Inflated once and
+/// cached. Bundled (rather than pulled from `typst-assets`) so the typst tier
+/// ships ~1 MB of font rather than ~15 MB.
+#[cfg(feature = "pdf")]
+pub(crate) fn newcm_math() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| inflate(NEWCM_MATH_GZ, 1_200_000, "NewCM Math"))
+}
+
+// Used only by `dejavu_sans_style_block` (the `embed_font` SVG path); the
+// `fonts` module is also compiled for `png`/`pdf`/`math`, where this is dead.
+#[cfg(feature = "embed_font")]
 fn base64_encode(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
@@ -100,6 +118,7 @@ fn base64_encode(data: &[u8]) -> String {
 
 /// Returns a `<style>` block with `@font-face` rules for all four DejaVu variants.
 /// The result is computed once and cached for the lifetime of the process.
+#[cfg(feature = "embed_font")]
 pub(crate) fn dejavu_sans_style_block() -> &'static str {
     static BLOCK: OnceLock<String> = OnceLock::new();
     BLOCK.get_or_init(|| {

@@ -78,9 +78,9 @@ jobs:
       - name: Build library (no features) at MSRV
         run: cargo +${{ steps.msrv.outputs.version }} build
 
-      # Excludes `pdf`: krilla (the pdf feature's backend) needs a newer Rust
-      # than package.rust-version — verified separately by the pdf-msrv job
-      # below, at its own higher floor.
+      # Excludes `pdf`: krilla (the pdf feature's backend) and typst (its
+      # math typesetter) need a newer Rust than package.rust-version —
+      # verified separately by the pdf-msrv job below, at its own higher floor.
       - name: Build library (CLI + non-PDF backends) at MSRV
         run: cargo +${{ steps.msrv.outputs.version }} build --features cli,png,embed_font
 
@@ -101,9 +101,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # `full` = png + pdf + embed_font; this is the combination the release
-      # workflow's pre-built binaries use (features: cli,full), so verify it
-      # builds cleanly at the pdf feature's own real MSRV floor rather than
-      # package.rust-version (which no longer covers it).
-      - name: Build library (CLI + all backends, including pdf) at pdf's MSRV
+      # `full` = png + pdf + embed_font + typst; this is the combination the
+      # release workflow's pre-built binaries use (features: cli,full), so
+      # verify it builds cleanly at the pdf feature's own real MSRV floor
+      # rather than package.rust-version (which no longer covers it). Since
+      # `pdf` also carries the typst math tier, this job covers typst's MSRV
+      # too (typst 0.14 needs 1.89 < krilla's 1.92).
+      - name: Build library (CLI + all backends, including pdf + typst math) at pdf's MSRV
         run: cargo +${{ steps.pdf_msrv.outputs.version }} build --features cli,full

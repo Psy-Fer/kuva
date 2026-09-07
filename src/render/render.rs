@@ -378,6 +378,11 @@ pub struct TextSpan {
     pub italic: bool,
     pub underline: bool,
     pub code: bool,
+    /// `text` is the body of a `$...$` math region (without the dollars).
+    /// With the `pdf` feature, backends typeset it via the typst tier and
+    /// splice the fragment into the line; without it (and always on the
+    /// terminal) it is lowered to inline Unicode by the lookup tier.
+    pub math: bool,
 }
 
 impl TextSpan {
@@ -388,6 +393,7 @@ impl TextSpan {
             italic: false,
             underline: false,
             code: false,
+            math: false,
         }
     }
 }
@@ -395,7 +401,7 @@ impl TextSpan {
 /// Data for a `<path>` SVG element.
 ///
 /// Boxed inside `Primitive::Path` to keep the enum small.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathData {
     pub d: String,
     pub fill: Option<Color>,
@@ -405,7 +411,7 @@ pub struct PathData {
     pub stroke_dasharray: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Primitive {
     Circle {
         cx: f64,
@@ -15272,6 +15278,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: false,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 2;
@@ -15294,6 +15301,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: true,
                             underline: false,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 1;
@@ -15316,6 +15324,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: true,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 2;
@@ -15338,6 +15347,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: false,
                             code: true,
+                            math: false,
                         });
                     }
                     i += 1;
@@ -15352,50 +15362,149 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
     }
     flush(&mut plain, &mut spans);
 
-    // Lower any `$...$` math in each span to inline Unicode, so math works
-    // inside markdown body text just like in plain labels. Math is parsed
-    // after markdown, so the styling markers are already consumed.
-    for span in &mut spans {
-        if crate::render::math::needs_rewrite(&span.text) {
-            span.text = crate::render::math::to_unicode(&span.text);
+    // Math is parsed after markdown, so the styling markers are already
+    // consumed. With `pdf`, split each span at `$...$` boundaries: math
+    // bodies become dedicated spans (math: true) that backends typeset with
+    // the typst tier and splice into the line; the text between them keeps
+    // the lookup pass for escaped `\$`. Without `pdf`, everything lowers to
+    // inline Unicode exactly as before.
+    #[cfg(feature = "pdf")]
+    {
+        use crate::render::math::Segment;
+        let mut spliced: Vec<TextSpan> = Vec::with_capacity(spans.len());
+        for span in spans {
+            if crate::render::math::contains_math(&span.text) {
+                for seg in crate::render::math::split_segments(&span.text) {
+                    match seg {
+                        Segment::Text(t) => {
+                            if !t.is_empty() {
+                                let mut sub = span.clone();
+                                sub.text = if crate::render::math::needs_rewrite(t) {
+                                    crate::render::math::to_unicode(t)
+                                } else {
+                                    t.to_string()
+                                };
+                                sub.math = false;
+                                spliced.push(sub);
+                            }
+                        }
+                        Segment::Math(body) => {
+                            let mut sub = span.clone();
+                            sub.text = body.to_string();
+                            sub.math = true;
+                            spliced.push(sub);
+                        }
+                    }
+                }
+            } else if crate::render::math::needs_rewrite(&span.text) {
+                let mut sub = span;
+                sub.text = crate::render::math::to_unicode(&sub.text);
+                spliced.push(sub);
+            } else {
+                spliced.push(span);
+            }
         }
+        spliced
     }
 
-    spans
+    #[cfg(not(feature = "pdf"))]
+    {
+        // Lower any `$...$` math in each span to inline Unicode (lookup tier),
+        // so math works inside markdown body text just like in plain labels.
+        for span in &mut spans {
+            if crate::render::math::needs_rewrite(&span.text) {
+                span.text = crate::render::math::to_unicode(&span.text);
+            }
+        }
+        spans
+    }
 }
 
 /// Explode spans into tagged words, then wrap into lines of at most `max_chars`.
-/// Words are never split mid-word; a word that would overflow is moved to the next line.
-fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
-    type Word = (bool, bool, bool, bool, String);
-    // Explode into (bold, italic, underline, code, word) tuples
-    let mut words: Vec<Word> = Vec::new();
-    for span in spans {
-        for word in span.text.split_whitespace() {
-            words.push((
-                span.bold,
-                span.italic,
-                span.underline,
-                span.code,
-                word.to_string(),
-            ));
-        }
+/// Words are never split mid-word; a word that would overflow is moved to the
+/// next line. A math span is one unbreakable word whose length is the typeset
+/// fragment's width expressed in mean-character units (`font_size` sizes the
+/// fragment; it is unused without the `pdf` feature).
+fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<Vec<TextSpan>> {
+    #[cfg(not(feature = "pdf"))]
+    let _ = font_size;
+    struct Word {
+        bold: bool,
+        italic: bool,
+        underline: bool,
+        code: bool,
+        math: bool,
+        /// No space before this word: it directly abutted the previous
+        /// (math) word in the source, e.g. the `.` in `$x^2$.`. Text-text
+        /// boundaries always get a space (whitespace collapses as before).
+        flush_left: bool,
+        text: String,
     }
+    // Explode spans into words, tracking adjacency across math boundaries.
+    let mut words: Vec<Word> = Vec::new();
+    let mut prev_math_flush = false; // previous span was math with no gap after it
+    let mut prev_text_trailing_ws = true; // did the previous text span end in whitespace?
+    for span in spans {
+        if span.math {
+            // Unbreakable: the fragment is typeset as one box. It is flush
+            // left iff the preceding text span ended without whitespace
+            // (`x = $\frac{a}{b}$` keeps its space; `($\sigma$)` stays tight).
+            let flush = matches!(words.last(), Some(w) if !w.math) && !prev_text_trailing_ws;
+            words.push(Word {
+                bold: span.bold,
+                italic: span.italic,
+                underline: span.underline,
+                code: span.code,
+                math: true,
+                flush_left: flush,
+                text: span.text.clone(),
+            });
+            prev_math_flush = true;
+            continue;
+        }
+        let starts_flush = !span.text.starts_with(char::is_whitespace);
+        for (j, word) in span.text.split_whitespace().enumerate() {
+            words.push(Word {
+                bold: span.bold,
+                italic: span.italic,
+                underline: span.underline,
+                code: span.code,
+                math: false,
+                flush_left: j == 0 && prev_math_flush && starts_flush,
+                text: word.to_string(),
+            });
+        }
+        prev_math_flush = false;
+        prev_text_trailing_ws = span.text.ends_with(char::is_whitespace) || span.text.is_empty();
+    }
+
+    // The wrapping length of one word, in character units.
+    let word_len = |w: &Word| -> usize {
+        if w.math {
+            math_word_chars(&w.text, font_size)
+        } else {
+            w.text.chars().count()
+        }
+    };
 
     // Pack words onto lines
     let mut lines: Vec<Vec<Word>> = Vec::new();
     let mut cur: Vec<Word> = Vec::new();
     let mut cur_len = 0usize;
 
-    for (bold, italic, underline, code, word) in words {
-        let wlen = word.chars().count();
-        let sep = if cur.is_empty() { 0 } else { 1 };
+    for word in words {
+        let wlen = word_len(&word);
+        let sep = if cur.is_empty() || word.flush_left {
+            0
+        } else {
+            1
+        };
         if cur_len + sep + wlen > max_chars && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             cur_len = 0;
         }
-        cur_len += if cur.is_empty() { wlen } else { wlen + 1 };
-        cur.push((bold, italic, underline, code, word));
+        cur_len += if cur.is_empty() { wlen } else { wlen + sep };
+        cur.push(word);
     }
     if !cur.is_empty() {
         lines.push(cur);
@@ -15406,32 +15515,115 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
         .into_iter()
         .map(|line_words| {
             let mut line_spans: Vec<TextSpan> = Vec::new();
-            for (i, (bold, italic, underline, code, word)) in line_words.into_iter().enumerate() {
+            for (i, w) in line_words.into_iter().enumerate() {
+                let space = i > 0 && !w.flush_left;
+                if w.math {
+                    // Inter-word space stays in the neighbouring text span
+                    // (a leading space inside the math body would change the
+                    // typeset expression).
+                    if space {
+                        match line_spans.last_mut() {
+                            Some(last) if !last.math => last.text.push(' '),
+                            _ => line_spans.push(TextSpan::plain(" ")),
+                        }
+                    }
+                    line_spans.push(TextSpan {
+                        text: w.text,
+                        bold: w.bold,
+                        italic: w.italic,
+                        underline: w.underline,
+                        code: w.code,
+                        math: true,
+                    });
+                    continue;
+                }
                 // Try to merge with the last span if styles match
                 if let Some(last) = line_spans.last_mut() {
-                    if last.bold == bold
-                        && last.italic == italic
-                        && last.underline == underline
-                        && last.code == code
+                    if !last.math
+                        && last.bold == w.bold
+                        && last.italic == w.italic
+                        && last.underline == w.underline
+                        && last.code == w.code
                     {
-                        last.text.push(' ');
-                        last.text.push_str(&word);
+                        if space {
+                            last.text.push(' ');
+                        }
+                        last.text.push_str(&w.text);
                         continue;
                     }
                 }
-                // New span: prefix with a space for every word after the first
-                let text = if i == 0 { word } else { format!(" {}", word) };
+                // New span: prefix with a space unless flush against the
+                // previous word (or first on the line).
+                let text = if space {
+                    format!(" {}", w.text)
+                } else {
+                    w.text
+                };
                 line_spans.push(TextSpan {
                     text,
-                    bold,
-                    italic,
-                    underline,
-                    code,
+                    bold: w.bold,
+                    italic: w.italic,
+                    underline: w.underline,
+                    code: w.code,
+                    math: false,
                 });
             }
             line_spans
         })
         .collect()
+}
+
+/// Wrapping length of a `$...$` math word: the typeset fragment's width in
+/// mean-character units, so the line-breaker packs it like any other word.
+/// Falls back to the lookup tier's inline form when the fragment fails to
+/// compile (the backends will draw that same fallback).
+#[cfg(feature = "pdf")]
+fn math_word_chars(body: &str, font_size: u32) -> usize {
+    let label = format!("${body}$");
+    let fs = font_size as f64;
+    match crate::render::math::fragment_size(&label, fs) {
+        Some((w, _h, _b)) => {
+            // Subtract the fragment's baked-in page margin: inline it
+            // advances like a word, not a padded box.
+            let w = (w - 2.0 * crate::render::math::FRAGMENT_MARGIN_EM * fs).max(1.0);
+            (w / crate::render::text_metrics::mean_char_width(fs)).ceil() as usize
+        }
+        None => crate::render::math::to_unicode(&label).chars().count(),
+    }
+    .max(1)
+}
+
+#[cfg(not(feature = "pdf"))]
+fn math_word_chars(_body: &str, _font_size: u32) -> usize {
+    1
+}
+
+/// Extra leading needed above (ascent overshoot) and below (descent
+/// overshoot) a rich-text line whose math fragments are taller than the
+/// surrounding text. Zero without the `pdf` feature.
+#[cfg(feature = "pdf")]
+fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
+    use crate::render::text_metrics::{ascent, descent, FontStyle};
+    let fs = font_size as f64;
+    let mut asc_extra = 0.0f64;
+    let mut desc_extra = 0.0f64;
+    for sp in spans {
+        if !sp.math {
+            continue;
+        }
+        if let Some((_w, h, baseline)) =
+            crate::render::math::fragment_size(&format!("${}$", sp.text), fs)
+        {
+            asc_extra = asc_extra.max(baseline - ascent(fs, FontStyle::Regular));
+            desc_extra = desc_extra.max((h - baseline) - descent(fs, FontStyle::Regular));
+        }
+    }
+    (asc_extra.max(0.0), desc_extra.max(0.0))
+}
+
+#[cfg(not(feature = "pdf"))]
+fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32) -> (f64, f64) {
+    (0.0, 0.0)
 }
 
 /// Render a [`LegendPlot`] — a standalone legend grid with no axes or data.
@@ -15702,8 +15894,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Body line — parse inline markup, word-wrap, emit RichText
         let spans = parse_inline_markup(raw);
-        let wrapped_lines = wrap_rich_spans(&spans, max_chars);
+        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size);
         for line_spans in wrapped_lines {
+            // Typeset math fragments can be taller than the text line
+            // (stacked fractions, radicals): grow this line's leading by the
+            // fragment's overshoot above the ascent and below the descent so
+            // neighbouring lines never overlap it.
+            let (asc_extra, desc_extra) = rich_line_math_extents(&line_spans, font_size);
+            cy += asc_extra;
             scene.add(Primitive::RichText {
                 x: text_x,
                 y: cy,
@@ -15712,7 +15910,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 anchor,
                 color: text_color.clone(),
             });
-            cy += line_height;
+            cy += line_height + desc_extra;
         }
     }
 }
