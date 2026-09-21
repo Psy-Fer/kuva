@@ -25,6 +25,26 @@ fn test_pie_basic() {
 }
 
 #[test]
+fn test_pie_single_slice_is_a_full_circle() {
+    let pie = PiePlot::new()
+        .with_slice("Only slice", 100.0, "steelblue")
+        .with_label_position(PieLabelPosition::None);
+    let plots = vec![Plot::Pie(pie.clone())];
+    let layout = Layout::auto_from_plots(&plots);
+
+    let svg = SvgBackend.render_scene(&render_pie(&pie, &layout));
+    let path_data = svg
+        .split("<path d=\"")
+        .nth(1)
+        .and_then(|path| path.split('"').next())
+        .expect("single slice should render a path");
+
+    assert_eq!(svg.matches("<path ").count(), 1);
+    assert_eq!(path_data.matches(" A").count(), 2);
+    assert!(!path_data.contains(" L"));
+}
+
+#[test]
 fn test_pie_outside_labels_with_percent() {
     let pie = PiePlot::new()
         .with_slice("Large", 60.0, "steelblue")

@@ -2783,7 +2783,33 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         let large_arc = if sweep > std::f64::consts::PI { 1 } else { 0 };
 
-        let path_data = if inner_radius == 0.0 {
+        // An SVG arc whose start and end points coincide is a zero-length arc,
+        // not a full circle.  A 100% slice must therefore use two half-arcs.
+        let full_sweep =
+            (sweep - std::f64::consts::TAU).abs() <= f64::EPSILON * std::f64::consts::TAU;
+        let path_data = if full_sweep {
+            let half_angle = angle + std::f64::consts::PI;
+            let half_x = cx + radius * half_angle.cos();
+            let half_y = cy + radius * half_angle.sin();
+
+            if inner_radius == 0.0 {
+                format!(
+                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} Z",
+                    r = radius
+                )
+            } else {
+                let inner_start_x = cx + inner_radius * angle.cos();
+                let inner_start_y = cy + inner_radius * angle.sin();
+                let inner_half_x = cx + inner_radius * half_angle.cos();
+                let inner_half_y = cy + inner_radius * half_angle.sin();
+                format!(
+                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} Z \\
+                     M{inner_start_x},{inner_start_y} A{ir},{ir} 0 0,0 {inner_half_x},{inner_half_y} A{ir},{ir} 0 0,0 {inner_start_x},{inner_start_y} Z",
+                    r = radius,
+                    ir = inner_radius
+                )
+            }
+        } else if inner_radius == 0.0 {
             format!(
                 "M{cx},{cy} L{x1},{y1} A{r},{r} 0 {large_arc},1 {x2},{y2} Z",
                 r = radius
