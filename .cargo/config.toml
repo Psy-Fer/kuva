@@ -1,4 +1,12 @@
 [alias]
 ci-test   = "test --features cli,full,emit_code"
-ci-clippy = "clippy --features cli,full,emit_code -- -D warnings"
+# `--all-targets` so tests, examples and benches are linted too, not just the
+# lib and bins. Without it, warnings in tests/ and examples/ never fail CI and
+# accumulate silently across toolchain bumps.
+ci-clippy = "clippy --all-targets --features cli,full,emit_code -- -D warnings"
+# `typst-math` and `typst` are opt-in and deliberately out of `full`, so the
+# aliases above skip their tests entirely. These run the opt-in tiers; CI runs
+# them in a separate job so the everyday `ci-test` stays lean.
+ci-test-typst   = "test --features cli,full,emit_code,typst-math,typst"
+ci-clippy-typst = "clippy --all-targets --features cli,full,emit_code,typst-math,typst -- -D warnings"
 ci-fmt    = "fmt --all -- --check"

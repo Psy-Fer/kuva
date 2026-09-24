@@ -26,6 +26,13 @@ const OUT: &str = concat!(
 );
 
 /// Dense BMP advance table in font units; 0 marks a codepoint with no glyph.
+/// `(advance RLE bytes, (codepoint, advance) pairs, units-per-em, vertical metrics)`
+/// as extracted from one font face.
+type FaceMetrics = (Vec<u8>, Vec<(u16, u16)>, u16, [i16; 5]);
+
+/// The same metrics tagged with the const name they will be emitted under.
+type NamedFaceMetrics<'a> = (&'a str, Vec<(u16, u16)>, u16, [i16; 5]);
+
 fn dense(face: &Face) -> Vec<u16> {
     let mut advances = vec![0u16; 0x10000];
     for cp in 0u32..=0xFFFF {
@@ -102,7 +109,7 @@ fn emit_rle(buf: &mut String, name: &str, runs: &[(u16, u16)]) {
 /// Reads a face, falling back to `fallback` (relative to ASSETS) when the
 /// primary file is absent. Returns the owned font bytes, the RLE advance table,
 /// the units-per-em, and the per-face vertical metrics.
-fn read_rle(primary: &str, fallback: Option<&str>) -> (Vec<u8>, Vec<(u16, u16)>, u16, [i16; 5]) {
+fn read_rle(primary: &str, fallback: Option<&str>) -> FaceMetrics {
     let path = format!("{ASSETS}/{primary}");
     let chosen = if std::path::Path::new(&path).exists() {
         path
@@ -146,7 +153,7 @@ fn main() {
         ),
     ];
 
-    let tables: Vec<(&str, Vec<(u16, u16)>, u16, [i16; 5])> = faces
+    let tables: Vec<NamedFaceMetrics> = faces
         .iter()
         .map(|(name, primary, fallback)| {
             let (_bytes, runs, upem, vm) = read_rle(primary, *fallback);

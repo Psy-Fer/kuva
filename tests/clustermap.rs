@@ -179,7 +179,7 @@ fn test_clustermap_zscore_col() {
 fn test_clustermap_pretrained_tree() {
     let labels = ["A", "B", "C", "D", "E"];
     let data = make_data_5x5();
-    let label_strs: Vec<&str> = labels.iter().copied().collect();
+    let label_strs: Vec<&str> = labels.to_vec();
     let row_tree = PhyloTree::from_distance_matrix(&label_strs, &data);
     let cm = Clustermap::new()
         .with_data(data.clone())
@@ -194,6 +194,10 @@ fn test_clustermap_pretrained_tree() {
 }
 
 #[test]
+// needless_range_loop: these matrix fills iterate *offset* sub-ranges and use
+// i/j arithmetically in the cell value, not merely as indices. The iterator
+// form (.iter_mut().enumerate().skip(6).take(7)) reads worse than the range.
+#[allow(clippy::needless_range_loop)]
 fn test_clustermap_gene_expression() {
     // 20 genes × 6 samples — biologically realistic layout
     let genes = [
@@ -202,7 +206,7 @@ fn test_clustermap_gene_expression() {
     ];
     let samples = ["S1", "S2", "S3", "S4", "S5", "S6"];
 
-    // Structured block pattern: genes 0-5 high in S1-S3, genes 6-12 high in S4-S6
+    // Structured block pattern: genes 0-5 high in S1-S3, genes 6-12 high in S4-S6.
     let mut data = vec![vec![0.1f64; 6]; 20];
     for i in 0..6 {
         for j in 0..3 {
@@ -235,6 +239,10 @@ fn test_clustermap_gene_expression() {
 }
 
 #[test]
+// needless_range_loop: these matrix fills iterate *offset* sub-ranges and use
+// i/j arithmetically in the cell value, not merely as indices. The iterator
+// form (.iter_mut().enumerate().skip(6).take(7)) reads worse than the range.
+#[allow(clippy::needless_range_loop)]
 fn test_clustermap_large() {
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};

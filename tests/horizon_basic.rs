@@ -493,7 +493,7 @@ fn test_horizon_many_rows_dense_timeseries() {
                 let drift_val = d * drift;
                 let noise = ((d * freq * 13.7).sin() + (d * freq * 5.3).cos()) * noise_amp * 0.4;
                 // Occasional spike on a different schedule per instrument
-                let spike = if (d as usize + idx * 17) % 30 == 0 {
+                let spike = if (d as usize + idx * 17).is_multiple_of(30) {
                     amp * 1.5
                 } else {
                     0.0

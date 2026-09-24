@@ -1,12 +1,12 @@
-/// Font sampler — generates font_sampler.svg showing each font at the sizes
-/// actually used in kuva plots (tick labels, axis labels, title).
-///
-/// Run:
-///   cargo run --example font_sampler
-///   # then open font_sampler.svg in a browser
-///
-/// Fonts not installed on your system fall back to the generic (sans-serif /
-/// serif / monospace). That is itself useful information.
+//! Font sampler — generates font_sampler.svg showing each font at the sizes
+//! actually used in kuva plots (tick labels, axis labels, title).
+//!
+//! Run:
+//!   cargo run --example font_sampler
+//!   # then open font_sampler.svg in a browser
+//!
+//! Fonts not installed on your system fall back to the generic (sans-serif /
+//! serif / monospace). That is itself useful information.
 
 fn main() {
     // (display name, CSS font-family value)

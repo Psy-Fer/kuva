@@ -321,8 +321,8 @@ fn multiple_series() {
     std::fs::write(format!("{OUT}/multiple_series.svg"), svg).unwrap();
 }
 
-/// Three overlapping Gaussian clusters (200 pts each) — semi-transparent fill
-/// + stroke. Solid markers at this density merge into an opaque blob; reducing
+/// Three overlapping Gaussian clusters (200 pts each) with semi-transparent
+/// fill and stroke. Solid markers at this density merge into an opaque blob; reducing
 /// opacity lets the darker overlap region reveal where clusters share space.
 fn marker_semi_transparent() {
     // Simple LCG so no external crate is needed in this example.

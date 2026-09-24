@@ -73,7 +73,7 @@ fn test_slope_uniform_color() {
 
 #[test]
 fn test_slope_group_colors() {
-    let colors = vec![
+    let colors = [
         "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#a65628",
     ];
     let mut sp = SlopePlot::new().with_group_colors(colors.iter().copied());

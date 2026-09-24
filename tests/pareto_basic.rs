@@ -287,7 +287,7 @@ fn test_pareto_bw_mode() {
 #[test]
 fn test_pareto_bounds_categorical_extent() {
     let plot = error_categories();
-    let plots = vec![Plot::Pareto(plot)];
+    let plots = [Plot::Pareto(plot)];
     let ((x_min, x_max), (y_min, y_max)) = plots[0].bounds().unwrap();
     assert_eq!((x_min, x_max), (0.5, 5.5));
     assert_eq!(y_min, 0.0);
@@ -422,7 +422,7 @@ fn test_pareto_bucketed_cumulative_treats_bucket_as_one_point() {
 #[test]
 fn test_pareto_bounds_reflect_bucketed_bar_count_and_height() {
     let plot = long_tail_categories().with_max_categories(5);
-    let plots = vec![Plot::Pareto(plot)];
+    let plots = [Plot::Pareto(plot)];
     let ((x_min, x_max), (_, y_max)) = plots[0].bounds().unwrap();
     // 5 rendered bars, not 8 raw categories.
     assert_eq!((x_min, x_max), (0.5, 5.5));
@@ -475,7 +475,7 @@ fn test_pareto_bucketed_svg_shows_stack_and_legend_entries() {
 #[test]
 fn test_pareto_horizontal_swaps_bounds_axes() {
     let plot = error_categories().with_horizontal(true);
-    let plots = vec![Plot::Pareto(plot)];
+    let plots = [Plot::Pareto(plot)];
     let ((x_min, x_max), (y_min, y_max)) = plots[0].bounds().unwrap();
     // Categories now on Y (0.5..5.5), values on X (0..42) -- the exact swap of
     // the default vertical bounds() test above.

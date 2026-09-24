@@ -220,7 +220,7 @@ fn gc_bias() {
     let reported_bq: Vec<(f64, f64)> = (1..=20_u32)
         .map(|i| {
             let gc = i as f64 * 5.0;
-            let bq = if gc < 15.0 || gc > 85.0 {
+            let bq = if !(15.0..=85.0).contains(&gc) {
                 22.0 - (gc - 50.0).abs() * 0.3
             } else {
                 29.5 - (gc - 50.0).abs() * 0.025
@@ -233,7 +233,7 @@ fn gc_bias() {
     let empirical_bq: Vec<(f64, f64)> = (1..=20_u32)
         .map(|i| {
             let gc = i as f64 * 5.0;
-            let bq = if gc < 15.0 || gc > 85.0 {
+            let bq = if !(15.0..=85.0).contains(&gc) {
                 10.0 - (gc - 50.0).abs() * 0.1
             } else {
                 15.0 - (gc - 50.0).abs() * 0.01

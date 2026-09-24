@@ -62,7 +62,7 @@ fn main() {
     for (mi, &days) in days_per_month.iter().enumerate() {
         let m = mi as u32 + 1;
         for d in 1..=days {
-            if (m + d) % 5 == 0 {
+            if (m + d).is_multiple_of(5) {
                 continue;
             }
             let val = ((m * 7 + d * 3) % 15 + 1) as f64;

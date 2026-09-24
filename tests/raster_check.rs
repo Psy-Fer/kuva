@@ -47,7 +47,7 @@ mod checks {
         let xs: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let ys: Vec<f64> = (0..100).map(|i| (i as f64 * 0.1).sin()).collect();
         let line = LinePlot::new()
-            .with_data(xs.into_iter().zip(ys).map(|(x, y)| (x, y)))
+            .with_data(xs.into_iter().zip(ys))
             .with_color("steelblue")
             .with_legend("sin");
         assert!(!render(vec![Plot::Line(line)], "Line", 400.0, 300.0).is_empty());
@@ -128,7 +128,7 @@ mod checks {
         let xs: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let ys: Vec<f64> = (0..100).map(|i| (i as f64 * 0.1).sin()).collect();
         let line = LinePlot::new()
-            .with_data(xs.into_iter().zip(ys).map(|(x, y)| (x, y)))
+            .with_data(xs.into_iter().zip(ys))
             .with_color("steelblue")
             .with_legend("sin");
         save(

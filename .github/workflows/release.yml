@@ -75,9 +75,12 @@ jobs:
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: kuva
-          # Full-featured CLI: SVG + PNG + PDF backends (matches CI's cli,full).
+          # Full-featured CLI: SVG + PNG + PDF backends, plus `typst-math` for
+          # typeset `$...$` labels. `typst-math` is opt-in and deliberately out
+          # of `full` (it is a ~200-crate tree), but a downloaded binary has no
+          # way to opt in later, so the pre-built CLI enables it explicitly.
           # `doom` is intentionally excluded — it downloads assets at build time.
-          features: cli,full
+          features: cli,full,typst-math
           target: ${{ matrix.target }}
           # Asset name, e.g. kuva-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
           # (.zip on Windows).
