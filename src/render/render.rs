@@ -2808,9 +2808,20 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let inner_start_y = cy + inner_radius * angle.sin();
                 let inner_half_x = cx + inner_radius * half_angle.cos();
                 let inner_half_y = cy + inner_radius * half_angle.sin();
+                // One subpath, not two: outer ring clockwise, `L` inwards, then
+                // the inner ring counter-clockwise, exactly as the partial-sweep
+                // donut below does. Two separate subpaths would rely on the
+                // nonzero rule being evaluated *across* subpaths, which the SVG
+                // spec gives but kuva's own backends do not — `raster.rs` fills
+                // each subpath independently (`for sub in &subs`), and
+                // `terminal.rs` flushes its point list on every `MoveTo`, so a
+                // second subpath would paint the hole solid instead of clearing
+                // it. Keeping one subpath fills correctly everywhere.
                 format!(
-                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} Z \\
-                     M{inner_start_x},{inner_start_y} A{ir},{ir} 0 0,0 {inner_half_x},{inner_half_y} A{ir},{ir} 0 0,0 {inner_start_x},{inner_start_y} Z",
+                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} \
+                     L{inner_start_x},{inner_start_y} \
+                     A{ir},{ir} 0 0,0 {inner_half_x},{inner_half_y} \
+                     A{ir},{ir} 0 0,0 {inner_start_x},{inner_start_y} Z",
                     r = radius,
                     ir = inner_radius
                 )

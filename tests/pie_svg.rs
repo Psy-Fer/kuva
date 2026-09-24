@@ -222,3 +222,97 @@ fn test_pie_outside_labels_large_font() {
     // Both should have the same number of leader line segments
     assert_eq!(label_count_default, label_count_large);
 }
+
+// Companion to `test_pie_single_slice_is_a_full_circle` for the donut branch
+// (`with_inner_radius`), which the plain-pie test never reaches.
+//
+// Two regressions live here. The path was built with `\\` at a line break in
+// the format string, which is an *escaped backslash* in a normal Rust string
+// literal, not a line continuation: a literal `\` plus the newline and its
+// indentation landed in the `d` attribute and truncated the path at the first
+// parser that hit it. And the hole was drawn as a second subpath, which needs
+// the nonzero rule applied across subpaths; kuva's raster and terminal
+// backends fill each subpath on its own, so the hole came out solid.
+#[test]
+fn test_pie_single_slice_donut_is_a_ring() {
+    let pie = PiePlot::new()
+        .with_slice("Only slice", 100.0, "steelblue")
+        .with_inner_radius(60.0)
+        .with_label_position(PieLabelPosition::None);
+    let plots = vec![Plot::Pie(pie.clone())];
+    let layout = Layout::auto_from_plots(&plots);
+
+    let svg = SvgBackend.render_scene(&render_pie(&pie, &layout));
+    let path_data = svg
+        .split("<path d=\"")
+        .nth(1)
+        .and_then(|path| path.split('"').next())
+        .expect("single slice should render a path");
+
+    // No stray backslash or newline: both are invalid in path data and make
+    // renderers abandon the rest of the path.
+    assert!(
+        !path_data.contains('\\'),
+        "path data must not contain a backslash: {path_data}"
+    );
+    assert!(
+        !path_data.contains('\n'),
+        "path data must not contain a newline: {path_data}"
+    );
+
+    // One subpath (a single `M`), so the hole does not depend on cross-subpath
+    // winding that kuva's own backends never evaluate.
+    assert_eq!(
+        path_data.matches('M').count(),
+        1,
+        "donut must be one subpath: {path_data}"
+    );
+
+    // Four half-arcs (two outer, two inner) joined by the `L` that steps in to
+    // the inner radius.
+    assert_eq!(
+        path_data.matches(" A").count(),
+        4,
+        "expected two outer + two inner half-arcs: {path_data}"
+    );
+    assert_eq!(
+        path_data.matches(" L").count(),
+        1,
+        "expected one line in to the inner radius: {path_data}"
+    );
+}
+
+// The SVG assertions above check path *structure*; this checks what actually
+// gets painted. A two-subpath donut still produces plausible-looking SVG, but
+// kuva's rasterizer fills each subpath independently, so the hole comes out
+// solid. Only a rendered pixel catches that.
+#[cfg(feature = "png")]
+#[test]
+fn test_pie_single_slice_donut_hole_is_not_filled() {
+    use image::GenericImageView;
+
+    let pie = PiePlot::new()
+        .with_slice("Only slice", 100.0, "steelblue")
+        .with_inner_radius(60.0)
+        .with_label_position(PieLabelPosition::None);
+    let plots = vec![Plot::Pie(pie)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(400.0)
+        .with_height(400.0);
+    let png = kuva::render_to_raster(plots, layout, 1.0).expect("raster render");
+
+    let img = image::load_from_memory(&png).expect("decode png");
+    let (w, h) = img.dimensions();
+    let centre = img.get_pixel(w / 2, h / 2);
+    let steelblue = [70u8, 130, 180];
+
+    assert_ne!(
+        [centre[0], centre[1], centre[2]],
+        steelblue,
+        "the donut hole at ({}, {}) is filled with the slice colour, so the \
+         inner ring did not subtract; got {:?}",
+        w / 2,
+        h / 2,
+        centre
+    );
+}
