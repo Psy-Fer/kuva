@@ -233,8 +233,8 @@ run scatter "$DATA/scatter.tsv" --x x --y y \
     --terminal $W $H
 
 # ── math in labels ────────────────────────────────────────────────────────────
-# $...$ regions are lowered to inline Unicode (σ², a/b, √, ∑) before drawing
-# on the character grid.
+# Terminal output uses the always-on lookup tier: $...$ regions are lowered to
+# inline Unicode (σ², a/b, √, ∑) since a character grid can't embed Typst.
 header "math labels"
 run scatter "$DATA/scatter.tsv" --x x --y y \
     --title 'Decay $\lambda$ vs $\sigma^2$' \

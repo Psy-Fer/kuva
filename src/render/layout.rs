@@ -2713,7 +2713,14 @@ impl Layout {
     }
 }
 
+/// `#[non_exhaustive]` because this struct gains a field nearly every time a
+/// layout knob is added (`risk_table_extra`, `legend_bottom_extra`,
+/// `x_label_math_extra`, ...), and each addition would otherwise be a
+/// semver-breaking change for any downstream crate building it by struct
+/// literal. Construct it with [`ComputedLayout::from_layout`]; reading and
+/// mutating the public fields is unaffected.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ComputedLayout {
     pub width: f64,
     pub height: f64,
@@ -2844,6 +2851,22 @@ pub struct ComputedLayout {
     pub legend_bottom_extra: f64,
     /// Pixels reserved at the bottom for a survival "number at risk" table (0 = none).
     pub risk_table_extra: f64,
+    /// Pixels the x-axis label's baseline must be lifted so a typeset math
+    /// fragment's descent clears the canvas bottom (0 = none).
+    ///
+    /// The bottom margin reserves one nominal text line (`label_size`) for the
+    /// x-axis title and pins its baseline `label_size * 0.5` above the canvas
+    /// edge, which suits an ordinary descender. A typst-tier fragment for
+    /// something like `$\frac{-b \pm \sqrt{b^2-4ac}}{2a}$` descends much
+    /// further: the denominator falls off the canvas. `from_layout` measures
+    /// the fragment and records how far past that half-line the descent
+    /// reaches; `axis.rs` subtracts it from the label's `y`, and the same
+    /// measurement widens `margin_bottom` so the plot area yields the space
+    /// rather than the label overprinting the tick labels above it.
+    ///
+    /// Always 0 without the `typst-math` feature, where `$...$` lowers to
+    /// single-line inline Unicode that the nominal reservation already fits.
+    pub x_label_math_extra: f64,
     /// Number of columns for `OutsideBottomColumns` legend layout; 0 for all other positions.
     pub legend_col_count: usize,
     /// Entry limit carried through from `Layout::legend_entry_limit`; 0 means unlimited.
@@ -2891,6 +2914,56 @@ fn resolve_axis_range(
         render_utils::auto_nice_range_capped(range.0, range.1, raw_lo, raw_hi, ticks)
     } else {
         render_utils::auto_nice_range(range.0, range.1, ticks)
+    }
+}
+
+/// How much taller a typeset math x-axis label is than the single nominal
+/// text line the bottom margin reserves for it.
+#[derive(Default)]
+struct XLabelMathOvershoot {
+    /// Extra pixels to add to `margin_bottom`, so the plot area (not the tick
+    /// labels above) gives up the space the taller fragment needs.
+    reserve: f64,
+    /// Extra pixels to lift the label baseline, so the fragment's descent
+    /// clears the canvas bottom.
+    baseline_lift: f64,
+}
+
+/// Measure a math x-axis label against the space a plain one would occupy.
+///
+/// Returns zeroes for a label with no `$...$`, for a fragment Typst fails to
+/// compile (the caller falls back to lookup-tier text, which fits the nominal
+/// reservation), and for every build without the `typst-math` feature.
+fn x_label_math_overshoot(x_label: &Option<String>, label_size: f64) -> XLabelMathOvershoot {
+    #[cfg(feature = "typst-math")]
+    {
+        let Some(label) = x_label else {
+            return XLabelMathOvershoot::default();
+        };
+        if !crate::render::math::contains_math(label) {
+            return XLabelMathOvershoot::default();
+        }
+        // Measured at the size the backend will typeset it at, and memoized
+        // there, so this costs one compile per distinct label per process.
+        let Some(m) = crate::render::math::render_label_svg(label, label_size, None) else {
+            return XLabelMathOvershoot::default();
+        };
+        // axis.rs pins the baseline `label_size * 0.5` above the canvas edge,
+        // which leaves an ordinary label a gap of `label_size * 0.5 - descent`
+        // between its lowest ink and the edge. Lifting the baseline by however
+        // much the fragment out-descends a normal descender reproduces exactly
+        // that gap for math, rather than merely scraping the edge.
+        let text_descent = descent(label_size, FontStyle::Regular);
+        let frag_descent = m.height_pt - m.baseline_offset_pt;
+        XLabelMathOvershoot {
+            reserve: (m.height_pt - label_size).max(0.0),
+            baseline_lift: (frag_descent - text_descent).max(0.0),
+        }
+    }
+    #[cfg(not(feature = "typst-math"))]
+    {
+        let _ = (x_label, label_size);
+        XLabelMathOvershoot::default()
     }
 }
 
@@ -3027,6 +3100,13 @@ impl ComputedLayout {
             0.0
         };
         margin_bottom += risk_table_extra;
+        // A typeset math x-axis label has real vertical extent (stacked
+        // fractions, radicals) rather than the single nominal line the margin
+        // above reserves. Grow the margin by the overshoot and record how far
+        // the baseline must lift so the descent clears the canvas bottom.
+        let x_label_math_extra = x_label_math_overshoot(&layout.x_label, label_size);
+        margin_bottom += x_label_math_extra.reserve;
+        let x_label_math_extra = x_label_math_extra.baseline_lift;
         // Left: axis label + y tick label text width + gaps.
         // Compute the actual maximum tick label pixel width from real tick strings so the
         // left margin is exactly as wide as needed and the Y axis label snugs up against
@@ -3587,6 +3667,7 @@ impl ComputedLayout {
             legend_wrap: layout.legend_wrap,
             legend_bottom_extra,
             risk_table_extra,
+            x_label_math_extra,
             legend_col_count,
             legend_entry_limit: layout.legend_entry_limit,
             bw_mode: layout.bw_mode,

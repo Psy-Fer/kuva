@@ -737,7 +737,7 @@ fn test_brickplot_row_height_standalone_sizing() {
 
     // 8 rows at 20 px/row — should produce a taller canvas
     let brick8 = BrickPlot::new()
-        .with_sequences(vec!["ACGT"; 8].to_vec())
+        .with_sequences(["ACGT"; 8].to_vec())
         .with_names((1..=8).map(|i| format!("r{i}")).collect::<Vec<_>>())
         .with_template(tmpl.template.clone())
         .with_row_height(20.0);

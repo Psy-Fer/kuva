@@ -16,6 +16,7 @@ readme = "README.md"
 # and helper scripts are excluded to stay within the crates.io 10 MB limit.
 exclude = [
     "assets/fonts/*.ttf",           # raw TTFs — only .ttf.gz are used by include_bytes!
+    "assets/fonts/*.otf",           # raw OTFs (NewCM Math) — only .otf.gz is embedded
     "docs/",                         # mdBook source + generated SVG/PNG/GIF/PDF assets
     "scripts/",                      # smoke test and generation scripts
     "examples/*.svg",                # generated SVG outputs
@@ -31,9 +32,11 @@ all-features = true
 # The `pdf` feature's real minimum Rust version — higher than `package.rust-version`
 # above, which intentionally excludes it (see README.md's note and CHANGELOG.md).
 # krilla (the `pdf` feature's PDF backend) sets this floor; bump it in lockstep
-# with krilla's own MSRV. Read by .github/workflows/ci.yml's `pdf-msrv` job so
-# CI actually verifies `--features cli,full` builds at *this* version, not at
-# `package.rust-version` (which is no longer sufficient for that feature combo).
+# with krilla's own MSRV. The separate `typst-math` feature has its own, lower
+# floor (1.89 as of typst 0.14), so building it alongside `pdf` at *this*
+# version covers both. Read by .github/workflows/ci.yml's `pdf-msrv` job so CI
+# actually verifies `--features cli,full,typst-math` builds at this version,
+# not at `package.rust-version` (no longer sufficient for that feature combo).
 pdf_feature = "1.92"
 
 [features]
@@ -52,6 +55,29 @@ embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
 full       = ["embed_font", "png", "pdf"]
 parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
+# In-process math typesetter (the "typst tier"): each label containing `$...$`
+# is typeset by the Typst compiler (linked as a library, no external binary)
+# and embedded in SVG/PNG/PDF output — real math typography (proper italic σ,
+# vinculum √, stacked fractions, sums). Deliberately opt-in and deliberately
+# *out* of `full`: it is a ~200-crate dependency tree, far heavier than the
+# core backends, and `full` is meant to cover the expected use cases rather
+# than every extra. Builds without it lower `$...$` to inline Unicode via the
+# always-on lookup tier instead. Needs Rust >= 1.89 (typst 0.14's own MSRV),
+# which is above `package.rust-version` — same caveat as `pdf`, documented in
+# README/CHANGELOG rather than enforced through Cargo metadata.
+typst-math = [
+    "dep:flate2",
+    "dep:typst",
+    "dep:typst-svg",
+    "dep:typst-render",
+    "dep:typst-library",
+]
+# Typst markup output backend. Emits .typ source the user compiles externally
+# with `typst compile fig.typ` — pure string emission, no deps. The TypstBackend
+# itself handles `$...$` math via native Typst math syntax. Opt-in (not in
+# `full`) for the same reason as `typst-math`: emitting Typst markup is an
+# extra, not a core output path. Upstream issue #16.
+typst      = []
 # Adds `kuva doom` subcommand and generates a self-contained DOOM SVG.
 # Build downloads doom.wasm + doom1.wad from the kuva doom-assets release.
 # Run once: cargo build --bin kuva --features cli,doom
@@ -82,6 +108,10 @@ usvg        = { version = "=0.47.0", optional = true }
 clap        = { version = "4", features = ["derive"], optional = true }
 clap_mangen = { version = "0.2", optional = true }
 csv         = { version = "1", optional = true }
+typst         = { version = "0.14", optional = true }
+typst-svg     = { version = "0.14", optional = true }
+typst-render  = { version = "0.14", optional = true }
+typst-library = { version = "0.14", optional = true }
 
 [dev-dependencies]
 rand = "0.9.3"
@@ -95,6 +125,28 @@ ttf-parser = "0.25"
 # Used only by the `--emit-code` compile-check test: confirms emitted snippets
 # actually compile against the real kuva crate, not just "look right".
 trybuild = "1"
+
+# Debug-build size control. kuva compiles 118 integration tests + 80 examples
+# into ~200 separately linked executables, each statically linking the whole
+# crate and its dependency tree; with the default `debug = true` full DWARF
+# symbols are the large majority of every one of those binaries. Cargo also
+# keeps a separate artifact set per feature combination and never GCs the old
+# ones, so `cli,full` and `cli,full,typst-math` are two independent ~200-binary
+# sets. Left at the defaults, `target/` reaches hundreds of GB.
+#
+# `line-tables-only` keeps file/line information, so panic backtraces and test
+# failures still point at real source locations; what is dropped is variable
+# inspection in a debugger. Dependencies get nothing at all: stepping into
+# typst/krilla/arrow internals is not something we do, and those crates are
+# the bulk of the debuginfo. For a one-off full-symbol build, override without
+# editing this file:
+#
+#     cargo test --config 'profile.dev.debug=true'
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [[bench]]
 name = "render"

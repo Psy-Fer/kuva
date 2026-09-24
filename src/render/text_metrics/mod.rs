@@ -327,7 +327,7 @@ mod tests {
             };
             let bytes = std::fs::read(&path).expect("read bundled font");
             let face = ttf_parser::Face::parse(&bytes, 0).expect("parse font");
-            assert_eq!(u16::from(face.units_per_em()), data::UNITS_PER_EM);
+            assert_eq!(face.units_per_em(), data::UNITS_PER_EM);
 
             let table = advance_table(style);
             for cp in 0u32..=0xFFFF {

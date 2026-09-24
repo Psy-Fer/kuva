@@ -400,7 +400,9 @@ fn iris_scatter() {
         (5.1, 1.8),
     ];
 
-    let species: [(&str, MarkerShape, &str, Vec<(f64, f64)>); 3] = [
+    /// `(label, marker, colour, points)` for one iris species.
+    type Species = (&'static str, MarkerShape, &'static str, Vec<(f64, f64)>);
+    let species: [Species; 3] = [
         ("setosa", MarkerShape::Circle, "#1f77b4", setosa),
         ("versicolor", MarkerShape::Square, "#ff7f0e", versicolor),
         ("virginica", MarkerShape::Triangle, "#2ca02c", virginica),
@@ -555,6 +557,12 @@ fn temperature_trend() {
 fn annotated_volcano() {
     // (gene_id, log2FoldChange, pvalue) — real DESeq2 output, airway dataset,
     // genes in their original (Ensembl ID) file order, not sorted by p-value.
+    //
+    // `approx_constant` is deny-by-default and fires on measured values that
+    // happen to land near a math constant: the -0.318 fold change below reads
+    // as -1/π and the 0.7071 p-value as 1/√2. They are neither; substituting
+    // `FRAC_1_PI`/`FRAC_1_SQRT_2` would silently falsify the dataset.
+    #[allow(clippy::approx_constant)]
     let points: Vec<(&str, f64, f64)> = vec![
         ("ENSG00000000003", 0.381, 1.52e-4),
         ("ENSG00000000419", -0.207, 0.0653),

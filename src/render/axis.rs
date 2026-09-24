@@ -904,9 +904,14 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         // Subtract legend_bottom_extra and risk_table_extra so the x-label stays in the
         // axis area rather than drifting into the OutsideBottom legend or the survival
         // number-at-risk table band below it.
+        // x_label_math_extra lifts the baseline when the label is a typeset
+        // math fragment whose descent (a fraction denominator, a radical)
+        // reaches further below the baseline than the `ls * 0.5` gap allows;
+        // layout.rs reserved the matching space in margin_bottom.
         let default_y = computed.height
             - computed.legend_bottom_extra
             - computed.risk_table_extra
+            - computed.x_label_math_extra
             - ls * 0.5
             - (lines.len() as f64 - 1.0) * lh;
         let (lx, ly) = computed.dice_x_label_pos.unwrap_or((default_x, default_y));
@@ -1131,7 +1136,7 @@ mod tests {
             "expected a minor tick in the trailing band above 30.0, got {minors:?}"
         );
         assert!(
-            minors.iter().all(|&m| m >= 3.0 && m <= 34.0),
+            minors.iter().all(|&m| (3.0..=34.0).contains(&m)),
             "no minor tick should fall outside the axis range, got {minors:?}"
         );
     }

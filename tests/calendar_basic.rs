@@ -240,7 +240,7 @@ fn calendar_dense_full_year() {
         let m = mi as u32 + 1;
         for d in 1..=days {
             // Skip ~20 % of days (every 5th day) to leave some missing cells
-            if (m + d) % 5 == 0 {
+            if (m + d).is_multiple_of(5) {
                 continue;
             }
             let val = ((m * 7 + d * 3) % 15 + 1) as f64;

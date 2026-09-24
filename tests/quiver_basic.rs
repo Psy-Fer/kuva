@@ -98,7 +98,7 @@ fn test_quiver_with_legend_emits_entry() {
     let legend_count = crimson_lines(&svg);
     let baseline_count = crimson_lines(&baseline_svg);
     assert!(
-        legend_count >= baseline_count + 1,
+        legend_count > baseline_count,
         "with_legend should add ≥1 crimson-stroked <line> for the glyph \
          (got {legend_count} vs baseline {baseline_count})"
     );
@@ -155,7 +155,7 @@ fn test_quiver_interactive_mode_emits_tooltip_groups() {
     // 5×5 grid = 25 arrows, minus the center (0,0) which has zero magnitude
     // and is skipped by the `len < 1e-6` guard.
     assert!(
-        tt_count >= 24 && tt_count <= 25,
+        (24..=25).contains(&tt_count),
         "expected 24 or 25 tooltip groups, got {tt_count}"
     );
     assert_eq!(

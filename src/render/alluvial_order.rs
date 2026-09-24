@@ -1017,14 +1017,17 @@ mod tests {
         (col_orig, nodes_in_col, alluvia)
     }
 
-    fn build_weighted_fixture3(
-        rows: &[([&str; 3], f64)],
-    ) -> (
+    /// `(axis_offsets, axis_nodes, alluvia, axis_labels)` as the weighted
+    /// fixture builders return it. Named so the two builders below do not
+    /// each repeat a four-deep nested tuple.
+    type WeightedFixture = (
         Vec<usize>,
         Vec<Vec<usize>>,
         Vec<SankeyAlluvium>,
         Vec<Vec<String>>,
-    ) {
+    );
+
+    fn build_weighted_fixture3(rows: &[([&str; 3], f64)]) -> WeightedFixture {
         let n_axes = 3usize;
         let mut axis_levels = vec![Vec::<String>::new(); n_axes];
 
@@ -1239,14 +1242,7 @@ mod tests {
         (col_orig, nodes_in_col, alluvia)
     }
 
-    fn build_weighted_fixture4(
-        rows: &[([&str; 4], f64)],
-    ) -> (
-        Vec<usize>,
-        Vec<Vec<usize>>,
-        Vec<SankeyAlluvium>,
-        Vec<Vec<String>>,
-    ) {
+    fn build_weighted_fixture4(rows: &[([&str; 4], f64)]) -> WeightedFixture {
         let n_axes = 4usize;
         let mut axis_levels = vec![Vec::<String>::new(); n_axes];
 
@@ -1298,8 +1294,8 @@ mod tests {
     ) -> Vec<Vec<&'a str>> {
         let mut label_for_node = vec![""; col_orig.len()];
         let mut axis_offsets = vec![0usize; labels_by_axis.len()];
-        for axis in 0..labels_by_axis.len() {
-            axis_offsets[axis] = col_orig.iter().take_while(|&&col| col != axis).count();
+        for (axis, offset) in axis_offsets.iter_mut().enumerate() {
+            *offset = col_orig.iter().take_while(|&&col| col != axis).count();
         }
         for (axis, labels) in labels_by_axis.iter().enumerate() {
             for (i, label) in labels.iter().enumerate() {
