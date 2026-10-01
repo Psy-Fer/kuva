@@ -552,8 +552,11 @@ where
 /// For each of `n_out` query points evenly spaced across the data's x-range, fits
 /// a degree-1 weighted least-squares line to the `span` fraction of nearest points
 /// (weighted by the tricube kernel of scaled distance) and evaluates it there.
+/// Distance weights do not include residual-based outlier reweighting.
 /// Returns `(x, y_smoothed)` pairs sorted by x. `span` is clamped to `[0.05, 1.0]`;
-/// returns an empty vec if there are fewer than 3 points or the x-range is degenerate.
+/// returns an empty vec if there are fewer than 3 points or a degenerate/non-finite x-range.
+/// A neighborhood with no weighted x variation uses its weighted mean. Queries
+/// with no positive weights or an unrepresentable prediction are omitted.
 pub fn loess<I>(points: I, span: f64, n_out: usize) -> Vec<(f64, f64)>
 where
     I: IntoIterator,
@@ -584,37 +587,81 @@ where
         let x0 = x_min + t * (x_max - x_min);
 
         // The k nearest neighbours by |x - x0| set the local bandwidth.
-        let mut dist: Vec<f64> = pts.iter().map(|(x, _)| (x - x0).abs()).collect();
+        let dist: Vec<f64> = pts.iter().map(|(x, _)| (x - x0).abs()).collect();
         let mut idx: Vec<usize> = (0..n).collect();
         idx.sort_by(|&a, &b| dist[a].total_cmp(&dist[b]));
-        let d_max = dist[idx[k - 1]].max(1e-12);
+        let d_max = dist[idx[k - 1]];
 
-        // Weighted degree-1 fit over the k neighbours.
-        let (mut sw, mut swx, mut swy, mut swxx, mut swxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut local = Vec::with_capacity(k);
         for &j in idx.iter().take(k) {
             let (x, y) = pts[j];
-            let w = tricube(dist[j] / d_max);
-            sw += w;
-            swx += w * x;
-            swy += w * y;
-            swxx += w * x * x;
-            swxy += w * x * y;
+            // Coincident selected points have equal distance weights.
+            let w = if d_max == 0.0 {
+                1.0
+            } else {
+                tricube(dist[j] / d_max)
+            };
+            local.push((x, y, w));
         }
-        dist.clear();
-
-        let denom = sw * swxx - swx * swx;
-        let y0 = if sw <= 0.0 {
-            continue;
-        } else if denom.abs() < 1e-12 {
-            swy / sw // degenerate (all neighbours share an x) -> weighted mean
-        } else {
-            let slope = (sw * swxy - swx * swy) / denom;
-            let intercept = (swy - slope * swx) / sw;
-            slope * x0 + intercept
-        };
-        out.push((x0, y0));
+        if let Some(y0) = loess_fit(&mut local, x0) {
+            out.push((x0, y0));
+        }
     }
     out
+}
+
+fn loess_fit(local: &mut [(f64, f64, f64)], x0: f64) -> Option<f64> {
+    let &(x_ref, y_ref, max_weight) = local.first()?;
+    if max_weight == 0.0 {
+        return None;
+    }
+
+    // Anchor at the nearest observation, not a possibly distant query. Scaling
+    // keeps the moments bounded without an epsilon tied to the units of x.
+    let (x_scale, y_scale) = local
+        .iter()
+        .filter(|p| p.2 > 0.0)
+        .fold((0.0_f64, 0.0_f64), |(xs, ys), &(x, y, _)| {
+            (xs.max((x - x_ref).abs()), ys.max(y.abs()))
+        });
+    let (mut sw, mut sx, mut sy) = (0.0, 0.0, 0.0);
+    for (x, y, w) in local.iter_mut().filter(|p| p.2 > 0.0) {
+        *x = if x_scale == 0.0 {
+            0.0
+        } else {
+            (*x - x_ref) / x_scale
+        };
+        let difference = *y - y_ref;
+        *y = if y_scale == 0.0 {
+            0.0
+        } else if difference.is_finite() {
+            difference / y_scale
+        } else {
+            // Opposite-sign finite y values can overflow before division.
+            *y / y_scale - y_ref / y_scale
+        };
+        *w /= max_weight;
+        sw += *w;
+        sx += *w * *x;
+        sy += *w * *y;
+    }
+    let mean_x = sx / sw;
+    let mean_y = sy / sw;
+    let (mut variance, mut covariance) = (0.0, 0.0);
+    for &(x, y, w) in local.iter().filter(|p| p.2 > 0.0) {
+        let dx = x - mean_x;
+        variance += w * dx * dx;
+        covariance += w * dx * (y - mean_y);
+    }
+    let prediction = if variance == 0.0 {
+        mean_y
+    } else {
+        let query_x = (x0 - x_ref) / x_scale;
+        (covariance / variance).mul_add(query_x - mean_x, mean_y)
+    };
+    // Fusing restoration also avoids an overflowing product when y_ref cancels it.
+    let y0 = prediction.mul_add(y_scale, y_ref);
+    y0.is_finite().then_some(y0)
 }
 
 /// One label for the force-directed [`repel_labels`] layout. `pos` is the label
@@ -1183,19 +1230,93 @@ mod tests {
 
     #[test]
     fn loess_recovers_a_linear_relationship() {
-        // Exactly-linear data: the smoother should reproduce y = 2x + 1 closely.
-        let data: Vec<(f64, f64)> = (0..40).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
-        let curve = loess(data.iter().copied(), 0.5, 50);
-        assert_eq!(curve.len(), 50);
-        for &(x, y) in &curve {
-            assert!(
-                (y - (2.0 * x + 1.0)).abs() < 1e-6,
-                "loess off at x={x}: y={y}"
-            );
+        // Changing the origin or units should preserve the same weighted line.
+        for (offset, scale) in [
+            (0.0, 1.0),
+            (1e9, 1.0),
+            (-1e9, 1.0),
+            (1e12, 1.0),
+            (-1e12, 1.0),
+            (0.0, 1e-150),
+            (0.0, 1e-7),
+            (0.0, 1e150),
+        ] {
+            let data: Vec<(f64, f64)> = (0..40)
+                .map(|i| (offset + scale * i as f64, 2.0 * i as f64 + 1.0))
+                .collect();
+            for span in [0.25, 0.5, 1.0] {
+                let curve = loess(data.iter().copied(), span, 50);
+                assert_eq!(curve.len(), 50);
+                for &(x, y) in &curve {
+                    assert!(
+                        (y - (2.0 * ((x - offset) / scale) + 1.0)).abs() < 1e-6,
+                        "loess off at offset={offset}, scale={scale}, span={span}, x={x}: y={y}"
+                    );
+                }
+                // Endpoints span the data range.
+                assert_eq!(curve.first().unwrap().0, offset);
+                assert_eq!(curve.last().unwrap().0, offset + scale * 39.0);
+            }
         }
-        // Endpoints span the data range.
-        assert!((curve.first().unwrap().0 - 0.0).abs() < 1e-9);
-        assert!((curve.last().unwrap().0 - 39.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn loess_preserves_constants_in_sparse_neighborhoods() {
+        for value in [7.0, 1e-300, 1e16, 1e308] {
+            for xs in [
+                vec![0.0, 1000.0, 2000.0],
+                (0..11).map(f64::from).chain([1000.0]).collect(),
+            ] {
+                for span in [0.5, 0.8, 1.0] {
+                    let curve = loess(xs.iter().map(|&x| (x, value)), span, 100);
+                    assert_eq!(curve.len(), 100);
+                    for &(x, y) in &curve {
+                        assert!(
+                            (y - value).abs() <= 4.0 * f64::EPSILON * value.abs(),
+                            "constant changed at x={x}, span={span}: y={y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn loess_recovers_a_line_across_a_sparse_gap() {
+        for gap in [1e8, 1e12] {
+            let data = (0..11)
+                .map(f64::from)
+                .chain([gap])
+                .map(|x| (x, 3.0 + 2.0 * x));
+            let curve = loess(data, 0.8, 21);
+            assert_eq!(curve.len(), 21);
+            for &(x, y) in &curve {
+                let expected = 3.0 + 2.0 * x;
+                assert!(
+                    (y - expected).abs() <= 1e-12 * expected,
+                    "gap={gap}, x={x}, y={y}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn loess_handles_opposite_sign_y_without_overflow() {
+        let data = [(0.0, -1e308), (1.0, 1e308), (2.0, 0.0)];
+        for (span, count, expected) in [
+            (0.5, 3, vec![-1e308, 1e308, 0.0]),
+            (1.0, 5, vec![-1e308, 0.0, 1e308, 5e307, 0.0]),
+        ] {
+            let curve = loess(data, span, count);
+            assert_eq!(curve.len(), expected.len());
+            for ((x, y), expected) in curve.into_iter().zip(expected) {
+                assert!(y.is_finite());
+                assert!(
+                    (y - expected).abs() <= 8.0 * f64::EPSILON * 1e308,
+                    "x={x}, y={y}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -95,6 +95,8 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 For data with a non-linear relationship, overlay a LOESS (locally-weighted regression) smoother instead of a straight line. `.with_loess()` uses a default span of `0.5`; `.with_loess_span(f)` sets the span (the fraction of points in each local fit, `0.05`–`1.0`): smaller spans follow local detail, larger spans give a smoother curve.
 
+Each prediction fits a local straight line using distance weights. These weights do not downweight a point because its y value is an outlier. A fitted line can extend beyond the observed y range; the plot clips the curve at its axis limits. Log axes transform the drawn curve, rather than fitting logarithms of the observations.
+
 ```rust,no_run
 # use kuva::plot::scatter::ScatterPlot;
 let plot = ScatterPlot::new()
