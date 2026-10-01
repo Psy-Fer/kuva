@@ -173,8 +173,8 @@ impl XLabelPlacer {
 /// How a major-tick list was generated — determines how to find the tick
 /// that would exist one step beyond each end, for [`extend_with_phantom_ticks`].
 enum TickSpacing<'a> {
-    /// Constant additive step: plain linear ticks, an explicit tick-step, or
-    /// bin-aligned histogram ticks are all evenly spaced by construction.
+    /// Additive spacing used to extrapolate linear or bin-aligned ticks.
+    /// Rounding and omitted duplicate positions can change the retained gaps.
     Arithmetic(f64),
     /// Log-scale ticks following the `[1, 2, 5] × 10^n` (or pure `10^n`)
     /// pattern selected by [`render_utils::log_multipliers`] for this span.
@@ -226,21 +226,28 @@ fn compute_minor_ticks(
     range: (f64, f64),
     subdivisions: u32,
 ) -> Vec<f64> {
-    render_utils::generate_minor_ticks(&extend_with_phantom_ticks(ticks, spacing), subdivisions)
+    // Aligned endpoints have no partial interval that needs a phantom tick.
+    let extended;
+    let majors = if ticks.first() == Some(&range.0) && ticks.last() == Some(&range.1) {
+        ticks
+    } else {
+        extended = extend_with_phantom_ticks(ticks, spacing);
+        &extended
+    };
+    render_utils::generate_minor_ticks(majors, subdivisions)
         .into_iter()
         .filter(|t| *t >= range.0 && *t <= range.1)
         .collect()
 }
 
-/// The constant step of an evenly-spaced tick list (`generate_ticks`,
-/// `generate_ticks_with_step`, and `generate_ticks_bin_aligned` are all
-/// constant-step by construction), falling back to `fallback` when there
-/// aren't enough ticks to measure a step directly.
-fn arithmetic_step(ticks: &[f64], fallback: f64) -> f64 {
+/// Estimate arithmetic spacing from the first two distinct tick positions,
+/// falling back to `fallback` when there aren't enough ticks. Rounding and
+/// omitted unrepresentable positions can change the observed spacing.
+fn arithmetic_step(ticks: &[f64], fallback: impl FnOnce() -> f64) -> f64 {
     if ticks.len() >= 2 {
         ticks[1] - ticks[0]
     } else {
-        fallback
+        fallback()
     }
 }
 
@@ -266,7 +273,7 @@ fn resolve_axis_ticks(
         )
     } else if let Some(bw) = bin_width {
         let ticks = render_utils::generate_ticks_bin_aligned(range.0, range.1, bw, target_ticks);
-        let step = arithmetic_step(&ticks, bw);
+        let step = arithmetic_step(&ticks, || bw);
         (ticks, TickSpacing::Arithmetic(step))
     } else if let Some(dt) = datetime {
         (
@@ -283,8 +290,9 @@ fn resolve_axis_ticks(
         )
     } else {
         let ticks = render_utils::generate_ticks(range.0, range.1, target_ticks);
-        let fallback = render_utils::compute_tick_step(range.0, range.1, target_ticks);
-        let step = arithmetic_step(&ticks, fallback);
+        let step = arithmetic_step(&ticks, || {
+            render_utils::compute_tick_step(range.0, range.1, target_ticks)
+        });
         (ticks, TickSpacing::Arithmetic(step))
     }
 }
