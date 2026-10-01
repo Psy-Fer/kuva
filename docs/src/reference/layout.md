@@ -94,6 +94,8 @@ let layout = Layout::auto_from_plots(&plots)
 | `Percent` | `45.0%` | Multiply by 100 and append `%` — for data in the range 0–1 |
 | `Custom(fn)` | anything | Provide your own `fn(f64) -> String` |
 
+`Auto` uses scientific notation for small nonzero values instead of rounding them to a zero label. `Integer` and `Fixed(n)` still use the rounding you request.
+
 Apply the same format to both axes, or set them independently:
 
 ```rust,no_run
