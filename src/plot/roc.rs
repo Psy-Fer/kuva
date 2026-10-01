@@ -158,6 +158,7 @@ pub struct RocComputed {
 }
 
 /// Sort descending by score; walk thresholds to produce ROC points.
+/// Only equal scores share a threshold; distinct finite scores keep their order.
 pub fn compute_roc_points(predictions: &[(f64, bool)]) -> Vec<RocPoint> {
     if predictions.is_empty() {
         return Vec::new();
@@ -182,7 +183,7 @@ pub fn compute_roc_points(predictions: &[(f64, bool)]) -> Vec<RocPoint> {
     while i < sorted.len() {
         let thresh = sorted[i].0;
         // Consume all items at this threshold
-        while i < sorted.len() && (sorted[i].0 - thresh).abs() < f64::EPSILON * 100.0 {
+        while i < sorted.len() && sorted[i].0 == thresh {
             if sorted[i].1 {
                 tp += 1;
             } else {
@@ -221,6 +222,7 @@ pub fn auc_trapz(points: &[RocPoint]) -> f64 {
 
 /// DeLong AUC + variance for 95% CI.
 /// Returns `(auc, variance)`. CI = `auc ± 1.96 * sqrt(variance)`.
+/// Equal scores receive half credit; distinct finite scores are ordered exactly.
 pub fn delong_auc(predictions: &[(f64, bool)]) -> (f64, f64) {
     let pos: Vec<f64> = predictions.iter().filter(|p| p.1).map(|p| p.0).collect();
     let neg: Vec<f64> = predictions.iter().filter(|p| !p.1).map(|p| p.0).collect();
@@ -235,10 +237,7 @@ pub fn delong_auc(predictions: &[(f64, bool)]) -> (f64, f64) {
         .iter()
         .map(|&s| {
             let less = neg.iter().filter(|&&n| n < s).count();
-            let tied = neg
-                .iter()
-                .filter(|&&n| (n - s).abs() < f64::EPSILON * 100.0)
-                .count();
+            let tied = neg.iter().filter(|&&n| n == s).count();
             (less as f64 + 0.5 * tied as f64) / n_neg as f64
         })
         .collect();
@@ -248,10 +247,7 @@ pub fn delong_auc(predictions: &[(f64, bool)]) -> (f64, f64) {
         .iter()
         .map(|&s| {
             let greater = pos.iter().filter(|&&p| p > s).count();
-            let tied = pos
-                .iter()
-                .filter(|&&p| (p - s).abs() < f64::EPSILON * 100.0)
-                .count();
+            let tied = pos.iter().filter(|&&p| p == s).count();
             (greater as f64 + 0.5 * tied as f64) / n_pos as f64
         })
         .collect();
