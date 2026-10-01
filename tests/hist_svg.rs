@@ -112,6 +112,27 @@ fn test_histogram_bin_aligned_ticks() {
         !svg.contains(">1<"),
         "bin-aligned ticks must not emit non-edge tick 1"
     );
+
+    // Fused tick arithmetic must not discard an endpoint the bar renderer retains.
+    let (lo, hi) = (-3.1611038473044104, 89.87440451078888);
+    let plots = vec![Plot::Histogram(
+        Histogram::new()
+            .with_data(vec![lo, hi])
+            .with_bins(403)
+            .with_range((lo, hi)),
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_x_axis_min(lo)
+        .with_x_axis_max(hi)
+        .with_ticks(9);
+    let computed = kuva::render::layout::ComputedLayout::from_layout(&layout);
+    let scene = render_multiple(plots, layout);
+    let endpoint = scene.elements.iter().find_map(|element| match element {
+        kuva::render::render::Primitive::Text { x, content, .. } if content == "89.874" => Some(*x),
+        _ => None,
+    });
+    let endpoint = endpoint.expect("missing rightmost histogram tick label");
+    assert!((endpoint - (computed.width - computed.margin_right)).abs() < 1e-6);
 }
 
 // Feature #6: Histogram::from_bins — precomputed edges + counts, no range needed.
