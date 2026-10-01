@@ -554,7 +554,8 @@ where
 /// (weighted by the tricube kernel of scaled distance) and evaluates it there.
 /// Distance weights do not include residual-based outlier reweighting.
 /// Returns `(x, y_smoothed)` pairs sorted by x. `span` is clamped to `[0.05, 1.0]`;
-/// returns an empty vec if there are fewer than 3 points or a degenerate/non-finite x-range.
+/// returns an empty vec if there are fewer than 3 points, fewer than 2 requested
+/// outputs, non-finite observations, a NaN span, or a degenerate/non-finite x-range.
 /// A neighborhood with no weighted x variation uses its weighted mean. Queries
 /// with no positive weights or an unrepresentable prediction are omitted.
 pub fn loess<I>(points: I, span: f64, n_out: usize) -> Vec<(f64, f64)>
@@ -563,7 +564,11 @@ where
     I::Item: Into<(f64, f64)>,
 {
     let mut pts: Vec<(f64, f64)> = points.into_iter().map(Into::into).collect();
-    if pts.len() < 3 || n_out == 0 {
+    if pts.len() < 3
+        || n_out < 2
+        || span.is_nan()
+        || pts.iter().any(|&(x, y)| !x.is_finite() || !y.is_finite())
+    {
         return Vec::new();
     }
     pts.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1358,6 +1363,14 @@ mod tests {
         assert!(loess([(0.0, 1.0), (1.0, 2.0)], 0.5, 10).is_empty()); // < 3 points
                                                                       // All same x -> degenerate range.
         assert!(loess([(1.0, 1.0), (1.0, 2.0), (1.0, 3.0)], 0.5, 10).is_empty());
+        let data = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)];
+        assert!(loess(data, 0.5, 0).is_empty());
+        assert!(loess(data, 0.5, 1).is_empty());
+        assert!(loess(data, f64::NAN, 10).is_empty());
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(loess([(0.0, invalid), (1.0, 2.0), (2.0, 3.0)], 1.0, 10).is_empty());
+            assert!(loess([(invalid, 1.0), (1.0, 2.0), (2.0, 3.0)], 1.0, 10).is_empty());
+        }
     }
 
     // ── wrap_text ────────────────────────────────────────────────────────
