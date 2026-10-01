@@ -521,7 +521,9 @@ where
     I: IntoIterator,
     I::Item: Into<(f64, f64)>,
 {
-    let fit = linear_fit(points)?;
+    // The public iterator need not be repeatable; collect it once for the passes.
+    let vals: Vec<_> = points.into_iter().map(Into::into).collect();
+    let fit = linear_fit(vals.iter().copied())?;
     Some((fit.slope, fit.intercept, fit.r))
 }
 
@@ -610,17 +612,18 @@ struct BivariateMoments {
 }
 
 impl BivariateMoments {
-    fn new(data: &[(f64, f64)]) -> Option<Self> {
-        if data.len() < 2 {
-            return None;
-        }
+    fn new<I>(points: I) -> Option<Self>
+    where
+        I: Iterator<Item = (f64, f64)> + Clone,
+    {
         let (mut x_min, mut x_max, mut y_min, mut y_max) = (
             f64::INFINITY,
             f64::NEG_INFINITY,
             f64::INFINITY,
             f64::NEG_INFINITY,
         );
-        for &(x, y) in data {
+        let mut count = 0usize;
+        for (x, y) in points.clone() {
             if !x.is_finite() || !y.is_finite() {
                 return None;
             }
@@ -628,22 +631,26 @@ impl BivariateMoments {
             x_max = x_max.max(x);
             y_min = y_min.min(y);
             y_max = y_max.max(y);
+            count += 1;
+        }
+        if count < 2 {
+            return None;
         }
         let x = NormalizedAxis::new(x_min, x_max)?;
         let y = NormalizedAxis::new(y_min, y_max)?;
         let (mut sum_x, mut sum_y) = (CompensatedSum::default(), CompensatedSum::default());
-        for &(px, py) in data {
+        for (px, py) in points.clone() {
             sum_x.add(x.normalize(px));
             sum_y.add(y.normalize(py));
         }
-        let mean_x = sum_x.value / data.len() as f64;
-        let mean_y = sum_y.value / data.len() as f64;
+        let mean_x = sum_x.value / count as f64;
+        let mean_y = sum_y.value / count as f64;
         let (mut xx, mut yy, mut xy) = (
             CompensatedSum::default(),
             CompensatedSum::default(),
             CompensatedSum::default(),
         );
-        for &(px, py) in data {
+        for (px, py) in points {
             let dx = x.normalize(px) - mean_x;
             let dy = y.normalize(py) - mean_y;
             xx.add(dx * dx);
@@ -696,10 +703,10 @@ impl LinearFit {
 pub(crate) fn linear_fit<I>(points: I) -> Option<LinearFit>
 where
     I: IntoIterator,
+    I::IntoIter: Clone,
     I::Item: Into<(f64, f64)>,
 {
-    let vals: Vec<_> = points.into_iter().map(Into::into).collect();
-    let moments = BivariateMoments::new(&vals)?;
+    let moments = BivariateMoments::new(points.into_iter().map(Into::into))?;
     let normalized_slope = moments.xy / moments.xx;
     let slope = scale_power_of_two(normalized_slope, moments.y.exponent - moments.x.exponent);
     if !slope.is_finite() || (slope == 0.0 && normalized_slope != 0.0) {
@@ -947,7 +954,7 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
 /// Returns `None` for fewer than two points, non-finite coordinates, or constant
 /// x or y. A nonzero spread is valid regardless of the coordinate units.
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
-    Some(BivariateMoments::new(data)?.correlation())
+    Some(BivariateMoments::new(data.iter().copied())?.correlation())
 }
 
 // ── Phylogenetic tree helpers ─────────────────────────────────────────────────
