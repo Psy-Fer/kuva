@@ -572,7 +572,7 @@ impl NormalizedAxis {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct CompensatedSum {
     value: f64,
     error: f64,
@@ -585,6 +585,34 @@ impl CompensatedSum {
         self.error = (next - self.value) - corrected;
         self.value = next;
     }
+}
+
+fn sum_in_blocks<const N: usize>(mut values: impl Iterator<Item = [f64; N]>) -> [f64; N] {
+    // Sum only 16 terms at a time before compensating the block totals.
+    // Four independent partial sums shorten the chain of dependent additions.
+    let mut totals = [CompensatedSum::default(); N];
+    loop {
+        let mut parts = [[0.0; N]; 4];
+        let mut done = false;
+        'block: for _ in 0..4 {
+            for part in &mut parts {
+                let Some(value) = values.next() else {
+                    done = true;
+                    break 'block;
+                };
+                for i in 0..N {
+                    part[i] += value[i];
+                }
+            }
+        }
+        for i in 0..N {
+            totals[i].add((parts[0][i] + parts[1][i]) + (parts[2][i] + parts[3][i]));
+        }
+        if done {
+            break;
+        }
+    }
+    totals.map(|sum| sum.value)
 }
 
 fn scale_power_of_two(mut value: f64, mut exponent: i32) -> f64 {
@@ -627,10 +655,19 @@ impl BivariateMoments {
             if !x.is_finite() || !y.is_finite() {
                 return None;
             }
-            x_min = x_min.min(x);
-            x_max = x_max.max(x);
-            y_min = y_min.min(y);
-            y_max = y_max.max(y);
+            // Coordinates are finite here, so comparisons suffice for extrema.
+            if x < x_min {
+                x_min = x;
+            }
+            if x > x_max {
+                x_max = x;
+            }
+            if y < y_min {
+                y_min = y;
+            }
+            if y > y_max {
+                y_max = y;
+            }
             count += 1;
         }
         if count < 2 {
@@ -638,33 +675,53 @@ impl BivariateMoments {
         }
         let x = NormalizedAxis::new(x_min, x_max)?;
         let y = NormalizedAxis::new(y_min, y_max)?;
-        let (mut sum_x, mut sum_y) = (CompensatedSum::default(), CompensatedSum::default());
-        for (px, py) in points.clone() {
-            sum_x.add(x.normalize(px));
-            sum_y.add(y.normalize(py));
+        // Division by a power of two and multiplication by its exact reciprocal
+        // round identically. Choose once so the loops have no per-point branch.
+        // Keep division when a reciprocal is subnormal or overflows.
+        let reciprocal_x = 1.0 / x.scale;
+        let reciprocal_y = 1.0 / y.scale;
+        if reciprocal_x.is_normal() && reciprocal_y.is_normal() {
+            Self::normalized(
+                points.map(|(px, py)| {
+                    (
+                        (px - x.origin) * reciprocal_x,
+                        (py - y.origin) * reciprocal_y,
+                    )
+                }),
+                x,
+                y,
+                count,
+            )
+        } else {
+            Self::normalized(
+                points.map(|(px, py)| (x.normalize(px), y.normalize(py))),
+                x,
+                y,
+                count,
+            )
         }
-        let mean_x = sum_x.value / count as f64;
-        let mean_y = sum_y.value / count as f64;
-        let (mut xx, mut yy, mut xy) = (
-            CompensatedSum::default(),
-            CompensatedSum::default(),
-            CompensatedSum::default(),
-        );
-        for (px, py) in points {
-            let dx = x.normalize(px) - mean_x;
-            let dy = y.normalize(py) - mean_y;
-            xx.add(dx * dx);
-            yy.add(dy * dy);
-            xy.add(dx * dy);
-        }
+    }
+
+    fn normalized<I>(points: I, x: NormalizedAxis, y: NormalizedAxis, count: usize) -> Option<Self>
+    where
+        I: Iterator<Item = (f64, f64)> + Clone,
+    {
+        let [sum_x, sum_y] = sum_in_blocks(points.clone().map(|(px, py)| [px, py]));
+        let mean_x = sum_x / count as f64;
+        let mean_y = sum_y / count as f64;
+        let [xx, yy, xy] = sum_in_blocks(points.map(|(px, py)| {
+            let dx = px - mean_x;
+            let dy = py - mean_y;
+            [dx * dx, dy * dy, dx * dy]
+        }));
         Some(Self {
             x,
             y,
             mean_x,
             mean_y,
-            xx: xx.value,
-            yy: yy.value,
-            xy: xy.value,
+            xx,
+            yy,
+            xy,
         })
     }
 
