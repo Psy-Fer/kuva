@@ -95,12 +95,18 @@ pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
 /// Dense grids retain distinct floats even when the virtual index count overflows.
 pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
     let step = compute_tick_step(min, max, target_ticks);
+    let mut last_exponent = i32::MIN;
+    let mut last_factor = 1.0;
     linear_ticks(min, max, step, |value| {
         let factor = if value == 0.0 {
             1.0
         } else {
             let d = value.abs().log10().floor() as i32;
-            10f64.powi(6 - d)
+            if d != last_exponent {
+                last_factor = 10f64.powi(6 - d);
+                last_exponent = d;
+            }
+            last_factor
         };
         round_tick(value, step, factor, min, max)
     })
@@ -161,7 +167,7 @@ fn next_distinct_index(
     first
 }
 
-fn linear_ticks(min: f64, max: f64, step: f64, round: impl Fn(f64) -> f64) -> Vec<f64> {
+fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64) -> Vec<f64> {
     if !min.is_finite() || !max.is_finite() || max < min || !step.is_finite() || step <= 0.0 {
         return Vec::new();
     }
@@ -225,13 +231,16 @@ fn linear_ticks(min: f64, max: f64, step: f64, round: impl Fn(f64) -> f64) -> Ve
     let last = count as usize;
     let mut ticks = Vec::new();
     let mut index = 0usize;
+    let mut value = position(index);
     while index <= last {
-        let value = position(index);
         if value < min {
             let Some(next_index) = index.checked_add(1) else {
                 break;
             };
             index = next_index;
+            if index <= last {
+                value = position(index);
+            }
             continue;
         }
         if !value.is_finite() || value > max {
@@ -249,7 +258,11 @@ fn linear_ticks(min: f64, max: f64, step: f64, round: impl Fn(f64) -> f64) -> Ve
         };
         // A tiny step at a large offset can map many indices to the same float.
         // Jump to the next representable position instead of scanning those indices.
-        if first.is_none() && position(next_index) <= value {
+        if next_index > last {
+            break;
+        }
+        let next_value = position(next_index);
+        if first.is_none() && next_value <= value {
             // Aim at the next rounding midpoint, not its full float value:
             // a larger jump can skip a distinct position when step is near one ULP.
             let half_gap = (value.next_up() - value) * 0.5;
@@ -262,8 +275,12 @@ fn linear_ticks(min: f64, max: f64, step: f64, round: impl Fn(f64) -> f64) -> Ve
                 break;
             }
             index = (next as usize).max(next_index);
+            if index <= last {
+                value = position(index);
+            }
         } else {
             index = next_index;
+            value = next_value;
         }
     }
     ticks

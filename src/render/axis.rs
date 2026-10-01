@@ -226,7 +226,15 @@ fn compute_minor_ticks(
     range: (f64, f64),
     subdivisions: u32,
 ) -> Vec<f64> {
-    render_utils::generate_minor_ticks(&extend_with_phantom_ticks(ticks, spacing), subdivisions)
+    // Aligned endpoints have no partial interval that needs a phantom tick.
+    let extended;
+    let majors = if ticks.first() == Some(&range.0) && ticks.last() == Some(&range.1) {
+        ticks
+    } else {
+        extended = extend_with_phantom_ticks(ticks, spacing);
+        &extended
+    };
+    render_utils::generate_minor_ticks(majors, subdivisions)
         .into_iter()
         .filter(|t| *t >= range.0 && *t <= range.1)
         .collect()
@@ -235,11 +243,11 @@ fn compute_minor_ticks(
 /// Estimate arithmetic spacing from the first two distinct tick positions,
 /// falling back to `fallback` when there aren't enough ticks. Rounding and
 /// omitted unrepresentable positions can change the observed spacing.
-fn arithmetic_step(ticks: &[f64], fallback: f64) -> f64 {
+fn arithmetic_step(ticks: &[f64], fallback: impl FnOnce() -> f64) -> f64 {
     if ticks.len() >= 2 {
         ticks[1] - ticks[0]
     } else {
-        fallback
+        fallback()
     }
 }
 
@@ -265,7 +273,7 @@ fn resolve_axis_ticks(
         )
     } else if let Some(bw) = bin_width {
         let ticks = render_utils::generate_ticks_bin_aligned(range.0, range.1, bw, target_ticks);
-        let step = arithmetic_step(&ticks, bw);
+        let step = arithmetic_step(&ticks, || bw);
         (ticks, TickSpacing::Arithmetic(step))
     } else if let Some(dt) = datetime {
         (
@@ -282,8 +290,9 @@ fn resolve_axis_ticks(
         )
     } else {
         let ticks = render_utils::generate_ticks(range.0, range.1, target_ticks);
-        let fallback = render_utils::compute_tick_step(range.0, range.1, target_ticks);
-        let step = arithmetic_step(&ticks, fallback);
+        let step = arithmetic_step(&ticks, || {
+            render_utils::compute_tick_step(range.0, range.1, target_ticks)
+        });
         (ticks, TickSpacing::Arithmetic(step))
     }
 }
