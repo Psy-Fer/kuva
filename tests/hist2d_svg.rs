@@ -39,6 +39,44 @@ fn test_histogram2d_svg_output_builder() {
     assert!(svg.contains("<svg"));
 }
 
+#[test]
+fn histogram_correlation_omits_undefined_and_preserves_extreme_units() {
+    let undefined = [
+        vec![],
+        vec![(1.0, 2.0)],
+        vec![(1.0, 2.0), (1.0, 3.0)],
+        vec![(1.0, 2.0), (3.0, 2.0)],
+    ];
+    for data in undefined {
+        let hist = Histogram2D::new()
+            .with_data(data, (0.0, 10.0), (0.0, 10.0), 2, 2)
+            .with_correlation();
+        let plots = vec![Plot::Histogram2d(hist)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = render_svg(plots, layout);
+        assert!(!svg.contains("r = "));
+        assert!(!svg.contains("NaN") && !svg.contains("inf"));
+    }
+    for unit in [1e-200, 1e200] {
+        // Explicit ordinary ranges isolate annotation arithmetic from axis
+        // scaling. Correlation includes observations outside the bin range.
+        let hist = Histogram2D::new()
+            .with_data(
+                vec![(unit, -unit), (2.0 * unit, -2.0 * unit)],
+                (0.0, 10.0),
+                (0.0, 10.0),
+                2,
+                2,
+            )
+            .with_correlation();
+        let plots = vec![Plot::Histogram2d(hist)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = render_svg(plots, layout);
+        assert!(svg.contains("r = -1.00"));
+        assert!(!svg.contains("NaN") && !svg.contains("inf"));
+    }
+}
+
 // ── Regression tests for #39: hist2d not well-behaving on real data ───────────
 
 /// A data point at exactly x_range.1 (the maximum boundary) must land in the

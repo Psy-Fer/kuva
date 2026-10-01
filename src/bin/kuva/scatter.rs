@@ -69,7 +69,7 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub equation: bool,
 
-    /// Annotate with the Pearson R² value (requires --trend).
+    /// Annotate with the signed Pearson correlation coefficient r (requires --trend).
     #[arg(long)]
     pub correlation: bool,
 

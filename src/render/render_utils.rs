@@ -511,40 +511,220 @@ pub fn simple_kde_reflect(
         .collect()
 }
 
-/// linear regression of a scatter plot so we can make the equation and get correlation
+/// Unweighted ordinary least-squares fit, returning `(slope, intercept, r)`.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or coefficients that overflow (or a nonzero slope that underflows
+/// to zero). Pearson's signed `r` is undefined for constant coordinates.
 pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
 where
     I: IntoIterator,
     I::Item: Into<(f64, f64)>,
 {
-    let mut vals = Vec::new();
+    let fit = linear_fit(points)?;
+    Some((fit.slope, fit.intercept, fit.r))
+}
 
-    for (x, y) in points.into_iter().map(Into::into) {
-        vals.push((x, y));
+// Center before scaling so a large coordinate offset does not erase its spread.
+// Powers of two also let coefficient conversion avoid an overflowing scale ratio.
+#[derive(Clone, Copy)]
+struct NormalizedAxis {
+    origin: f64,
+    scale: f64,
+    exponent: i32,
+}
+
+impl NormalizedAxis {
+    fn new(min: f64, max: f64) -> Option<Self> {
+        if min == max {
+            return None;
+        }
+        // Stay near the observations without shifting zero away from zero.
+        // A midpoint shift can erase small means in mostly-zero data.
+        let origin = if min > 0.0 {
+            min
+        } else if max < 0.0 {
+            max
+        } else {
+            0.0
+        };
+        let distance = (max - origin).abs().max((min - origin).abs());
+        let bits = distance.to_bits();
+        let biased = ((bits >> 52) & 0x7ff) as i32;
+        let (scale, exponent) = if biased == 0 {
+            // Subnormal distances have no implicit leading mantissa bit.
+            let bit = 63 - bits.leading_zeros();
+            (f64::from_bits(1u64 << bit), bit as i32 - 1074)
+        } else {
+            (f64::from_bits((biased as u64) << 52), biased - 1023)
+        };
+        Some(Self {
+            origin,
+            scale,
+            exponent,
+        })
     }
 
-    if vals.len() < 2 {
+    fn normalize(self, value: f64) -> f64 {
+        (value - self.origin) / self.scale
+    }
+}
+
+#[derive(Default)]
+struct CompensatedSum {
+    value: f64,
+    error: f64,
+}
+
+impl CompensatedSum {
+    fn add(&mut self, term: f64) {
+        let corrected = term - self.error;
+        let next = self.value + corrected;
+        self.error = (next - self.value) - corrected;
+        self.value = next;
+    }
+}
+
+fn scale_power_of_two(mut value: f64, mut exponent: i32) -> f64 {
+    // Apply large exponents in finite factors, without rounding the ratio to
+    // zero or infinity before multiplying a small or large normalized slope.
+    while exponent > 1023 {
+        value *= f64::from_bits(2046u64 << 52);
+        exponent -= 1023;
+    }
+    while exponent < -1022 {
+        value *= f64::MIN_POSITIVE;
+        exponent += 1022;
+    }
+    value * f64::from_bits(((exponent + 1023) as u64) << 52)
+}
+
+struct BivariateMoments {
+    x: NormalizedAxis,
+    y: NormalizedAxis,
+    mean_x: f64,
+    mean_y: f64,
+    xx: f64,
+    yy: f64,
+    xy: f64,
+}
+
+impl BivariateMoments {
+    fn new(data: &[(f64, f64)]) -> Option<Self> {
+        if data.len() < 2 {
+            return None;
+        }
+        let (mut x_min, mut x_max, mut y_min, mut y_max) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for &(x, y) in data {
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            x_min = x_min.min(x);
+            x_max = x_max.max(x);
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
+        }
+        let x = NormalizedAxis::new(x_min, x_max)?;
+        let y = NormalizedAxis::new(y_min, y_max)?;
+        let (mut sum_x, mut sum_y) = (CompensatedSum::default(), CompensatedSum::default());
+        for &(px, py) in data {
+            sum_x.add(x.normalize(px));
+            sum_y.add(y.normalize(py));
+        }
+        let mean_x = sum_x.value / data.len() as f64;
+        let mean_y = sum_y.value / data.len() as f64;
+        let (mut xx, mut yy, mut xy) = (
+            CompensatedSum::default(),
+            CompensatedSum::default(),
+            CompensatedSum::default(),
+        );
+        for &(px, py) in data {
+            let dx = x.normalize(px) - mean_x;
+            let dy = y.normalize(py) - mean_y;
+            xx.add(dx * dx);
+            yy.add(dy * dy);
+            xy.add(dx * dy);
+        }
+        Some(Self {
+            x,
+            y,
+            mean_x,
+            mean_y,
+            xx: xx.value,
+            yy: yy.value,
+            xy: xy.value,
+        })
+    }
+
+    fn correlation(&self) -> f64 {
+        // Normalized variances are nonzero and at most 16 * observation count.
+        // Only rounding can move this quotient just outside [-1, 1].
+        (self.xy / (self.xx.sqrt() * self.yy.sqrt())).clamp(-1.0, 1.0)
+    }
+
+    fn predict(&self, x: f64) -> Option<f64> {
+        let normalized_slope = self.xy / self.xx;
+        let normalized_y = normalized_slope.mul_add(self.x.normalize(x) - self.mean_x, self.mean_y);
+        let y = self.y.scale.mul_add(normalized_y, self.y.origin);
+        y.is_finite().then_some(y)
+    }
+}
+
+pub(crate) struct LinearFit {
+    moments: BivariateMoments,
+    pub slope: f64,
+    pub intercept: f64,
+    pub r: f64,
+}
+
+impl LinearFit {
+    pub fn predict(&self, x: f64) -> Option<f64> {
+        self.moments.predict(x).or_else(|| {
+            // Far extrapolation can overflow normalized x even when the
+            // prediction in the original units is representable.
+            let y = self.slope.mul_add(x, self.intercept);
+            y.is_finite().then_some(y)
+        })
+    }
+}
+
+pub(crate) fn linear_fit<I>(points: I) -> Option<LinearFit>
+where
+    I: IntoIterator,
+    I::Item: Into<(f64, f64)>,
+{
+    let vals: Vec<_> = points.into_iter().map(Into::into).collect();
+    let moments = BivariateMoments::new(&vals)?;
+    let normalized_slope = moments.xy / moments.xx;
+    let slope = scale_power_of_two(normalized_slope, moments.y.exponent - moments.x.exponent);
+    if !slope.is_finite() || (slope == 0.0 && normalized_slope != 0.0) {
         return None;
     }
-
-    let n = vals.len() as f64;
-    let (sum_x, sum_y, sum_xy, sum_x2) = vals.iter().fold((0.0, 0.0, 0.0, 0.0), |acc, (x, y)| {
-        (acc.0 + x, acc.1 + y, acc.2 + x * y, acc.3 + x * x)
-    });
-
-    let denom = n * sum_x2 - sum_x * sum_x;
-    if denom.abs() < 1e-8 {
+    // Keep the normalized slope here: rounding a subnormal public slope first
+    // can magnify its rounding error when multiplied by a large x origin.
+    // Keep origin and mean terms separate. Subtracting the normalized mean
+    // from a large origin first can lose it and give y = x a nonzero intercept.
+    let origin_intercept = normalized_slope.mul_add(
+        -moments.x.origin / moments.x.scale,
+        moments.y.origin / moments.y.scale,
+    );
+    let mean_intercept = normalized_slope.mul_add(-moments.mean_x, moments.mean_y);
+    let intercept = moments.y.scale * (origin_intercept + mean_intercept);
+    if !intercept.is_finite() {
         return None;
     }
-
-    let slope = (n * sum_xy - sum_x * sum_y) / denom;
-    let intercept = (sum_y - slope * sum_x) / n;
-
-    // Pearson correlation coefficient
-    let r = pearson_corr(&vals)?;
-
-    // y = mx+b and r
-    Some((slope, intercept, r))
+    let r = moments.correlation();
+    Some(LinearFit {
+        moments,
+        slope,
+        intercept,
+        r,
+    })
 }
 
 /// LOESS / LOWESS: locally-weighted linear regression smoother.
@@ -762,36 +942,12 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
     result
 }
 
-// Pearson correlation coefficient (r)
+/// Pearson's signed correlation coefficient, computed from all supplied points.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, or constant
+/// x or y. A nonzero spread is valid regardless of the coordinate units.
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
-    let n = data.len();
-    if n < 2 {
-        return None;
-    }
-
-    let (mut sum_x, mut sum_y) = (0.0, 0.0);
-    for &(x, y) in data {
-        sum_x += x;
-        sum_y += y;
-    }
-
-    let mean_x = sum_x / n as f64;
-    let mean_y = sum_y / n as f64;
-
-    let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
-    for &(x, y) in data {
-        let dx = x - mean_x;
-        let dy = y - mean_y;
-        cov += dx * dy;
-        var_x += dx * dx;
-        var_y += dy * dy;
-    }
-
-    if var_x == 0.0 || var_y == 0.0 {
-        return None;
-    }
-
-    Some(cov / (var_x.sqrt() * var_y.sqrt()))
+    Some(BivariateMoments::new(data)?.correlation())
 }
 
 // ── Phylogenetic tree helpers ─────────────────────────────────────────────────
@@ -1125,6 +1281,17 @@ pub fn probit(p: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linear_fit_keeps_representable_extrapolation() {
+        let fit = linear_fit([(-1e-3, -1e-3), (1e-3, 1e-3)]).unwrap();
+        assert_eq!(fit.predict(-1e308), Some(-1e308));
+        assert_eq!(fit.predict(1e308), Some(1e308));
+        assert_eq!(fit.predict(f64::NAN), None);
+        assert_eq!(fit.predict(f64::INFINITY), None);
+        let fit = linear_fit([(0.0, 0.0), (1.0, 2.0)]).unwrap();
+        assert_eq!(fit.predict(f64::MAX), None);
+    }
 
     // ── repel_labels ─────────────────────────────────────────────────────
 

@@ -41,7 +41,7 @@ A single bivariate Gaussian cluster binned into a 30×30 grid. The Viridis color
 
 ## Correlation annotation
 
-`.with_correlation()` computes the Pearson r coefficient from the raw scatter points and prints it in the top-right corner.
+`.with_correlation()` computes the signed Pearson r coefficient from the raw scatter points and prints it in the top-right corner. The annotation is omitted for fewer than two points, constant x or y, or non-finite coordinates, since the coefficient is undefined.
 
 ```rust,no_run
 # use kuva::plot::Histogram2D;
