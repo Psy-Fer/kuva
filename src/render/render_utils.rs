@@ -298,11 +298,34 @@ pub fn generate_ticks_bin_aligned(
     }
     // Maximum number of tick intervals that keeps labels readable.
     let target_intervals = target_ticks.saturating_sub(1).max(2).min(total_bins);
-    // Find the smallest bin multiplier permitted by the requested intervals.
-    let n = (1..=total_bins)
-        .find(|&n| total_bins.is_multiple_of(n) && total_bins / n <= target_intervals)
-        .unwrap_or(total_bins);
-    let num_steps = total_bins / n;
+    // The largest permitted interval count gives the smallest bin multiplier.
+    // Check requested counts alongside factor pairs through sqrt(total_bins).
+    // Small requests finish quickly; large requests avoid a long descending scan.
+    let mut intervals = target_intervals;
+    let mut factor = 1usize;
+    let mut best = 1usize;
+    let num_steps = loop {
+        if total_bins.is_multiple_of(intervals) {
+            break intervals;
+        }
+        let complement = total_bins / factor;
+        if factor > complement {
+            break best;
+        }
+        if total_bins.is_multiple_of(factor) {
+            // Increasing factors give decreasing complements. The first
+            // permitted complement is the largest possible interval count.
+            if complement <= target_intervals {
+                break complement;
+            }
+            if factor <= target_intervals {
+                best = factor;
+            }
+        }
+        intervals -= 1;
+        factor += 1;
+    };
+    let n = total_bins / num_steps;
     let step = n as f64 * bin_width;
     if !step.is_finite() {
         return Vec::new();
@@ -1476,6 +1499,16 @@ mod tests {
             assert_eq!(
                 generate_ticks_bin_aligned(lo, hi, width, 1_000_000_001),
                 [lo, hi]
+            );
+        }
+    }
+
+    #[test]
+    fn bin_ticks_handle_a_large_prime_count() {
+        for target in [6, 1_000_000_006] {
+            assert_eq!(
+                generate_ticks_bin_aligned(0.0, 1_000_000_007.0, 1.0, target),
+                [0.0, 1_000_000_007.0]
             );
         }
     }
