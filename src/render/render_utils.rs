@@ -588,28 +588,23 @@ where
 
     let mut out = Vec::with_capacity(n_out);
     let mut local = Vec::with_capacity(k);
-    let mut dist = Vec::with_capacity(n);
-    let mut idx = Vec::with_capacity(n);
+    let mut nearest = Vec::with_capacity(k);
     for i in 0..n_out {
         let t = i as f64 / (n_out - 1) as f64;
         let x0 = x_min + t * (x_max - x_min);
 
         // The k nearest neighbours by |x - x0| set the local bandwidth.
-        dist.clear();
-        dist.extend(pts.iter().map(|(x, _)| (x - x0).abs()));
-        idx.clear();
-        idx.extend(0..n);
-        idx.sort_by(|&a, &b| dist[a].total_cmp(&dist[b]));
-        let d_max = dist[idx[k - 1]];
+        loess_neighbors(&pts, x0, k, &mut nearest);
+        let d_max = nearest[k - 1].1;
 
         local.clear();
-        for &j in idx.iter().take(k) {
+        for &(j, distance) in &nearest {
             let (x, y) = pts[j];
             // Coincident selected points have equal distance weights.
             let w = if d_max == 0.0 {
                 1.0
             } else {
-                tricube(dist[j] / d_max)
+                tricube(distance / d_max)
             };
             local.push((x, y, w));
         }
@@ -618,6 +613,45 @@ where
         }
     }
     out
+}
+
+fn loess_neighbors(pts: &[(f64, f64)], x0: f64, k: usize, nearest: &mut Vec<(usize, f64)>) {
+    // Sorted x values give two runs of increasing distance from the query.
+    // Merge their first k observations in the same order as a stable distance sort.
+    let split = pts.partition_point(|p| p.0 < x0);
+    let distance = |i: usize| (pts[i].0 - x0).abs();
+    let (mut left_start, mut left_end, mut left) = (split, split, split);
+    let mut right = split;
+    let mut left_distance = 0.0;
+    let mut right_distance = if right < pts.len() {
+        distance(right)
+    } else {
+        0.0
+    };
+    nearest.clear();
+    while nearest.len() < k {
+        if left == left_end && left_start > 0 {
+            left_end = left_start;
+            left_start -= 1;
+            left_distance = distance(left_start);
+            // Different x values can have equal rounded distances. Visit a left
+            // tie group in increasing index order, matching the original sort.
+            while left_start > 0 && distance(left_start - 1) == left_distance {
+                left_start -= 1;
+            }
+            left = left_start;
+        }
+        if left < left_end && (right == pts.len() || left_distance <= right_distance) {
+            nearest.push((left, left_distance));
+            left += 1;
+        } else {
+            nearest.push((right, right_distance));
+            right += 1;
+            if right < pts.len() {
+                right_distance = distance(right);
+            }
+        }
+    }
 }
 
 fn loess_fit(local: &mut [(f64, f64, f64)], x0: f64) -> Option<f64> {
@@ -1324,6 +1358,16 @@ mod tests {
         assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 37.0).abs() < 1e-12);
         data.reverse();
         assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 370.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn loess_neighbors_preserve_rounded_distance_ties() {
+        let data = [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (1e20, 3.0), (2e20, 4.0)];
+        // Three different left coordinates and the right coordinate all round
+        // to distance 1e20. The earlier indices must be selected first.
+        let mut nearest = Vec::new();
+        loess_neighbors(&data, 1e20, 4, &mut nearest);
+        assert_eq!(nearest, [(3, 0.0), (0, 1e20), (1, 1e20), (2, 1e20)]);
     }
 
     #[test]
