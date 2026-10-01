@@ -587,17 +587,22 @@ where
     };
 
     let mut out = Vec::with_capacity(n_out);
+    let mut local = Vec::with_capacity(k);
+    let mut dist = Vec::with_capacity(n);
+    let mut idx = Vec::with_capacity(n);
     for i in 0..n_out {
         let t = i as f64 / (n_out - 1) as f64;
         let x0 = x_min + t * (x_max - x_min);
 
         // The k nearest neighbours by |x - x0| set the local bandwidth.
-        let dist: Vec<f64> = pts.iter().map(|(x, _)| (x - x0).abs()).collect();
-        let mut idx: Vec<usize> = (0..n).collect();
+        dist.clear();
+        dist.extend(pts.iter().map(|(x, _)| (x - x0).abs()));
+        idx.clear();
+        idx.extend(0..n);
         idx.sort_by(|&a, &b| dist[a].total_cmp(&dist[b]));
         let d_max = dist[idx[k - 1]];
 
-        let mut local = Vec::with_capacity(k);
+        local.clear();
         for &j in idx.iter().take(k) {
             let (x, y) = pts[j];
             // Coincident selected points have equal distance weights.
@@ -1303,6 +1308,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn loess_keeps_duplicate_neighbors_in_input_order() {
+        let mut data = [
+            (0.0, 1.0),
+            (0.0, 10.0),
+            (0.0, 100.0),
+            (0.0, 1000.0),
+            (1.0, 5.0),
+            (2.0, 7.0),
+        ];
+        // Only three of the four coincident observations are selected.
+        assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 37.0).abs() < 1e-12);
+        data.reverse();
+        assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 370.0).abs() < 1e-12);
     }
 
     #[test]
