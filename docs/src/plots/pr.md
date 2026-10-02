@@ -4,6 +4,8 @@ A Precision-Recall (PR) curve plots precision (positive predictive value) agains
 
 The area under the PR curve (AUC-PR) summarises classifier performance; a perfect classifier achieves AUC-PR = 1.0, while the no-skill baseline is a horizontal line at the prevalence (positive rate).
 
+Each distinct score value gets its own threshold, even if two values are very close.
+
 **Import path:** `kuva::plot::pr::{PrPlot, PrGroup}`
 
 ---

@@ -145,6 +145,7 @@ pub struct PrComputed {
 
 /// Sort descending by score; walk thresholds to produce PR points.
 /// Returns `(points, prevalence)`.
+/// Only equal scores share a threshold; distinct scores keep their order.
 pub fn compute_pr_points(predictions: &[(f64, bool)]) -> (Vec<PrPoint>, f64) {
     if predictions.is_empty() {
         return (Vec::new(), 0.0);
@@ -173,7 +174,7 @@ pub fn compute_pr_points(predictions: &[(f64, bool)]) -> (Vec<PrPoint>, f64) {
     while i < sorted.len() {
         let thresh = sorted[i].0;
         // Consume all items at this threshold
-        while i < sorted.len() && (sorted[i].0 - thresh).abs() < f64::EPSILON * 100.0 {
+        while i < sorted.len() && sorted[i].0 == thresh {
             if sorted[i].1 {
                 tp += 1;
             } else {

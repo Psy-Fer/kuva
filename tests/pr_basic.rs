@@ -326,3 +326,24 @@ fn test_pr_showcase() {
     assert!(svg.contains("Good model"));
     assert!(svg.contains("AUC-PR"));
 }
+
+#[test]
+fn test_pr_score_ordering_and_exact_ties() {
+    let separate: &[(f64, f64)] = &[(0.0, 1.0), (1.0, 1.0), (1.0, 0.5)];
+    let tied: &[(f64, f64)] = &[(0.0, 1.0), (1.0, 0.5)];
+    for (positive, negative, expected) in [
+        (1.0, 1.0 - f64::EPSILON, separate),
+        (1.0, 1.0, tied),
+        (f64::INFINITY, f64::NEG_INFINITY, separate),
+    ] {
+        for predictions in [
+            [(positive, true), (negative, false)],
+            [(negative, false), (positive, true)],
+        ] {
+            let (points, prevalence) = compute_pr_points(&predictions);
+            let curve: Vec<_> = points.iter().map(|p| (p.recall, p.precision)).collect();
+            assert_eq!(curve, expected, "{predictions:?}");
+            assert_eq!(prevalence, 0.5);
+        }
+    }
+}
