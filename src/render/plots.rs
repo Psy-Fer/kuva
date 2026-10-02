@@ -882,14 +882,14 @@ impl Plot {
                 }
             }
             Plot::Volcano(vp) => {
-                if vp.points.is_empty() {
+                if !vp.points.iter().any(|p| p.is_plottable()) {
                     return None;
                 }
                 let floor = vp.floor();
                 let mut x_min = f64::INFINITY;
                 let mut x_max = f64::NEG_INFINITY;
                 let mut y_max = f64::NEG_INFINITY;
-                for p in &vp.points {
+                for p in vp.points.iter().filter(|p| p.is_plottable()) {
                     x_min = x_min.min(p.log2fc);
                     x_max = x_max.max(p.log2fc);
                     let y = -(p.pvalue.max(floor)).log10();

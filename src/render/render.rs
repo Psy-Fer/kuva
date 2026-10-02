@@ -9743,6 +9743,9 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Draw points: NS first, then Down, then Up
     for pass in 0..3u8 {
         for (pi, p) in vp.points.iter().enumerate() {
+            if !p.is_plottable() {
+                continue;
+            }
             let is_up = p.log2fc >= vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let is_down = p.log2fc <= -vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let color = match (pass, is_up, is_down) {
@@ -9812,7 +9815,7 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let mut sig_points: Vec<(f64, f64, &str)> = vp
         .points
         .iter()
-        .filter(|p| p.pvalue <= vp.p_cutoff)
+        .filter(|p| p.is_plottable() && p.pvalue <= vp.p_cutoff)
         .map(|p| {
             let y_val = -(p.pvalue.max(floor)).log10();
             (

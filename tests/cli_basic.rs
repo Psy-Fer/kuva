@@ -2053,3 +2053,42 @@ fn test_unknown_subcommand() {
     let (_, _, code) = run_with_file(&["notaplot"]);
     assert_ne!(code, 0, "unknown subcommand should exit with non-zero code");
 }
+
+fn assert_rejected(cases: Vec<(Vec<&str>, &str, &str)>) {
+    for (args, input, message) in cases {
+        let (stdout, stderr, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{args:?}");
+        assert!(stdout.is_empty(), "{args:?}");
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn test_invalid_volcano_pvalues_are_rejected() {
+    let volcano = [
+        "volcano",
+        "--name-col",
+        "g",
+        "--x-col",
+        "fc",
+        "--y-col",
+        "p",
+    ];
+    assert_rejected(vec![
+        (
+            volcano.to_vec(),
+            "g\tfc\tp\na\t1\t0.01\nb\t0.5\t-0.2\n",
+            "Row 1: p-value -0.2 is outside [0, 1]",
+        ),
+        (
+            volcano.to_vec(),
+            "g\tfc\tp\na\t1\t0.01\nb\t0.5\t1.5\n",
+            "Row 1: p-value 1.5 is outside [0, 1]",
+        ),
+        (
+            [volcano.as_slice(), &["--pvalue-col-is-log"]].concat(),
+            "g\tfc\tp\na\t1\t2\nb\t0.5\t-0.3\n",
+            "Row 1: -log10(p) value -0.3 is negative",
+        ),
+    ]);
+}
