@@ -9976,18 +9976,22 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
 
     // Collect all points, sort by screen y ascending (most significant = smallest y = top)
     // No genome-wide threshold filter: label the top-N most significant regardless.
-    let mut sig_points: Vec<(f64, f64, String)> = mp
+    let mut ranked: Vec<(f64, usize)> = mp
         .points
         .iter()
-        .filter(|p| p.is_plottable())
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable())
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
+        .collect();
+    keep_top(&mut ranked, mp.label_top);
+    let sig_points: Vec<(f64, f64, String)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &mp.points[i];
             let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
-            (computed.map_x(p.x), computed.map_y(y_val), label)
+            (computed.map_x(p.x), cy, label)
         })
         .collect();
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(mp.label_top);
 
     draw_labels(scene, computed, &sig_points, mp.point_size, &mp.label_style);
 }
