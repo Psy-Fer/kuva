@@ -1,5 +1,5 @@
 use clap::Args;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use kuva::plot::{UpSetPlot, UpSetSort};
 use kuva::render::layout::Layout;
@@ -70,7 +70,7 @@ pub fn run(args: UpSetArgs) -> Result<(), String> {
         .collect();
 
     // Group rows by bitmask to compute intersection sizes.
-    let mut mask_counts: HashMap<u64, usize> = HashMap::new();
+    let mut mask_counts: BTreeMap<u64, usize> = BTreeMap::new();
     for row in &table.rows {
         let mut mask: u64 = 0;
         for (i, cell) in row.iter().enumerate().take(ncols) {

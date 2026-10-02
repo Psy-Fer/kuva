@@ -2122,3 +2122,15 @@ fn test_invalid_pie_values_are_rejected() {
         (pie.to_vec(), "l\tv\na\t0\nb\t0\n", "pie values sum to zero"),
     ]);
 }
+
+#[test]
+fn test_upset_output_is_deterministic() {
+    for sort in ["frequency", "natural"] {
+        let args = ["upset", &data("upset.tsv"), "--sort", sort];
+        let (first, stderr, code) = run_with_file(&args);
+        assert_eq!(code, 0, "{stderr}");
+        for _ in 0..4 {
+            assert_eq!(run_with_file(&args).0, first, "--sort {sort}");
+        }
+    }
+}

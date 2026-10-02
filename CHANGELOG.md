@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Invalid volcano p-values** are no longer drawn as the most significant points. A NaN or negative p-value used to be placed at the top of the plot and could receive a top label, and a p-value above 1 was placed below the axis; such points are now left out, and `kuva volcano` rejects them with the row number.
 - **Invalid Manhattan p-values** are no longer drawn as the most significant points. A NaN or negative p-value used to be placed at the top of the plot and could receive a top label, and a p-value above 1 was placed below the axis; such points are now left out, and `kuva manhattan` rejects them with the row number.
 - **Pie charts with negative values or a zero total** no longer write NaN coordinates or draw overlapping arcs. No slices are drawn, the legend omits percentages, and `kuva pie` reports the negative value or zero total.
+- **`kuva upset` output varied between runs.** Intersections with equal counts, and all intersections with `--sort natural`, appeared in a different order each time. They now follow the order of their set membership, as `UpSetPlot::with_sets` already did.
 
 ## [0.5.0] — 2026-08-07
 
