@@ -159,8 +159,9 @@ pub struct RocComputed {
 
 /// Sort descending by score; walk thresholds to produce ROC points.
 /// Only equal scores share a threshold; distinct finite scores keep their order.
+/// Returns no points if any score is NaN, since NaN has no order.
 pub fn compute_roc_points(predictions: &[(f64, bool)]) -> Vec<RocPoint> {
-    if predictions.is_empty() {
+    if predictions.is_empty() || predictions.iter().any(|p| p.0.is_nan()) {
         return Vec::new();
     }
     let mut sorted = predictions.to_vec();

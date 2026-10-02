@@ -401,3 +401,20 @@ fn test_roc_plot_render_multiple() {
     assert!(scene.width > 0.0);
     assert!(!scene.elements.is_empty());
 }
+
+#[test]
+fn test_roc_groups_without_curve() {
+    let nan_scores = [(0.9, true), (f64::NAN, false), (0.2, false), (0.7, true)];
+    assert!(compute_roc_points(&nan_scores).is_empty());
+    let single_class = [(0.9, true), (0.2, true)];
+    for data in [nan_scores.as_slice(), single_class.as_slice()] {
+        let group = RocGroup::new("Model").with_raw(data.iter().copied());
+        assert!(compute_group(&group).points.is_empty());
+        let plot = RocPlot::new().with_group(group).with_legend("Scores");
+        let plots = vec![Plot::Roc(plot)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = write_svg("roc_groups_without_curve", plots, layout);
+        assert!(!svg.contains("NaN"));
+        assert!(!svg.contains("AUC"));
+    }
+}

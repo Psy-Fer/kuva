@@ -12,7 +12,7 @@ A Receiver Operating Characteristic (ROC) curve plots the true positive rate (se
 
 Build one `RocGroup` per classifier using `.with_raw()`, which accepts `(score, bool)` pairs. Pass raw scores — `RocGroup` computes the curve and AUC internally.
 
-Each distinct score value gets its own ROC threshold, even if two values are very close. AUC is the fraction of positive-negative pairs in which the positive sample has the higher score, with equal-score pairs counting as half a win.
+Each distinct score value gets its own ROC threshold, even if two values are very close. AUC is the fraction of positive-negative pairs in which the positive sample has the higher score, with equal-score pairs counting as half a win. A group with a NaN score has no curve or AUC, because NaN cannot be ordered.
 
 ```rust,no_run
 use kuva::plot::{RocPlot, RocGroup};
