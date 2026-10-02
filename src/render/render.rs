@@ -7,7 +7,7 @@ use crate::render::axis::{
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
-use crate::render::render_utils::{self, linear_regression, pearson_corr, percentile};
+use crate::render::render_utils::{self, linear_fit, pearson_corr, percentile};
 use crate::render::text_metrics::{
     ascent, cap_height, center_offset, descent, line_height, mean_char_width, measure_text_width,
     text_height, widest_text_width, FontStyle,
@@ -1106,23 +1106,23 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     if let Some(trend) = scatter.trend {
         match trend {
             TrendLine::Linear => {
-                if let Some((slope, intercept, r)) = linear_regression(&scatter.data) {
+                if let Some(fit) = linear_fit(&scatter.data) {
+                    let (slope, intercept, r) = (fit.slope, fit.intercept, fit.r);
                     // get line start and end co-ords
                     let x1 = computed.x_range.0;
                     let x2 = computed.x_range.1;
-                    let y1 = slope * x1 + intercept;
-                    let y2 = slope * x2 + intercept;
-
-                    // draw the line
-                    scene.add(Primitive::Line {
-                        x1: computed.map_x(x1),
-                        y1: computed.map_y(y1),
-                        x2: computed.map_x(x2),
-                        y2: computed.map_y(y2),
-                        stroke: Color::from(&scatter.trend_color),
-                        stroke_width: scatter.trend_width,
-                        stroke_dasharray: None,
-                    });
+                    // Extrapolated endpoints can exceed f64 even for finite data.
+                    if let (Some(y1), Some(y2)) = (fit.predict(x1), fit.predict(x2)) {
+                        scene.add(Primitive::Line {
+                            x1: computed.map_x(x1),
+                            y1: computed.map_y(y1),
+                            x2: computed.map_x(x2),
+                            y2: computed.map_y(y2),
+                            stroke: Color::from(&scatter.trend_color),
+                            stroke_width: scatter.trend_width,
+                            stroke_dasharray: None,
+                        });
+                    }
 
                     // display equation and correlation
                     if scatter.show_equation || scatter.show_correlation {
@@ -2200,18 +2200,18 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     }
 
     if hist2d.show_correlation {
-        let corr =
-            pearson_corr(&hist2d.data).expect("hist2d correlation requires at least 2 data points");
-        scene.add(Primitive::Text {
-            x: computed.width - 120.0,
-            y: computed.margin_top + 20.0,
-            content: format!("r = {:.2}", corr),
-            size: computed.body_size,
-            anchor: TextAnchor::End,
-            rotate: None,
-            bold: false,
-            color: None,
-        });
+        if let Some(corr) = pearson_corr(&hist2d.data) {
+            scene.add(Primitive::Text {
+                x: computed.width - 120.0,
+                y: computed.margin_top + 20.0,
+                content: format!("r = {:.2}", corr),
+                size: computed.body_size,
+                anchor: TextAnchor::End,
+                rotate: None,
+                bold: false,
+                color: None,
+            });
+        }
     }
 }
 

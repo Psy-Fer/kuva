@@ -54,7 +54,7 @@ std::fs::write("scatter.svg", svg).unwrap();
 
 ## Trend line
 
-Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the Pearson R² value.
+Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x or y, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. An extrapolated line is omitted if either endpoint cannot be represented.
 
 ```rust,no_run
 use kuva::plot::scatter::{ScatterPlot, TrendLine};
@@ -76,7 +76,7 @@ let plot = ScatterPlot::new()
     .with_trend(TrendLine::Linear)
     .with_trend_color("crimson")   // defaults to "black"
     .with_equation()               // show y = mx + b
-    .with_correlation();           // show R²
+    .with_correlation();           // show signed r
 
 let plots = vec![Plot::Scatter(plot)];
 let layout = Layout::auto_from_plots(&plots)
@@ -478,7 +478,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_trend_color(s)` | Set trend/smoother line color |
 | `.with_trend_width(w)` | Set trend/smoother line stroke width |
 | `.with_equation()` | Annotate the plot with the regression equation |
-| `.with_correlation()` | Annotate the plot with R² |
+| `.with_correlation()` | Annotate the plot with signed Pearson r |
 | `.with_x_err(iter)` | Symmetric X error bars |
 | `.with_x_err_asymmetric(iter)` | Asymmetric X error bars: `(neg, pos)` tuples |
 | `.with_y_err(iter)` | Symmetric Y error bars |
@@ -520,7 +520,7 @@ Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines,
 | `--loess` | off | Overlay a LOESS smoother (local regression) instead of a linear trend |
 | `--loess-span <F>` | `0.5` | LOESS span, 0.05–1.0 (implies `--loess`); smaller = wigglier |
 | `--equation` | off | Annotate with regression equation (requires `--trend`) |
-| `--correlation` | off | Annotate with Pearson R² (requires `--trend`) |
+| `--correlation` | off | Annotate with signed Pearson r (requires `--trend`) |
 | `--label-col <COL>` | — | Label each point with this column (single-series mode only) |
 | `--label-style <STYLE>` | `nudge` | Point-label placement: `nudge`, `exact`, or `repel` |
 | `--legend` | off | Show legend |
