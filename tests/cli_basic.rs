@@ -2092,3 +2092,20 @@ fn test_invalid_volcano_pvalues_are_rejected() {
         ),
     ]);
 }
+
+#[test]
+fn test_invalid_manhattan_pvalues_are_rejected() {
+    let manhattan = ["manhattan", "--chr-col", "chr", "--pvalue-col", "p"];
+    assert_rejected(vec![
+        (
+            manhattan.to_vec(),
+            "chr\tp\n1\t0.01\n2\t-0.3\n",
+            "Row 1: p-value -0.3 is outside [0, 1]",
+        ),
+        (
+            [manhattan.as_slice(), &["--pvalue-col-is-log"]].concat(),
+            "chr\tp\n1\t2\n2\t-0.3\n",
+            "Row 1: -log10(p) value -0.3 is negative",
+        ),
+    ]);
+}

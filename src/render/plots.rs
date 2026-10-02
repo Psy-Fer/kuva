@@ -898,7 +898,7 @@ impl Plot {
                 Some(((x_min, x_max), (0.0, y_max)))
             }
             Plot::Manhattan(mp) => {
-                if mp.points.is_empty() {
+                if !mp.points.iter().any(|p| p.is_plottable()) {
                     return None;
                 }
                 let floor = mp.floor();
@@ -919,6 +919,7 @@ impl Plot {
                 let y_max = mp
                     .points
                     .iter()
+                    .filter(|p| p.is_plottable())
                     .map(|p| -(p.pvalue.max(floor)).log10())
                     .fold(mp.genome_wide, f64::max);
                 Some(((x_min, x_max), (0.0, y_max)))

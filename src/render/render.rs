@@ -9911,7 +9911,9 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
     // Pre-bucket points by chromosome so each span lookup is O(1) instead of O(n).
     let mut by_chr: HashMap<&str, Vec<usize>> = HashMap::new();
     for (idx, p) in mp.points.iter().enumerate() {
-        by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        if p.is_plottable() {
+            by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        }
     }
     for (span_idx, span) in mp.spans.iter().enumerate() {
         let color = if let Some(ref pal) = mp.palette {
@@ -9977,6 +9979,7 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
     let mut sig_points: Vec<(f64, f64, String)> = mp
         .points
         .iter()
+        .filter(|p| p.is_plottable())
         .map(|p| {
             let y_val = -(p.pvalue.max(floor)).log10();
             let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
