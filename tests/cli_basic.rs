@@ -2109,3 +2109,16 @@ fn test_invalid_manhattan_pvalues_are_rejected() {
         ),
     ]);
 }
+
+#[test]
+fn test_invalid_pie_values_are_rejected() {
+    let pie = ["pie", "--label-col", "l", "--value-col", "v"];
+    assert_rejected(vec![
+        (
+            pie.to_vec(),
+            "l\tv\na\t3\nb\t-1\n",
+            "Row 1: pie value -1 is negative",
+        ),
+        (pie.to_vec(), "l\tv\na\t0\nb\t0\n", "pie values sum to zero"),
+    ]);
+}

@@ -892,9 +892,9 @@ impl Layout {
             if let Plot::Pie(pp) = plot {
                 if let Some(ref _label) = pp.legend_label {
                     has_legend = true;
-                    let total: f64 = pp.slices.iter().map(|s| s.value).sum();
+                    let total = pp.total();
                     for slice in &pp.slices {
-                        let entry_label = if pp.show_percent {
+                        let entry_label = if let (true, Some(total)) = (pp.show_percent, total) {
                             let pct = slice.value / total * 100.0;
                             format!("{} ({:.1}%)", slice.label, pct)
                         } else {

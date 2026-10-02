@@ -316,3 +316,27 @@ fn test_pie_single_slice_donut_hole_is_not_filled() {
         centre
     );
 }
+
+#[test]
+fn test_pie_without_valid_total() {
+    for values in [[0.0, 0.0], [3.0, -1.0], [3.0, f64::NAN]] {
+        let pie = PiePlot::new()
+            .with_slice("a", values[0], "red")
+            .with_slice("b", values[1], "blue")
+            .with_legend("Slices")
+            .with_percent();
+        let plots = vec![Plot::Pie(pie.clone())];
+        let layout = Layout::auto_from_plots(&plots);
+        let direct = SvgBackend.render_scene(&render_pie(&pie, &layout));
+        let combined = SvgBackend.render_scene(&render_multiple(plots, layout));
+        for svg in [&direct, &combined] {
+            assert!(!svg.contains("NaN") && !svg.contains("inf"), "{values:?}");
+            assert!(!svg.contains("<path"), "{values:?}");
+            assert!(
+                !svg.contains("%)") && !svg.contains("%</text>"),
+                "{values:?}"
+            );
+        }
+        assert!(combined.contains(">a</text>"), "{values:?}");
+    }
+}

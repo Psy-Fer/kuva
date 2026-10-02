@@ -2738,7 +2738,9 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     let theme = &computed.theme;
 
-    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    let Some(total) = pie.total() else {
+        return;
+    };
 
     let has_outside = matches!(
         pie.label_position,
@@ -10205,8 +10207,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
         pie.label_position,
         PieLabelPosition::Outside | PieLabelPosition::Auto
     );
-    if has_outside {
-        let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    if let (true, Some(total)) = (has_outside, pie.total()) {
         let max_label_px = pie
             .slices
             .iter()
@@ -12256,9 +12257,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
             }
             Plot::Pie(pie) => {
                 if pie.legend_label.is_some() {
-                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+                    let total = pie.total();
                     for slice in &pie.slices {
-                        let label = if pie.show_percent {
+                        let label = if let (true, Some(total)) = (pie.show_percent, total) {
                             let pct = slice.value / total * 100.0;
                             if slice.label.is_empty() {
                                 format!("{:.1}%", pct)
@@ -16031,10 +16032,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             if !has_outside {
                 break;
             }
-            let total: f64 = pie.slices.iter().map(|s| s.value).sum();
-            if total <= 0.0 {
+            let Some(total) = pie.total() else {
                 break;
-            }
+            };
             let max_label_px = pie
                 .slices
                 .iter()
