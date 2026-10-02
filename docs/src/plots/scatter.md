@@ -54,7 +54,7 @@ std::fs::write("scatter.svg", svg).unwrap();
 
 ## Trend line
 
-Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x or y, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. A nonzero slope that rounds to zero is also omitted. An extrapolated line is omitted if either endpoint cannot be represented.
+Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x or y, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. An extrapolated line is omitted if either endpoint cannot be represented.
 
 ```rust,no_run
 use kuva::plot::scatter::{ScatterPlot, TrendLine};

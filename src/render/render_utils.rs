@@ -514,8 +514,10 @@ pub fn simple_kde_reflect(
 /// Unweighted ordinary least-squares fit, returning `(slope, intercept, r)`.
 ///
 /// Returns `None` for fewer than two points, non-finite coordinates, constant
-/// x or y, or coefficients that overflow (or a nonzero slope that underflows
-/// to zero). Pearson's signed `r` is undefined for constant coordinates.
+/// x or y, or results that cannot be represented as finite `f64` values. This
+/// includes spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`. Pearson's signed `r` is undefined for constant
+/// coordinates.
 pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
 where
     I: IntoIterator,
@@ -527,220 +529,66 @@ where
     Some((fit.slope, fit.intercept, fit.r))
 }
 
-// Center before scaling so a large coordinate offset does not erase its spread.
-// Powers of two also let coefficient conversion avoid an overflowing scale ratio.
-#[derive(Clone, Copy)]
-struct NormalizedAxis {
-    origin: f64,
-    scale: f64,
-    exponent: i32,
-}
-
-impl NormalizedAxis {
-    fn new(min: f64, max: f64) -> Option<Self> {
-        if min == max {
-            return None;
-        }
-        // Stay near the observations without shifting zero away from zero.
-        // A midpoint shift can erase small means in mostly-zero data.
-        let origin = if min > 0.0 {
-            min
-        } else if max < 0.0 {
-            max
-        } else {
-            0.0
-        };
-        let distance = (max - origin).abs().max((min - origin).abs());
-        let bits = distance.to_bits();
-        let biased = ((bits >> 52) & 0x7ff) as i32;
-        let (scale, exponent) = if biased == 0 {
-            // Subnormal distances have no implicit leading mantissa bit.
-            let bit = 63 - bits.leading_zeros();
-            (f64::from_bits(1u64 << bit), bit as i32 - 1074)
-        } else {
-            (f64::from_bits((biased as u64) << 52), biased - 1023)
-        };
-        Some(Self {
-            origin,
-            scale,
-            exponent,
-        })
-    }
-
-    fn normalize(self, value: f64) -> f64 {
-        (value - self.origin) / self.scale
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct CompensatedSum {
-    value: f64,
-    error: f64,
-}
-
-impl CompensatedSum {
-    fn add(&mut self, term: f64) {
-        let corrected = term - self.error;
-        let next = self.value + corrected;
-        self.error = (next - self.value) - corrected;
-        self.value = next;
-    }
-}
-
-fn sum_in_blocks<const N: usize>(mut values: impl Iterator<Item = [f64; N]>) -> [f64; N] {
-    // Sum only 16 terms at a time before compensating the block totals.
-    // Four independent partial sums shorten the chain of dependent additions.
-    let mut totals = [CompensatedSum::default(); N];
-    loop {
-        let mut parts = [[0.0; N]; 4];
-        let mut done = false;
-        'block: for _ in 0..4 {
-            for part in &mut parts {
-                let Some(value) = values.next() else {
-                    done = true;
-                    break 'block;
-                };
-                for i in 0..N {
-                    part[i] += value[i];
-                }
-            }
-        }
-        for i in 0..N {
-            totals[i].add((parts[0][i] + parts[1][i]) + (parts[2][i] + parts[3][i]));
-        }
-        if done {
-            break;
-        }
-    }
-    totals.map(|sum| sum.value)
-}
-
-fn scale_power_of_two(mut value: f64, mut exponent: i32) -> f64 {
-    // Apply large exponents in finite factors, without rounding the ratio to
-    // zero or infinity before multiplying a small or large normalized slope.
-    while exponent > 1023 {
-        value *= f64::from_bits(2046u64 << 52);
-        exponent -= 1023;
-    }
-    while exponent < -1022 {
-        value *= f64::MIN_POSITIVE;
-        exponent += 1022;
-    }
-    value * f64::from_bits(((exponent + 1023) as u64) << 52)
-}
-
-struct BivariateMoments {
-    x: NormalizedAxis,
-    y: NormalizedAxis,
-    mean_x: f64,
-    mean_y: f64,
+struct CenteredSums {
+    mean: (f64, f64),
+    offset: (f64, f64),
     xx: f64,
-    yy: f64,
     xy: f64,
+    yy: f64,
 }
 
-impl BivariateMoments {
+impl CenteredSums {
     fn new<I>(points: I) -> Option<Self>
     where
         I: Iterator<Item = (f64, f64)> + Clone,
     {
-        let (mut x_min, mut x_max, mut y_min, mut y_max) = (
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-        );
-        let mut count = 0usize;
+        let (x0, y0) = points.clone().next()?;
+        let (mut n, mut sum_x, mut sum_y) = (0usize, 0.0, 0.0);
+        let (mut x_varies, mut y_varies) = (false, false);
         for (x, y) in points.clone() {
-            if !x.is_finite() || !y.is_finite() {
-                return None;
-            }
-            // Coordinates are finite here, so comparisons suffice for extrema.
-            if x < x_min {
-                x_min = x;
-            }
-            if x > x_max {
-                x_max = x;
-            }
-            if y < y_min {
-                y_min = y;
-            }
-            if y > y_max {
-                y_max = y;
-            }
-            count += 1;
+            n += 1;
+            sum_x += x;
+            sum_y += y;
+            x_varies |= x != x0;
+            y_varies |= y != y0;
         }
-        if count < 2 {
+        let mean_x = sum_x / n as f64;
+        let mean_y = sum_y / n as f64;
+        if !x_varies || !y_varies || !mean_x.is_finite() || !mean_y.is_finite() {
             return None;
         }
-        let x = NormalizedAxis::new(x_min, x_max)?;
-        let y = NormalizedAxis::new(y_min, y_max)?;
-        // Division by a power of two and multiplication by its exact reciprocal
-        // round identically. Choose once so the loops have no per-point branch.
-        // Keep division when a reciprocal is subnormal or overflows.
-        let reciprocal_x = 1.0 / x.scale;
-        let reciprocal_y = 1.0 / y.scale;
-        if reciprocal_x.is_normal() && reciprocal_y.is_normal() {
-            Self::normalized(
-                points.map(|(px, py)| {
-                    (
-                        (px - x.origin) * reciprocal_x,
-                        (py - y.origin) * reciprocal_y,
-                    )
-                }),
-                x,
-                y,
-                count,
-            )
-        } else {
-            Self::normalized(
-                points.map(|(px, py)| (x.normalize(px), y.normalize(py))),
-                x,
-                y,
-                count,
-            )
+        let (mut sum_dx, mut sum_dy) = (0.0, 0.0);
+        let (mut xx, mut xy, mut yy) = (0.0, 0.0, 0.0);
+        for (x, y) in points {
+            let dx = x - mean_x;
+            let dy = y - mean_y;
+            sum_dx += dx;
+            sum_dy += dy;
+            xx += dx * dx;
+            xy += dx * dy;
+            yy += dy * dy;
         }
-    }
-
-    fn normalized<I>(points: I, x: NormalizedAxis, y: NormalizedAxis, count: usize) -> Option<Self>
-    where
-        I: Iterator<Item = (f64, f64)> + Clone,
-    {
-        let [sum_x, sum_y] = sum_in_blocks(points.clone().map(|(px, py)| [px, py]));
-        let mean_x = sum_x / count as f64;
-        let mean_y = sum_y / count as f64;
-        let [xx, yy, xy] = sum_in_blocks(points.map(|(px, py)| {
-            let dx = px - mean_x;
-            let dy = py - mean_y;
-            [dx * dx, dy * dy, dx * dy]
-        }));
-        Some(Self {
-            x,
-            y,
-            mean_x,
-            mean_y,
+        let offset_x = sum_dx / n as f64;
+        let offset_y = sum_dy / n as f64;
+        let xx = xx - offset_x * sum_dx;
+        let xy = xy - offset_x * sum_dy;
+        let yy = yy - offset_y * sum_dy;
+        (xx.is_normal() && xx > 0.0 && yy.is_normal() && yy > 0.0).then_some(Self {
+            mean: (mean_x, mean_y),
+            offset: (offset_x, offset_y),
             xx,
-            yy,
             xy,
+            yy,
         })
     }
 
     fn correlation(&self) -> f64 {
-        // Normalized variances are nonzero and at most 16 * observation count.
-        // Only rounding can move this quotient just outside [-1, 1].
         (self.xy / (self.xx.sqrt() * self.yy.sqrt())).clamp(-1.0, 1.0)
-    }
-
-    fn predict(&self, x: f64) -> Option<f64> {
-        let normalized_slope = self.xy / self.xx;
-        let normalized_y = normalized_slope.mul_add(self.x.normalize(x) - self.mean_x, self.mean_y);
-        let y = self.y.scale.mul_add(normalized_y, self.y.origin);
-        y.is_finite().then_some(y)
     }
 }
 
 pub(crate) struct LinearFit {
-    moments: BivariateMoments,
+    sums: CenteredSums,
     pub slope: f64,
     pub intercept: f64,
     pub r: f64,
@@ -748,12 +596,10 @@ pub(crate) struct LinearFit {
 
 impl LinearFit {
     pub fn predict(&self, x: f64) -> Option<f64> {
-        self.moments.predict(x).or_else(|| {
-            // Far extrapolation can overflow normalized x even when the
-            // prediction in the original units is representable.
-            let y = self.slope.mul_add(x, self.intercept);
-            y.is_finite().then_some(y)
-        })
+        let (mean_x, mean_y) = self.sums.mean;
+        let (offset_x, offset_y) = self.sums.offset;
+        let y = mean_y + (offset_y + self.slope * ((x - mean_x) - offset_x));
+        y.is_finite().then_some(y)
     }
 }
 
@@ -763,28 +609,17 @@ where
     I::IntoIter: Clone,
     I::Item: Into<(f64, f64)>,
 {
-    let moments = BivariateMoments::new(points.into_iter().map(Into::into))?;
-    let normalized_slope = moments.xy / moments.xx;
-    let slope = scale_power_of_two(normalized_slope, moments.y.exponent - moments.x.exponent);
-    if !slope.is_finite() || (slope == 0.0 && normalized_slope != 0.0) {
+    let sums = CenteredSums::new(points.into_iter().map(Into::into))?;
+    let (mean_x, mean_y) = sums.mean;
+    let (offset_x, offset_y) = sums.offset;
+    let slope = sums.xy / sums.xx;
+    let intercept = (mean_y + (offset_y - slope * offset_x)) - slope * mean_x;
+    if !slope.is_finite() || !intercept.is_finite() {
         return None;
     }
-    // Keep the normalized slope here: rounding a subnormal public slope first
-    // can magnify its rounding error when multiplied by a large x origin.
-    // Keep origin and mean terms separate. Subtracting the normalized mean
-    // from a large origin first can lose it and give y = x a nonzero intercept.
-    let origin_intercept = normalized_slope.mul_add(
-        -moments.x.origin / moments.x.scale,
-        moments.y.origin / moments.y.scale,
-    );
-    let mean_intercept = normalized_slope.mul_add(-moments.mean_x, moments.mean_y);
-    let intercept = moments.y.scale * (origin_intercept + mean_intercept);
-    if !intercept.is_finite() {
-        return None;
-    }
-    let r = moments.correlation();
+    let r = sums.correlation();
     Some(LinearFit {
-        moments,
+        sums,
         slope,
         intercept,
         r,
@@ -1008,10 +843,11 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
 
 /// Pearson's signed correlation coefficient, computed from all supplied points.
 ///
-/// Returns `None` for fewer than two points, non-finite coordinates, or constant
-/// x or y. A nonzero spread is valid regardless of the coordinate units.
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`.
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
-    Some(BivariateMoments::new(data.iter().copied())?.correlation())
+    Some(CenteredSums::new(data.iter().copied())?.correlation())
 }
 
 // ── Phylogenetic tree helpers ─────────────────────────────────────────────────
