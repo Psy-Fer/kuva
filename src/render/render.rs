@@ -9590,6 +9590,15 @@ fn draw_repel_labels(
 /// Draw a set of top-N labels in the requested [`LabelStyle`]. `anchors` are
 /// `(cx, cy, text)` in screen coordinates. Shared by volcano, manhattan, and
 /// scatter so all four placement styles behave identically.
+fn keep_top(ranked: &mut Vec<(f64, usize)>, n: usize) {
+    let by_y = |a: &(f64, usize), b: &(f64, usize)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
+    if n < ranked.len() {
+        ranked.select_nth_unstable_by(n, by_y);
+        ranked.truncate(n);
+    }
+    ranked.sort_by(by_y);
+}
+
 fn draw_labels(
     scene: &mut Scene,
     computed: &ComputedLayout,
@@ -9812,22 +9821,22 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     // Collect significant points, sort by pvalue ascending, take top N
-    let mut sig_points: Vec<(f64, f64, &str)> = vp
+    let mut ranked: Vec<(f64, usize)> = vp
         .points
         .iter()
-        .filter(|p| p.is_plottable() && p.pvalue <= vp.p_cutoff)
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
-            (
-                computed.map_x(p.log2fc),
-                computed.map_y(y_val),
-                p.name.as_str(),
-            )
-        })
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable() && p.pvalue <= vp.p_cutoff)
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
         .collect();
     // Sort by pvalue ascending = highest -log10(p) = smallest cy
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(vp.label_top);
+    keep_top(&mut ranked, vp.label_top);
+    let sig_points: Vec<(f64, f64, &str)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &vp.points[i];
+            (computed.map_x(p.log2fc), cy, p.name.as_str())
+        })
+        .collect();
 
     let anchors: Vec<(f64, f64, String)> = sig_points
         .iter()
