@@ -275,6 +275,15 @@ pub struct Layout {
     pub subtitle_wrap: Option<usize>,
     pub x_categories: Option<Vec<String>>,
     pub y_categories: Option<Vec<String>>,
+    /// Explicit data-space y for each entry in `y_categories`.
+    ///
+    /// Category labels are normally placed on a uniform pitch (`i + 1.0`),
+    /// which assumes every row is the same height. `BrickPlot` breaks that
+    /// when CIGAR bars are enabled: a row that draws a bar is taller than one
+    /// that does not. When this is set, each label is placed at its own
+    /// position instead, so labels track rows that are neither evenly spaced
+    /// nor in their original order.
+    pub y_category_positions: Option<Vec<f64>>,
     pub show_legend: bool,
     pub show_colorbar: bool,
     pub legend_position: LegendPosition,
@@ -525,6 +534,7 @@ impl Layout {
             subtitle_wrap: None,
             x_categories: None,
             y_categories: None,
+            y_category_positions: None,
             show_legend: false,
             show_colorbar: false,
             legend_position: LegendPosition::OutsideRightTop,
@@ -649,6 +659,7 @@ impl Layout {
 
         let mut x_labels = None;
         let mut y_labels = None;
+        let mut y_label_positions: Option<Vec<f64>> = None;
 
         let mut has_legend: bool = false;
         let mut has_colorbar: bool = false;
@@ -866,7 +877,23 @@ impl Layout {
                 // Reverse labels so that names[0] appears at the TOP of the plot.
                 // map_y maps larger y-data values to the top; row 0 is rendered at
                 // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
-                let labels: Vec<String> = bp.names.iter().rev().cloned().collect();
+                // Labels follow the *display* order and, when CIGAR bars make
+                // the rows uneven, carry explicit positions. Without bars this
+                // reduces to the old reversed list on a uniform pitch: display
+                // position 0 is the top row, which sits at y = n.
+                let cl = bp.cigar_layout();
+                let labels: Vec<String> = cl
+                    .order
+                    .iter()
+                    .map(|&i| bp.names.get(i).cloned().unwrap_or_default())
+                    .collect();
+                if bp.cigars.is_some() {
+                    y_label_positions = Some(
+                        (0..cl.order.len())
+                            .map(|pos| cl.total_units - cl.row_top_units[pos])
+                            .collect(),
+                    );
+                }
                 y_labels = Some(labels);
                 has_legend = true;
                 if let Some(ref template) = bp.template {
@@ -1566,6 +1593,9 @@ impl Layout {
         if let Some(labels) = y_labels {
             layout = layout.with_y_categories(labels);
         }
+        if let Some(pos) = y_label_positions {
+            layout.y_category_positions = Some(pos);
+        }
 
         // DotPlot with both size legend + colorbar uses a single stacked column
         let has_dot_stacked = plots.iter().any(|p| {
@@ -1739,7 +1769,12 @@ impl Layout {
                     if n > 0 {
                         let cl = ComputedLayout::from_layout(&layout);
                         let overhead = cl.margin_top + cl.margin_bottom;
-                        layout.height = Some(rh * n as f64 + overhead);
+                        // Size from the y extent, not the row count: a CIGAR
+                        // bar adds height to the rows that draw one, so using
+                        // `n` here would squash every brick row below
+                        // `row_height_px`.
+                        let units = bp.cigar_layout().total_units.max(n as f64);
+                        layout.height = Some(rh * units + overhead);
                         break;
                     }
                 }

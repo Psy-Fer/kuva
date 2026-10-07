@@ -663,7 +663,12 @@ impl Figure {
                                 provisional.width = Some(cell_w);
                                 let cl = ComputedLayout::from_layout(&provisional);
                                 let overhead = cl.margin_top + cl.margin_bottom;
-                                let desired = rh * n as f64 + overhead;
+                                // Size from the y extent, not the row count:
+                                // CIGAR bars add height to the rows that draw
+                                // one, and using `n` would squash every brick
+                                // row below `row_height_px`.
+                                let units = bp.cigar_layout().total_units.max(n as f64);
+                                let desired = rh * units + overhead;
                                 // Always set — desired is typically smaller than
                                 // the default cell_height, so "> cell_height" would
                                 // silently skip every brick row height request.
@@ -930,6 +935,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.subtitle = l.subtitle.clone();
     new.x_categories = l.x_categories.clone();
     new.y_categories = l.y_categories.clone();
+    new.y_category_positions = l.y_category_positions.clone();
     new.show_legend = l.show_legend;
     new.show_colorbar = l.show_colorbar;
     new.legend_position = l.legend_position;

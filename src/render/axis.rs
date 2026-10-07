@@ -437,7 +437,13 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     if let Some(categories) = &layout.y_categories {
         if !layout.suppress_y_ticks {
             for (i, label) in categories.iter().enumerate() {
-                let y_val = i as f64 + 1.0;
+                // Explicit positions win: brick rows with CIGAR bars are not
+                // on a uniform pitch, so `i + 1.0` would drift from the rows.
+                let y_val = layout
+                    .y_category_positions
+                    .as_ref()
+                    .and_then(|p| p.get(i).copied())
+                    .unwrap_or(i as f64 + 1.0);
                 let y_pos = computed.map_y(y_val);
 
                 scene.add(Primitive::Text {

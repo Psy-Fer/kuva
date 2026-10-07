@@ -74,7 +74,7 @@ pub mod legend;
 pub use band::BandPlot;
 pub use bar::BarPlot;
 pub use boxplot::{BoxGroup, BoxPlot};
-pub use brick::{BrickAnchor, BrickPlot};
+pub use brick::{parse_cigar, BrickAnchor, BrickPlot, BrickSort, CigarIssue, CigarOp, CigarSpan};
 pub use bump::{BumpPlot, BumpSeries, BumpTieBreak, CurveStyle};
 pub use calendar::{CalendarAgg, CalendarPeriod, CalendarPlot, WeekStart};
 pub use candlestick::{CandleDataPoint, CandlestickPlot};

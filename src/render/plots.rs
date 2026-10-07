@@ -1193,7 +1193,11 @@ impl Plot {
                     hi = 1.0;
                 }
 
-                Some(((lo, hi), (0.0, rows as f64)))
+                // CIGAR bars add vertical space, charged only to the rows
+                // that draw one. `cigar_layout` is the single source of that
+                // arithmetic so the reserved extent matches what is rendered.
+                let y_extent = bp.cigar_layout().total_units.max(rows as f64);
+                Some(((lo, hi), (0.0, y_extent)))
             }
             Plot::Forest(fp) => {
                 if fp.rows.is_empty() {

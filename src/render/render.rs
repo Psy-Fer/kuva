@@ -309,6 +309,7 @@ fn draw_whisker(
 
 use crate::plot::band::BandPlot;
 use crate::plot::bar::BarPlot;
+use crate::plot::brick::{CigarOp, BAR_ROW_UNITS};
 use crate::plot::bump::{BumpPlot, CurveStyle};
 use crate::plot::calendar::{
     dow_mon0, from_jd, period_grid_pos, period_max_cols, to_jd, CalendarAgg, CalendarPlot,
@@ -3194,6 +3195,21 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     }
 }
 
+/// Pattern index for a CIGAR operation in black-and-white mode.
+///
+/// Distinct per operation so the bar stays readable without colour; the
+/// indices are separate from the motif bricks' own pattern assignment, which
+/// is keyed on the motif letter.
+fn cigar_bw_idx(op: CigarOp) -> usize {
+    match op {
+        CigarOp::Match => 0,
+        CigarOp::Mismatch => 1,
+        CigarOp::Insertion => 2,
+        CigarOp::Deletion => 3,
+        CigarOp::SoftClip => 4,
+    }
+}
+
 fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Use expanded strigars when available, otherwise raw sequences
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
@@ -3304,15 +3320,19 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     let draw_brick = |scene: &mut Scene,
                       x_start: f64,
                       width: f64,
-                      yr: usize,
+                      y_top: f64,
                       eff_offset: f64,
                       bw_idx: usize,
                       color_str: &str,
                       gap: f64| {
         let x0 = computed.map_x(x_start - eff_offset);
         let x1 = computed.map_x(x_start + width - eff_offset);
-        let y0 = computed.map_y(yr as f64 + 1.0);
-        let y1 = computed.map_y(yr as f64);
+        // `y_top` is the row's top edge in data space. Rows are no longer a
+        // fixed pitch apart: a row that draws a CIGAR bar is pushed down to
+        // make room for it, so the caller supplies the resolved position
+        // rather than a row index.
+        let y0 = computed.map_y(y_top);
+        let y1 = computed.map_y(y_top - 1.0);
         // One constant gap per brick, in data units (5% of a single unit), independent of
         // how wide the brick is. Deriving the gap from the brick's own width made it
         // proportional, so a 47 bp motif rendered a gap ~50x the normal one (DBQD2_XYLT1).
@@ -3343,9 +3363,16 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     let px_per_unit = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
     let merge = brickplot.merge_runs && px_per_unit < BRICK_MERGE_MAX_PX_PER_UNIT;
 
-    // Pass 1: brick rects. Row 0 renders at the TOP of the plot (y-flip via yr).
-    for i in 0..num_rows {
-        let yr = num_rows - 1 - i;
+    // CIGAR bar placement and the row y-layout it implies. Shared with
+    // `Plot::bounds` so the reserved extent and the drawn geometry agree.
+    let cl = brickplot.cigar_layout();
+    // Data-space top edge of the row at display position `pos`. With no bars
+    // this reduces to the old `num_rows - 1 - i` pitch.
+    let row_y_top = |pos: usize| -> f64 { cl.total_units - cl.row_top_units[pos] };
+
+    // Pass 1: brick rects. Display position 0 renders at the TOP of the plot.
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let yr = row_y_top(pos);
         let eff_offset = row_offset(i) - right_align_shift[i];
         let ll = left_len(i);
         let sw = str_width(i);
@@ -3415,10 +3442,140 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
         }
     }
 
+    // Pass 1b: CIGAR bars. One thin band above a row, coloured by the read's
+    // CIGAR operations, so a reader can see which bases are reference-supported
+    // and which are insertions or soft clips.
+    //
+    // Drawn in READ space, the same coordinate the bricks use, so an operation
+    // always lines up with the bases beneath it. `M`/`I`/`S`/`X` consume read
+    // bases and get width; `D` consumes only reference, so it is a zero-width
+    // caret at the junction rather than a gap in the row.
+    if brickplot.cigars.is_some() {
+        let unit_px = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+        for (pos, &i) in cl.order.iter().enumerate() {
+            if !cl.draws_bar[pos] {
+                continue;
+            }
+            let Some(spans) = cl.spans[pos].as_ref() else {
+                continue;
+            };
+            let eff_offset = row_offset(i) - right_align_shift[i];
+            // The CIGAR covers every base the row draws, so it starts at the
+            // row's first drawn base: the left flank, not the STRIGAR. Bricks
+            // put the STRIGAR at x = 0 and the left flank at negative x, so
+            // shift the whole bar left by the flank length. Right anchoring
+            // needs no special handling: `eff_offset` already carries the
+            // per-row shift that the bricks use.
+            let bar_x0 = -left_len(i);
+            let y_row_top = row_y_top(pos);
+            let y_px_top = computed.map_y(y_row_top + BAR_ROW_UNITS);
+            let y_px_bot = computed.map_y(y_row_top);
+            let bar_h = (y_px_bot - y_px_top).abs() * 0.72;
+            let bar_y = y_px_top.min(y_px_bot);
+
+            for sp in spans {
+                if sp.op == CigarOp::Deletion {
+                    continue; // drawn as a caret in the overlay pass below
+                }
+                if sp.len <= 0.0 {
+                    continue;
+                }
+                let x0 = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let x1 = computed.map_x(bar_x0 + sp.start + sp.len - eff_offset);
+                let w = (x1 - x0).abs().max(0.6);
+                rect_bw(
+                    scene,
+                    computed,
+                    cigar_bw_idx(sp.op),
+                    brickplot.cigar_color(sp.op),
+                    x0.min(x1),
+                    bar_y,
+                    w,
+                    bar_h,
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            // Deletion carets last, so a caret is never painted over by a
+            // span that happens to start at the same base.
+            for sp in spans.iter().filter(|s| s.op == CigarOp::Deletion) {
+                let cx = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let half = (unit_px * 0.35).clamp(1.5, 4.0);
+                let d = format!(
+                    "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} Z",
+                    cx - half,
+                    bar_y + bar_h,
+                    cx,
+                    bar_y - bar_h * 0.35,
+                    cx + half,
+                    bar_y + bar_h,
+                );
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d,
+                    fill: Some(Color::from(brickplot.cigar_color(CigarOp::Deletion))),
+                    stroke: Color::from(brickplot.cigar_color(CigarOp::Deletion)),
+                    stroke_width: 0.0,
+                    opacity: None,
+                    stroke_dasharray: None,
+                })));
+            }
+
+            // Run bracket: shows that this one bar speaks for every row in the
+            // run beneath it, so a row with no bar reads as "same as above"
+            // rather than "no CIGAR for this read".
+            if brickplot.cigar_dedup && brickplot.cigar_run_bracket {
+                let (first, last) = cl.runs[cl.run_of_row[pos]];
+                if last > first {
+                    let y_end = computed.map_y(row_y_top(last) - 1.0);
+                    // Sit in the tick-mark gutter, between the right-anchored
+                    // row labels and the plot edge, so the bracket never lands
+                    // on a label.
+                    let gx = computed.margin_left - 2.0;
+                    let cap = 3.5;
+                    let d = format!(
+                        "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2}",
+                        gx - cap,
+                        bar_y,
+                        gx,
+                        bar_y,
+                        gx,
+                        y_end,
+                        gx - cap,
+                        y_end,
+                    );
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: None,
+                        stroke: Color::from("#6b7177"),
+                        stroke_width: 1.1,
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                    // The count goes just inside the plot area, at the bar's
+                    // left end, rather than in the gutter: the gutter already
+                    // holds the row labels, whose width is not known here, so
+                    // anything placed there collides with them.
+                    scene.add(Primitive::Text {
+                        x: computed.margin_left + 3.0,
+                        y: bar_y + bar_h,
+                        content: format!("x{}", last - first + 1),
+                        size: computed.tick_size.saturating_sub(2).max(7),
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                        color: Some(Color::from("#4a4f54")),
+                    });
+                }
+            }
+        }
+    }
+
     // Pass 2: show_values — character labels centred inside STR bricks.
     if brickplot.show_values {
-        for i in 0..num_rows {
-            let yr = num_rows - 1 - i;
+        for (pos, &i) in cl.order.iter().enumerate() {
+            let yr = row_y_top(pos);
             let eff_offset = row_offset(i) - right_align_shift[i];
             let row = &rows[i];
             let mut x_pos: f64 = 0.0;
@@ -3431,8 +3588,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 let x_start = if has_variable_width { x_pos } else { j as f64 };
                 let x0 = computed.map_x(x_start - eff_offset);
                 let x1 = computed.map_x(x_start + width - eff_offset);
-                let y0 = computed.map_y(yr as f64 + 1.0);
-                let y1 = computed.map_y(yr as f64);
+                let y0 = computed.map_y(yr);
+                let y1 = computed.map_y(yr - 1.0);
                 scene.add(Primitive::Text {
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
@@ -12040,6 +12197,39 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         shape: LegendShape::Rect,
                         dasharray: None,
                     })
+                }
+                // CIGAR operation entries, appended after the motifs so the
+                // motif legend keeps its frequency ordering. Only the ops that
+                // actually occur are listed, so a plot with no soft clips does
+                // not advertise a softclip swatch.
+                if brickplot.cigars.is_some() {
+                    let cl = brickplot.cigar_layout();
+                    let mut seen: Vec<CigarOp> = Vec::new();
+                    for spans in cl.spans.iter().flatten() {
+                        for sp in spans {
+                            if !seen.contains(&sp.op) {
+                                seen.push(sp.op);
+                            }
+                        }
+                    }
+                    // Fixed order, not discovery order, so the legend is stable
+                    // across datasets.
+                    for op in [
+                        CigarOp::Match,
+                        CigarOp::Mismatch,
+                        CigarOp::Insertion,
+                        CigarOp::Deletion,
+                        CigarOp::SoftClip,
+                    ] {
+                        if seen.contains(&op) {
+                            entries.push(LegendEntry {
+                                label: op.label().to_string(),
+                                color: brickplot.cigar_color(op).to_string(),
+                                shape: LegendShape::Rect,
+                                dasharray: None,
+                            });
+                        }
+                    }
                 }
             }
             Plot::Box(boxplot) => {

@@ -13,6 +13,245 @@ pub enum BrickAnchor {
     Right,
 }
 
+/// A CIGAR operation, as drawn in the per-row CIGAR bar.
+///
+/// Only the operations that mean something in read space are modelled.
+/// `H` (hard clip) consumes neither read nor reference and is ignored;
+/// `P` (padding) likewise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CigarOp {
+    /// `M` or `=` — aligned to the reference.
+    Match,
+    /// `X` — aligned but mismatching.
+    Mismatch,
+    /// `I` — present in the read, absent from the reference.
+    Insertion,
+    /// `D` or `N` — present in the reference, absent from the read. Consumes
+    /// no read bases, so it is drawn as a zero-width caret rather than a span.
+    Deletion,
+    /// `S` — soft-clipped: present in the read, not aligned.
+    SoftClip,
+}
+
+impl CigarOp {
+    /// Parse a CIGAR operation character. `None` for `H`/`P` (no read or
+    /// reference consumption) and anything unrecognised.
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'M' | '=' => Some(CigarOp::Match),
+            'X' => Some(CigarOp::Mismatch),
+            'I' => Some(CigarOp::Insertion),
+            'D' | 'N' => Some(CigarOp::Deletion),
+            'S' => Some(CigarOp::SoftClip),
+            _ => None,
+        }
+    }
+
+    /// Whether this operation consumes read bases (and so has width in the bar).
+    pub fn consumes_read(self) -> bool {
+        !matches!(self, CigarOp::Deletion)
+    }
+
+    /// Default fill colour. Deliberately outside the motif palette's hue
+    /// range so an op can never be mistaken for a motif brick beneath it.
+    pub fn default_color(self) -> &'static str {
+        match self {
+            CigarOp::Match => "#cfcfcf",
+            CigarOp::Mismatch => "#9a9a9a",
+            CigarOp::Insertion => "#f2c53d",
+            CigarOp::Deletion => "#c2352d",
+            CigarOp::SoftClip => "#46566b",
+        }
+    }
+
+    /// Legend label.
+    pub fn label(self) -> &'static str {
+        match self {
+            CigarOp::Match => "match",
+            CigarOp::Mismatch => "mismatch",
+            CigarOp::Insertion => "insertion",
+            CigarOp::Deletion => "deletion",
+            CigarOp::SoftClip => "softclip",
+        }
+    }
+}
+
+/// Row ordering for a [`BrickPlot`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum BrickSort {
+    /// Keep rows in the order supplied. Default.
+    #[default]
+    None,
+    /// Group rows sharing a CIGAR, largest group first. This is the order
+    /// that lets CIGAR-bar dedup draw the fewest possible bars (one per
+    /// distinct CIGAR); any other order can split a CIGAR across several
+    /// runs and repeat its bar.
+    Cigar,
+    /// A caller-supplied permutation of row indices. Use this to hand kuva an
+    /// externally computed ranking (e.g. bladerunner's distance-from-consensus)
+    /// without kuva needing to know how it was derived. Indices that are out
+    /// of range or repeated are ignored, and any rows the permutation omits
+    /// keep their original relative order at the end.
+    Custom(Vec<usize>),
+}
+
+/// One parsed CIGAR span, positioned in read space.
+///
+/// `start`/`len` are in read bases. A [`CigarOp::Deletion`] has `len == 0`
+/// here (the deleted length is kept in `ref_len`) because it consumes no read
+/// bases: it is a point event between two read positions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CigarSpan {
+    pub op: CigarOp,
+    /// Offset in read bases from the start of the row's sequence.
+    pub start: f64,
+    /// Width in read bases. Zero for deletions.
+    pub len: f64,
+    /// Reference bases consumed. Non-zero for deletions; used for tooltips.
+    pub ref_len: f64,
+}
+
+/// Why a row's CIGAR could not be drawn.
+///
+/// A bar whose length disagrees with its bricks misaligns every operation by
+/// the difference while still looking plausible, so these are surfaced rather
+/// than rendered.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CigarIssue {
+    /// The CIGAR string could not be parsed.
+    Unparseable { row: usize, cigar: String },
+    /// The CIGAR's read-consuming length disagrees with the expanded row.
+    ///
+    /// Almost always means the CIGAR was clipped to a different span than the
+    /// one the row describes. Supply the CIGAR for exactly the span the
+    /// STRIGAR covers; do not re-derive it from locus coordinates, since the
+    /// caller that produced the STRIGAR is the only thing that knows where
+    /// its own span starts and ends.
+    LengthMismatch {
+        row: usize,
+        cigar_read_bases: f64,
+        row_bases: f64,
+    },
+}
+
+/// Parse a CIGAR string into read-space spans.
+///
+/// Returns `None` if the string is malformed. An empty string parses to an
+/// empty span list, which is treated as "no bar for this row".
+pub fn parse_cigar(cigar: &str) -> Option<Vec<CigarSpan>> {
+    let mut spans = Vec::new();
+    let mut read_pos = 0.0_f64;
+    let mut digits = String::new();
+    for ch in cigar.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+            continue;
+        }
+        if digits.is_empty() {
+            return None; // operation with no preceding length
+        }
+        let len: f64 = digits.parse().ok()?;
+        digits.clear();
+        match CigarOp::from_char(ch) {
+            Some(op) if op.consumes_read() => {
+                spans.push(CigarSpan {
+                    op,
+                    start: read_pos,
+                    len,
+                    ref_len: if op == CigarOp::Insertion || op == CigarOp::SoftClip {
+                        0.0
+                    } else {
+                        len
+                    },
+                });
+                read_pos += len;
+            }
+            Some(op) => {
+                // Deletion: a point event at the current read position.
+                spans.push(CigarSpan {
+                    op,
+                    start: read_pos,
+                    len: 0.0,
+                    ref_len: len,
+                });
+            }
+            None => {} // H / P / unknown: consumes nothing in read space
+        }
+    }
+    if !digits.is_empty() {
+        return None; // trailing length with no operation
+    }
+    Some(spans)
+}
+
+/// Total read bases consumed by a parsed CIGAR.
+pub fn cigar_read_bases(spans: &[CigarSpan]) -> f64 {
+    spans.iter().map(|s| s.len).sum()
+}
+
+/// Height of a CIGAR bar (plus its gap) as a fraction of one brick row.
+///
+/// Charged only to rows that draw a bar, so a run of identical reads keeps
+/// the normal pitch and space appears only where the CIGAR changes.
+pub(crate) const BAR_ROW_UNITS: f64 = 0.45;
+
+/// Resolved CIGAR bar placement for a [`BrickPlot`], in display order.
+///
+/// Produced by `BrickPlot::cigar_layout` and consumed by both `Plot::bounds`
+/// and the renderer, so the reserved y extent always matches what is drawn.
+#[derive(Debug, Clone)]
+pub(crate) struct CigarLayout {
+    /// Source row index for each display position.
+    pub order: Vec<usize>,
+    /// Parsed spans per display position; `None` when there is no usable CIGAR.
+    pub spans: Vec<Option<Vec<CigarSpan>>>,
+    /// Whether this display position draws a bar (false for deduped rows).
+    pub draws_bar: Vec<bool>,
+    /// Index into `runs` for each display position.
+    pub run_of_row: Vec<usize>,
+    /// `(first_pos, last_pos)` of each run of rows sharing a CIGAR.
+    pub runs: Vec<(usize, usize)>,
+    /// Top of each row in y-units, measured from the top of the plot.
+    pub row_top_units: Vec<f64>,
+    /// Total height in y-units, including every bar allowance.
+    pub total_units: f64,
+    /// Rows whose CIGAR was rejected.
+    pub issues: Vec<CigarIssue>,
+}
+
+/// Allows `with_cigars` to accept plain `&str`/`String` values (auto-wrapped
+/// as `Some`) as well as explicit `Option` values for rows that have no CIGAR.
+///
+/// Without this, `with_cigars(["108M", "42M3D63M"])` would not compile, since
+/// `&str` does not implement `Into<Option<String>>`.
+pub trait IntoOptionalCigar {
+    fn into_optional_cigar(self) -> Option<String>;
+}
+
+impl IntoOptionalCigar for &str {
+    fn into_optional_cigar(self) -> Option<String> {
+        Some(self.to_string())
+    }
+}
+
+impl IntoOptionalCigar for String {
+    fn into_optional_cigar(self) -> Option<String> {
+        Some(self)
+    }
+}
+
+impl IntoOptionalCigar for Option<&str> {
+    fn into_optional_cigar(self) -> Option<String> {
+        self.map(|s| s.to_string())
+    }
+}
+
+impl IntoOptionalCigar for Option<String> {
+    fn into_optional_cigar(self) -> Option<String> {
+        self
+    }
+}
+
 /// Allows `with_x_offsets` to accept plain `f64` values (auto-wrapped as `Some`)
 /// as well as explicit `Option<f64>` values (for `None` fallback entries).
 pub trait IntoRowOffset {
@@ -273,6 +512,20 @@ pub struct BrickPlot {
     /// Vertical (and, if desired, horizontal) marker lines drawn over the bricks
     /// at reference-coordinate positions. See [`with_vline`](BrickPlot::with_vline).
     pub vlines: Vec<ReferenceLine>,
+    /// Per-row CIGAR for the read's repeat span. `None` entries draw no bar.
+    /// See [`with_cigars`](BrickPlot::with_cigars).
+    pub cigars: Option<Vec<Option<String>>>,
+    /// Collapse a run of consecutive rows sharing a CIGAR into a single bar.
+    /// Default `true`.
+    pub cigar_dedup: bool,
+    /// Bracket each deduped run in the left gutter with an `xN` count.
+    /// Default `true`; has no effect when `cigar_dedup` is `false`.
+    pub cigar_run_bracket: bool,
+    /// Per-operation colour overrides. Operations absent from the map keep
+    /// [`CigarOp::default_color`].
+    pub cigar_colors: Option<HashMap<CigarOp, String>>,
+    /// Row ordering applied before rendering. Default [`BrickSort::None`].
+    pub sort: BrickSort,
     /// Collapse runs of consecutive same-colour bricks into a single rect when the
     /// per-unit pixel width is small enough that the inter-brick gaps would be
     /// invisible anyway. Off by default (per-brick rendering). Turning it on is
@@ -315,7 +568,306 @@ impl BrickPlot {
             row_height_px: None,
             vlines: Vec::new(),
             merge_runs: false,
+            cigars: None,
+            cigar_dedup: true,
+            cigar_run_bracket: true,
+            cigar_colors: None,
+            sort: BrickSort::None,
         }
+    }
+
+    /// Per-row CIGAR for the read's repeat span, in the same order as the
+    /// rows. `None` entries render no bar.
+    ///
+    /// The CIGAR must cover **every base the row draws, flanks included**: for
+    /// a row built with [`with_flanked_strigars`](Self::with_flanked_strigars)
+    /// that is left flank + STRIGAR + right flank, and in sequence mode it is
+    /// the sequence itself. Its read-consuming length (`M`/`I`/`S`/`=`/`X`)
+    /// must equal [`row_base_len`](Self::row_base_len), which measures exactly
+    /// that. The bar is drawn from the row's first drawn base, so the flanks
+    /// are annotated too.
+    ///
+    /// Supply it from whatever produced the row rather than re-deriving it
+    /// from locus coordinates: only that producer knows where its own span
+    /// begins and ends, and an insertion anchored on the span boundary cannot
+    /// be attributed correctly from coordinates alone. Rows that fail the
+    /// check draw no bar and are reported by
+    /// [`cigar_issues`](BrickPlot::cigar_issues).
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::BrickPlot;
+    /// let plot = BrickPlot::new().with_cigars(["108M", "42M3D63M"]);
+    /// ```
+    pub fn with_cigars<I, T>(mut self, cigars: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoOptionalCigar,
+    {
+        self.cigars = Some(
+            cigars
+                .into_iter()
+                .map(|c| c.into_optional_cigar())
+                .collect(),
+        );
+        self
+    }
+
+    /// Collapse a run of consecutive rows sharing a CIGAR into a single bar
+    /// (default `true`).
+    ///
+    /// With rows sorted so identical CIGARs are adjacent, this leaves one bar
+    /// per distinct CIGAR: a block of identical reads states its CIGAR once,
+    /// and a bar appears only where something changes.
+    pub fn with_cigar_dedup(mut self, on: bool) -> Self {
+        self.cigar_dedup = on;
+        self
+    }
+
+    /// Bracket each deduped run in the left gutter with an `xN` count
+    /// (default `true`), so a bar visibly belongs to the rows beneath it
+    /// rather than to its own row alone.
+    pub fn with_cigar_run_bracket(mut self, on: bool) -> Self {
+        self.cigar_run_bracket = on;
+        self
+    }
+
+    /// Override CIGAR operation colours. Operations left unset keep
+    /// [`CigarOp::default_color`].
+    pub fn with_cigar_colors<I, S>(mut self, colors: I) -> Self
+    where
+        I: IntoIterator<Item = (CigarOp, S)>,
+        S: Into<String>,
+    {
+        self.cigar_colors = Some(colors.into_iter().map(|(o, c)| (o, c.into())).collect());
+        self
+    }
+
+    /// Set the row ordering. See [`BrickSort`].
+    pub fn with_sort(mut self, sort: BrickSort) -> Self {
+        self.sort = sort;
+        self
+    }
+
+    /// Resolved fill colour for a CIGAR operation.
+    pub(crate) fn cigar_color(&self, op: CigarOp) -> &str {
+        self.cigar_colors
+            .as_ref()
+            .and_then(|m| m.get(&op))
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| op.default_color())
+    }
+
+    /// Number of rows, from the expanded strigar rows when present.
+    pub(crate) fn row_count(&self) -> usize {
+        self.strigar_exp
+            .as_ref()
+            .map(|e| e.len())
+            .unwrap_or(self.sequences.len())
+    }
+
+    /// Length of row `i` in bases, honouring per-motif widths.
+    ///
+    /// Motif lengths matter: a STRIGAR row can mix a 1 bp motif with an 11 bp
+    /// one, so assuming a uniform width silently mis-scales the whole row.
+    /// Total length of row `i` in bases: left flank + STRIGAR + right flank.
+    ///
+    /// This is the length a row's CIGAR must consume in read bases. Use it to
+    /// check a CIGAR before handing it to [`with_cigars`](Self::with_cigars)
+    /// rather than discovering the mismatch in
+    /// [`cigar_issues`](Self::cigar_issues).
+    ///
+    /// The STRIGAR section honours per-motif widths from `motif_lengths`, so a
+    /// row mixing a 1 bp motif with an 11 bp one measures correctly; in
+    /// sequence mode it is simply the sequence length.
+    pub fn row_base_len(&self, i: usize) -> f64 {
+        self.left_flank_len(i) + self.strigar_base_len(i) + self.right_flank_len(i)
+    }
+
+    /// Length of row `i`'s STRIGAR section in bases, excluding flanks.
+    pub(crate) fn strigar_base_len(&self, i: usize) -> f64 {
+        let row = match self.strigar_exp.as_ref() {
+            Some(exp) => exp.get(i),
+            None => self.sequences.get(i),
+        };
+        let Some(row) = row else { return 0.0 };
+        match self.motif_lengths.as_ref() {
+            Some(ml) => row.chars().map(|c| *ml.get(&c).unwrap_or(&1) as f64).sum(),
+            None => row.chars().count() as f64,
+        }
+    }
+
+    /// Length of row `i`'s left flank in bases (0 when unset).
+    pub(crate) fn left_flank_len(&self, i: usize) -> f64 {
+        self.left_flanks
+            .as_ref()
+            .and_then(|f| f.get(i))
+            .map(|s| s.chars().count() as f64)
+            .unwrap_or(0.0)
+    }
+
+    /// Length of row `i`'s right flank in bases (0 when unset).
+    pub(crate) fn right_flank_len(&self, i: usize) -> f64 {
+        self.right_flanks
+            .as_ref()
+            .and_then(|f| f.get(i))
+            .map(|s| s.chars().count() as f64)
+            .unwrap_or(0.0)
+    }
+
+    /// The row order to render in, as a permutation of row indices.
+    pub(crate) fn row_order(&self) -> Vec<usize> {
+        let n = self.row_count();
+        match &self.sort {
+            BrickSort::None => (0..n).collect(),
+            BrickSort::Cigar => {
+                let key = |i: usize| -> String {
+                    self.cigars
+                        .as_ref()
+                        .and_then(|c| c.get(i))
+                        .and_then(|c| c.clone())
+                        .unwrap_or_default()
+                };
+                let mut counts: HashMap<String, usize> = HashMap::new();
+                for i in 0..n {
+                    *counts.entry(key(i)).or_insert(0) += 1;
+                }
+                let mut order: Vec<usize> = (0..n).collect();
+                // Largest group first, then by CIGAR string, then original
+                // index. The string tie-break keeps this deterministic rather
+                // than dependent on map iteration order.
+                order.sort_by(|&a, &b| {
+                    let (ka, kb) = (key(a), key(b));
+                    counts[&kb]
+                        .cmp(&counts[&ka])
+                        .then_with(|| ka.cmp(&kb))
+                        .then_with(|| a.cmp(&b))
+                });
+                order
+            }
+            BrickSort::Custom(idx) => {
+                let mut seen = vec![false; n];
+                let mut order = Vec::with_capacity(n);
+                for &i in idx {
+                    if i < n && !seen[i] {
+                        seen[i] = true;
+                        order.push(i);
+                    }
+                }
+                for (i, s) in seen.iter().enumerate() {
+                    if !*s {
+                        order.push(i);
+                    }
+                }
+                order
+            }
+        }
+    }
+
+    /// How many CIGAR bars will actually be drawn.
+    ///
+    /// With [`BrickSort::Cigar`] this equals the number of distinct CIGARs,
+    /// which is the minimum achievable: any other row order can split one
+    /// CIGAR across several runs and draw its bar more than once. Useful for
+    /// reporting ("32 reads, 4 distinct CIGARs") and for deciding whether the
+    /// bars are worth the vertical space at a given locus.
+    pub fn cigar_bar_count(&self) -> usize {
+        self.cigar_layout().draws_bar.iter().filter(|b| **b).count()
+    }
+
+    /// Rows whose CIGAR could not be used, with the reason.
+    pub fn cigar_issues(&self) -> Vec<CigarIssue> {
+        self.cigar_layout().issues
+    }
+
+    /// Per-row CIGAR bar placement and the resulting vertical layout.
+    ///
+    /// Shared by `Plot::bounds` and the renderer so the y extent and the drawn
+    /// geometry cannot disagree: a bar costs vertical space, and both sides
+    /// must allocate exactly the same amount.
+    pub(crate) fn cigar_layout(&self) -> CigarLayout {
+        let order = self.row_order();
+        let n = order.len();
+        let mut out = CigarLayout {
+            order,
+            spans: vec![None; n],
+            draws_bar: vec![false; n],
+            run_of_row: vec![0; n],
+            runs: Vec::new(),
+            row_top_units: Vec::with_capacity(n),
+            total_units: n as f64,
+            issues: Vec::new(),
+        };
+        let Some(cigars) = self.cigars.as_ref() else {
+            out.row_top_units = (0..n).map(|i| i as f64).collect();
+            return out;
+        };
+
+        // Parse + validate in display order.
+        for (pos, &src) in out.order.iter().enumerate() {
+            let Some(Some(raw)) = cigars.get(src) else {
+                continue;
+            };
+            if raw.is_empty() {
+                continue;
+            }
+            let Some(spans) = parse_cigar(raw) else {
+                out.issues.push(CigarIssue::Unparseable {
+                    row: src,
+                    cigar: raw.clone(),
+                });
+                continue;
+            };
+            let read_bases = cigar_read_bases(&spans);
+            let row_bases = self.row_base_len(src);
+            if (read_bases - row_bases).abs() > f64::EPSILON * row_bases.max(1.0) * 8.0 {
+                out.issues.push(CigarIssue::LengthMismatch {
+                    row: src,
+                    cigar_read_bases: read_bases,
+                    row_bases,
+                });
+                continue;
+            }
+            out.spans[pos] = Some(spans);
+        }
+
+        // Runs of consecutive rows sharing a CIGAR (compared on the raw
+        // string; rows whose CIGAR was rejected never start or join a run).
+        let raw_at = |pos: usize| -> Option<&String> {
+            let src = out.order[pos];
+            out.spans[pos].as_ref()?;
+            cigars.get(src).and_then(|c| c.as_ref())
+        };
+        let mut prev: Option<&String> = None;
+        for pos in 0..n {
+            let cur = raw_at(pos);
+            let new_run = match (cur, prev) {
+                (None, _) => true,
+                (Some(c), Some(p)) => c != p,
+                (Some(_), None) => true,
+            };
+            if new_run {
+                out.runs.push((pos, pos));
+            } else if let Some(last) = out.runs.last_mut() {
+                last.1 = pos;
+            }
+            out.run_of_row[pos] = out.runs.len().saturating_sub(1);
+            out.draws_bar[pos] = cur.is_some() && (!self.cigar_dedup || new_run);
+            prev = cur;
+        }
+
+        // Vertical allocation: a bar costs BAR_ROW_UNITS of a row's height,
+        // charged only to rows that actually draw one, so a run of identical
+        // reads packs at the normal pitch.
+        let mut y = 0.0_f64;
+        for pos in 0..n {
+            if out.draws_bar[pos] {
+                y += BAR_ROW_UNITS;
+            }
+            out.row_top_units.push(y);
+            y += 1.0;
+        }
+        out.total_units = y;
+        out
     }
 
     /// Enable (or disable) run-length merging of consecutive same-colour bricks.
@@ -1003,9 +1555,205 @@ impl BrickPlot {
         if let Some(v) = self.notations.as_mut() {
             permute(v, order);
         }
+        // Must follow the rows: a CIGAR left behind would draw its bar over a
+        // different read, which still looks like a valid annotation.
+        if let Some(v) = self.cigars.as_mut() {
+            permute(v, order);
+        }
         if let Some(c) = self.consensus_row {
             self.consensus_row = order.iter().position(|&i| i == c);
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod cigar_tests {
+    use super::*;
+
+    fn plot_with(strigars: &[(&str, &str)], cigars: Vec<Option<String>>) -> BrickPlot {
+        BrickPlot::new()
+            .with_strigars(strigars.iter().map(|(m, s)| (*m, *s)))
+            .with_cigars(cigars)
+    }
+
+    #[test]
+    fn parses_ops_in_read_space() {
+        let spans = parse_cigar("10M3I5M2D4S").expect("parses");
+        let got: Vec<_> = spans.iter().map(|s| (s.op, s.start, s.len)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (CigarOp::Match, 0.0, 10.0),
+                (CigarOp::Insertion, 10.0, 3.0),
+                (CigarOp::Match, 13.0, 5.0),
+                // Deletion consumes no read bases: zero width, at the junction.
+                (CigarOp::Deletion, 18.0, 0.0),
+                (CigarOp::SoftClip, 18.0, 4.0),
+            ]
+        );
+        assert_eq!(cigar_read_bases(&spans), 22.0);
+    }
+
+    #[test]
+    fn hard_clip_and_padding_consume_nothing() {
+        let spans = parse_cigar("5H10M5H").expect("parses");
+        assert_eq!(cigar_read_bases(&spans), 10.0);
+        assert_eq!(spans.len(), 1);
+    }
+
+    #[test]
+    fn malformed_cigars_are_rejected_not_guessed() {
+        assert!(parse_cigar("M10").is_none(), "op before length");
+        assert!(parse_cigar("10").is_none(), "length with no op");
+        assert!(parse_cigar("10M5").is_none(), "trailing length");
+    }
+
+    // A CIGAR whose read length disagrees with the row misaligns every
+    // operation by the difference while still looking plausible, so it must be
+    // reported rather than drawn.
+    #[test]
+    fn length_mismatch_is_reported_and_the_row_draws_no_bar() {
+        let p = plot_with(
+            &[("CAG:A,CAA:B", "3A3B9A1B1A1B18A")],
+            vec![Some("99M".to_string())],
+        );
+        let issues = p.cigar_issues();
+        assert_eq!(issues.len(), 1, "expected one issue, got {issues:?}");
+        match &issues[0] {
+            CigarIssue::LengthMismatch {
+                row,
+                cigar_read_bases,
+                row_bases,
+            } => {
+                assert_eq!(*row, 0);
+                assert_eq!(*cigar_read_bases, 99.0);
+                assert_eq!(*row_bases, 108.0);
+            }
+            other => panic!("wrong issue: {other:?}"),
+        }
+        assert!(!p.cigar_layout().draws_bar[0]);
+    }
+
+    // Motif lengths are not uniform in real data: SCA17_TBP carries an 11 bp
+    // motif and a 1 bp motif on the same locus. Validating against a constant
+    // width rejects perfectly good CIGARs.
+    #[test]
+    fn row_length_honours_variable_motif_widths() {
+        let p = plot_with(
+            &[("CAG:A,CAACACAACAA:B,CAA:C", "3A1B9A1C1A1C17A")],
+            vec![Some("13M1D94M".to_string())],
+        );
+        // 3*3 + 1*11 + 9*3 + 1*3 + 1*3 + 1*3 + 17*3 = 107
+        assert_eq!(p.row_base_len(0), 107.0);
+        assert!(p.cigar_issues().is_empty(), "{:?}", p.cigar_issues());
+    }
+
+    #[test]
+    fn dedup_draws_one_bar_per_run_and_brackets_it() {
+        let rows: Vec<(&str, &str)> = std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 3)
+            .chain(std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B17A"), 2))
+            .collect();
+        let cigars = vec![
+            Some("108M".into()),
+            Some("108M".into()),
+            Some("108M".into()),
+            Some("42M3D63M".into()),
+            Some("42M3D63M".into()),
+        ];
+        let p = plot_with(&rows, cigars);
+        let cl = p.cigar_layout();
+        assert_eq!(cl.draws_bar, vec![true, false, false, true, false]);
+        assert_eq!(cl.runs, vec![(0, 2), (3, 4)]);
+    }
+
+    #[test]
+    fn dedup_off_draws_every_bar() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 3).collect();
+        let p = plot_with(&rows, vec![Some("108M".into()); 3]).with_cigar_dedup(false);
+        assert_eq!(p.cigar_layout().draws_bar, vec![true, true, true]);
+    }
+
+    // The point of "no gap unless drawn": a run of identical reads keeps the
+    // normal pitch, and only a row that draws a bar costs extra height.
+    #[test]
+    fn only_rows_that_draw_a_bar_consume_extra_height() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 4).collect();
+        let p = plot_with(&rows, vec![Some("108M".into()); 4]);
+        let cl = p.cigar_layout();
+        // One bar across four rows: 4 rows + 1 bar allowance.
+        assert!((cl.total_units - (4.0 + BAR_ROW_UNITS)).abs() < 1e-9);
+        // Rows after the first are exactly one unit apart: no reserved gap.
+        // (Compared with a tolerance: the offsets accumulate by summation.)
+        assert!((cl.row_top_units[2] - cl.row_top_units[1] - 1.0).abs() < 1e-9);
+        assert!((cl.row_top_units[3] - cl.row_top_units[2] - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_cigars_means_no_extra_height() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 5).collect();
+        let p = BrickPlot::new().with_strigars(rows.iter().map(|(m, s)| (*m, *s)));
+        let cl = p.cigar_layout();
+        assert_eq!(cl.total_units, 5.0);
+        assert_eq!(cl.order, vec![0, 1, 2, 3, 4]);
+    }
+
+    // Sorting by CIGAR groups identical CIGARs so dedup draws the fewest
+    // possible bars. Any other order can split one CIGAR across several runs.
+    #[test]
+    fn cigar_sort_groups_identical_cigars_largest_first() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 4).collect();
+        // Interleaved on purpose: A B A A -> sorted must be A A A then B.
+        let p = plot_with(
+            &rows,
+            vec![
+                Some("108M".into()),
+                Some("54M3I51M".into()),
+                Some("108M".into()),
+                Some("108M".into()),
+            ],
+        )
+        .with_sort(BrickSort::Cigar);
+        let cl = p.cigar_layout();
+        assert_eq!(cl.order, vec![0, 2, 3, 1]);
+        assert_eq!(cl.draws_bar, vec![true, false, false, true]);
+        assert_eq!(cl.runs.len(), 2, "one run per distinct CIGAR");
+    }
+
+    #[test]
+    fn custom_sort_takes_a_caller_ranking_and_keeps_omitted_rows() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 4).collect();
+        let p = plot_with(&rows, vec![Some("108M".into()); 4])
+            // Out-of-range and duplicate indices are ignored; omitted rows keep
+            // their original relative order at the end.
+            .with_sort(BrickSort::Custom(vec![3, 1, 3, 99]));
+        assert_eq!(p.cigar_layout().order, vec![3, 1, 0, 2]);
+    }
+
+    #[test]
+    fn rows_without_a_cigar_draw_nothing_and_break_the_run() {
+        let rows: Vec<(&str, &str)> =
+            std::iter::repeat_n(("CAG:A,CAA:B", "3A3B9A1B1A1B18A"), 3).collect();
+        let p = plot_with(&rows, vec![Some("108M".into()), None, Some("108M".into())]);
+        let cl = p.cigar_layout();
+        assert_eq!(cl.draws_bar, vec![true, false, true]);
+        // The gap means the third row cannot inherit the first row's bar.
+        assert_eq!(cl.runs.len(), 3);
+    }
+
+    #[test]
+    fn op_colors_can_be_overridden() {
+        let p = BrickPlot::new().with_cigar_colors([(CigarOp::Insertion, "#123456")]);
+        assert_eq!(p.cigar_color(CigarOp::Insertion), "#123456");
+        // Unset ops keep their default.
+        assert_eq!(
+            p.cigar_color(CigarOp::Match),
+            CigarOp::Match.default_color()
+        );
     }
 }

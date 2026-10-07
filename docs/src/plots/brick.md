@@ -386,3 +386,92 @@ Access the populated map via `.template` and pass it to `with_template()`.
 | `BrickTemplate::new().rna()` | Pre-built RNA (A/C/G/U) color template |
 
 **See also:** [Synteny Plot](./synteny.md) for genome-to-genome structural comparison.
+
+## CIGAR bars
+
+`with_cigars` draws a thin band above each row, coloured by that read's CIGAR
+operations, so you can see which bases are supported by the reference and
+which are insertions or soft clips.
+
+```rust
+use kuva::plot::{BrickPlot, BrickSort};
+
+let plot = BrickPlot::new()
+    .with_strigars([
+        ("CAG:A,CAA:B", "3A3B9A1B1A1B18A"),
+        ("CAG:A,CAA:B", "3A3B9A1B1A1B17A"),
+    ])
+    .with_names(["Hap1", "Hap2"])
+    .with_cigars(["108M", "42M3D63M"])
+    .with_sort(BrickSort::Cigar);
+```
+
+The bar is drawn in **read space**, the same coordinate the bricks use, so an
+operation always lines up with the bases beneath it. `M`, `=`, `X`, `I` and `S`
+consume read bases and are drawn with width. `D` and `N` consume only
+reference, so they appear as a zero-width caret at the junction rather than
+opening a gap in the row: a contraction relative to the reference is often the
+most informative thing on an STR plot, and gaps would break the brick grid.
+
+### Deduplication and run brackets
+
+Consecutive rows sharing a CIGAR draw a single bar, bracketed in the gutter
+with an `xN` count. A block of identical reads therefore states its CIGAR once
+and a bar appears only where something changes. Vertical space is charged only
+to rows that draw a bar, so an unchanging run keeps its normal row pitch.
+
+Turn either off with `with_cigar_dedup(false)` or
+`with_cigar_run_bracket(false)`.
+
+### Sorting
+
+`with_sort(BrickSort::Cigar)` groups identical CIGARs, which lets dedup draw
+the fewest possible bars: one per distinct CIGAR. Any other order can split a
+CIGAR across non-adjacent rows and repeat its bar.
+
+`BrickSort::Custom(Vec<usize>)` takes a row order you computed yourself, for
+example a distance-from-consensus ranking. kuva applies the order without
+needing to know how it was derived. Indices that are out of range or repeated
+are ignored, and omitted rows keep their original relative order at the end.
+
+`cigar_bar_count()` reports how many bars will be drawn, which is a quick way
+to see whether the bars are earning their vertical space at a given locus.
+
+### What the bar is telling you
+
+A CIGAR describes how a read differs **from the reference**, not how one
+allele differs from another. Two rows whose bars look different are not
+necessarily different from each other, and two rows with identical bars can
+still carry different repeat structures.
+
+Note also that an indel's position inside a tandem repeat reflects where the
+aligner placed it. kuva draws it where the CIGAR says, without normalising.
+
+### Colours
+
+Operation colours are reserved outside the motif palette, so a motif brick can
+never be mistaken for an insertion. Override them with `with_cigar_colors`:
+
+```rust
+use kuva::plot::{BrickPlot, CigarOp};
+
+let plot = BrickPlot::new().with_cigar_colors([(CigarOp::Insertion, "#f2c53d")]);
+```
+
+### Validation
+
+A CIGAR whose read-consuming length disagrees with its row is rejected rather
+than drawn, and reported by `cigar_issues()`. A bar that is short by a few
+bases misaligns every operation after the first while still looking like a
+valid annotation, which is far worse than no bar at all.
+
+Supply the CIGAR for every base the row draws, **flanks included**. A row
+built with `with_flanked_strigars` is drawn as left flank, then STRIGAR
+bricks, then right flank, and the CIGAR must span all three; `row_base_len(i)`
+returns exactly the length it has to consume. In sequence mode it is just the
+sequence length. The bar starts at the row's first drawn base, so the flanks
+are annotated along with the repeat.
+
+Do not re-derive the CIGAR from locus coordinates: only whatever produced the
+row knows where its own span begins and ends, and an insertion anchored on the
+span boundary cannot be attributed correctly from coordinates alone.
