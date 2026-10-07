@@ -542,6 +542,23 @@ These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
 
 For greyscale/print-safe or color-vision-deficient-accessible rendering, see [Black & White / Accessibility Mode](./bw_mode.md) — `Layout::with_bw_mode()` replaces palette colors with grey shades, hatch patterns, dash styles, and marker shapes.
 
+### Tick label font
+
+`with_tick_font_family` sets the font family of the axis tick labels only, leaving titles, axis labels, and legends in the main family. Use it for fixed-width category labels such as sequence contexts:
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+let layout = Layout::auto_from_plots(&plots)
+    .with_x_tick_rotate(-90.0)
+    .with_tick_font_family("monospace");
+```
+
+<img src="../assets/layout/tick_font_family.svg" alt="Monospace sequence-context tick labels with a sans-serif title" width="560">
+
+It applies to rotated and upright labels on the x, y, and secondary axes, and to Manhattan chromosome labels, in SVG and PDF output. The PDF backend resolves the generic `monospace` family to the bundled DejaVu Sans Mono. Layout still reserves space for tick labels using DejaVu Sans metrics.
+
 ---
 
 ## Text wrapping
@@ -740,6 +757,7 @@ let layout = Layout::auto_from_plots(&plots)
 | Method | Default | Description |
 |--------|---------|-------------|
 | `.with_font_family(s)` | `"DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif"` | CSS font-family string |
+| `.with_tick_font_family(s)` | inherits `with_font_family` | CSS font-family string for axis tick labels only |
 | `.with_title_size(n)` | `18` | Title font size (px) |
 | `.with_subtitle_size(n)` | `0.7 × title` | Subtitle font size (px) |
 | `.with_label_size(n)` | `14` | Axis label font size (px) |

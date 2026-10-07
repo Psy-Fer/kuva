@@ -328,6 +328,8 @@ pub struct Layout {
     pub suppress_x_ticks: bool,
     pub suppress_y_ticks: bool,
     pub font_family: Option<String>,
+    /// Font family for axis tick labels. `None` uses `font_family`.
+    pub tick_font_family: Option<String>,
     pub title_size: u32,
     pub label_size: u32,
     pub tick_size: u32,
@@ -552,6 +554,7 @@ impl Layout {
             suppress_x_ticks: false,
             suppress_y_ticks: false,
             font_family: None,
+            tick_font_family: None,
             title_size: 18,
             label_size: 14,
             tick_size: 12,
@@ -2261,6 +2264,16 @@ impl Layout {
         self
     }
 
+    /// Set the font family of the axis tick labels only, e.g. `"monospace"` for
+    /// fixed-width category labels such as sequence contexts. Titles, axis labels,
+    /// and legends keep [`with_font_family`](Self::with_font_family)'s family.
+    /// Applies to SVG and PDF output; layout still measures tick labels with the
+    /// bundled DejaVu Sans metrics.
+    pub fn with_tick_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.tick_font_family = Some(family.into());
+        self
+    }
+
     pub fn with_title_size(mut self, size: u32) -> Self {
         self.title_size = size;
         self
@@ -2744,6 +2757,8 @@ pub struct ComputedLayout {
     pub log_x: bool,
     pub log_y: bool,
     pub font_family: Option<String>,
+    /// Font family for axis tick labels. `None` inherits `font_family`.
+    pub tick_font_family: Option<String>,
     pub title_size: u32,
     /// Scaled, rounded subtitle font size in px (explicit override or `0.7 × title_size`).
     pub subtitle_size: u32,
@@ -3604,6 +3619,7 @@ impl ComputedLayout {
                 .clone()
                 .or(layout.theme.font_family.clone())
                 .or(Some(DEFAULT_FONT_FAMILY.to_string())),
+            tick_font_family: layout.tick_font_family.clone(),
             title_size: (layout.title_size as f64 * s).round().max(1.0) as u32,
             subtitle_size: subtitle_size as u32,
             label_size: (layout.label_size as f64 * s).round().max(1.0) as u32,

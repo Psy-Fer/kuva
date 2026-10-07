@@ -955,6 +955,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.suppress_x_ticks = l.suppress_x_ticks;
     new.suppress_y_ticks = l.suppress_y_ticks;
     new.font_family = l.font_family.clone();
+    new.tick_font_family = l.tick_font_family.clone();
     new.title_size = l.title_size;
     new.subtitle_size = l.subtitle_size;
     new.label_size = l.label_size;
