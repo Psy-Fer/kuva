@@ -5,10 +5,29 @@ use crate::render::layout::{
     SUBTITLE_MUTE,
 };
 use crate::render::render::{Primitive, Scene, TextAnchor};
-use crate::render::render_utils;
+use crate::render::render_utils::{self, escape_attr};
 use crate::render::text_metrics::{
     ascent, center_offset, line_height, measure_text_width, FontStyle,
 };
+
+/// Opens a group that applies the tick-label font family, when one is set, to
+/// the tick labels drawn before the matching [`end_tick_font`].
+pub(crate) fn start_tick_font(scene: &mut Scene, computed: &ComputedLayout) {
+    if let Some(family) = &computed.tick_font_family {
+        scene.add(Primitive::GroupStart {
+            transform: None,
+            title: None,
+            extra_attrs: Some(format!(r#"font-family="{}""#, escape_attr(family))),
+        });
+    }
+}
+
+/// Closes the group opened by [`start_tick_font`].
+pub(crate) fn end_tick_font(scene: &mut Scene, computed: &ComputedLayout) {
+    if computed.tick_font_family.is_some() {
+        scene.add(Primitive::GroupEnd);
+    }
+}
 
 fn draw_x_tick(
     scene: &mut Scene,
@@ -434,6 +453,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     });
 
     // Draw tick marks and labels
+    start_tick_font(scene, computed);
     if let Some(categories) = &layout.y_categories {
         if !layout.suppress_y_ticks {
             for (i, label) in categories.iter().enumerate() {
@@ -675,6 +695,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             }
         }
     }
+    end_tick_font(scene, computed);
 
     if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
         // Top axis
@@ -731,6 +752,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(y2_min, y2_max, computed.y_ticks)
     };
 
+    start_tick_font(scene, computed);
     for ty in y2_ticks.iter() {
         let y = computed.map_y2(*ty);
 
@@ -769,6 +791,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     if let Some(ref label) = layout.y2_label {
         let lines = render_utils::wrap_or_single(label, computed.y2_label_wrap);
@@ -825,6 +848,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(x2_min, x2_max, computed.x_ticks)
     };
 
+    start_tick_font(scene, computed);
     for tx in x2_ticks.iter() {
         let x = computed.map_x2(*tx);
 
@@ -863,6 +887,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     if let Some(ref label) = layout.x2_label {
         let lines = render_utils::wrap_or_single(label, computed.x2_label_wrap);

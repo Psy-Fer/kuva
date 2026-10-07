@@ -1,8 +1,8 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, muted_subtitle_color,
-    XLabelPlacer,
+    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
+    muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
@@ -10003,6 +10003,7 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
         computed.tick_size as f64,
         computed.x_tick_rotate,
     );
+    start_tick_font(scene, computed);
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
@@ -10027,6 +10028,7 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
             });
         }
     }
+    end_tick_font(scene, computed);
 }
 
 pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {

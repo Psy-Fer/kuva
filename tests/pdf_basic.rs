@@ -325,3 +325,40 @@ fn render_to_pdf_multi_one_shot_helper() {
     assert_eq!(&bytes[..5], b"%PDF-");
     assert_eq!(page_count(&bytes), 2);
 }
+
+#[test]
+fn pdf_tick_font_family_renders_bundled_monospace() {
+    let render = |layout: Layout, plots: Vec<Plot>| {
+        let scene = kuva::render::render::render_multiple(plots, layout);
+        PdfBackend::new().render_scene(&scene).unwrap()
+    };
+    let bars = || {
+        vec![Plot::Bar(
+            BarPlot::new().with_bars(vec![("ACG", 3.0), ("TCG", 5.0)]),
+        )]
+    };
+
+    let plots = bars();
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Contexts")
+        .with_x_tick_rotate(-90.0)
+        .with_tick_font_family("monospace");
+    let mono = render(layout, plots);
+    common::write_test_output("test_outputs/pdf_tick_font_mono.pdf", &mono).unwrap();
+    assert_eq!(&mono[..5], b"%PDF-");
+    assert!(
+        contains(&mono, b"DejaVuSansMono"),
+        "generic monospace tick labels should embed the bundled DejaVu Sans Mono"
+    );
+    assert!(
+        contains(&mono, b"+DejaVuSans/"),
+        "the title should still embed DejaVu Sans"
+    );
+
+    let plots = bars();
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Contexts")
+        .with_x_tick_rotate(-90.0);
+    let sans = render(layout, plots);
+    assert!(!contains(&sans, b"DejaVuSansMono"));
+}
