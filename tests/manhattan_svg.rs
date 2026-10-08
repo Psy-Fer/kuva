@@ -741,3 +741,29 @@ fn test_manhattan_repel_labels() {
     common::write_test_output("test_outputs/manhattan_repel.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
+
+#[test]
+fn test_manhattan_omits_invalid_points() {
+    let mp = ManhattanPlot::new()
+        .with_data(vec![
+            ("1", f64::NAN),
+            ("1", 1e-6),
+            ("2", -0.3),
+            ("2", 0.4),
+            ("2", 1.5),
+        ])
+        .with_point_labels(vec![("1", 1.0, "real_hit")])
+        .with_label_top(1);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let circles = scene
+        .elements
+        .iter()
+        .filter(|p| matches!(p, kuva::render::render::Primitive::Circle { .. }))
+        .count();
+    assert_eq!(circles, 2);
+    let svg = SvgBackend.render_scene(&scene);
+    assert!(!svg.contains("NaN"));
+    assert!(svg.contains(">real_hit</text>"));
+}

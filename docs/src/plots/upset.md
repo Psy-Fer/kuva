@@ -180,7 +180,7 @@ GWAS_hit  eQTL  Splicing_QTL  Methylation_QTL  Conservation  ClinVar
 
 | Flag | Default | Description |
 |---|---|---|
-| `--sort <MODE>` | `frequency` | Sort intersections: `frequency`, `degree`, `natural` |
+| `--sort <MODE>` | `frequency` | Sort intersections: `frequency`, `degree`, `natural`. Ties and `natural` are ordered by set membership, the same order as `UpSetPlot::with_sets`. |
 | `--max-visible <N>` | — | Show only the top N intersections |
 
 ```bash

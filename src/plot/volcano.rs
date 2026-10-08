@@ -50,7 +50,14 @@ pub struct VolcanoPoint {
     /// log₂ fold change on the x-axis.
     pub log2fc: f64,
     /// Raw p-value (not −log10). Zero p-values are handled automatically.
+    /// Points with a p-value outside `[0, 1]` or a non-finite `log2fc` are not drawn.
     pub pvalue: f64,
+}
+
+impl VolcanoPoint {
+    pub(crate) fn is_plottable(&self) -> bool {
+        self.log2fc.is_finite() && (0.0..=1.0).contains(&self.pvalue)
+    }
 }
 
 /// Builder for a volcano plot.
@@ -175,6 +182,7 @@ impl VolcanoPlot {
         }
         self.points
             .iter()
+            .filter(|p| p.is_plottable())
             .map(|p| p.pvalue)
             .filter(|&p| p > 0.0)
             .fold(f64::INFINITY, f64::min)

@@ -1,5 +1,5 @@
 use clap::Args;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use kuva::plot::{UpSetPlot, UpSetSort};
 use kuva::render::layout::Layout;
@@ -53,24 +53,8 @@ pub fn run(args: UpSetArgs) -> Result<(), String> {
         (0..ncols).map(|i| format!("Set_{i}")).collect()
     };
 
-    // Per-set sizes: count of 1s in each column.
-    let set_sizes: Vec<usize> = (0..ncols)
-        .map(|col| {
-            table
-                .rows
-                .iter()
-                .filter(|row| {
-                    row.get(col)
-                        .and_then(|v| v.trim().parse::<f64>().ok())
-                        .map(|x| x > 0.5)
-                        .unwrap_or(false)
-                })
-                .count()
-        })
-        .collect();
-
     // Group rows by bitmask to compute intersection sizes.
-    let mut mask_counts: HashMap<u64, usize> = HashMap::new();
+    let mut mask_counts: BTreeMap<u64, usize> = BTreeMap::new();
     for row in &table.rows {
         let mut mask: u64 = 0;
         for (i, cell) in row.iter().enumerate().take(ncols) {
@@ -82,6 +66,17 @@ pub fn run(args: UpSetArgs) -> Result<(), String> {
             *mask_counts.entry(mask).or_default() += 1;
         }
     }
+
+    // Per-set sizes: count of 1s in each column.
+    let set_sizes: Vec<usize> = (0..ncols)
+        .map(|i| {
+            mask_counts
+                .iter()
+                .filter(|(mask, _)| *mask & (1u64 << i) != 0)
+                .map(|(_, count)| count)
+                .sum()
+        })
+        .collect();
 
     let intersections: Vec<(u64, usize)> = mask_counts.into_iter().collect();
 

@@ -8,10 +8,17 @@ pub struct ManhattanPoint {
     /// Cumulative x coordinate: sequential index, base-pair offset, or user-supplied value.
     pub x: f64,
     /// Raw p-value (not −log10). Zero p-values are handled automatically.
+    /// Points with a p-value outside `[0, 1]` or a non-finite `x` are not drawn.
     pub pvalue: f64,
     /// Optional gene or SNP label, shown when the point is in the top-N selection
     /// or was named via [`ManhattanPlot::with_point_labels`].
     pub label: Option<String>,
+}
+
+impl ManhattanPoint {
+    pub(crate) fn is_plottable(&self) -> bool {
+        self.x.is_finite() && (0.0..=1.0).contains(&self.pvalue)
+    }
 }
 
 /// A labeled chromosome band on the x-axis.
@@ -307,6 +314,7 @@ impl ManhattanPlot {
         }
         self.points
             .iter()
+            .filter(|p| p.is_plottable())
             .map(|p| p.pvalue)
             .filter(|&p| p > 0.0)
             .fold(f64::INFINITY, f64::min)

@@ -10,6 +10,8 @@ A Manhattan plot displays **GWAS p-values** across the genome. Each point repres
 
 When base-pair positions are unavailable, pass `(chrom, pvalue)` pairs to `.with_data()`. Chromosomes are sorted in standard genomic order (1–22, X, Y, MT); points within each chromosome receive consecutive integer x positions.
 
+Points with a p-value outside `[0, 1]` (including NaN) or a non-finite x position are not drawn or labeled, and the CLI rejects such p-values with the row number.
+
 ```rust,no_run
 use kuva::plot::ManhattanPlot;
 use kuva::backend::svg::SvgBackend;
