@@ -12801,7 +12801,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             }
                         });
                         let computed_g = crate::plot::roc::compute_group(group);
-                        let auc_str = if group.show_auc_label {
+                        let auc_str = if group.show_auc_label && !computed_g.points.is_empty() {
                             format!("  (AUC = {:.3})", computed_g.auc)
                         } else {
                             String::new()
@@ -12827,7 +12827,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             }
                         });
                         let computed_g = crate::plot::pr::compute_pr_group(group);
-                        let auc_str = if group.show_auc_label {
+                        let auc_str = if group.show_auc_label && !computed_g.points.is_empty() {
                             format!("  (AUC-PR = {:.3})", computed_g.auc)
                         } else {
                             String::new()

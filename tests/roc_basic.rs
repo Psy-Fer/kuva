@@ -312,6 +312,86 @@ fn test_delong_auc() {
 }
 
 #[test]
+fn test_roc_score_ordering_and_exact_ties() {
+    for (positive, negative, expected_auc) in [
+        (1.0, 1.0 - f64::EPSILON, 1.0),
+        (1.0 - f64::EPSILON, 1.0, 0.0),
+        (-1.0, -1.0 + f64::EPSILON, 0.0),
+        (f64::from_bits(1), 0.0, 1.0),
+        (f64::MAX, -f64::MAX, 1.0),
+        (0.5, 0.5, 0.5),
+        (0.0, -0.0, 0.5),
+    ] {
+        for predictions in [
+            [(positive, true), (negative, false)],
+            [(negative, false), (positive, true)],
+        ] {
+            let points = compute_roc_points(&predictions);
+            assert_eq!(auc_trapz(&points), expected_auc, "{predictions:?}");
+            assert_eq!(delong_auc(&predictions), (expected_auc, 0.0));
+            assert_eq!(points.len(), if expected_auc == 0.5 { 2 } else { 3 });
+        }
+    }
+}
+
+#[test]
+fn test_roc_chained_near_scores() {
+    let predictions = [
+        (1.0, true),
+        (1.0 - 75.0 * f64::EPSILON, false),
+        (1.0 - 150.0 * f64::EPSILON, true),
+    ];
+    let points = compute_roc_points(&predictions);
+    assert_eq!(points.len(), 4);
+    assert_eq!(auc_trapz(&points), 0.5);
+    assert_eq!(delong_auc(&predictions), (0.5, 0.25));
+}
+
+#[test]
+fn test_delong_mixed_exact_ties() {
+    let predictions = [
+        (1.0, true),
+        (1.0 - f64::EPSILON, true),
+        (0.0, true),
+        (1.0 - f64::EPSILON, false),
+        (1.0 - 2.0 * f64::EPSILON, false),
+        (0.0, false),
+    ];
+    // Placements [1, 5/6, 1/6] and [1/2, 2/3, 5/6] give variance 2/27.
+    let reversed: Vec<_> = predictions.iter().copied().rev().collect();
+    let inverted: Vec<_> = predictions.iter().map(|&(s, label)| (s, !label)).collect();
+    for (data, expected_auc) in [
+        (predictions.as_slice(), 2.0 / 3.0),
+        (reversed.as_slice(), 2.0 / 3.0),
+        (inverted.as_slice(), 1.0 / 3.0),
+    ] {
+        let (auc, variance) = delong_auc(data);
+        assert!((auc - expected_auc).abs() < 1e-12);
+        assert!((variance - 2.0 / 27.0).abs() < 1e-12);
+
+        let group = RocGroup::new("Mixed ties").with_raw(data.iter().copied());
+        let computed = compute_group(&group);
+        assert!((computed.auc - auc_trapz(&computed.points)).abs() < 1e-12);
+        let margin = 1.96 * (2.0_f64 / 27.0).sqrt();
+        assert!((computed.ci_lo - (expected_auc - margin).max(0.0)).abs() < 1e-12);
+        assert!((computed.ci_hi - (expected_auc + margin).min(1.0)).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn test_roc_near_scores_auc_label() {
+    let group = RocGroup::new("Near scores")
+        .with_raw([(1.0, true), (1.0 - f64::EPSILON, false)])
+        .with_ci(true);
+    let plots = vec![Plot::Roc(
+        RocPlot::new().with_group(group).with_legend("Classifier"),
+    )];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("Near scores  (AUC = 1.000)</text>"));
+}
+
+#[test]
 fn test_roc_plot_render_multiple() {
     let group = RocGroup::new("Test").with_raw(good_classifier());
     let roc = RocPlot::new().with_group(group);
@@ -320,4 +400,21 @@ fn test_roc_plot_render_multiple() {
     let scene = render_multiple(plots, layout);
     assert!(scene.width > 0.0);
     assert!(!scene.elements.is_empty());
+}
+
+#[test]
+fn test_roc_groups_without_curve() {
+    let nan_scores = [(0.9, true), (f64::NAN, false), (0.2, false), (0.7, true)];
+    assert!(compute_roc_points(&nan_scores).is_empty());
+    let single_class = [(0.9, true), (0.2, true)];
+    for data in [nan_scores.as_slice(), single_class.as_slice()] {
+        let group = RocGroup::new("Model").with_raw(data.iter().copied());
+        assert!(compute_group(&group).points.is_empty());
+        let plot = RocPlot::new().with_group(group).with_legend("Scores");
+        let plots = vec![Plot::Roc(plot)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = write_svg("roc_groups_without_curve", plots, layout);
+        assert!(!svg.contains("NaN"));
+        assert!(!svg.contains("AUC"));
+    }
 }

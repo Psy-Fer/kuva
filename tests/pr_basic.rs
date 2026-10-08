@@ -326,3 +326,43 @@ fn test_pr_showcase() {
     assert!(svg.contains("Good model"));
     assert!(svg.contains("AUC-PR"));
 }
+
+#[test]
+fn test_pr_score_ordering_and_exact_ties() {
+    let separate: &[(f64, f64)] = &[(0.0, 1.0), (1.0, 1.0), (1.0, 0.5)];
+    let tied: &[(f64, f64)] = &[(0.0, 1.0), (1.0, 0.5)];
+    for (positive, negative, expected) in [
+        (1.0, 1.0 - f64::EPSILON, separate),
+        (1.0, 1.0, tied),
+        (f64::INFINITY, f64::NEG_INFINITY, separate),
+    ] {
+        for predictions in [
+            [(positive, true), (negative, false)],
+            [(negative, false), (positive, true)],
+        ] {
+            let (points, prevalence) = compute_pr_points(&predictions);
+            let curve: Vec<_> = points.iter().map(|p| (p.recall, p.precision)).collect();
+            assert_eq!(curve, expected, "{predictions:?}");
+            assert_eq!(prevalence, 0.5);
+        }
+    }
+}
+
+#[test]
+fn test_pr_groups_without_curve() {
+    let nan_scores = [(0.9, true), (f64::NAN, false), (0.2, false), (0.7, true)];
+    let (points, prevalence) = compute_pr_points(&nan_scores);
+    assert!(points.is_empty());
+    assert_eq!(prevalence, 0.5);
+    let single_class = [(0.9, false), (0.2, false)];
+    for data in [nan_scores.as_slice(), single_class.as_slice()] {
+        let plot = PrPlot::new()
+            .with_group(PrGroup::new("Model").with_raw(data.iter().copied()))
+            .with_legend("Scores");
+        let plots = vec![Plot::Pr(plot)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = write_svg("pr_groups_without_curve", plots, layout);
+        assert!(!svg.contains("NaN"));
+        assert!(!svg.contains("AUC-PR"));
+    }
+}
