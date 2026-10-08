@@ -366,3 +366,194 @@ fn permute_rows_keeps_each_cigar_with_its_read() {
     assert_eq!(permuted.row_base_len(0), 9.0);
     assert_eq!(permuted.row_base_len(1), 3.0);
 }
+
+// ── notations must clear the CIGAR bar ──────────────────────────────────────
+//
+// A notation sits just above its row's top edge, which is exactly where that
+// row's CIGAR bar is drawn. Without an allowance for the bar the two overlap.
+#[test]
+fn notation_labels_sit_above_the_cigar_bar() {
+    let n = 6;
+    let plot = BrickPlot::new()
+        .with_strigars((0..n).map(|_| ("GCN:A", "20A")))
+        .with_names((0..n).map(|i| format!("read{i}")))
+        // One run: a single bar above the first row.
+        .with_cigars((0..n).map(|_| "60M"))
+        .with_notations((0..n).map(|_| Some("(GCN)20".to_string())));
+    assert!(plot.cigar_issues().is_empty(), "{:?}", plot.cigar_issues());
+    assert_eq!(plot.cigar_bar_count(), 1);
+
+    let svg = render_svg(plot);
+
+    // y of the topmost notation label.
+    let label_y = svg
+        .split("<text")
+        .skip(1)
+        .filter(|t| t.contains(">(GCN)20<"))
+        .filter_map(|t| {
+            t.split("y=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })
+        .fold(f64::INFINITY, f64::min);
+    // y of the bar (SVG y grows downward, so the bar's y is its top edge).
+    let bar_y = svg
+        .split("<rect")
+        .skip(1)
+        .filter(|r| r.contains(&format!("fill=\"{}\"", CigarOp::Match.default_color())))
+        .filter_map(|r| {
+            r.split("y=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })
+        .fold(f64::INFINITY, f64::min);
+
+    assert!(
+        label_y.is_finite() && bar_y.is_finite(),
+        "label or bar missing"
+    );
+    assert!(
+        label_y < bar_y,
+        "notation at y={label_y} must sit above the bar at y={bar_y}"
+    );
+}
+
+// Notations are indexed by source row, so they have to follow a sort just as
+// the bricks and bars do, or a row gets another read's annotation. The label
+// text is generated from the row's own runs, so the check is that each row's
+// generated label lands at that row's position.
+#[test]
+fn notations_follow_the_sorted_row_order() {
+    // Rows wide enough that the labels are not omitted for lack of room, and
+    // of differing length so each generates a distinguishable label.
+    let plot = BrickPlot::new()
+        .with_strigars([("CAG:A", "20A"), ("CAG:A", "21A"), ("CAG:A", "22A")])
+        .with_names(["a", "b", "c"])
+        .with_cigars(["60M", "63M", "66M"])
+        .with_notations([
+            Some("x".to_string()),
+            Some("x".to_string()),
+            Some("x".to_string()),
+        ])
+        // Reverse the rows: the 22A row should end up on top.
+        .with_sort(BrickSort::Custom(vec![2, 1, 0]));
+    let svg = render_svg(plot);
+
+    let y_of = |needle: &str| -> f64 {
+        svg.split("<text")
+            .skip(1)
+            .filter(|t| t.contains(&format!(">{needle}<")))
+            .filter_map(|t| {
+                t.split("y=\"")
+                    .nth(1)?
+                    .split('"')
+                    .next()?
+                    .parse::<f64>()
+                    .ok()
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    let (top, mid, bottom) = (y_of("(CAG)22"), y_of("(CAG)21"), y_of("(CAG)20"));
+    assert!(
+        top.is_finite() && mid.is_finite() && bottom.is_finite(),
+        "all three notations should render: {top} {mid} {bottom}"
+    );
+    // SVG y grows downward, so the reversed order puts 22A highest.
+    assert!(
+        top < mid && mid < bottom,
+        "notations must be reordered with their rows: 22A={top} 21A={mid} 20A={bottom}"
+    );
+}
+
+// ── the first row's bar and its decorations must stay inside the plot ───────
+//
+// The topmost bar sits flush against the top of the plot area, so anything
+// drawn above it (the deletion caret's apex, the run-count's ascender) lands
+// outside the clip and is cut off. Checked across row heights because the
+// available band scales with `row_height_px`.
+#[test]
+fn first_rows_bar_and_decorations_are_not_clipped_at_the_top() {
+    for row_height in [12.0_f64, 20.0, 34.0] {
+        let n = 6;
+        let plot = BrickPlot::new()
+            .with_strigars((0..n).map(|_| ("CAG:A", "20A")))
+            .with_names((0..n).map(|i| format!("read{i}")))
+            // One run, so the single bar lands on the first row; the deletion
+            // gives it a caret and the run gives it an "xN" count.
+            .with_cigars((0..n).map(|_| "30M3D30M"))
+            .with_sort(BrickSort::Cigar)
+            .with_row_height(row_height);
+        assert!(plot.cigar_issues().is_empty(), "{:?}", plot.cigar_issues());
+
+        let plots = vec![Plot::Brick(plot)];
+        let layout = Layout::auto_from_plots(&plots).with_width(640.0);
+        let svg = kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout));
+
+        let attr = |frag: &str, name: &str| -> Option<f64> {
+            frag.split(&format!("{name}=\""))
+                .nth(1)?
+                .split('"')
+                .next()?
+                .parse()
+                .ok()
+        };
+        // Top edge of the clipped plot area.
+        let clip = svg.split("<clipPath").nth(1).expect("clip path");
+        let top = attr(clip, "y").expect("clip y");
+
+        // Bar.
+        let bar_top = svg
+            .split("<rect")
+            .skip(1)
+            .filter(|r| r.contains(CigarOp::Match.default_color()))
+            .filter_map(|r| attr(r, "y"))
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            bar_top >= top - 0.01,
+            "row_height {row_height}: bar top {bar_top} above plot top {top}"
+        );
+
+        // Deletion caret apex: smallest y appearing in the caret path.
+        let mut apex = f64::INFINITY;
+        for pth in svg.split("<path").skip(1) {
+            if !pth.contains(CigarOp::Deletion.default_color()) {
+                continue;
+            }
+            if let Some(d) = pth.split("d=\"").nth(1).and_then(|v| v.split('"').next()) {
+                for tok in d.split(['M', 'L', 'Z']) {
+                    if let Some((_, y)) = tok.trim().split_once(',') {
+                        if let Ok(v) = y.trim().parse::<f64>() {
+                            apex = apex.min(v);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            apex.is_finite() && apex >= top - 0.01,
+            "row_height {row_height}: caret apex {apex} above plot top {top}"
+        );
+
+        // Run count: its font is clamped to the band, so the ascender fits.
+        let t = svg
+            .split("<text")
+            .skip(1)
+            .find(|t| t.contains(">x6<"))
+            .expect("run count text");
+        let baseline = attr(t, "y").expect("text y");
+        let font = attr(t, "font-size").expect("font-size");
+        // DejaVu Sans ascender is about 0.76 em.
+        let text_top = baseline - font * 0.76;
+        assert!(
+            text_top >= top - 0.01,
+            "row_height {row_height}: run count top {text_top} above plot top {top} \
+             (baseline {baseline}, font {font})"
+        );
+    }
+}

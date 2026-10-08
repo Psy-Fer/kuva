@@ -3470,8 +3470,15 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             let y_row_top = row_y_top(pos);
             let y_px_top = computed.map_y(y_row_top + BAR_ROW_UNITS);
             let y_px_bot = computed.map_y(y_row_top);
-            let bar_h = (y_px_bot - y_px_top).abs() * 0.72;
-            let bar_y = y_px_top.min(y_px_bot);
+            let alloc_top = y_px_top.min(y_px_bot);
+            let alloc_h = (y_px_bot - y_px_top).abs();
+            // Keep the top of the allocation free for the deletion caret's
+            // apex and the run-count's ascender. Both are drawn above the bar,
+            // and on the first row the allocation's top edge *is* the plot
+            // edge, so anything above it is clipped away.
+            let head = alloc_h * 0.22;
+            let bar_h = (alloc_h - head) * 0.8;
+            let bar_y = alloc_top + head;
 
             for sp in spans {
                 if sp.op == CigarOp::Deletion {
@@ -3508,7 +3515,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     cx - half,
                     bar_y + bar_h,
                     cx,
-                    bar_y - bar_h * 0.35,
+                    alloc_top,
                     cx + half,
                     bar_y + bar_h,
                 );
@@ -3561,7 +3568,13 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                         x: computed.margin_left + 3.0,
                         y: bar_y + bar_h,
                         content: format!("x{}", last - first + 1),
-                        size: computed.tick_size.saturating_sub(2).max(7),
+                        // Clamped to the band height: at a small `row_height_px`
+                        // a fixed size would overflow the allocation and clip.
+                        size: computed
+                            .tick_size
+                            .saturating_sub(2)
+                            .min(alloc_h as u32)
+                            .max(5),
                         anchor: TextAnchor::Start,
                         rotate: None,
                         bold: false,
@@ -3685,7 +3698,14 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
     let label_size = (font_px * 0.85) as u32;
     let line_h = font_px * 1.1;
 
-    for (i, notation_opt) in notations.iter().enumerate() {
+    // Same row layout the bricks and bars use: display order (which `sort` may
+    // have changed) and the uneven pitch that CIGAR bars introduce.
+    let cl = brickplot.cigar_layout();
+
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let Some(notation_opt) = notations.get(i) else {
+            continue;
+        };
         if notation_opt.is_none() {
             continue;
         }
@@ -3693,9 +3713,17 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             continue;
         }
 
-        let yr = num_rows - 1 - i;
         let eff_offset = row_offset(i) - right_align_shift[i];
-        let y_top_px = computed.map_y((yr + 1) as f64);
+        // A notation sits just above its row's top edge, which is exactly
+        // where a CIGAR bar is drawn. Lift the label over the bar when the row
+        // has one, so the two do not overlap.
+        let row_top = cl.total_units - cl.row_top_units[pos];
+        let bar_allowance = if cl.draws_bar[pos] {
+            crate::plot::brick::BAR_ROW_UNITS
+        } else {
+            0.0
+        };
+        let y_top_px = computed.map_y(row_top + bar_allowance);
 
         let row = &rows[i];
 

@@ -120,13 +120,17 @@ pub struct CigarSpan {
 pub enum CigarIssue {
     /// The CIGAR string could not be parsed.
     Unparseable { row: usize, cigar: String },
-    /// The CIGAR's read-consuming length disagrees with the expanded row.
+    /// The CIGAR's read-consuming length disagrees with the row it annotates.
     ///
     /// Almost always means the CIGAR was clipped to a different span than the
-    /// one the row describes. Supply the CIGAR for exactly the span the
-    /// STRIGAR covers; do not re-derive it from locus coordinates, since the
-    /// caller that produced the STRIGAR is the only thing that knows where
-    /// its own span starts and ends.
+    /// one the row draws. It must cover **every base the row draws, flanks
+    /// included**: left flank + STRIGAR + right flank, which is what
+    /// [`BrickPlot::row_base_len`] returns. A CIGAR covering only the STRIGAR
+    /// section of a flanked row lands here.
+    ///
+    /// Do not re-derive the CIGAR from locus coordinates: whatever produced
+    /// the row is the only thing that knows where its own span starts and
+    /// ends.
     LengthMismatch {
         row: usize,
         cigar_read_bases: f64,
