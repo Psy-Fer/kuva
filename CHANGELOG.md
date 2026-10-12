@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ROC thresholds and DeLong AUC now use exact score equality for ties. Close but distinct scores remain ordered, preventing a pair from counting as both a win and a tie and keeping the reported AUC consistent with the curve.
 - Precision-recall thresholds now also use exact score equality for ties, so close but distinct scores stay ordered and infinite scores no longer stop the curve from finishing.
 - ROC and precision-recall groups with a NaN score now produce no curve instead of running out of memory. The legend no longer shows an AUC of 0.000 for a group without a curve.
+<<<<<<< HEAD
+=======
+- **Axis ticks**: linear major and minor ticks retain small values and stop repeating positions at large offsets. Automatic labels no longer display tiny nonzero values as zero, and histogram tick selection searches requested intervals instead of scanning every bin multiplier. A tick step far below the axis's own resolution (for example an explicit `with_x_tick_step` near one ULP) is now rejected outright instead of generating positions until the process runs out of memory.
+>>>>>>> 0f016c6 (Cap linear tick output at 100,000)
 
 ## [0.5.0] — 2026-08-07
 

@@ -92,7 +92,9 @@ pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
 
 /// Generate nice ticks for an axis.
 /// Returns no ticks for non-finite/reversed bounds or an unrepresentable grid count.
-/// Dense grids retain distinct floats even when the virtual index count overflows.
+/// Dense grids retain distinct floats even when the virtual index count overflows,
+/// up to `MAX_LINEAR_TICKS` positions; beyond that the axis is degenerate and
+/// returns no ticks.
 pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
     let step = compute_tick_step(min, max, target_ticks);
     let mut last_exponent = i32::MIN;
@@ -167,6 +169,26 @@ fn next_distinct_index(
     first
 }
 
+/// Upper bound on the positions one linear axis may produce. An axis is a few
+/// hundred pixels wide, so any request beyond this is degenerate rather than
+/// dense: a step far below the data's own resolution, or a range spanning more
+/// floats than could ever be drawn. Exceeding it yields no ticks, matching the
+/// other unrepresentable-grid guards, rather than a truncated axis that would
+/// silently label only its leading fraction.
+const MAX_LINEAR_TICKS: usize = 100_000;
+
+/// Map a finite float onto the unsigned total order, so the number of
+/// representable values between two floats is their difference. Negative
+/// patterns are inverted; non-negative ones get the sign bit set.
+fn ordered_bits(value: f64) -> u64 {
+    let bits = value.to_bits();
+    if bits & (1 << 63) != 0 {
+        !bits
+    } else {
+        bits | (1 << 63)
+    }
+}
+
 fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64) -> Vec<f64> {
     if !min.is_finite() || !max.is_finite() || max < min || !step.is_finite() || step <= 0.0 {
         return Vec::new();
@@ -207,7 +229,13 @@ fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64
         // Each float's rounding interval is wider than this step, so every
         // float in the same-sign range has at least one grid point rounding to it.
         if step <= gap * 0.5 {
-            let mut ticks = Vec::new();
+            // The walk visits every float in the range, so count them first:
+            // the total order makes that exact without iterating.
+            let span = ordered_bits(max) - ordered_bits(min);
+            if span >= MAX_LINEAR_TICKS as u64 {
+                return Vec::new();
+            }
+            let mut ticks = Vec::with_capacity(span as usize + 1);
             let mut value = min;
             loop {
                 ticks.push(value);
@@ -231,16 +259,13 @@ fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64
     let last = count as usize;
     let mut ticks = Vec::new();
     let mut index = 0usize;
-    let mut value = position(index);
     while index <= last {
+        let value = position(index);
         if value < min {
             let Some(next_index) = index.checked_add(1) else {
                 break;
             };
             index = next_index;
-            if index <= last {
-                value = position(index);
-            }
             continue;
         }
         if !value.is_finite() || value > max {
@@ -252,17 +277,24 @@ fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64
             && ticks.last().is_none_or(|&previous| rounded > previous)
         {
             ticks.push(rounded);
+            // A step far below the axis's own resolution can still name more
+            // positions than any axis could draw, even once duplicates are
+            // dropped. Bail rather than return an unusable list.
+            if ticks.len() >= MAX_LINEAR_TICKS {
+                return Vec::new();
+            }
         }
         let Some(next_index) = index.checked_add(1) else {
             break;
         };
-        // A tiny step at a large offset can map many indices to the same float.
-        // Jump to the next representable position instead of scanning those indices.
         if next_index > last {
             break;
         }
-        let next_value = position(next_index);
-        if first.is_none() && next_value <= value {
+        // A tiny step at a large offset can map many indices to the same float.
+        // Jump to the next representable position instead of scanning those indices.
+        // Only the shifted path can repeat a position, so the extra evaluation
+        // here is skipped entirely on the common indexed path.
+        if first.is_none() && position(next_index) <= value {
             // Aim at the next rounding midpoint, not its full float value:
             // a larger jump can skip a distinct position when step is near one ULP.
             let half_gap = (value.next_up() - value) * 0.5;
@@ -275,12 +307,8 @@ fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64
                 break;
             }
             index = (next as usize).max(next_index);
-            if index <= last {
-                value = position(index);
-            }
         } else {
             index = next_index;
-            value = next_value;
         }
     }
     ticks
@@ -389,7 +417,9 @@ pub fn generate_ticks_bin_aligned(
 /// Generate ticks at multiples of `step` within [min, max].
 /// Duplicate rounded positions are omitted. Finite nonpositive steps use automatic ticks;
 /// non-finite bounds/steps or an unrepresentable grid count return no ticks.
-/// Dense grids retain distinct floats even when the virtual index count overflows.
+/// Dense grids retain distinct floats even when the virtual index count overflows,
+/// up to `MAX_LINEAR_TICKS` positions; beyond that the axis is degenerate and
+/// returns no ticks.
 pub fn generate_ticks_with_step(min: f64, max: f64, step: f64) -> Vec<f64> {
     if !step.is_finite() {
         return Vec::new();
@@ -1582,6 +1612,40 @@ mod tests {
             assert!(generate_ticks_bin_aligned(0.0, 1.0, invalid, 5).is_empty());
             assert!(generate_minor_ticks(&[0.0, invalid], 5).is_empty());
         }
+    }
+
+    #[test]
+    fn linear_ticks_refuse_to_outgrow_the_axis() {
+        // A step below half an ULP sends the float walk across the whole range.
+        // [1, 2] holds 2^52 floats, so the count has to be rejected outright
+        // rather than walked.
+        assert!(generate_ticks_with_step(1.0, 2.0, f64::from_bits(1)).is_empty());
+        assert!(generate_ticks_with_step(0.0, 1.0, f64::from_bits(1)).is_empty());
+        // The indexed path overruns without ever losing finiteness: these counts
+        // are representable, just far past anything an axis could draw.
+        assert!(generate_ticks_with_step(0.0, 1.0, 1e-16).is_empty());
+        assert!(generate_ticks_with_step(0.0, 1.0, 1e-9).is_empty());
+        // Ordinary dense requests are untouched on both sides of the bound.
+        let dense = generate_ticks_with_step(0.0, 1.0, 1e-4);
+        assert!(dense.len() > 9_000 && dense.len() < MAX_LINEAR_TICKS);
+        assert!(dense.windows(2).all(|p| p[0] < p[1]));
+        assert_eq!(generate_ticks_with_step(0.0, 1.0, 0.1).len(), 11);
+        // A short walk still returns every float it finds.
+        for lo in [-1e20_f64, 1e20] {
+            assert_eq!(generate_ticks_with_step(lo, lo.next_up(), 2500.0).len(), 2);
+        }
+    }
+
+    #[test]
+    fn ordered_bits_counts_representable_values() {
+        // Adjacent floats differ by one in the total order, including across zero.
+        for value in [-1e20_f64, -1.0, -f64::MIN_POSITIVE, 0.0, 1.0, 1e20] {
+            assert_eq!(ordered_bits(value.next_up()) - ordered_bits(value), 1);
+        }
+        assert_eq!(ordered_bits(0.0) - ordered_bits(-0.0), 1);
+        assert_eq!(ordered_bits(2.0) - ordered_bits(1.0), 1u64 << 52);
+        // Monotone across the whole finite range, so the subtraction never wraps.
+        assert!(ordered_bits(f64::MAX) > ordered_bits(-f64::MAX));
     }
 
     // ── repel_labels ─────────────────────────────────────────────────────
