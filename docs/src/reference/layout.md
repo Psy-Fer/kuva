@@ -557,7 +557,26 @@ let layout = Layout::auto_from_plots(&plots)
 
 <img src="../assets/layout/tick_font_family.svg" alt="Monospace sequence-context tick labels with a sans-serif title" width="560">
 
-It applies to rotated and upright labels on the x, y, and secondary axes, and to Manhattan chromosome labels, in SVG and PDF output. The PDF backend resolves the generic `monospace` family to the bundled DejaVu Sans Mono. Layout still reserves space for tick labels using DejaVu Sans metrics.
+It applies to rotated and upright labels wherever kuva draws a tick label:
+
+| Covered | Not covered (these are titles, and keep the main family) |
+|---------|---------------------------------------------------------|
+| x, y, secondary x and y axis ticks | Plot title and subtitle |
+| Manhattan chromosome labels | x, y and secondary axis labels |
+| Polar ring (r) values and theta spokes | Ternary corner labels |
+| Ternary edge percentages | Parallel-coordinates axis names |
+| Radar ring values and spoke names | 3D axis labels |
+| Parallel-coordinates per-axis values | Colorbar label |
+| 3D x, y and z axis ticks | Legend entries |
+| Colorbar tick labels | Data labels (bar values, point labels, gene names) |
+
+Width reservation follows the face: kuva measures a monospace tick label against the bundled DejaVu Sans Mono advance widths, not the sans ones. This matters more than it sounds. A fixed-width face is *narrower* than DejaVu Sans for digits (0.602 em against 0.636 em) but much wider for thin glyphs: `.` goes from 0.318 em to 0.602 em, so a decimal y-axis measured with sans metrics reserves a gutter several pixels short and clips its own labels. Setting `with_font_family("monospace")` (no tick-specific family) reserves tick labels the same way, since they render in that face too.
+
+The family itself decides this, not the presence of the option: a family carrying `mono` or `monospace` as a word (`"DejaVu Sans Mono"`, `"ui-monospace"`) or one of the common fixed-width faces that do not (`"Consolas"`, `"Fira Code"`, `"Menlo"`, `"Courier New"`) measures as monospace; anything else keeps the sans metrics. Only the first family in the list counts, the one a renderer picks when it has it.
+
+**Backends.** SVG and PDF honour the option; the PDF backend resolves the generic `monospace` family to the bundled DejaVu Sans Mono, so it renders the same on every system. PNG and terminal output ignore it and draw ticks in the bundled DejaVu Sans, exactly as they already ignore `with_font_family`: kuva rasterises PNG itself rather than handing the SVG to a system font stack. A figure exported both ways will therefore show monospace ticks in the SVG or PDF and sans ticks in the PNG.
+
+**Genome browser.** A [`TrackStack`](../plots/coverage.md) builds its own layout per track, so it carries the option itself: `TrackStack::with_tick_font_family` (and `CoveragePlot::with_tick_font_family`) applies it to the shared genomic x-axis and to every track's y-axis ticks at once, leaving track names and the axis label alone.
 
 ---
 
