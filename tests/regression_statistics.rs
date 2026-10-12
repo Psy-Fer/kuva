@@ -155,7 +155,10 @@ fn constant_y_draws_a_flat_trend_line_without_a_correlation() {
             _ => None,
         })
         .expect("equation label is still shown");
-    assert!(label.contains("y = 0.00x + 5.00"), "unexpected label: {label}");
+    assert!(
+        label.contains("y = 0.00x + 5.00"),
+        "unexpected label: {label}"
+    );
     assert!(!label.contains('r'), "r must be omitted: {label}");
 
     // The public helpers keep reporting no fit, since their tuple and return
