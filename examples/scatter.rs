@@ -66,7 +66,7 @@ fn basic() {
     std::fs::write(format!("{OUT}/basic.svg"), svg).unwrap();
 }
 
-/// Scatter with a linear trend line, regression equation, and R² annotation.
+/// Scatter with a linear trend line, regression equation, and signed Pearson r annotation.
 fn trend() {
     let data = vec![
         (1.0_f64, 2.1_f64),

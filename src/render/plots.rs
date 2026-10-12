@@ -587,12 +587,13 @@ impl Plot {
                 // The LOESS path is clipped to these bounds; it can also exceed the
                 // observed y-range, but is not computed here to expand the axes.
                 if let Some(TrendLine::Linear) = s.trend {
-                    if let Some((slope, intercept, _)) = render_utils::linear_regression(&s.data) {
-                        let y_start = slope * x_min + intercept;
-                        let y_end = slope * x_max + intercept;
-
-                        y_min = y_min.min(y_start).min(y_end);
-                        y_max = y_max.max(y_start).max(y_end);
+                    if let Some(fit) = render_utils::linear_fit(&s.data) {
+                        for x in [x_min, x_max] {
+                            if let Some(y) = fit.predict(x) {
+                                y_min = y_min.min(y);
+                                y_max = y_max.max(y);
+                            }
+                        }
                     }
                 }
 

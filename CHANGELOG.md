@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Precision-recall thresholds now also use exact score equality for ties, so close but distinct scores stay ordered and infinite scores no longer stop the curve from finishing.
 - ROC and precision-recall groups with a NaN score now produce no curve instead of running out of memory. The legend no longer shows an AUC of 0.000 for a group without a curve.
 - **Scatter LOESS fits**: scaled local coordinates and weighted squared deviations avoid distorted curves with large coordinate offsets, sparse neighborhoods, or large y values. Small x units no longer trigger a fixed-cutoff constant fit. Non-finite observations produce no smoother, and unrepresentable predictions are omitted.
+- **Linear regression and Pearson correlation** keep their results across large coordinate offsets and small or large units. Scatter trend lines and bounds use centered predictions, and undefined or unrepresentable statistics no longer return non-finite coefficients.
+- **2D histogram correlation annotations** are omitted when Pearson correlation is undefined, instead of panicking on too few points or constant coordinates.
+- **Scatter trend lines on constant y** now draw the flat least-squares line and omit only the `r` annotation, which is undefined there rather than zero. Previously no line was drawn at all.
 
 ## [0.5.0] — 2026-08-07
 

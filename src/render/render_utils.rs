@@ -851,40 +851,128 @@ pub fn simple_kde_reflect(
         .collect()
 }
 
-/// linear regression of a scatter plot so we can make the equation and get correlation
+/// Unweighted ordinary least-squares fit, returning `(slope, intercept, r)`.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or results that cannot be represented as finite `f64` values. This
+/// includes spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`. Pearson's signed `r` is undefined for constant
+/// coordinates.
 pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
 where
     I: IntoIterator,
     I::Item: Into<(f64, f64)>,
 {
-    let mut vals = Vec::new();
+    // The public iterator need not be repeatable; collect it once for the passes.
+    let vals: Vec<_> = points.into_iter().map(Into::into).collect();
+    let fit = linear_fit(vals.iter().copied())?;
+    // The public tuple has nowhere to report an undefined r, so keep the
+    // historical behaviour of no fit at all when y is constant.
+    Some((fit.slope, fit.intercept, fit.r?))
+}
 
-    for (x, y) in points.into_iter().map(Into::into) {
-        vals.push((x, y));
+struct CenteredSums {
+    mean: (f64, f64),
+    offset: (f64, f64),
+    xx: f64,
+    xy: f64,
+    yy: f64,
+}
+
+impl CenteredSums {
+    fn new<I>(points: I) -> Option<Self>
+    where
+        I: Iterator<Item = (f64, f64)> + Clone,
+    {
+        let (x0, _) = points.clone().next()?;
+        let (mut n, mut sum_x, mut sum_y) = (0usize, 0.0, 0.0);
+        let mut x_varies = false;
+        for (x, y) in points.clone() {
+            n += 1;
+            sum_x += x;
+            sum_y += y;
+            x_varies |= x != x0;
+        }
+        let mean_x = sum_x / n as f64;
+        let mean_y = sum_y / n as f64;
+        // Constant y keeps a well-defined least-squares line (a flat one); only its
+        // correlation is undefined, which `correlation` reports separately. A
+        // non-finite mean also covers any NaN or infinite coordinate.
+        if !x_varies || !mean_x.is_finite() || !mean_y.is_finite() {
+            return None;
+        }
+        let (mut sum_dx, mut sum_dy) = (0.0, 0.0);
+        let (mut xx, mut xy, mut yy) = (0.0, 0.0, 0.0);
+        for (x, y) in points {
+            let dx = x - mean_x;
+            let dy = y - mean_y;
+            sum_dx += dx;
+            sum_dy += dy;
+            xx += dx * dx;
+            xy += dx * dy;
+            yy += dy * dy;
+        }
+        let offset_x = sum_dx / n as f64;
+        let offset_y = sum_dy / n as f64;
+        let xx = xx - offset_x * sum_dx;
+        let xy = xy - offset_x * sum_dy;
+        let yy = yy - offset_y * sum_dy;
+        // `yy == 0` is the constant-y case, kept for the flat line. Any other
+        // non-normal spread is outside the range this fit can represent.
+        let yy_usable = yy == 0.0 || (yy.is_normal() && yy > 0.0);
+        (xx.is_normal() && xx > 0.0 && yy_usable).then_some(Self {
+            mean: (mean_x, mean_y),
+            offset: (offset_x, offset_y),
+            xx,
+            xy,
+            yy,
+        })
     }
 
-    if vals.len() < 2 {
+    /// `None` when y is constant: the coefficient is `0/0` there, not zero.
+    fn correlation(&self) -> Option<f64> {
+        (self.yy > 0.0).then(|| (self.xy / (self.xx.sqrt() * self.yy.sqrt())).clamp(-1.0, 1.0))
+    }
+}
+
+pub(crate) struct LinearFit {
+    sums: CenteredSums,
+    pub slope: f64,
+    pub intercept: f64,
+    /// `None` when y is constant, where the coefficient is undefined.
+    pub r: Option<f64>,
+}
+
+impl LinearFit {
+    pub fn predict(&self, x: f64) -> Option<f64> {
+        let (mean_x, mean_y) = self.sums.mean;
+        let (offset_x, offset_y) = self.sums.offset;
+        let y = mean_y + (offset_y + self.slope * ((x - mean_x) - offset_x));
+        y.is_finite().then_some(y)
+    }
+}
+
+pub(crate) fn linear_fit<I>(points: I) -> Option<LinearFit>
+where
+    I: IntoIterator,
+    I::IntoIter: Clone,
+    I::Item: Into<(f64, f64)>,
+{
+    let sums = CenteredSums::new(points.into_iter().map(Into::into))?;
+    let (mean_x, mean_y) = sums.mean;
+    let (offset_x, offset_y) = sums.offset;
+    let slope = sums.xy / sums.xx;
+    let intercept = (mean_y + (offset_y - slope * offset_x)) - slope * mean_x;
+    if !slope.is_finite() || !intercept.is_finite() {
         return None;
     }
-
-    let n = vals.len() as f64;
-    let (sum_x, sum_y, sum_xy, sum_x2) = vals.iter().fold((0.0, 0.0, 0.0, 0.0), |acc, (x, y)| {
-        (acc.0 + x, acc.1 + y, acc.2 + x * y, acc.3 + x * x)
-    });
-
-    let denom = n * sum_x2 - sum_x * sum_x;
-    if denom.abs() < 1e-8 {
-        return None;
-    }
-
-    let slope = (n * sum_xy - sum_x * sum_y) / denom;
-    let intercept = (sum_y - slope * sum_x) / n;
-
-    // Pearson correlation coefficient
-    let r = pearson_corr(&vals)?;
-
-    // y = mx+b and r
-    Some((slope, intercept, r))
+    let r = sums.correlation();
+    Some(LinearFit {
+        sums,
+        slope,
+        intercept,
+        r,
+    })
 }
 
 /// LOESS / LOWESS: locally-weighted linear regression smoother.
@@ -1193,36 +1281,13 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
     result
 }
 
-// Pearson correlation coefficient (r)
+/// Pearson's signed correlation coefficient, computed from all supplied points.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`.
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
-    let n = data.len();
-    if n < 2 {
-        return None;
-    }
-
-    let (mut sum_x, mut sum_y) = (0.0, 0.0);
-    for &(x, y) in data {
-        sum_x += x;
-        sum_y += y;
-    }
-
-    let mean_x = sum_x / n as f64;
-    let mean_y = sum_y / n as f64;
-
-    let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
-    for &(x, y) in data {
-        let dx = x - mean_x;
-        let dy = y - mean_y;
-        cov += dx * dy;
-        var_x += dx * dx;
-        var_y += dy * dy;
-    }
-
-    if var_x == 0.0 || var_y == 0.0 {
-        return None;
-    }
-
-    Some(cov / (var_x.sqrt() * var_y.sqrt()))
+    CenteredSums::new(data.iter().copied())?.correlation()
 }
 
 // ── Phylogenetic tree helpers ─────────────────────────────────────────────────
@@ -1556,6 +1621,17 @@ pub fn probit(p: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linear_fit_keeps_representable_extrapolation() {
+        let fit = linear_fit([(-1e-3, -1e-3), (1e-3, 1e-3)]).unwrap();
+        assert_eq!(fit.predict(-1e308), Some(-1e308));
+        assert_eq!(fit.predict(1e308), Some(1e308));
+        assert_eq!(fit.predict(f64::NAN), None);
+        assert_eq!(fit.predict(f64::INFINITY), None);
+        let fit = linear_fit([(0.0, 0.0), (1.0, 2.0)]).unwrap();
+        assert_eq!(fit.predict(f64::MAX), None);
+    }
 
     #[test]
     fn linear_ticks_preserve_tiny_and_subnormal_steps() {
