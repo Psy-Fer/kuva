@@ -583,9 +583,9 @@ impl Plot {
                     }
                 }
 
-                // Expand for a linear trend, which extrapolates to the axis edges and can
-                // exceed the data's y-range. A LOESS smoother stays within the data, so it
-                // needs no expansion.
+                // Expand for a linear trend, which extrapolates to the axis edges.
+                // The LOESS path is clipped to these bounds; it can also exceed the
+                // observed y-range, but is not computed here to expand the axes.
                 if let Some(TrendLine::Linear) = s.trend {
                     if let Some((slope, intercept, _)) = render_utils::linear_regression(&s.data) {
                         let y_start = slope * x_min + intercept;

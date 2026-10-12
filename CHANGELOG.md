@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ROC thresholds and DeLong AUC now use exact score equality for ties. Close but distinct scores remain ordered, preventing a pair from counting as both a win and a tie and keeping the reported AUC consistent with the curve.
 - Precision-recall thresholds now also use exact score equality for ties, so close but distinct scores stay ordered and infinite scores no longer stop the curve from finishing.
 - ROC and precision-recall groups with a NaN score now produce no curve instead of running out of memory. The legend no longer shows an AUC of 0.000 for a group without a curve.
+- **Scatter LOESS fits**: scaled local coordinates and weighted squared deviations avoid distorted curves with large coordinate offsets, sparse neighborhoods, or large y values. Small x units no longer trigger a fixed-cutoff constant fit. Non-finite observations produce no smoother, and unrepresentable predictions are omitted.
 
 ## [0.5.0] — 2026-08-07
 
