@@ -1,8 +1,8 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, muted_subtitle_color,
-    XLabelPlacer,
+    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
+    muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
@@ -309,6 +309,7 @@ fn draw_whisker(
 
 use crate::plot::band::BandPlot;
 use crate::plot::bar::BarPlot;
+use crate::plot::brick::{CigarOp, BAR_ROW_UNITS};
 use crate::plot::bump::{BumpPlot, CurveStyle};
 use crate::plot::calendar::{
     dow_mon0, from_jd, period_grid_pos, period_max_cols, to_jd, CalendarAgg, CalendarPlot,
@@ -3194,6 +3195,21 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     }
 }
 
+/// Pattern index for a CIGAR operation in black-and-white mode.
+///
+/// Distinct per operation so the bar stays readable without colour; the
+/// indices are separate from the motif bricks' own pattern assignment, which
+/// is keyed on the motif letter.
+fn cigar_bw_idx(op: CigarOp) -> usize {
+    match op {
+        CigarOp::Match => 0,
+        CigarOp::Mismatch => 1,
+        CigarOp::Insertion => 2,
+        CigarOp::Deletion => 3,
+        CigarOp::SoftClip => 4,
+    }
+}
+
 fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Use expanded strigars when available, otherwise raw sequences
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
@@ -3304,15 +3320,19 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     let draw_brick = |scene: &mut Scene,
                       x_start: f64,
                       width: f64,
-                      yr: usize,
+                      y_top: f64,
                       eff_offset: f64,
                       bw_idx: usize,
                       color_str: &str,
                       gap: f64| {
         let x0 = computed.map_x(x_start - eff_offset);
         let x1 = computed.map_x(x_start + width - eff_offset);
-        let y0 = computed.map_y(yr as f64 + 1.0);
-        let y1 = computed.map_y(yr as f64);
+        // `y_top` is the row's top edge in data space. Rows are no longer a
+        // fixed pitch apart: a row that draws a CIGAR bar is pushed down to
+        // make room for it, so the caller supplies the resolved position
+        // rather than a row index.
+        let y0 = computed.map_y(y_top);
+        let y1 = computed.map_y(y_top - 1.0);
         // One constant gap per brick, in data units (5% of a single unit), independent of
         // how wide the brick is. Deriving the gap from the brick's own width made it
         // proportional, so a 47 bp motif rendered a gap ~50x the normal one (DBQD2_XYLT1).
@@ -3343,9 +3363,16 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     let px_per_unit = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
     let merge = brickplot.merge_runs && px_per_unit < BRICK_MERGE_MAX_PX_PER_UNIT;
 
-    // Pass 1: brick rects. Row 0 renders at the TOP of the plot (y-flip via yr).
-    for i in 0..num_rows {
-        let yr = num_rows - 1 - i;
+    // CIGAR bar placement and the row y-layout it implies. Shared with
+    // `Plot::bounds` so the reserved extent and the drawn geometry agree.
+    let cl = brickplot.cigar_layout();
+    // Data-space top edge of the row at display position `pos`. With no bars
+    // this reduces to the old `num_rows - 1 - i` pitch.
+    let row_y_top = |pos: usize| -> f64 { cl.total_units - cl.row_top_units[pos] };
+
+    // Pass 1: brick rects. Display position 0 renders at the TOP of the plot.
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let yr = row_y_top(pos);
         let eff_offset = row_offset(i) - right_align_shift[i];
         let ll = left_len(i);
         let sw = str_width(i);
@@ -3415,10 +3442,153 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
         }
     }
 
+    // Pass 1b: CIGAR bars. One thin band above a row, coloured by the read's
+    // CIGAR operations, so a reader can see which bases are reference-supported
+    // and which are insertions or soft clips.
+    //
+    // Drawn in READ space, the same coordinate the bricks use, so an operation
+    // always lines up with the bases beneath it. `M`/`I`/`S`/`X` consume read
+    // bases and get width; `D` consumes only reference, so it is a zero-width
+    // caret at the junction rather than a gap in the row.
+    if brickplot.cigars.is_some() {
+        let unit_px = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+        for (pos, &i) in cl.order.iter().enumerate() {
+            if !cl.draws_bar[pos] {
+                continue;
+            }
+            let Some(spans) = cl.spans[pos].as_ref() else {
+                continue;
+            };
+            let eff_offset = row_offset(i) - right_align_shift[i];
+            // The CIGAR covers every base the row draws, so it starts at the
+            // row's first drawn base: the left flank, not the STRIGAR. Bricks
+            // put the STRIGAR at x = 0 and the left flank at negative x, so
+            // shift the whole bar left by the flank length. Right anchoring
+            // needs no special handling: `eff_offset` already carries the
+            // per-row shift that the bricks use.
+            let bar_x0 = -left_len(i);
+            let y_row_top = row_y_top(pos);
+            let y_px_top = computed.map_y(y_row_top + BAR_ROW_UNITS);
+            let y_px_bot = computed.map_y(y_row_top);
+            let alloc_top = y_px_top.min(y_px_bot);
+            let alloc_h = (y_px_bot - y_px_top).abs();
+            // Keep the top of the allocation free for the deletion caret's
+            // apex and the run-count's ascender. Both are drawn above the bar,
+            // and on the first row the allocation's top edge *is* the plot
+            // edge, so anything above it is clipped away.
+            let head = alloc_h * 0.22;
+            let bar_h = (alloc_h - head) * 0.8;
+            let bar_y = alloc_top + head;
+
+            for sp in spans {
+                if sp.op == CigarOp::Deletion {
+                    continue; // drawn as a caret in the overlay pass below
+                }
+                if sp.len <= 0.0 {
+                    continue;
+                }
+                let x0 = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let x1 = computed.map_x(bar_x0 + sp.start + sp.len - eff_offset);
+                let w = (x1 - x0).abs().max(0.6);
+                rect_bw(
+                    scene,
+                    computed,
+                    cigar_bw_idx(sp.op),
+                    brickplot.cigar_color(sp.op),
+                    x0.min(x1),
+                    bar_y,
+                    w,
+                    bar_h,
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            // Deletion carets last, so a caret is never painted over by a
+            // span that happens to start at the same base.
+            for sp in spans.iter().filter(|s| s.op == CigarOp::Deletion) {
+                let cx = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let half = (unit_px * 0.35).clamp(1.5, 4.0);
+                let d = format!(
+                    "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} Z",
+                    cx - half,
+                    bar_y + bar_h,
+                    cx,
+                    alloc_top,
+                    cx + half,
+                    bar_y + bar_h,
+                );
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d,
+                    fill: Some(Color::from(brickplot.cigar_color(CigarOp::Deletion))),
+                    stroke: Color::from(brickplot.cigar_color(CigarOp::Deletion)),
+                    stroke_width: 0.0,
+                    opacity: None,
+                    stroke_dasharray: None,
+                })));
+            }
+
+            // Run bracket: shows that this one bar speaks for every row in the
+            // run beneath it, so a row with no bar reads as "same as above"
+            // rather than "no CIGAR for this read".
+            if brickplot.cigar_dedup && brickplot.cigar_run_bracket {
+                let (first, last) = cl.runs[cl.run_of_row[pos]];
+                if last > first {
+                    let y_end = computed.map_y(row_y_top(last) - 1.0);
+                    // Sit in the tick-mark gutter, between the right-anchored
+                    // row labels and the plot edge, so the bracket never lands
+                    // on a label.
+                    let gx = computed.margin_left - 2.0;
+                    let cap = 3.5;
+                    let d = format!(
+                        "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2}",
+                        gx - cap,
+                        bar_y,
+                        gx,
+                        bar_y,
+                        gx,
+                        y_end,
+                        gx - cap,
+                        y_end,
+                    );
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: None,
+                        stroke: Color::from("#6b7177"),
+                        stroke_width: 1.1,
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                    // The count goes just inside the plot area, at the bar's
+                    // left end, rather than in the gutter: the gutter already
+                    // holds the row labels, whose width is not known here, so
+                    // anything placed there collides with them.
+                    scene.add(Primitive::Text {
+                        x: computed.margin_left + 3.0,
+                        y: bar_y + bar_h,
+                        content: format!("x{}", last - first + 1),
+                        // Clamped to the band height: at a small `row_height_px`
+                        // a fixed size would overflow the allocation and clip.
+                        size: computed
+                            .tick_size
+                            .saturating_sub(2)
+                            .min(alloc_h as u32)
+                            .max(5),
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                        color: Some(Color::from("#4a4f54")),
+                    });
+                }
+            }
+        }
+    }
+
     // Pass 2: show_values — character labels centred inside STR bricks.
     if brickplot.show_values {
-        for i in 0..num_rows {
-            let yr = num_rows - 1 - i;
+        for (pos, &i) in cl.order.iter().enumerate() {
+            let yr = row_y_top(pos);
             let eff_offset = row_offset(i) - right_align_shift[i];
             let row = &rows[i];
             let mut x_pos: f64 = 0.0;
@@ -3431,8 +3601,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 let x_start = if has_variable_width { x_pos } else { j as f64 };
                 let x0 = computed.map_x(x_start - eff_offset);
                 let x1 = computed.map_x(x_start + width - eff_offset);
-                let y0 = computed.map_y(yr as f64 + 1.0);
-                let y1 = computed.map_y(yr as f64);
+                let y0 = computed.map_y(yr);
+                let y1 = computed.map_y(yr - 1.0);
                 scene.add(Primitive::Text {
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
@@ -3456,16 +3626,49 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
     }
 }
 
-/// Render per-block notation labels for a BrickPlot.
-/// Must be called AFTER ClipEnd so labels that sit above the plot area are not clipped.
-fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+/// Where one BrickPlot row's notation labels ended up.
+enum NotationRow {
+    /// The row carries no notation.
+    None,
+    /// The labels do not fit however they are stacked, so the row shows a
+    /// single "complex structure" note instead. Labelling is all-or-nothing: a
+    /// partial set reads as though the dropped blocks were not there at all.
+    Fallback,
+    /// Placed labels as `(center_px, half_width_px, tier, text)`; tier 0 is the
+    /// line nearest the row.
+    Labels(Vec<(f64, f64, usize, String)>),
+}
+
+/// One row's notation labels and the band of pixels they are stacked into.
+struct NotationPlacement {
+    /// The pixel y that tier 0 is measured from.
+    anchor_y: f64,
+    /// Tiers climb away from the plot (the top row, into the margin reserved
+    /// for it) or descend into the row's own band (every other row). Drawing a
+    /// lower row's labels upward would float them over the row above, which
+    /// reads as though they described *that* row.
+    upward: bool,
+    row: NotationRow,
+}
+
+/// Lay out a BrickPlot's notation labels without drawing them, one entry per
+/// display row.
+///
+/// Only horizontal geometry (`map_x` and the plot's left/right edges) decides
+/// how many tiers the top row's labels need, and none of that depends on
+/// `margin_top`. That independence is what lets [`resolve_brick_notation_tiers`]
+/// size the top margin from this result and then re-run it for the same answer.
+fn brickplot_notation_rows(
+    brickplot: &BrickPlot,
+    computed: &ComputedLayout,
+) -> Vec<NotationPlacement> {
     let notations = match brickplot.notations.as_ref() {
         Some(n) => n,
-        None => return,
+        None => return Vec::new(),
     };
     let motifs_map = match brickplot.motifs.as_ref() {
         Some(m) => m,
-        None => return,
+        None => return Vec::new(),
     };
 
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
@@ -3475,7 +3678,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
     };
     let num_rows = rows.len();
     if num_rows == 0 {
-        return;
+        return Vec::new();
     }
 
     let row_offset = |i: usize| -> f64 {
@@ -3523,23 +3726,57 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
         vec![0.0; num_rows]
     };
 
-    const N_TIERS: usize = 4;
+    const N_TIERS: usize = crate::plot::brick::BRICK_NOTATION_TIERS;
     let font_px = computed.body_size as f64;
-    let label_size = (font_px * 0.85) as u32;
     let line_h = font_px * 1.1;
 
-    for (i, notation_opt) in notations.iter().enumerate() {
-        if notation_opt.is_none() {
-            continue;
-        }
-        if i >= num_rows {
+    // Same row layout the bricks and bars use: display order (which `sort` may
+    // have changed) and the uneven pitch that CIGAR bars introduce.
+    let cl = brickplot.cigar_layout();
+
+    let plot_px = computed.plot_width();
+    let plot_left_px = computed.margin_left;
+    let plot_right_px = computed.width - computed.margin_right;
+
+    let mut out: Vec<NotationPlacement> = Vec::with_capacity(cl.order.len());
+
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let row_top = cl.total_units - cl.row_top_units[pos];
+        // The top row's labels go above the plot, clear of any CIGAR bar drawn
+        // in the allowance above the bricks. Every other row stacks downward
+        // from its own top edge instead, so its labels stay on its own band.
+        let upward = pos == 0;
+        let bar_allowance = if cl.draws_bar[pos] {
+            crate::plot::brick::BAR_ROW_UNITS
+        } else {
+            0.0
+        };
+        let band_top_px = computed.map_y(row_top);
+        let band_h = (computed.map_y(row_top - 1.0) - band_top_px).abs();
+        let anchor_y = if upward {
+            computed.map_y(row_top + bar_allowance)
+        } else {
+            band_top_px
+        };
+        // Upward has the whole reserved margin; downward only has the room
+        // between the row's own edges.
+        let tier_budget = if upward {
+            N_TIERS
+        } else {
+            (((band_h - 4.0) / line_h).floor().max(1.0) as usize).min(N_TIERS)
+        };
+
+        let has_notation = notations.get(i).map(|n| n.is_some()).unwrap_or(false);
+        if !has_notation || i >= num_rows {
+            out.push(NotationPlacement {
+                anchor_y,
+                upward,
+                row: NotationRow::None,
+            });
             continue;
         }
 
-        let yr = num_rows - 1 - i;
         let eff_offset = row_offset(i) - right_align_shift[i];
-        let y_top_px = computed.map_y((yr + 1) as f64);
-
         let row = &rows[i];
 
         let letter_width = |ch: char| -> f64 {
@@ -3590,11 +3827,10 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             });
         }
 
-        // Density check: if all label text laid end-to-end exceeds 2× the plot width,
-        // the locus is too complex for per-block labels (e.g. SCA31 expansions with
-        // hundreds of copies). Suppress individual labels and show a single fallback.
-        let plot_px = computed.plot_width();
-        let labelable: Vec<String> = runs
+        // Cheap reject before packing: however well they pack, the labels
+        // cannot fit if laid end-to-end they exceed what every tier together
+        // can hold (e.g. SCA31 expansions with hundreds of copies).
+        let total_label_px: f64 = runs
             .iter()
             .filter(|r| r.letter != '@')
             .filter_map(|r| {
@@ -3602,30 +3838,25 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
                     .get(&r.letter)
                     .map(|k| format!("({}){}", k, r.count))
             })
-            .collect();
-        let total_label_px: f64 = labelable
-            .iter()
-            .map(|l| measure_text_width(l, font_px, FontStyle::Regular))
+            .map(|l| measure_text_width(&l, font_px, FontStyle::Regular))
             .sum();
 
-        if total_label_px > plot_px * 2.0 {
-            let cx = computed.margin_left + plot_px / 2.0;
-            scene.add(Primitive::Text {
-                x: cx,
-                y: y_top_px - 2.0 - 0.5 * line_h,
-                content: "complex structure: see TSV".to_string(),
-                size: label_size,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-                bold: false,
-                color: None,
+        if total_label_px > plot_px * tier_budget as f64 {
+            out.push(NotationPlacement {
+                anchor_y,
+                upward,
+                row: NotationRow::Fallback,
             });
             continue;
         }
 
-        let plot_left_px = computed.margin_left;
-        let plot_right_px = computed.width - computed.margin_right;
+        // Pack greedily into the lowest tier with room. Runs come out in x
+        // order and the clamp below preserves that order, so first-fit by left
+        // edge is an optimal interval packing: a label that finds no tier
+        // genuinely needs more than N_TIERS of them, and the row falls back.
         let mut last_right: [f64; N_TIERS] = [f64::NEG_INFINITY; N_TIERS];
+        let mut placed: Vec<(f64, f64, usize, String)> = Vec::with_capacity(runs.len());
+        let mut unplaceable = false;
 
         for run in &runs {
             if run.letter == '@' {
@@ -3647,22 +3878,162 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             let left_px = clamped_center - text_half_w;
             let right_px = clamped_center + text_half_w;
 
-            let chosen = (0..N_TIERS).find(|&t| left_px > last_right[t]).unwrap_or(0);
+            let Some(chosen) = (0..tier_budget)
+                .find(|&t| left_px > last_right[t] + crate::plot::brick::BRICK_NOTATION_GAP_PX)
+            else {
+                unplaceable = true;
+                break;
+            };
             last_right[chosen] = right_px;
+            placed.push((clamped_center, text_half_w, chosen, label));
+        }
 
-            let y_text = y_top_px - 2.0 - (chosen as f64 + 0.5) * line_h;
-            scene.add(Primitive::Text {
-                x: clamped_center,
-                y: y_text,
-                content: label,
-                size: label_size,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+        out.push(NotationPlacement {
+            anchor_y,
+            upward,
+            row: if unplaceable {
+                NotationRow::Fallback
+            } else {
+                NotationRow::Labels(placed)
+            },
+        });
+    }
+
+    out
+}
+
+/// How many notation tiers a set of plots actually needs above their top row,
+/// so `margin_top` reserves only the lines that get used. A row that falls back
+/// to the "complex structure" note still needs the one line it is drawn on.
+fn brickplot_notation_tiers_used(plots: &[Plot], computed: &ComputedLayout) -> usize {
+    plots
+        .iter()
+        .filter_map(|p| match p {
+            Plot::Brick(bp) => Some(bp),
+            _ => None,
+        })
+        .flat_map(|bp| brickplot_notation_rows(bp, computed))
+        // Only the top row's labels live in the margin; the rest stay inside
+        // their own bands and cost no head room.
+        .filter(|p| p.upward)
+        .map(|p| match p.row {
+            NotationRow::None => 0,
+            NotationRow::Fallback => 1,
+            NotationRow::Labels(ref placed) => {
+                placed.iter().map(|&(_, _, t, _)| t + 1).max().unwrap_or(0)
+            }
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Compute the layout, shrinking the notation tier reservation in `layout` to
+/// the number of tiers the labels really occupy.
+///
+/// `Layout::auto_from_plots` can only reserve the worst case, which leaves a
+/// simple locus with several blank lines of top margin. The label packing
+/// depends on horizontal geometry alone, so re-running it against a layout that
+/// differs only in `margin_top` yields the same placements; the loop is there
+/// purely in case a margin change feeds back into the horizontal margins, and
+/// it keeps the larger reservation if it ever fails to settle.
+pub(crate) fn resolve_brick_notation_tiers(plots: &[Plot], layout: &mut Layout) -> ComputedLayout {
+    let mut computed = ComputedLayout::from_layout(layout);
+    if layout.brick_notation_tiers == 0 {
+        return computed;
+    }
+    for _ in 0..4 {
+        let used = brickplot_notation_tiers_used(plots, &computed);
+        if used == layout.brick_notation_tiers {
+            return computed;
+        }
+        layout.brick_notation_tiers = used;
+        computed = ComputedLayout::from_layout(layout);
+    }
+    // Never settled, so the reservation and the placement disagree. Keep the
+    // worst case: too much head room beats labels clipped off the canvas.
+    layout.brick_notation_tiers = crate::plot::brick::BRICK_NOTATION_TIERS;
+    ComputedLayout::from_layout(layout)
+}
+
+/// Render per-block notation labels for a BrickPlot.
+/// Must be called AFTER ClipEnd so labels that sit above the plot area are not clipped.
+fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let font_px = computed.body_size as f64;
+    let label_size = (font_px * 0.85) as u32;
+    let line_h = font_px * 1.1;
+    let center_px = computed.margin_left + computed.plot_width() / 2.0;
+
+    // Tier 0 sits just clear of `anchor_y`; further tiers climb away from the
+    // plot for the top row, or descend into the band for the rest.
+    let tier_baseline = |p: &NotationPlacement, tier: usize| -> f64 {
+        if p.upward {
+            p.anchor_y - 2.0 - (tier as f64 + 0.5) * line_h
+        } else {
+            p.anchor_y + 2.0 + font_px + tier as f64 * line_h
+        }
+    };
+
+    for p in brickplot_notation_rows(brickplot, computed) {
+        match p.row {
+            NotationRow::None => {}
+            NotationRow::Fallback => {
+                let y = tier_baseline(&p, 0);
+                if !p.upward {
+                    let w = measure_text_width(
+                        "complex structure: see TSV",
+                        font_px,
+                        FontStyle::Regular,
+                    );
+                    label_plate(scene, center_px, y, w * 0.5, font_px);
+                }
+                scene.add(Primitive::Text {
+                    x: center_px,
+                    y,
+                    content: "complex structure: see TSV".to_string(),
+                    size: label_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+            NotationRow::Labels(ref placed) => {
+                // Plates first, so one label's backing never covers its neighbour.
+                if !p.upward {
+                    for &(x, half_w, tier, _) in placed {
+                        label_plate(scene, x, tier_baseline(&p, tier), half_w, font_px);
+                    }
+                }
+                for (x, _, tier, content) in placed {
+                    scene.add(Primitive::Text {
+                        x: *x,
+                        y: tier_baseline(&p, *tier),
+                        content: content.clone(),
+                        size: label_size,
+                        anchor: TextAnchor::Middle,
+                        rotate: None,
+                        bold: false,
+                        color: None,
+                    });
+                }
+            }
         }
     }
+}
+
+/// A translucent white plate behind a notation label drawn over bricks, so the
+/// text stays legible against whatever motif colour it lands on.
+fn label_plate(scene: &mut Scene, center_x: f64, baseline_y: f64, half_w: f64, font_px: f64) {
+    scene.add(Primitive::Rect {
+        x: center_x - half_w - 2.0,
+        y: baseline_y - font_px * 0.8,
+        width: half_w * 2.0 + 4.0,
+        height: font_px,
+        fill: Color::from("#ffffff"),
+        stroke: None,
+        stroke_width: None,
+        opacity: Some(0.78),
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4217,6 +4588,9 @@ fn draw_3d_box(
         let perp_sign = if fc_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(0.0, fc_y, -0.5, 0.0, perp_sign, 0.0);
         let (edx, edy) = screen_dir(-0.5, fc_y, -0.5, 0.5, fc_y, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &x_ticks {
             let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4245,6 +4619,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.x_label {
             let (mx, my, _) = proj.project_normalized(0.0, fc_y, -0.5);
             scene.add(Primitive::Text {
@@ -4266,6 +4641,9 @@ fn draw_3d_box(
         let perp_sign = if fc_x < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(fc_x, 0.0, -0.5, perp_sign, 0.0, 0.0);
         let (edx, edy) = screen_dir(fc_x, -0.5, -0.5, fc_x, 0.5, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &y_ticks {
             let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4294,6 +4672,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.y_label {
             let (mx, my, _) = proj.project_normalized(fc_x, 0.0, -0.5);
             scene.add(Primitive::Text {
@@ -4342,6 +4721,9 @@ fn draw_3d_box(
         let perp_y = if edge_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(edge_x, edge_y, 0.0, perp_x, perp_y, 0.0);
         let (zdx, zdy) = screen_dir(edge_x, edge_y, -0.5, edge_x, edge_y, 0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &z_ticks {
             let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
             if t.abs() > 0.501 {
@@ -4368,6 +4750,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.z_label {
             let (mx, my, _) = proj.project_normalized(edge_x, edge_y, 0.0);
             scene.add(Primitive::Text {
@@ -5986,6 +6369,9 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Tick marks & value labels ──────────────────────────────────────────────
+    // Per-axis value labels are tick labels; the axis names above are titles and
+    // keep the main family.
+    start_tick_font(scene, computed);
     // `tick_size` was computed above (with possible font-size reduction to prevent
     // horizontal label collision on densely-spaced axes).
     if pp.show_axis_ticks {
@@ -6026,7 +6412,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
                 });
                 scene.add(Primitive::Text {
                     x: label_x,
-                    y: py + center_offset(tick_size as f64, FontStyle::Regular),
+                    y: py + center_offset(tick_size as f64, computed.tick_font_style()),
                     content: format_tick_value(val),
                     size: tick_size,
                     anchor: if is_last {
@@ -6041,6 +6427,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
             }
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Group color mapping ────────────────────────────────────────────────────
     let groups = pp.groups();
@@ -9444,6 +9831,9 @@ fn add_colorbar_at(
     // preserves the round decade tick and drops the redundant data-max label.
     let min_label_gap = computed.tick_size as f64;
     let mut last_drawn_y: Option<f64> = None;
+    // Colorbar tick labels are tick labels; the rotated colorbar label below is a
+    // title and keeps the main family.
+    start_tick_font(scene, computed);
     for (pos, label) in tick_entries {
         if *pos < info.min_value || *pos > info.max_value {
             continue;
@@ -9481,6 +9871,7 @@ fn add_colorbar_at(
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     // Label rotated -90° to the left of the bar (reads bottom-to-top).
     // Left placement keeps it away from tick labels and avoids right-edge clipping.
@@ -10001,8 +10392,10 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     let mut placer = XLabelPlacer::new(
         computed.x_label_overlap.clone(),
         computed.tick_size as f64,
+        computed.tick_font_style(),
         computed.x_tick_rotate,
     );
+    start_tick_font(scene, computed);
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
@@ -10027,6 +10420,7 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
             });
         }
     }
+    end_tick_font(scene, computed);
 }
 
 pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
@@ -12040,6 +12434,39 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         shape: LegendShape::Rect,
                         dasharray: None,
                     })
+                }
+                // CIGAR operation entries, appended after the motifs so the
+                // motif legend keeps its frequency ordering. Only the ops that
+                // actually occur are listed, so a plot with no soft clips does
+                // not advertise a softclip swatch.
+                if brickplot.cigars.is_some() {
+                    let cl = brickplot.cigar_layout();
+                    let mut seen: Vec<CigarOp> = Vec::new();
+                    for spans in cl.spans.iter().flatten() {
+                        for sp in spans {
+                            if !seen.contains(&sp.op) {
+                                seen.push(sp.op);
+                            }
+                        }
+                    }
+                    // Fixed order, not discovery order, so the legend is stable
+                    // across datasets.
+                    for op in [
+                        CigarOp::Match,
+                        CigarOp::Mismatch,
+                        CigarOp::Insertion,
+                        CigarOp::Deletion,
+                        CigarOp::SoftClip,
+                    ] {
+                        if seen.contains(&op) {
+                            entries.push(LegendEntry {
+                                label: op.label().to_string(),
+                                color: brickplot.cigar_color(op).to_string(),
+                                shape: LegendShape::Rect,
+                                dasharray: None,
+                            });
+                        }
+                    }
                 }
             }
             Plot::Box(boxplot) => {
@@ -15998,7 +16425,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let mut computed = ComputedLayout::from_layout(&layout);
+    // Reserve only the notation tiers the labels actually occupy, rather than
+    // the worst case `Layout::auto_from_plots` had to assume.
+    let mut computed = resolve_brick_notation_tiers(&plots, &mut layout);
 
     // Pie canvas-widening: when a Pie with outside labels is present, ensure the
     // canvas is wide enough to fit both the leader-line labels AND any legend in the
@@ -17770,10 +18199,14 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
         }
 
-        // Emit all labels after geometry so lines never overdraw text.
+        // Emit all labels after geometry so lines never overdraw text. These are
+        // the polar axis's tick labels (ring r-values and theta spokes), so they
+        // follow the tick font family like any cartesian tick label.
+        start_tick_font(scene, computed);
         for prim in label_prims {
             scene.add(prim);
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Data series ───────────────────────────────────────────────────────────
@@ -17996,6 +18429,9 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // ── Tick labels on edges ──────────────────────────────────────────────────
     if tp.show_percentages {
+        // Percentage ticks along the three edges are this plot's tick labels;
+        // the corner labels below are axis titles and keep the main family.
+        start_tick_font(scene, computed);
         for ki in 0..=n {
             let k = ki as f64 / n as f64;
             let pct = (k * 100.0).round() as i32;
@@ -18043,6 +18479,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Corner labels ─────────────────────────────────────────────────────────
@@ -19797,7 +20234,10 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
 
-        // Concentric rings (polygon or circular)
+        // Concentric rings (polygon or circular). The per-ring value labels are the
+        // radial axis's tick labels, so the whole loop runs inside one tick-font
+        // group rather than opening a new one per ring.
+        start_tick_font(scene, computed);
         for k in 1..=rp.grid_lines {
             let fr = k as f64 / rp.grid_lines as f64;
 
@@ -19851,6 +20291,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
                 color: Some(Color::from(theme.tick_color.as_str())),
             });
         }
+        end_tick_font(scene, computed);
 
         // Axis tick marks
         if rp.axis_ticks {
@@ -19880,6 +20321,9 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
     let label_size = computed.tick_size;
     let line_h = label_size as f64 * 1.2;
 
+    // The spoke names are this plot's category tick labels (the radar analogue of
+    // a cartesian x-category axis), so they follow the tick font family.
+    start_tick_font(scene, computed);
     for i in 0..n {
         let th = angle(i);
         let lx = cx + label_r * radius * th.cos();
@@ -19927,6 +20371,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Reference polygons (drawn before series so they stay behind) ──────────
     for ref_poly in &rp.references {

@@ -767,3 +767,328 @@ fn test_brickplot_row_height_standalone_sizing() {
         "canvas height difference should be 5 * row_height = 100 px, got {diff}"
     );
 }
+
+// Per-run notation labels are packed into vertical stagger tiers. An
+// unplaceable label used to be dropped back onto tier 0 (`unwrap_or(0)`),
+// overwriting whatever was already there instead of staggering further up.
+//
+// Reproducing it needs *clustered* labels rather than merely many of them: the
+// density guard trips on the total label width, so evenly spread labels are
+// suppressed wholesale before the tiers can fill. A tight run of short blocks
+// followed by one very long block keeps the total small while piling a dozen
+// labels into a narrow x range.
+/// A strigar whose motif runs cluster tightly: short `(CAG)n` blocks packed
+/// against a long `(CAACACAACAA)n` one, which is the shape that makes labels
+/// collide. At width 2100 the full set fits, but only by using every tier.
+fn clustered_notation_plot(width: f64) -> kuva::render::render::Scene {
+    let strigar = format!("{}{}A", "1A1B".repeat(6), 200);
+    let motifs = "CAG:A,CAACACAACAA:B";
+    // Row 0 renders at the top and is the only row with a notation: the
+    // consensus-above-the-reads shape the notation track is meant for.
+    let plot = BrickPlot::new()
+        .with_strigars((0..2).map(|_| (motifs, strigar.as_str())))
+        .with_names((0..2).map(|i| format!("read{i}")))
+        .with_notations([Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("notation stagger")
+        .with_width(width)
+        .with_height(320.0);
+    render_multiple(plots, layout)
+}
+
+/// Notation labels grouped by the tier (text baseline) they were placed on.
+/// Each entry is `(left_px, right_px, text)`; widths are derived from the real
+/// font size rather than guessed from markup.
+fn notation_tiers(
+    scene: &kuva::render::render::Scene,
+) -> std::collections::BTreeMap<String, Vec<(f64, f64, String)>> {
+    let mut by_tier: std::collections::BTreeMap<String, Vec<(f64, f64, String)>> =
+        std::collections::BTreeMap::new();
+    for p in &scene.elements {
+        if let kuva::render::render::Primitive::Text {
+            x,
+            y,
+            content,
+            size,
+            ..
+        } = p
+        {
+            // Notation labels are the only "(motif)count" texts.
+            if !content.starts_with('(') {
+                continue;
+            }
+            // DejaVu Sans averages ~0.55 em per glyph; labels are centred.
+            let half = content.chars().count() as f64 * (*size as f64) * 0.55 * 0.5;
+            by_tier.entry(format!("{y:.1}")).or_default().push((
+                x - half,
+                x + half,
+                content.clone(),
+            ));
+        }
+    }
+    by_tier
+}
+
+#[test]
+fn notation_labels_never_overlap_on_a_tier() {
+    let scene = clustered_notation_plot(2100.0);
+    let by_tier = notation_tiers(&scene);
+    assert!(!by_tier.is_empty(), "expected notation labels to render");
+
+    for (y, mut items) in by_tier {
+        items.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("finite"));
+        for w in items.windows(2) {
+            assert!(
+                w[1].0 >= w[0].1,
+                "labels overlap on tier y={y}: {} [{:.1}..{:.1}] and {} [{:.1}..{:.1}]",
+                w[0].2,
+                w[0].0,
+                w[0].1,
+                w[1].2,
+                w[1].0,
+                w[1].1
+            );
+        }
+    }
+}
+
+#[test]
+fn notation_labels_use_every_tier_before_giving_up() {
+    let scene = clustered_notation_plot(2100.0);
+    let by_tier = notation_tiers(&scene);
+    let labels: usize = by_tier.values().map(|v| v.len()).sum();
+
+    // 13 labelable runs on the notated row: the whole set must be drawn.
+    assert_eq!(labels, 13, "expected every notation label to be drawn");
+    // The row needs the full tier budget. Were the budget still four, this
+    // locus would have fallen back to "complex structure" instead.
+    assert_eq!(
+        by_tier.len(),
+        kuva::plot::brick::BRICK_NOTATION_TIERS,
+        "expected the row to stagger across every available tier"
+    );
+}
+
+#[test]
+fn y_axis_labels_sit_on_the_rows_they_name() {
+    // Rows of different lengths, so a band's brick count identifies which row
+    // it is independently of the axis labels.
+    let plot = BrickPlot::new()
+        .with_strigars([("CAG:A", "20A"), ("CAG:A", "60A")])
+        .with_names(["row0_short", "row1_long"]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(600.0)
+        .with_height(300.0);
+    let scene = render_multiple(plots, layout);
+
+    // Band top edge -> number of bricks drawn on it.
+    let mut bricks: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut label_y: std::collections::HashMap<&str, f64> = Default::default();
+    for p in &scene.elements {
+        match p {
+            // Bricks are tall and narrow: taller than a 12px legend swatch,
+            // narrower than the canvas background or the legend box.
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height > 20.0 && *width < 60.0 => {
+                *bricks.entry(format!("{y:.1}")).or_default() += 1;
+            }
+            kuva::render::render::Primitive::Text { y, content, .. } => {
+                for name in ["row0_short", "row1_long"] {
+                    if content == name {
+                        label_y.insert(name, *y);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let (short_band, long_band) = {
+        let two = bricks
+            .iter()
+            .find(|(_, &n)| n == 20)
+            .expect("a band of 20 bricks");
+        let six = bricks
+            .iter()
+            .find(|(_, &n)| n == 60)
+            .expect("a band of 60 bricks");
+        (two.0.parse::<f64>().unwrap(), six.0.parse::<f64>().unwrap())
+    };
+
+    // Each tick label must be nearer its own band than the other one. Before
+    // the display-order fix the two labels were swapped: the axis claimed the
+    // top row was `row1_long` when the bricks there were `row0_short`.
+    let short_label = label_y["row0_short"];
+    let long_label = label_y["row1_long"];
+    assert!(
+        (short_label - short_band).abs() < (short_label - long_band).abs(),
+        "row0_short labelled at {short_label:.1}, but its 20-brick band is at \
+         {short_band:.1} and the other at {long_band:.1}"
+    );
+    assert!(
+        (long_label - long_band).abs() < (long_label - short_band).abs(),
+        "row1_long labelled at {long_label:.1}, but its 60-brick band is at \
+         {long_band:.1} and the other at {short_band:.1}"
+    );
+}
+
+/// A locus whose few, well-spread runs need only one notation tier.
+fn simple_notation_plot(width: f64) -> kuva::render::render::Scene {
+    let plot = BrickPlot::new()
+        .with_strigars((0..2).map(|_| ("CAG:A,CAACACAACAA:B", "5A3B4A2B6A")))
+        .with_names((0..2).map(|i| format!("read{i}")))
+        .with_notations([Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("notation stagger")
+        .with_width(width)
+        .with_height(320.0);
+    render_multiple(plots, layout)
+}
+
+/// `(top of the first brick row, baseline of the highest notation label)`.
+fn brick_top_and_top_label(scene: &kuva::render::render::Scene) -> (f64, f64) {
+    let mut brick_top = f64::INFINITY;
+    let mut label_top = f64::INFINITY;
+    for p in &scene.elements {
+        match p {
+            // Bricks are the small rects; skip the plot frame and legend box.
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height < 40.0 && *width < 60.0 => brick_top = brick_top.min(*y),
+            kuva::render::render::Primitive::Text { y, content, .. }
+                if content.starts_with('(') =>
+            {
+                label_top = label_top.min(*y)
+            }
+            _ => {}
+        }
+    }
+    (brick_top, label_top)
+}
+
+#[test]
+fn non_top_row_notations_stay_inside_their_own_band() {
+    // Three rows, notation on the middle one only. Drawn above its top edge it
+    // would float over the row before it and read as that row's annotation, so
+    // it must land between its own band's edges instead.
+    let plot = BrickPlot::new()
+        .with_strigars((0..3).map(|_| ("CAG:A", "20A")))
+        .with_names(["row0", "row1", "row2"])
+        .with_notations([None, Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(800.0)
+        .with_height(360.0);
+    let scene = render_multiple(plots, layout);
+
+    // Distinct band top edges, in draw order: display row 0, 1, 2.
+    let mut band_tops: Vec<f64> = Vec::new();
+    let mut label_y: Option<f64> = None;
+    for p in &scene.elements {
+        match p {
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height > 20.0
+                && *width < 60.0
+                && !band_tops.iter().any(|t| (t - y).abs() < 0.01) =>
+            {
+                band_tops.push(*y)
+            }
+            kuva::render::render::Primitive::Text { y, content, .. }
+                if content.starts_with('(') =>
+            {
+                label_y = Some(*y);
+            }
+            _ => {}
+        }
+    }
+    band_tops.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+    assert_eq!(band_tops.len(), 3, "expected three brick bands");
+    let band_h = band_tops[1] - band_tops[0];
+    let y = label_y.expect("expected a notation label");
+
+    assert!(
+        y > band_tops[1] && y < band_tops[1] + band_h,
+        "notation at {y:.1} must sit inside its own band \
+         ({:.1}..{:.1}), not over the row above",
+        band_tops[1],
+        band_tops[1] + band_h
+    );
+
+    // And it gets a backing plate, or the text would fight the brick colours.
+    let plates = scene
+        .elements
+        .iter()
+        .filter(|p| {
+            matches!(
+                p,
+                kuva::render::render::Primitive::Rect { opacity: Some(o), height, .. }
+                    if *o < 1.0 && *height < 20.0
+            )
+        })
+        .count();
+    assert_eq!(
+        plates, 1,
+        "expected one backing plate behind the in-band label"
+    );
+}
+
+#[test]
+fn notation_margin_reserves_only_the_tiers_used() {
+    // One tier of labels versus six: the top margin must follow the labels,
+    // not reserve the worst case for both.
+    let (simple_brick, simple_label) = brick_top_and_top_label(&simple_notation_plot(900.0));
+    let (dense_brick, dense_label) = brick_top_and_top_label(&clustered_notation_plot(2100.0));
+
+    assert!(
+        simple_brick < dense_brick,
+        "a one-tier locus must not reserve as much head room as a six-tier one \
+         (brick top {simple_brick:.1} vs {dense_brick:.1})"
+    );
+
+    // The reservation is consumed exactly, so the highest label sits in the
+    // same place either way: no blank tiers left under the title.
+    assert!(
+        (simple_label - dense_label).abs() < 0.5,
+        "top label should start at the same height regardless of tier count \
+         ({simple_label:.1} vs {dense_label:.1})"
+    );
+
+    // And it stays on the canvas, above the bricks it annotates.
+    assert!(simple_label > 0.0, "top label ran off the canvas");
+    assert!(
+        simple_label < simple_brick,
+        "notation labels must sit above the first brick row"
+    );
+}
+
+#[test]
+fn notation_labels_are_all_or_nothing() {
+    // The same locus too narrow to label: no tier arrangement fits, so every
+    // row must show the fallback rather than a silently incomplete label set.
+    let scene = clustered_notation_plot(900.0);
+    assert!(
+        notation_tiers(&scene).is_empty(),
+        "expected no partial notation labels when the locus cannot be labelled in full"
+    );
+
+    let fallbacks = scene
+        .elements
+        .iter()
+        .filter(|p| {
+            matches!(
+                p,
+                kuva::render::render::Primitive::Text { content, .. }
+                    if content.contains("complex structure")
+            )
+        })
+        .count();
+    assert_eq!(
+        fallbacks, 1,
+        "expected one fallback label on the notated row"
+    );
+}
