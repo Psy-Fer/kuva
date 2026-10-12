@@ -145,20 +145,21 @@ pub struct PrComputed {
 
 /// Sort descending by score; walk thresholds to produce PR points.
 /// Returns `(points, prevalence)`.
+/// Only equal scores share a threshold; distinct scores keep their order.
+/// Returns no points if any score is NaN, since NaN has no order.
 pub fn compute_pr_points(predictions: &[(f64, bool)]) -> (Vec<PrPoint>, f64) {
     if predictions.is_empty() {
         return (Vec::new(), 0.0);
     }
-    let mut sorted = predictions.to_vec();
-    sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    let n_pos = sorted.iter().filter(|p| p.1).count();
-    let n_total = sorted.len();
+    let n_pos = predictions.iter().filter(|p| p.1).count();
+    let n_total = predictions.len();
     let prevalence = n_pos as f64 / n_total as f64;
 
-    if n_pos == 0 {
+    if n_pos == 0 || predictions.iter().any(|p| p.0.is_nan()) {
         return (Vec::new(), prevalence);
     }
+    let mut sorted = predictions.to_vec();
+    sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
     // Anchor: (recall=0, precision=1.0) at threshold=+∞
     let mut points = vec![PrPoint {
@@ -173,7 +174,7 @@ pub fn compute_pr_points(predictions: &[(f64, bool)]) -> (Vec<PrPoint>, f64) {
     while i < sorted.len() {
         let thresh = sorted[i].0;
         // Consume all items at this threshold
-        while i < sorted.len() && (sorted[i].0 - thresh).abs() < f64::EPSILON * 100.0 {
+        while i < sorted.len() && sorted[i].0 == thresh {
             if sorted[i].1 {
                 tp += 1;
             } else {

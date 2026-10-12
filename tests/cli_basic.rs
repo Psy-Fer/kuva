@@ -2055,6 +2055,17 @@ fn test_pareto_horizontal_and_max_categories() {
     );
 }
 
+#[test]
+fn test_roc_near_scores_auc_label() {
+    let tsv = "score\tlabel\n1\t1\n0.9999999999999998\t0\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &["roc", "--legend", "Classifier", "--auc-label", "--ci"],
+        tsv,
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Model  (AUC = 1.000)</text>"));
+}
+
 // ── misc ─────────────────────────────────────────────────────────────────────
 
 #[test]
