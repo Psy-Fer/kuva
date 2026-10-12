@@ -5,10 +5,40 @@ use crate::render::layout::{
     SUBTITLE_MUTE,
 };
 use crate::render::render::{Primitive, Scene, TextAnchor};
-use crate::render::render_utils;
+use crate::render::render_utils::{self, escape_attr};
 use crate::render::text_metrics::{
     ascent, center_offset, line_height, measure_text_width, FontStyle,
 };
+
+/// Opens a group that applies the tick-label font family, when one is set, to
+/// the tick labels drawn before the matching [`end_tick_font`].
+pub(crate) fn start_tick_font(scene: &mut Scene, computed: &ComputedLayout) {
+    start_tick_font_family(scene, computed.tick_font_family.as_deref());
+}
+
+/// Closes the group opened by [`start_tick_font`].
+pub(crate) fn end_tick_font(scene: &mut Scene, computed: &ComputedLayout) {
+    end_tick_font_family(scene, computed.tick_font_family.as_deref());
+}
+
+/// [`start_tick_font`] for the composites that carry a tick family without a
+/// `ComputedLayout` to read it from (the `TrackStack` genomic axis).
+pub(crate) fn start_tick_font_family(scene: &mut Scene, family: Option<&str>) {
+    if let Some(family) = family {
+        scene.add(Primitive::GroupStart {
+            transform: None,
+            title: None,
+            extra_attrs: Some(format!(r#"font-family="{}""#, escape_attr(family))),
+        });
+    }
+}
+
+/// Closes the group opened by [`start_tick_font_family`].
+pub(crate) fn end_tick_font_family(scene: &mut Scene, family: Option<&str>) {
+    if family.is_some() {
+        scene.add(Primitive::GroupEnd);
+    }
+}
 
 fn draw_x_tick(
     scene: &mut Scene,
@@ -108,16 +138,26 @@ fn draw_y_tick(
 pub(crate) struct XLabelPlacer {
     strategy: AxisLabelOverlap,
     tick_size: f64,
+    /// Face the labels render in — thinning compares measured footprints, so a
+    /// monospace tick family must be measured as one or labels are thinned
+    /// against widths they do not have.
+    style: FontStyle,
     rotate: Option<f64>,
     last_right: f64,
     row_right: [f64; 2],
 }
 
 impl XLabelPlacer {
-    pub(crate) fn new(strategy: AxisLabelOverlap, tick_size: f64, rotate: Option<f64>) -> Self {
+    pub(crate) fn new(
+        strategy: AxisLabelOverlap,
+        tick_size: f64,
+        style: FontStyle,
+        rotate: Option<f64>,
+    ) -> Self {
         Self {
             strategy,
             tick_size,
+            style,
             rotate,
             last_right: f64::NEG_INFINITY,
             row_right: [f64::NEG_INFINITY; 2],
@@ -125,7 +165,7 @@ impl XLabelPlacer {
     }
 
     fn footprint(&self, x: f64, label: &str, anchor: &TextAnchor) -> (f64, f64) {
-        let text_w = measure_text_width(label, self.tick_size, FontStyle::Regular);
+        let text_w = measure_text_width(label, self.tick_size, self.style);
         let h_extent = match self.rotate {
             Some(angle) => text_w * angle.to_radians().cos().abs(),
             None => text_w,
@@ -442,10 +482,17 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     });
 
     // Draw tick marks and labels
+    start_tick_font(scene, computed);
     if let Some(categories) = &layout.y_categories {
         if !layout.suppress_y_ticks {
             for (i, label) in categories.iter().enumerate() {
-                let y_val = i as f64 + 1.0;
+                // Explicit positions win: brick rows with CIGAR bars are not
+                // on a uniform pitch, so `i + 1.0` would drift from the rows.
+                let y_val = layout
+                    .y_category_positions
+                    .as_ref()
+                    .and_then(|p| p.get(i).copied())
+                    .unwrap_or(i as f64 + 1.0);
                 let y_pos = computed.map_y(y_val);
 
                 scene.add(Primitive::Text {
@@ -468,6 +515,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
+                    computed.tick_font_style(),
                     layout.x_tick_rotate,
                 );
                 for (i, label) in x_cats.iter().enumerate() {
@@ -500,6 +548,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
+                    computed.tick_font_style(),
                     layout.x_tick_rotate,
                 );
                 for tx in x_ticks.iter() {
@@ -541,6 +590,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
+                computed.tick_font_style(),
                 layout.x_tick_rotate,
             );
             for (i, label) in categories.iter().enumerate() {
@@ -602,6 +652,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
+                computed.tick_font_style(),
                 layout.x_tick_rotate,
             );
             for tx in x_ticks.iter() {
@@ -683,6 +734,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             }
         }
     }
+    end_tick_font(scene, computed);
 
     if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
         // Top axis
@@ -739,6 +791,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(y2_min, y2_max, computed.y_ticks)
     };
 
+    start_tick_font(scene, computed);
     for ty in y2_ticks.iter() {
         let y = computed.map_y2(*ty);
 
@@ -777,6 +830,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     if let Some(ref label) = layout.y2_label {
         let lines = render_utils::wrap_or_single(label, computed.y2_label_wrap);
@@ -833,6 +887,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(x2_min, x2_max, computed.x_ticks)
     };
 
+    start_tick_font(scene, computed);
     for tx in x2_ticks.iter() {
         let x = computed.map_x2(*tx);
 
@@ -871,6 +926,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     if let Some(ref label) = layout.x2_label {
         let lines = render_utils::wrap_or_single(label, computed.x2_label_wrap);

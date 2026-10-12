@@ -52,6 +52,9 @@ pub(crate) enum FontStyle {
     Bold,
     #[allow(dead_code)]
     BoldItalic,
+    /// Bundled DejaVu Sans Mono — the face a label rendered in a monospace
+    /// family resolves to, and the one its width must be reserved from.
+    Mono,
 }
 
 impl FontStyle {
@@ -65,6 +68,70 @@ impl FontStyle {
             (true, true) => FontStyle::BoldItalic,
         }
     }
+
+    /// Picks the face to *measure* a label that will be *rendered* in the CSS
+    /// `font-family` list `family` — [`FontStyle::Mono`] when that list resolves
+    /// to a monospace face, [`FontStyle::Regular`] otherwise (including `None`,
+    /// the default sans cascade).
+    ///
+    /// Only the first family is consulted, the same one a renderer picks when it
+    /// is available: the rest of the list is a fallback chain for consumers that
+    /// lack it, and measuring a fallback would mis-reserve the common case. A
+    /// family counts as monospace when it carries `mono`/`monospace` as a word
+    /// (`"DejaVu Sans Mono"`, `"ui-monospace"`) or is one of the widely-deployed
+    /// fixed-width faces that do not (`"Consolas"`, `"Fira Code"`, …). This is a
+    /// width-reservation choice, not a rendering one, so an unrecognised
+    /// monospace family is merely reserved from sans metrics as before.
+    pub(crate) fn for_family(family: Option<&str>) -> Self {
+        match family {
+            Some(list) if first_family_is_monospace(list) => FontStyle::Mono,
+            _ => FontStyle::Regular,
+        }
+    }
+}
+
+/// Fixed-width families whose names carry no `mono` word, so the word test in
+/// [`first_family_is_monospace`] alone would miss them.
+const KNOWN_MONOSPACE_FAMILIES: &[&str] = &[
+    "consolas",
+    "menlo",
+    "monaco",
+    "courier",
+    "courier new",
+    "inconsolata",
+    "fira code",
+    "source code pro",
+    "cascadia code",
+    "lucida console",
+    "andale",
+    "hack",
+    "anonymous pro",
+    "operator mono",
+];
+
+/// Whether the first family of a CSS `font-family` list names a monospace face.
+///
+/// Word-based rather than substring-based on purpose: `"Monotype Corsiva"` is a
+/// script face, not a fixed-width one, and a `contains("mono")` test would
+/// reserve it from the wrong metrics.
+fn first_family_is_monospace(list: &str) -> bool {
+    let first = list
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+        .to_ascii_lowercase();
+    if first.is_empty() {
+        return false;
+    }
+    if KNOWN_MONOSPACE_FAMILIES.contains(&first.as_str()) {
+        return true;
+    }
+    first
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '_')
+        .any(|word| word == "mono" || word == "monospace")
 }
 
 /// Per-style vertical metrics for the bundled face, in font units (scale to
@@ -87,6 +154,7 @@ fn vmetrics(style: FontStyle) -> VMetrics {
         FontStyle::Italic => data::VMETRICS_ITALIC,
         FontStyle::Bold => data::VMETRICS_BOLD,
         FontStyle::BoldItalic => data::VMETRICS_BOLD_ITALIC,
+        FontStyle::Mono => data::VMETRICS_MONO,
     }
 }
 
@@ -199,6 +267,7 @@ fn advance_table(style: FontStyle) -> &'static [u16; 0x10000] {
     static ITALIC: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
     static BOLD: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
     static BOLD_ITALIC: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
+    static MONO: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
     match style {
         FontStyle::Regular => REGULAR.get_or_init(|| decode_rle(data::ADVANCE_RLE_REGULAR)),
         FontStyle::Italic => ITALIC.get_or_init(|| decode_rle(data::ADVANCE_RLE_ITALIC)),
@@ -206,6 +275,7 @@ fn advance_table(style: FontStyle) -> &'static [u16; 0x10000] {
         FontStyle::BoldItalic => {
             BOLD_ITALIC.get_or_init(|| decode_rle(data::ADVANCE_RLE_BOLD_ITALIC))
         }
+        FontStyle::Mono => MONO.get_or_init(|| decode_rle(data::ADVANCE_RLE_MONO)),
     }
 }
 
@@ -249,6 +319,73 @@ mod tests {
         let a = measure_text_width("100000", SIZE, FontStyle::Regular);
         let b = measure_text_width("888888", SIZE, FontStyle::Regular);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn mono_advances_are_uniform() {
+        // Every glyph in a fixed-width face shares one advance, so a string's
+        // width depends only on its character count.
+        let narrow = measure_text_width("....", SIZE, FontStyle::Mono);
+        let wide = measure_text_width("MMMM", SIZE, FontStyle::Mono);
+        assert_eq!(narrow, wide);
+    }
+
+    #[test]
+    fn mono_is_wider_than_sans_for_narrow_glyphs() {
+        // The case that drives the tick-label reservation: punctuation and thin
+        // letters are far wider in a fixed-width face, so measuring a monospace
+        // label with sans metrics under-reserves and clips it.
+        let mono = measure_text_width("0.5", SIZE, FontStyle::Mono);
+        let sans = measure_text_width("0.5", SIZE, FontStyle::Regular);
+        assert!(mono > sans, "mono should be wider ({mono} vs {sans})");
+    }
+
+    #[test]
+    fn monospace_families_select_the_mono_face() {
+        for family in [
+            "monospace",
+            "ui-monospace",
+            "DejaVu Sans Mono",
+            "DejaVu Sans Mono, monospace",
+            "\"Fira Code\", monospace",
+            "Consolas",
+            "  MONOSPACE  ",
+        ] {
+            assert_eq!(
+                FontStyle::for_family(Some(family)),
+                FontStyle::Mono,
+                "{family} should measure as monospace"
+            );
+        }
+    }
+
+    #[test]
+    fn proportional_families_keep_the_regular_face() {
+        // "Monotype Corsiva" is the trap a substring test falls into: it is a
+        // script face, and reserving it from mono metrics would over-size it.
+        for family in [
+            "DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif",
+            "Monotype Corsiva",
+            "Helvetica",
+            "",
+        ] {
+            assert_eq!(
+                FontStyle::for_family(Some(family)),
+                FontStyle::Regular,
+                "{family} should measure as proportional"
+            );
+        }
+        assert_eq!(FontStyle::for_family(None), FontStyle::Regular);
+    }
+
+    #[test]
+    fn only_the_first_family_decides_the_face() {
+        // The tail of a cascade is a fallback for consumers lacking the first
+        // family; measuring it would mis-reserve the common case.
+        assert_eq!(
+            FontStyle::for_family(Some("Verdana, monospace")),
+            FontStyle::Regular
+        );
     }
 
     #[test]
@@ -316,6 +453,7 @@ mod tests {
                 "DejaVuSans-BoldOblique.ttf",
                 Some("DejaVuSans-Bold.ttf"),
             ),
+            (FontStyle::Mono, "DejaVuSansMono.ttf", None),
         ];
         for (style, primary, fallback) in cases {
             let dir = format!("{}/assets/fonts", env!("CARGO_MANIFEST_DIR"));
@@ -357,6 +495,7 @@ mod tests {
                 "DejaVuSans-BoldOblique.ttf",
                 Some("DejaVuSans-Bold.ttf"),
             ),
+            (FontStyle::Mono, "DejaVuSansMono.ttf", None),
         ];
         for (style, primary, fallback) in cases {
             let dir = format!("{}/assets/fonts", env!("CARGO_MANIFEST_DIR"));

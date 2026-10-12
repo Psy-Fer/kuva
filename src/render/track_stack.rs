@@ -31,6 +31,7 @@
 
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendShape};
 use crate::render::annotations::ReferenceLine;
+use crate::render::axis::{end_tick_font_family, start_tick_font_family};
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
@@ -194,6 +195,13 @@ pub trait Track {
         self.label().map(str::to_string)
     }
 
+    /// Adopt the stack's tick-label font family (see
+    /// [`TrackStack::with_tick_font_family`]). The stack calls this on every track
+    /// *before* it asks for margins, so a track that measures its own tick labels
+    /// measures them in the face it will draw them in. Default: ignore it —
+    /// annotation tracks draw data labels, not tick labels.
+    fn set_tick_font_family(&mut self, _family: Option<&str>) {}
+
     /// Draw into the band `[cx.y_top, cx.y_bottom()]`, using `cx.x` for all x. Push primitives
     /// (and any defs) into `scene`. MUST NOT paint a full background rect — the stack owns the one
     /// background.
@@ -313,6 +321,7 @@ pub struct TrackStack {
     log_x: bool,
     spacing: f64,
     theme: Theme,
+    tick_font_family: Option<String>,
     title: Option<String>,
     underlays: Vec<Box<dyn StackLayer>>,
     overlays: Vec<Box<dyn StackLayer>>,
@@ -332,6 +341,7 @@ impl TrackStack {
             log_x: false,
             spacing: 6.0,
             theme: Theme::default(),
+            tick_font_family: None,
             title: None,
             underlays: Vec::new(),
             overlays: Vec::new(),
@@ -395,6 +405,15 @@ impl TrackStack {
         self
     }
 
+    /// Set the font family of every tick label in the stack — the shared genomic
+    /// x-axis and each track's own y-axis ticks — without touching track names,
+    /// axis labels, or the title. The stack-level counterpart of
+    /// [`Layout::with_tick_font_family`].
+    pub fn with_tick_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.tick_font_family = Some(family.into());
+        self
+    }
+
     /// Render with an auto total height (sum of track/axis heights + spacing). The common path —
     /// callers shouldn't have to guess a canvas height. Use [`render_sized`](Self::render_sized)
     /// to force one.
@@ -412,15 +431,27 @@ impl TrackStack {
     pub fn render_sized(mut self, width: f64, height: f64) -> Scene {
         self.ensure_axis();
         let TrackStack {
-            entries,
+            mut entries,
             x_range,
             log_x,
             spacing,
             theme,
+            tick_font_family,
             title,
             underlays,
             overlays,
         } = self;
+
+        // Push the tick family down before anything measures: a track's
+        // `left_margin` is reserved from its own tick labels, so it has to know
+        // the face those labels will render in.
+        if tick_font_family.is_some() {
+            for entry in entries.iter_mut() {
+                if let Entry::Track(t) = entry {
+                    t.set_tick_font_family(tick_font_family.as_deref());
+                }
+            }
+        }
 
         // Shared x-range: explicit locus, else union of Track x_bounds(); guard degenerate.
         let (mut x_min, mut x_max) = x_range.unwrap_or_else(|| {
@@ -558,7 +589,14 @@ impl TrackStack {
                         y_top: band.y_top + title_h,
                         height: band.height,
                     };
-                    draw_shared_x_axis(&mut scene, &x, &axis_band, &spec, &theme);
+                    draw_shared_x_axis(
+                        &mut scene,
+                        &x,
+                        &axis_band,
+                        &spec,
+                        &theme,
+                        tick_font_family.as_deref(),
+                    );
                 }
             }
         }
@@ -611,6 +649,9 @@ pub struct PlotTrack {
     height: TrackHeight,
     y_label: Option<String>,
     reference_lines: Vec<ReferenceLine>,
+    /// Set by the stack from [`TrackStack::with_tick_font_family`], not per track:
+    /// tracks share one x-geometry, so they share one tick font.
+    tick_font_family: Option<String>,
 }
 
 impl PlotTrack {
@@ -620,6 +661,7 @@ impl PlotTrack {
             height: TrackHeight::Flex(1.0),
             y_label: None,
             reference_lines: Vec::new(),
+            tick_font_family: None,
         }
     }
 
@@ -657,6 +699,9 @@ impl PlotTrack {
         if let Some(lbl) = &self.y_label {
             l = l.with_y_label(lbl.clone());
         }
+        if let Some(family) = &self.tick_font_family {
+            l = l.with_tick_font_family(family.clone());
+        }
         l
     }
 }
@@ -664,6 +709,10 @@ impl PlotTrack {
 impl Track for PlotTrack {
     fn height(&self) -> TrackHeight {
         self.height
+    }
+
+    fn set_tick_font_family(&mut self, family: Option<&str>) {
+        self.tick_font_family = family.map(str::to_string);
     }
 
     fn x_bounds(&self) -> Option<(f64, f64)> {
@@ -1122,7 +1171,14 @@ pub(crate) fn merge_translated(master: &mut Scene, sub: Scene, dx: f64, dy: f64)
 /// Draw the one shared x-axis for the stack at the top edge of its band. The axis *label* is drawn
 /// in the LEFT GUTTER (left-aligned, like a track name) rather than centred under the axis — it
 /// then reads consistently with every other track label and stays clear of any track below it.
-fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpec, theme: &Theme) {
+fn draw_shared_x_axis(
+    scene: &mut Scene,
+    x: &XScale,
+    band: &Band,
+    spec: &AxisSpec,
+    theme: &Theme,
+    tick_font_family: Option<&str>,
+) {
     let y = band.y_top;
     let axis = || Color::Css(theme.axis_color.as_str().into());
     let text = || Some(Color::Css(theme.text_color.as_str().into()));
@@ -1158,6 +1214,9 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
         }
     };
 
+    // Tick marks and their labels; the gutter axis label below is a title and
+    // keeps the main family.
+    start_tick_font_family(scene, tick_font_family);
     for (&val, label) in ticks.iter().zip(labels.iter()) {
         let px = x.map(val);
         scene.add(Primitive::Line {
@@ -1180,6 +1239,7 @@ fn draw_shared_x_axis(scene: &mut Scene, x: &XScale, band: &Band, spec: &AxisSpe
             color: text(),
         });
     }
+    end_tick_font_family(scene, tick_font_family);
 
     // Axis label in the left gutter, on the SAME baseline as the tick labels (y + 18) so it lines
     // up with the tick numbers and the axis line rather than floating at the band centre.

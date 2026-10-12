@@ -5,7 +5,7 @@
 //! cargo run --example gen_text_metrics
 //! ```
 //!
-//! The output is, per font style (Regular, Italic, Bold, BoldItalic): a
+//! The output is, per font style (Regular, Italic, Bold, BoldItalic, Mono): a
 //! run-length-encoded table of horizontal advance widths over the Basic
 //! Multilingual Plane, plus the per-style vertical metrics (ascent, descent,
 //! line-gap, cap-height, x-height) as `VMETRICS_*` constants. Each is measured
@@ -151,6 +151,7 @@ fn main() {
             "DejaVuSans-BoldOblique.ttf",
             Some("DejaVuSans-Bold.ttf"),
         ),
+        ("ADVANCE_RLE_MONO", "DejaVuSansMono.ttf", None),
     ];
 
     let tables: Vec<NamedFaceMetrics> = faces
