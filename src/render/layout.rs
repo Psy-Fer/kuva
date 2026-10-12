@@ -275,6 +275,15 @@ pub struct Layout {
     pub subtitle_wrap: Option<usize>,
     pub x_categories: Option<Vec<String>>,
     pub y_categories: Option<Vec<String>>,
+    /// Explicit data-space y for each entry in `y_categories`.
+    ///
+    /// Category labels are normally placed on a uniform pitch (`i + 1.0`),
+    /// which assumes every row is the same height. `BrickPlot` breaks that
+    /// when CIGAR bars are enabled: a row that draws a bar is taller than one
+    /// that does not. When this is set, each label is placed at its own
+    /// position instead, so labels track rows that are neither evenly spaced
+    /// nor in their original order.
+    pub y_category_positions: Option<Vec<f64>>,
     pub show_legend: bool,
     pub show_colorbar: bool,
     pub legend_position: LegendPosition,
@@ -474,7 +483,8 @@ pub struct Layout {
     pub anchor_y_zero: bool,
     /// Number of vertical stagger tiers reserved above a BrickPlot notation track.
     /// Set automatically by `auto_from_plots` when a `BrickPlot` with `notations`
-    /// is present.  `0` = no extra space.
+    /// is present, then trimmed by `resolve_brick_notation_tiers` to the tiers
+    /// the labels really use.  `0` = no extra space.
     pub brick_notation_tiers: usize,
     /// Word-wrap the plot title at this many characters; `None` disables wrapping.
     pub title_wrap: Option<usize>,
@@ -527,6 +537,7 @@ impl Layout {
             subtitle_wrap: None,
             x_categories: None,
             y_categories: None,
+            y_category_positions: None,
             show_legend: false,
             show_colorbar: false,
             legend_position: LegendPosition::OutsideRightTop,
@@ -652,6 +663,7 @@ impl Layout {
 
         let mut x_labels = None;
         let mut y_labels = None;
+        let mut y_label_positions: Option<Vec<f64>> = None;
 
         let mut has_legend: bool = false;
         let mut has_colorbar: bool = false;
@@ -866,10 +878,24 @@ impl Layout {
             }
             if let Plot::Brick(bp) = plot {
                 has_brick = true;
-                // Reverse labels so that names[0] appears at the TOP of the plot.
-                // map_y maps larger y-data values to the top; row 0 is rendered at
-                // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
-                let labels: Vec<String> = bp.names.iter().rev().cloned().collect();
+                // Labels follow the *display* order, which `sort` may have
+                // changed: display position 0 is the top row. The default
+                // category axis places label `i` at y = i + 1, counting from
+                // the bottom, so the two only line up if the positions are
+                // given explicitly. They always are: deriving them from the
+                // same `cigar_layout` the bricks use keeps the labels on their
+                // rows whether or not CIGAR bars make the pitch uneven.
+                let cl = bp.cigar_layout();
+                let labels: Vec<String> = cl
+                    .order
+                    .iter()
+                    .map(|&i| bp.names.get(i).cloned().unwrap_or_default())
+                    .collect();
+                y_label_positions = Some(
+                    (0..cl.order.len())
+                        .map(|pos| cl.total_units - cl.row_top_units[pos])
+                        .collect(),
+                );
                 y_labels = Some(labels);
                 has_legend = true;
                 if let Some(ref template) = bp.template {
@@ -1560,7 +1586,7 @@ impl Layout {
         layout.horizon_right_annot_px = horizon_right_annot_px;
         layout.gantt_right_annot_px = gantt_right_annot_px;
         if brick_has_notations {
-            layout.brick_notation_tiers = 4; // matches N_TIERS in add_brickplot
+            layout.brick_notation_tiers = crate::plot::brick::BRICK_NOTATION_TIERS;
         }
         if let Some(labels) = x_labels {
             layout = layout.with_x_categories(labels);
@@ -1568,6 +1594,9 @@ impl Layout {
 
         if let Some(labels) = y_labels {
             layout = layout.with_y_categories(labels);
+        }
+        if let Some(pos) = y_label_positions {
+            layout.y_category_positions = Some(pos);
         }
 
         // DotPlot with both size legend + colorbar uses a single stacked column
@@ -1742,7 +1771,12 @@ impl Layout {
                     if n > 0 {
                         let cl = ComputedLayout::from_layout(&layout);
                         let overhead = cl.margin_top + cl.margin_bottom;
-                        layout.height = Some(rh * n as f64 + overhead);
+                        // Size from the y extent, not the row count: a CIGAR
+                        // bar adds height to the rows that draw one, so using
+                        // `n` here would squash every brick row below
+                        // `row_height_px`.
+                        let units = bp.cigar_layout().total_units.max(n as f64);
+                        layout.height = Some(rh * units + overhead);
                         break;
                     }
                 }

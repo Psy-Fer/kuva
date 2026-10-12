@@ -11,6 +11,21 @@ fn kuva_bin() -> Command {
     Command::new(bin)
 }
 
+/// Write to a child's stdin, tolerating the child having already exited.
+///
+/// A test that checks an *error* path races the child: kuva can reject its
+/// arguments and exit before the write lands, closing the pipe and producing
+/// `BrokenPipe`. That is the binary behaving correctly, not a failure, and the
+/// assertions that matter are on the exit status and stderr. Only a genuinely
+/// unexpected IO error is worth failing on.
+fn write_stdin_tolerating_exit(stdin: &mut std::process::ChildStdin, input: &[u8]) {
+    match stdin.write_all(input) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(e) => panic!("write stdin: {e}"),
+    }
+}
+
 /// Feed `input` to the binary's stdin and return (stdout, stderr, exit_code).
 fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
     let mut cmd = kuva_bin();
@@ -20,12 +35,9 @@ fn run_with_stdin(args: &[&str], input: &str) -> (String, String, i32) {
         .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().expect("failed to spawn kuva");
-    child
-        .stdin
-        .take()
-        .expect("stdin")
-        .write_all(input.as_bytes())
-        .expect("write stdin");
+    let mut stdin = child.stdin.take().expect("stdin");
+    write_stdin_tolerating_exit(&mut stdin, input.as_bytes());
+    drop(stdin);
 
     let out = child.wait_with_output().expect("wait");
     (
@@ -45,12 +57,9 @@ fn run_with_stdin_bytes(args: &[&str], input: &[u8]) -> (String, String, i32) {
         .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().expect("failed to spawn kuva");
-    child
-        .stdin
-        .take()
-        .expect("stdin")
-        .write_all(input)
-        .expect("write stdin");
+    let mut stdin = child.stdin.take().expect("stdin");
+    write_stdin_tolerating_exit(&mut stdin, input);
+    drop(stdin);
 
     let out = child.wait_with_output().expect("wait");
     (
