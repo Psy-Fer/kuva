@@ -1,8 +1,8 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, muted_subtitle_color,
-    XLabelPlacer,
+    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
+    muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
@@ -4588,6 +4588,9 @@ fn draw_3d_box(
         let perp_sign = if fc_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(0.0, fc_y, -0.5, 0.0, perp_sign, 0.0);
         let (edx, edy) = screen_dir(-0.5, fc_y, -0.5, 0.5, fc_y, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &x_ticks {
             let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4616,6 +4619,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.x_label {
             let (mx, my, _) = proj.project_normalized(0.0, fc_y, -0.5);
             scene.add(Primitive::Text {
@@ -4637,6 +4641,9 @@ fn draw_3d_box(
         let perp_sign = if fc_x < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(fc_x, 0.0, -0.5, perp_sign, 0.0, 0.0);
         let (edx, edy) = screen_dir(fc_x, -0.5, -0.5, fc_x, 0.5, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &y_ticks {
             let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4665,6 +4672,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.y_label {
             let (mx, my, _) = proj.project_normalized(fc_x, 0.0, -0.5);
             scene.add(Primitive::Text {
@@ -4713,6 +4721,9 @@ fn draw_3d_box(
         let perp_y = if edge_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(edge_x, edge_y, 0.0, perp_x, perp_y, 0.0);
         let (zdx, zdy) = screen_dir(edge_x, edge_y, -0.5, edge_x, edge_y, 0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &z_ticks {
             let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
             if t.abs() > 0.501 {
@@ -4739,6 +4750,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.z_label {
             let (mx, my, _) = proj.project_normalized(edge_x, edge_y, 0.0);
             scene.add(Primitive::Text {
@@ -6357,6 +6369,9 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Tick marks & value labels ──────────────────────────────────────────────
+    // Per-axis value labels are tick labels; the axis names above are titles and
+    // keep the main family.
+    start_tick_font(scene, computed);
     // `tick_size` was computed above (with possible font-size reduction to prevent
     // horizontal label collision on densely-spaced axes).
     if pp.show_axis_ticks {
@@ -6397,7 +6412,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
                 });
                 scene.add(Primitive::Text {
                     x: label_x,
-                    y: py + center_offset(tick_size as f64, FontStyle::Regular),
+                    y: py + center_offset(tick_size as f64, computed.tick_font_style()),
                     content: format_tick_value(val),
                     size: tick_size,
                     anchor: if is_last {
@@ -6412,6 +6427,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
             }
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Group color mapping ────────────────────────────────────────────────────
     let groups = pp.groups();
@@ -9815,6 +9831,9 @@ fn add_colorbar_at(
     // preserves the round decade tick and drops the redundant data-max label.
     let min_label_gap = computed.tick_size as f64;
     let mut last_drawn_y: Option<f64> = None;
+    // Colorbar tick labels are tick labels; the rotated colorbar label below is a
+    // title and keeps the main family.
+    start_tick_font(scene, computed);
     for (pos, label) in tick_entries {
         if *pos < info.min_value || *pos > info.max_value {
             continue;
@@ -9852,6 +9871,7 @@ fn add_colorbar_at(
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     // Label rotated -90° to the left of the bar (reads bottom-to-top).
     // Left placement keeps it away from tick labels and avoids right-edge clipping.
@@ -10372,8 +10392,10 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     let mut placer = XLabelPlacer::new(
         computed.x_label_overlap.clone(),
         computed.tick_size as f64,
+        computed.tick_font_style(),
         computed.x_tick_rotate,
     );
+    start_tick_font(scene, computed);
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
@@ -10398,6 +10420,7 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
             });
         }
     }
+    end_tick_font(scene, computed);
 }
 
 pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
@@ -18176,10 +18199,14 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
         }
 
-        // Emit all labels after geometry so lines never overdraw text.
+        // Emit all labels after geometry so lines never overdraw text. These are
+        // the polar axis's tick labels (ring r-values and theta spokes), so they
+        // follow the tick font family like any cartesian tick label.
+        start_tick_font(scene, computed);
         for prim in label_prims {
             scene.add(prim);
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Data series ───────────────────────────────────────────────────────────
@@ -18402,6 +18429,9 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // ── Tick labels on edges ──────────────────────────────────────────────────
     if tp.show_percentages {
+        // Percentage ticks along the three edges are this plot's tick labels;
+        // the corner labels below are axis titles and keep the main family.
+        start_tick_font(scene, computed);
         for ki in 0..=n {
             let k = ki as f64 / n as f64;
             let pct = (k * 100.0).round() as i32;
@@ -18449,6 +18479,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Corner labels ─────────────────────────────────────────────────────────
@@ -20203,7 +20234,10 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
 
-        // Concentric rings (polygon or circular)
+        // Concentric rings (polygon or circular). The per-ring value labels are the
+        // radial axis's tick labels, so the whole loop runs inside one tick-font
+        // group rather than opening a new one per ring.
+        start_tick_font(scene, computed);
         for k in 1..=rp.grid_lines {
             let fr = k as f64 / rp.grid_lines as f64;
 
@@ -20257,6 +20291,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
                 color: Some(Color::from(theme.tick_color.as_str())),
             });
         }
+        end_tick_font(scene, computed);
 
         // Axis tick marks
         if rp.axis_ticks {
@@ -20286,6 +20321,9 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
     let label_size = computed.tick_size;
     let line_h = label_size as f64 * 1.2;
 
+    // The spoke names are this plot's category tick labels (the radar analogue of
+    // a cartesian x-category axis), so they follow the tick font family.
+    start_tick_font(scene, computed);
     for i in 0..n {
         let th = angle(i);
         let lx = cx + label_r * radius * th.cos();
@@ -20333,6 +20371,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Reference polygons (drawn before series so they stay behind) ──────────
     for ref_poly in &rp.references {

@@ -337,6 +337,8 @@ pub struct Layout {
     pub suppress_x_ticks: bool,
     pub suppress_y_ticks: bool,
     pub font_family: Option<String>,
+    /// Font family for axis tick labels. `None` uses `font_family`.
+    pub tick_font_family: Option<String>,
     pub title_size: u32,
     pub label_size: u32,
     pub tick_size: u32,
@@ -563,6 +565,7 @@ impl Layout {
             suppress_x_ticks: false,
             suppress_y_ticks: false,
             font_family: None,
+            tick_font_family: None,
             title_size: 18,
             label_size: 14,
             tick_size: 12,
@@ -2295,6 +2298,29 @@ impl Layout {
         self
     }
 
+    /// Set the font family of the axis tick labels only, e.g. `"monospace"` for
+    /// fixed-width category labels such as sequence contexts. Titles, axis labels,
+    /// and legends keep [`with_font_family`](Self::with_font_family)'s family.
+    /// Applies to SVG and PDF output; layout still measures tick labels with the
+    /// bundled DejaVu Sans metrics.
+    pub fn with_tick_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.tick_font_family = Some(family.into());
+        self
+    }
+
+    /// The face tick labels must be *measured* against: the tick family when one
+    /// is set, otherwise the general family (which `with_font_family("monospace")`
+    /// can equally make fixed-width). Width reservation follows the rendered face
+    /// so a monospace tick label is not clipped by sans-derived margins.
+    pub(crate) fn tick_font_style(&self) -> FontStyle {
+        FontStyle::for_family(
+            self.tick_font_family
+                .as_deref()
+                .or(self.font_family.as_deref())
+                .or(self.theme.font_family.as_deref()),
+        )
+    }
+
     pub fn with_title_size(mut self, size: u32) -> Self {
         self.title_size = size;
         self
@@ -2778,6 +2804,8 @@ pub struct ComputedLayout {
     pub log_x: bool,
     pub log_y: bool,
     pub font_family: Option<String>,
+    /// Font family for axis tick labels. `None` inherits `font_family`.
+    pub tick_font_family: Option<String>,
     pub title_size: u32,
     /// Scaled, rounded subtitle font size in px (explicit override or `0.7 × title_size`).
     pub subtitle_size: u32,
@@ -3002,11 +3030,27 @@ fn x_label_math_overshoot(x_label: &Option<String>, label_size: f64) -> XLabelMa
 }
 
 impl ComputedLayout {
+    /// The face tick labels are rendered in, and so must be measured against,
+    /// at draw time — the render-side counterpart of [`Layout::tick_font_style`].
+    /// `font_family` is already resolved here (explicit → theme → default), so
+    /// the tick family is the only extra input.
+    pub(crate) fn tick_font_style(&self) -> FontStyle {
+        FontStyle::for_family(
+            self.tick_font_family
+                .as_deref()
+                .or(self.font_family.as_deref()),
+        )
+    }
+
     pub fn from_layout(layout: &Layout) -> Self {
         let s = layout.scale.max(0.1);
         let title_size = layout.title_size as f64 * s;
         let label_size = layout.label_size as f64 * s;
         let tick_size = layout.tick_size as f64 * s;
+        // Tick labels are reserved from the face they will render in: a
+        // monospace tick family is far wider than sans for thin glyphs ('.',
+        // '1', 'i'), so measuring it with sans metrics under-reserves and clips.
+        let tick_style = layout.tick_font_style();
         // Height of one legend row. A legend is a list, so it wants comfortable
         // leading (~1.5em — the long-standing look) rather than the tight single-
         // spaced line height, but it must scale with body_size (the old fixed 18px
@@ -3074,11 +3118,9 @@ impl ComputedLayout {
         } else if let Some(angle) = layout.x_tick_rotate {
             // Rotated labels extend below their anchor point by label_px * sin(|angle|).
             let label_px = match layout.x_categories.as_ref() {
-                Some(cats) if !cats.is_empty() => widest_text_width(
-                    cats.iter().map(|s| s.as_str()),
-                    tick_size,
-                    FontStyle::Regular,
-                ),
+                Some(cats) if !cats.is_empty() => {
+                    widest_text_width(cats.iter().map(|s| s.as_str()), tick_size, tick_style)
+                }
                 // No categories: assume ~10 average characters.
                 _ => 10.0 * mean_char_width(tick_size),
             };
@@ -3090,7 +3132,7 @@ impl ComputedLayout {
             // projects UP toward the axis, so it needs no bottom room.) A flat
             // `tick_size` ignored the descender; `text_height*cos` dropped the anchor
             // and clipped at steep angles — this matches the draw at every angle.
-            let perp = tick_size + descent(tick_size, FontStyle::Regular) * angle_rad.cos();
+            let perp = tick_size + descent(tick_size, tick_style) * angle_rad.cos();
             // The x-axis title (if present) is drawn below the rotated tick labels, so
             // reserve a line for it. The dominant `label_px * sin` term would otherwise
             // crowd it out: the `.max()` floor below includes `label_size`, but only wins
@@ -3115,7 +3157,7 @@ impl ComputedLayout {
             // The second staggered row sits a full line height below the first (the
             // pitch used in axis.rs); reserve that, not a bare tick_size, so the
             // lower row's descenders clear the axis title.
-            margin_bottom += line_height(tick_size, FontStyle::Regular);
+            margin_bottom += line_height(tick_size, tick_style);
         }
         // Extra bottom margin for wrapped x-axis label.
         if let (Some(ref xlabel), Some(max_chars)) = (&layout.x_label, layout.x_label_wrap) {
@@ -3128,7 +3170,7 @@ impl ComputedLayout {
         // Reserve space below the axis for a survival "number at risk" table: a title
         // row plus one row per group.
         let risk_table_extra = if let Some(rows) = layout.risk_table_rows {
-            let rh = line_height(tick_size, FontStyle::Regular);
+            let rh = line_height(tick_size, tick_style);
             rh * (rows as f64 + 1.0) + 14.0 * s
         } else {
             0.0
@@ -3151,12 +3193,8 @@ impl ComputedLayout {
         let y_tick_label_px: f64 = if layout.suppress_y_ticks {
             0.0
         } else if let Some(ref cats) = layout.y_categories {
-            widest_text_width(
-                cats.iter().map(|s| s.as_str()),
-                tick_size,
-                FontStyle::Regular,
-            )
-            .max(tick_size * 2.0)
+            widest_text_width(cats.iter().map(|s| s.as_str()), tick_size, tick_style)
+                .max(tick_size * 2.0)
         } else if layout.log_y {
             let ticks_log = render_utils::generate_ticks_log(
                 layout.y_range.0.max(1e-300),
@@ -3166,12 +3204,8 @@ impl ComputedLayout {
                 .iter()
                 .map(|&v| render_utils::format_log_tick(v))
                 .collect();
-            widest_text_width(
-                labels.iter().map(|s| s.as_str()),
-                tick_size,
-                FontStyle::Regular,
-            )
-            .max(tick_size * 2.0)
+            widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
+                .max(tick_size * 2.0)
         } else if let Some(ref dt) = layout.y_datetime {
             // Generate the actual datetime tick labels and measure the widest, so the
             // left margin fits long formats (e.g. "2026-01-15 12:00") rather than a flat
@@ -3181,12 +3215,8 @@ impl ComputedLayout {
                 .iter()
                 .map(|&v| dt.format_tick(v))
                 .collect();
-            widest_text_width(
-                labels.iter().map(|s| s.as_str()),
-                tick_size,
-                FontStyle::Regular,
-            )
-            .max(tick_size * 2.0)
+            widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
+                .max(tick_size * 2.0)
         } else {
             // Generate a preliminary set of tick values from the raw y_range (no auto-ranging
             // yet) and format them to find the widest label string.  Using layout.y_range
@@ -3202,12 +3232,8 @@ impl ComputedLayout {
                 .iter()
                 .map(|&v| layout.y_tick_format.format(v))
                 .collect();
-            widest_text_width(
-                labels.iter().map(|s| s.as_str()),
-                tick_size,
-                FontStyle::Regular,
-            )
-            .max(tick_size * 2.0)
+            widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
+                .max(tick_size * 2.0)
         };
         let y_label_lines =
             if let (Some(ref ylabel), Some(max_chars)) = (&layout.y_label, layout.y_label_wrap) {
@@ -3242,7 +3268,7 @@ impl ComputedLayout {
         } else {
             let val = layout.x_axis_max.unwrap_or(layout.x_range.1);
             let label = layout.x_tick_format.format(val);
-            measure_text_width(&label, tick_size, FontStyle::Regular) * 0.5
+            measure_text_width(&label, tick_size, tick_style) * 0.5
         };
         let mut margin_right = label_size.max(x_last_tick_half_w)
             + layout.horizon_right_annot_px
@@ -3258,15 +3284,13 @@ impl ComputedLayout {
                     let cos_a = angle_rad.cos();
                     if angle < 0.0 {
                         if let Some(first) = cats.first() {
-                            let needed =
-                                measure_text_width(first, tick_size, FontStyle::Regular) * cos_a;
+                            let needed = measure_text_width(first, tick_size, tick_style) * cos_a;
                             if needed > margin_left {
                                 margin_left = needed;
                             }
                         }
                     } else if let Some(last) = cats.last() {
-                        let needed =
-                            measure_text_width(last, tick_size, FontStyle::Regular) * cos_a;
+                        let needed = measure_text_width(last, tick_size, tick_style) * cos_a;
                         if needed > margin_right {
                             margin_right = needed;
                         }
@@ -3291,12 +3315,9 @@ impl ComputedLayout {
                     .iter()
                     .map(|&v| layout.y2_tick_format.format(v))
                     .collect();
-                let y2_tick_label_px = widest_text_width(
-                    labels.iter().map(|s| s.as_str()),
-                    tick_size,
-                    FontStyle::Regular,
-                )
-                .max(tick_size * 2.0);
+                let y2_tick_label_px =
+                    widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
+                        .max(tick_size * 2.0);
                 line_height(label_size, FontStyle::Regular) * y2_label_lines as f64
                     + y2_tick_label_px
                     + 15.0 * s
@@ -3316,7 +3337,7 @@ impl ComputedLayout {
             // Mirrors `y2_axis_width`'s shape, but for a horizontal axis: reserve
             // the tick label's line height instead of measuring label text width.
             line_height(label_size, FontStyle::Regular) * x2_label_lines as f64
-                + line_height(tick_size, FontStyle::Regular)
+                + line_height(tick_size, tick_style)
                 + 15.0 * s
         } else {
             0.0
@@ -3477,7 +3498,7 @@ impl ComputedLayout {
                     measure_text_width(
                         &layout.colorbar_tick_format.format(v),
                         tick_size,
-                        FontStyle::Regular,
+                        tick_style,
                     )
                 })
                 // Floor at ~2 char-widths like the axis-tick reservations, so a 1-2 char
@@ -3638,6 +3659,7 @@ impl ComputedLayout {
                 .clone()
                 .or(layout.theme.font_family.clone())
                 .or(Some(DEFAULT_FONT_FAMILY.to_string())),
+            tick_font_family: layout.tick_font_family.clone(),
             title_size: (layout.title_size as f64 * s).round().max(1.0) as u32,
             subtitle_size: subtitle_size as u32,
             label_size: (layout.label_size as f64 * s).round().max(1.0) as u32,

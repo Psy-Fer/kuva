@@ -48,6 +48,7 @@ pub struct CoveragePlot {
     locus: Option<(f64, f64)>,
     x_label: String,
     theme: Option<Theme>,
+    tick_font_family: Option<String>,
     title: Option<String>,
     overlay_samples: bool,
     depth_thresholds: Vec<ReferenceLine>,
@@ -71,6 +72,7 @@ impl CoveragePlot {
             locus: None,
             x_label: "position".to_string(),
             theme: None,
+            tick_font_family: None,
             title: None,
             overlay_samples: false,
             depth_thresholds: Vec::new(),
@@ -94,6 +96,15 @@ impl CoveragePlot {
     /// Visual theme for the whole figure (default light).
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = Some(theme);
+        self
+    }
+
+    /// Set the font family of every tick label — genomic coordinates on the shared
+    /// x-axis and depth values on each sample's y-axis — leaving track names, axis
+    /// labels, and the title in the main family. Monospace keeps genomic
+    /// coordinates in a column, since its digits are fixed-width.
+    pub fn with_tick_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.tick_font_family = Some(family.into());
         self
     }
 
@@ -210,6 +221,9 @@ impl CoveragePlot {
         let mut stack = TrackStack::new();
         if let Some(theme) = self.theme {
             stack = stack.with_theme(theme);
+        }
+        if let Some(family) = self.tick_font_family {
+            stack = stack.with_tick_font_family(family);
         }
         if let Some(title) = self.title {
             stack = stack.with_title(title);

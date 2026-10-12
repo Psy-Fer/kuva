@@ -107,6 +107,7 @@ let scene = CoveragePlot::new()
 | `.with_title(text)` | Figure title in a band at the top. |
 | `.with_x_label(text)` | X-axis label (drawn in the left gutter). |
 | `.with_theme(theme)` | Visual theme. |
+| `.with_tick_font_family(family)` | Font family for every tick label (genomic coordinates and each track's depth values), leaving track names, the axis label, and the title in the main family. Monospace keeps genomic coordinates in a column. See [Layout and Axes](../reference/layout.md). |
 | `.with_feature_track_name(name)` / `.with_region_track_name(name)` | Rename the feature / region lanes. |
 
 ### Feature tiling
@@ -138,6 +139,10 @@ not offer, build a `TrackStack` directly:
 * `IntervalTrack` and `VariantTrack` are the annotation lanes.
 * `AxisSpec::genomic(label)` / `AxisSpec::datetime(label)` choose the axis formatting.
 * `.underlay(...)` / `.overlay(...)` add layers that span every track (region highlights, cursors).
+* `.with_tick_font_family(family)` sets the face for every tick label in the stack (the genomic axis
+  and each track's y-axis), the stack-level counterpart of `Layout::with_tick_font_family`. A track
+  type implements `Track::set_tick_font_family` to adopt it; the default ignores it, which is right
+  for annotation lanes that draw data labels rather than ticks.
 
 ---
 
