@@ -11,7 +11,7 @@
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::scatter::ScatterPlot;
-use kuva::plot::LinePlot;
+use kuva::plot::{BarPlot, LinePlot};
 use kuva::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
@@ -26,6 +26,7 @@ fn main() {
     log_scale();
     tick_formats();
     tick_controls();
+    tick_font_family();
     annotations();
     text_annotation();
     reference_line();
@@ -166,6 +167,35 @@ fn tick_controls() {
         10.0,
         0.5,
     );
+}
+
+/// Rotated sequence-context tick labels in monospace; titles stay in the main font.
+fn tick_font_family() {
+    let contexts: Vec<(String, f64)> = ["A", "C", "G", "T"]
+        .iter()
+        .flat_map(|five_prime| {
+            ["A", "C", "G", "T"]
+                .iter()
+                .map(move |three_prime| format!("{five_prime}C{three_prime}"))
+        })
+        .zip([
+            9.0, 4.0, 31.0, 7.0, 6.0, 5.0, 24.0, 6.0, 8.0, 5.0, 27.0, 6.0, 7.0, 6.0, 22.0, 8.0,
+        ])
+        .collect();
+
+    let plot = BarPlot::new().with_bars(contexts).with_color("#E32926");
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("C>T by trinucleotide context")
+        .with_x_label("Context")
+        .with_y_label("Count")
+        .with_width(560.0)
+        .with_height(320.0)
+        .with_x_tick_rotate(-90.0)
+        .with_tick_font_family("monospace");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/tick_font_family.svg"), svg).unwrap();
 }
 
 /// Text annotation — label "Outlier" with arrow pointing to the high point.

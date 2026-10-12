@@ -583,9 +583,9 @@ impl Plot {
                     }
                 }
 
-                // Expand for a linear trend, which extrapolates to the axis edges and can
-                // exceed the data's y-range. A LOESS smoother stays within the data, so it
-                // needs no expansion.
+                // Expand for a linear trend, which extrapolates to the axis edges.
+                // The LOESS path is clipped to these bounds; it can also exceed the
+                // observed y-range, but is not computed here to expand the axes.
                 if let Some(TrendLine::Linear) = s.trend {
                     if let Some(fit) = render_utils::linear_fit(&s.data) {
                         for x in [x_min, x_max] {
@@ -1194,7 +1194,11 @@ impl Plot {
                     hi = 1.0;
                 }
 
-                Some(((lo, hi), (0.0, rows as f64)))
+                // CIGAR bars add vertical space, charged only to the rows
+                // that draw one. `cigar_layout` is the single source of that
+                // arithmetic so the reserved extent matches what is rendered.
+                let y_extent = bp.cigar_layout().total_units.max(rows as f64);
+                Some(((lo, hi), (0.0, y_extent)))
             }
             Plot::Forest(fp) => {
                 if fp.rows.is_empty() {

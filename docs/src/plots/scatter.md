@@ -54,7 +54,7 @@ std::fs::write("scatter.svg", svg).unwrap();
 
 ## Trend line
 
-Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x or y, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. An extrapolated line is omitted if either endpoint cannot be represented.
+Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. Constant y keeps its flat trend line, but drops the `r` annotation, since the coefficient is undefined there rather than zero. An extrapolated line is omitted if either endpoint cannot be represented.
 
 ```rust,no_run
 use kuva::plot::scatter::{ScatterPlot, TrendLine};
@@ -94,6 +94,8 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 ### LOESS smoother
 
 For data with a non-linear relationship, overlay a LOESS (locally-weighted regression) smoother instead of a straight line. `.with_loess()` uses a default span of `0.5`; `.with_loess_span(f)` sets the span (the fraction of points in each local fit, `0.05`–`1.0`): smaller spans follow local detail, larger spans give a smoother curve.
+
+Each prediction fits a local straight line using distance weights. These weights do not downweight a point because its y value is an outlier. A fitted line can extend beyond the observed y range; the plot clips the curve at its axis limits. Log axes transform the drawn curve, rather than fitting logarithms of the observations.
 
 ```rust,no_run
 # use kuva::plot::scatter::ScatterPlot;

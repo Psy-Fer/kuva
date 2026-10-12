@@ -118,3 +118,49 @@ fn regression_handles_mostly_zero_data() {
         assert!((r + 1e-4).abs() < 1e-15);
     }
 }
+
+#[test]
+fn constant_y_draws_a_flat_trend_line_without_a_correlation() {
+    // The least-squares line exists and is flat; only r is undefined (0/0),
+    // so the line is drawn, the equation is shown, and r is left out.
+    let scatter = ScatterPlot::new()
+        .with_data((0..=10).map(|t| (t as f64, 5.0)))
+        .with_trend(TrendLine::Linear)
+        .with_trend_color("#d62728")
+        .with_equation()
+        .with_correlation();
+    let plot = Plot::Scatter(scatter);
+    let layout = Layout::new((0.0, 10.0), (0.0, 10.0));
+    let computed = ComputedLayout::from_layout(&layout);
+    let scene = render_multiple(vec![plot], layout);
+
+    let line = scene
+        .elements
+        .iter()
+        .find_map(|primitive| match primitive {
+            Primitive::Line { y1, y2, stroke, .. } if stroke.to_svg_string() == "#d62728" => {
+                Some((*y1, *y2))
+            }
+            _ => None,
+        })
+        .expect("flat trend line is drawn for constant y");
+    assert!((line.0 - computed.map_y(5.0)).abs() < 1e-10);
+    assert!((line.1 - computed.map_y(5.0)).abs() < 1e-10);
+
+    let label = scene
+        .elements
+        .iter()
+        .find_map(|primitive| match primitive {
+            Primitive::Text { content, .. } if content.starts_with("y = ") => Some(content.clone()),
+            _ => None,
+        })
+        .expect("equation label is still shown");
+    assert!(label.contains("y = 0.00x + 5.00"), "unexpected label: {label}");
+    assert!(!label.contains('r'), "r must be omitted: {label}");
+
+    // The public helpers keep reporting no fit, since their tuple and return
+    // type have nowhere to express an undefined coefficient.
+    let data: Vec<(f64, f64)> = (0..=10).map(|t| (t as f64, 5.0)).collect();
+    assert!(linear_regression(data.iter().copied()).is_none());
+    assert!(pearson_corr(&data).is_none());
+}
