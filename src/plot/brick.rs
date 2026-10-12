@@ -193,6 +193,21 @@ pub fn cigar_read_bases(spans: &[CigarSpan]) -> f64 {
     spans.iter().map(|s| s.len).sum()
 }
 
+/// Vertical stagger tiers available to per-run notation labels.
+///
+/// Labels are packed greedily left to right, dropping to the next tier when
+/// they would collide; a row whose labels need more tiers than this falls back
+/// to a single "complex structure" note rather than dropping some of them.
+///
+/// This is the ceiling, not the reservation: `auto_from_plots` starts from it
+/// and `resolve_brick_notation_tiers` then trims the top margin to the tiers
+/// the labels actually occupy, so a simple locus keeps its head room.
+pub const BRICK_NOTATION_TIERS: usize = 6;
+
+/// Minimum horizontal gap between two notation labels on the same tier, in
+/// pixels. Without it, labels that merely touch read as one run-on string.
+pub(crate) const BRICK_NOTATION_GAP_PX: f64 = 4.0;
+
 /// Height of a CIGAR bar (plus its gap) as a fraction of one brick row.
 ///
 /// Charged only to rows that draw a bar, so a run of identical reads keeps
@@ -1461,9 +1476,17 @@ impl BrickPlot {
 
     /// Set pre-computed human-readable notation strings, one per row.
     ///
-    /// Each element is `Some(text)` to render a centred label above that row,
-    /// or `None` to draw nothing. Typically the consensus row has a notation
-    /// and reads may or may not.
+    /// Each element is `Some(text)` to render centred labels for that row, or
+    /// `None` to draw nothing. The intended use is a single notation on row 0,
+    /// which renders at the top: a consensus or representative call describing
+    /// the reads beneath it.
+    ///
+    /// Row 0's labels are drawn above the plot, in margin reserved for exactly
+    /// the tiers they stagger across. Any other row's are drawn *inside* its
+    /// own band, over the bricks: drawing them above would put them in the row
+    /// before it, where they read as that row's annotation. A row whose labels
+    /// cannot all be placed shows `complex structure: see TSV` instead of a
+    /// partial set.
     ///
     /// ```rust,no_run
     /// # use kuva::plot::BrickPlot;

@@ -481,7 +481,8 @@ pub struct Layout {
     pub anchor_y_zero: bool,
     /// Number of vertical stagger tiers reserved above a BrickPlot notation track.
     /// Set automatically by `auto_from_plots` when a `BrickPlot` with `notations`
-    /// is present.  `0` = no extra space.
+    /// is present, then trimmed by `resolve_brick_notation_tiers` to the tiers
+    /// the labels really use.  `0` = no extra space.
     pub brick_notation_tiers: usize,
     /// Word-wrap the plot title at this many characters; `None` disables wrapping.
     pub title_wrap: Option<usize>,
@@ -874,26 +875,24 @@ impl Layout {
             }
             if let Plot::Brick(bp) = plot {
                 has_brick = true;
-                // Reverse labels so that names[0] appears at the TOP of the plot.
-                // map_y maps larger y-data values to the top; row 0 is rendered at
-                // y_data = [N-1, N], so the axis label for names[0] must be at y = N-0.5.
-                // Labels follow the *display* order and, when CIGAR bars make
-                // the rows uneven, carry explicit positions. Without bars this
-                // reduces to the old reversed list on a uniform pitch: display
-                // position 0 is the top row, which sits at y = n.
+                // Labels follow the *display* order, which `sort` may have
+                // changed: display position 0 is the top row. The default
+                // category axis places label `i` at y = i + 1, counting from
+                // the bottom, so the two only line up if the positions are
+                // given explicitly. They always are: deriving them from the
+                // same `cigar_layout` the bricks use keeps the labels on their
+                // rows whether or not CIGAR bars make the pitch uneven.
                 let cl = bp.cigar_layout();
                 let labels: Vec<String> = cl
                     .order
                     .iter()
                     .map(|&i| bp.names.get(i).cloned().unwrap_or_default())
                     .collect();
-                if bp.cigars.is_some() {
-                    y_label_positions = Some(
-                        (0..cl.order.len())
-                            .map(|pos| cl.total_units - cl.row_top_units[pos])
-                            .collect(),
-                    );
-                }
+                y_label_positions = Some(
+                    (0..cl.order.len())
+                        .map(|pos| cl.total_units - cl.row_top_units[pos])
+                        .collect(),
+                );
                 y_labels = Some(labels);
                 has_legend = true;
                 if let Some(ref template) = bp.template {
@@ -1584,7 +1583,7 @@ impl Layout {
         layout.horizon_right_annot_px = horizon_right_annot_px;
         layout.gantt_right_annot_px = gantt_right_annot_px;
         if brick_has_notations {
-            layout.brick_notation_tiers = 4; // matches N_TIERS in add_brickplot
+            layout.brick_notation_tiers = crate::plot::brick::BRICK_NOTATION_TIERS;
         }
         if let Some(labels) = x_labels {
             layout = layout.with_x_categories(labels);

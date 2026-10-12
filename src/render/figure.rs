@@ -1,5 +1,5 @@
 use crate::plot::legend::{LegendEntry, LegendGroup};
-use crate::render::layout::{ComputedLayout, Layout, DEFAULT_FONT_FAMILY};
+use crate::render::layout::{Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
 use crate::render::render::{
     collect_legend_entries, render_legend_at, render_multiple, render_twin_y, Primitive, Scene,
@@ -661,7 +661,13 @@ impl Figure {
                                     + (col_span as f64 - 1.0) * spacing;
                                 let mut provisional = clone_layout(&layouts[i]);
                                 provisional.width = Some(cell_w);
-                                let cl = ComputedLayout::from_layout(&provisional);
+                                // Resolve the notation tiers the same way the
+                                // panel render will, so the overhead here is the
+                                // margin the panel actually ends up with.
+                                let cl = crate::render::render::resolve_brick_notation_tiers(
+                                    &plots[i],
+                                    &mut provisional,
+                                );
                                 let overhead = cl.margin_top + cl.margin_bottom;
                                 // Size from the y extent, not the row count:
                                 // CIGAR bars add height to the rows that draw
