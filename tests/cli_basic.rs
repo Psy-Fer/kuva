@@ -2140,6 +2140,14 @@ fn test_invalid_pie_values_are_rejected() {
             "Row 1: pie value -1 is negative",
         ),
         (pie.to_vec(), "l\tv\na\t0\nb\t0\n", "pie values sum to zero"),
+        (pie.to_vec(), "l\tv\n", "pie has no values to draw"),
+        // `--count-by` cannot produce a negative or zero count, but a table with
+        // no rows gives it nothing to count, which is the same empty pie.
+        (
+            vec!["pie", "--count-by", "l"],
+            "l\tv\n",
+            "pie has no values to draw",
+        ),
     ]);
 }
 
