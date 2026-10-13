@@ -296,3 +296,17 @@ fn test_volcano_omits_invalid_points() {
     assert_eq!(svg, render(valid));
     assert!(!svg.contains("NaN") && !svg.contains("negative_p"));
 }
+
+#[test]
+fn test_volcano_all_zero_pvalues_stay_representable() {
+    let vp = VolcanoPlot::new().with_points(vec![("a", 1.0, 0.0), ("b", -1.0, 0.0)]);
+    // No non-zero p-value means no smallest one to clamp to; the floor still has
+    // to be finite or every point maps to -inf.
+    assert!(vp.floor().is_finite(), "floor = {}", vp.floor());
+    let plots = vec![Plot::Volcano(vp)];
+    let (_, (y_min, y_max)) = plots[0].bounds().expect("zero p-values still plot");
+    assert!(y_min.is_finite() && y_max.is_finite(), "{y_min} {y_max}");
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"));
+}

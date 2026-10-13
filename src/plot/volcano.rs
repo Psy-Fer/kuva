@@ -176,17 +176,25 @@ impl VolcanoPlot {
 
     /// Compute the p-value floor used for -log10 transformation.
     /// Uses explicit floor if set, otherwise finds minimum non-zero p-value.
+    /// With no plottable non-zero p-value to clamp to, falls back to the
+    /// smallest the transform can represent rather than leaving the floor at
+    /// infinity, which would map every point to `-inf`.
     pub fn floor(&self) -> f64 {
         if let Some(f) = self.pvalue_floor {
             return f;
         }
-        self.points
+        let smallest = self
+            .points
             .iter()
             .filter(|p| p.is_plottable())
             .map(|p| p.pvalue)
             .filter(|&p| p > 0.0)
-            .fold(f64::INFINITY, f64::min)
-            .max(1e-300)
+            .fold(f64::INFINITY, f64::min);
+        if smallest.is_finite() {
+            smallest.max(1e-300)
+        } else {
+            1e-300
+        }
     }
 
     /// Add a single point by name, log₂FC, and raw p-value.

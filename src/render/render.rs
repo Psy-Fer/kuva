@@ -10423,7 +10423,10 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
+        // A plot with nothing plottable has no x range, so `map_x` is not finite
+        // here. The range comparisons are both false for NaN, so test it directly
+        // rather than writing an unusable coordinate into the output.
+        if !mid_x.is_finite() || mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
             continue;
         }
         let (anchor, rotate) = match computed.x_tick_rotate {

@@ -767,3 +767,25 @@ fn test_manhattan_omits_invalid_points() {
     assert!(!svg.contains("NaN"));
     assert!(svg.contains(">real_hit</text>"));
 }
+
+#[test]
+fn test_manhattan_all_zero_pvalues_stay_representable() {
+    let mp = ManhattanPlot::new().with_data(vec![("1", 0.0), ("2", 0.0)]);
+    assert!(mp.floor().is_finite(), "floor = {}", mp.floor());
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"));
+}
+
+#[test]
+fn test_manhattan_without_any_plottable_point_draws_nothing_unusable() {
+    // Every p-value is invalid, so there is no x range; the chromosome labels
+    // still have spans to walk and must not emit an unmappable position.
+    let mp = ManhattanPlot::new().with_data(vec![("1", -0.2), ("2", 1.5)]);
+    let plots = vec![Plot::Manhattan(mp)];
+    assert!(plots[0].bounds().is_none());
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"), "{svg}");
+}
