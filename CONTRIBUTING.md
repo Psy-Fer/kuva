@@ -131,7 +131,8 @@ Nothing below is checked by CI — each step is easy to miss because the crate s
 - [ ] **`Cargo.lock`** — run `cargo build` once; it picks up the new version automatically.
 - [ ] **`CHANGELOG.md`** — rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`; add the new compare link at the bottom (`[X.Y.Z]: .../compare/vPREV...vX.Y.Z`) and repoint the `[Unreleased]` link to `compare/vX.Y.Z...HEAD`.
 - [ ] **`man/kuva.1`** — regenerate: `cargo build --bin kuva && ./target/debug/kuva man > man/kuva.1`. The version string is baked in at build time, so it silently goes stale on every release otherwise.
-- [ ] **`README.md`** — bump the `kuva = "X.Y"` version in the install/dependency section (currently 4 occurrences: base + `png`/`pdf`/`full` feature examples).
+- [ ] **`README.md`** — bump the `kuva = "X.Y"` version in the install/dependency section (currently 6 occurrences: base + `png`/`pdf`/`full`/`typst-math`/`typst` feature examples).
+- [ ] **`src/lib.rs`** — the `VERSION` doc comment carries an `e.g. "X.Y.Z"` example that goes stale silently; bump it too.
 - [ ] **`rust-toolchain.toml`** — confirm its pinned `channel` is still >= `[package.metadata.msrv] pdf_feature` in `Cargo.toml`. The release workflow's pre-built binaries (`features: cli,full,typst-math`) build with whatever toolchain this file resolves to — if it ever drops below the `pdf` feature's real MSRV (e.g. a future krilla bump), the release binaries silently stop including working PDF support even though this file isn't checked by CI.
 - [ ] Run `cargo ci-fmt && cargo ci-clippy && cargo test --features cli,full` — confirm clean before tagging.
 - [ ] Merge `dev` → `main`, then tag `vX.Y.Z` on `main` and push the tag — this triggers `.github/workflows/release.yml`, which builds and attaches cross-platform CLI binaries to the GitHub Release.
