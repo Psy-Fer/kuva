@@ -173,4 +173,5 @@ name = "all_plots_simple"
 
 [[example]]
 name = "all_plots_complex"
-required-features = ["png"]
+# Writes PNG *and* PDF alongside the SVG, so it needs both backends, not just png.
+required-features = ["png", "pdf"]
