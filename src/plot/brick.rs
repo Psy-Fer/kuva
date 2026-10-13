@@ -138,6 +138,41 @@ pub enum CigarIssue {
     },
 }
 
+/// A row whose STRIGAR could not be used, with the reason.
+///
+/// STRIGAR rows are rejected rather than partially drawn. The tokeniser skips
+/// fragments it does not recognise, so a string in a superseded format would
+/// otherwise lose its separators silently and render a plausible-looking but
+/// wrong row: fewer bricks, or bricks in the wrong order, with nothing to
+/// indicate the input was never understood.
+///
+/// Retrieve these with [`BrickPlot::strigar_issues`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrigarIssue {
+    /// The row is in the pre-bladerunner STRIGAR format and is not supported.
+    ///
+    /// That format separated segments with `|` and encoded gaps with `@`
+    /// (`N@` for a pure gap, `@:seq` for a small gap carrying a motif). The
+    /// current contract is a single flat motif namespace per row with
+    /// bijective base-26 letters, so those characters have no meaning and the
+    /// old layout cannot be recovered from what remains. Regenerate the
+    /// STRIGAR from a current bladerunner.
+    LegacyFormat {
+        /// Row index.
+        row: usize,
+        /// The offending character, `|` or `@`.
+        marker: char,
+    },
+    /// The STRIGAR string contained a fragment that is neither a count nor a
+    /// bijective base-26 letter.
+    Unparseable {
+        /// Row index.
+        row: usize,
+        /// The character the tokeniser could not use.
+        fragment: char,
+    },
+}
+
 /// Parse a CIGAR string into read-space spans.
 ///
 /// Returns `None` if the string is malformed. An empty string parses to an
@@ -300,6 +335,37 @@ fn canonical_rotation(s: &str) -> String {
         .min()
         .expect("range 0..n is non-empty when n > 0")
         .to_string()
+}
+
+/// Check one row's STRIGAR pair against the current format contract.
+///
+/// Returns every problem found, so a caller sees all of them at once rather
+/// than fixing one and rediscovering the next. An empty result means the row
+/// is usable. Legacy markers are checked first: a row carrying them is in the
+/// superseded format, and reporting its leftover characters as individually
+/// unparseable would bury that.
+fn validate_strigar_row(row: usize, motif_str: &str, strigar_str: &str) -> Vec<StrigarIssue> {
+    let mut issues = Vec::new();
+
+    // `|` separated segments and `@` encoded gaps in the pre-bladerunner format.
+    // Neither has meaning now, and the segment structure they carried cannot be
+    // reconstructed, so the row is rejected rather than reinterpreted.
+    for marker in ['|', '@'] {
+        if strigar_str.contains(marker) || motif_str.contains(marker) {
+            issues.push(StrigarIssue::LegacyFormat { row, marker });
+        }
+    }
+    if !issues.is_empty() {
+        return issues;
+    }
+
+    // Anything the tokeniser would silently consume to make progress.
+    for ch in strigar_str.chars() {
+        if !ch.is_ascii_digit() && !ch.is_ascii_uppercase() {
+            issues.push(StrigarIssue::Unparseable { row, fragment: ch });
+        }
+    }
+    issues
 }
 
 /// Parse a STRIGAR motif map (`"kmer:letter,kmer:letter,..."`) into a
@@ -480,6 +546,10 @@ pub struct BrickPlot {
     pub names: Vec<String>,
     /// Strigar data: `(motif_string, strigar_string)` pairs used in strigar mode.
     pub strigars: Option<Vec<(String, String)>>,
+    /// Rows whose STRIGAR was rejected, set by
+    /// [`with_strigars`](BrickPlot::with_strigars). Read via
+    /// [`strigar_issues`](BrickPlot::strigar_issues).
+    pub strigar_issues: Vec<StrigarIssue>,
     /// Global letter → k-mer display string (set automatically in strigar mode).
     pub motifs: Option<HashMap<char, String>>,
     /// Expanded sequences derived from strigar strings (set automatically).
@@ -568,6 +638,7 @@ impl BrickPlot {
             sequences: vec![],
             names: vec![],
             strigars: None,
+            strigar_issues: Vec::new(),
             motifs: None,
             strigar_exp: None,
             template: Some(HashMap::new()),
@@ -796,6 +867,25 @@ impl BrickPlot {
     /// Rows whose CIGAR could not be used, with the reason.
     pub fn cigar_issues(&self) -> Vec<CigarIssue> {
         self.cigar_layout().issues
+    }
+
+    /// Rows whose STRIGAR could not be used, with the reason.
+    ///
+    /// Populated by [`with_strigars`](Self::with_strigars). A non-empty result
+    /// means those rows drew no bricks: they are rejected rather than
+    /// partially rendered, because a STRIGAR in the superseded `|`/`@` format
+    /// loses its separators to the tokeniser and would otherwise produce a
+    /// wrong row that still looks like a valid one.
+    ///
+    /// ```rust
+    /// use kuva::plot::BrickPlot;
+    ///
+    /// let plot = BrickPlot::new()
+    ///     .with_strigars(vec![("AATGG:A,CAG:B".to_string(), "10A2B".to_string())]);
+    /// assert!(plot.strigar_issues().is_empty());
+    /// ```
+    pub fn strigar_issues(&self) -> Vec<StrigarIssue> {
+        self.strigar_issues.clone()
     }
 
     /// Per-row CIGAR bar placement and the resulting vertical layout.
@@ -1073,6 +1163,22 @@ impl BrickPlot {
 
         let strigars_ref = self.strigars.as_ref().expect("strigars just set");
 
+        // Phase A: validate before any of the frequency passes below read a row.
+        // A rejected row must not contribute motifs or counts, or it would steer
+        // the global canonical/colour assignment using letters we already know
+        // we cannot trust.
+        let mut issues: Vec<StrigarIssue> = Vec::new();
+        for (row, (motif_str, strigar_str)) in strigars_ref.iter().enumerate() {
+            issues.extend(validate_strigar_row(row, motif_str, strigar_str));
+        }
+        let rejected: std::collections::HashSet<usize> = issues
+            .iter()
+            .map(|i| match i {
+                StrigarIssue::LegacyFormat { row, .. } => *row,
+                StrigarIssue::Unparseable { row, .. } => *row,
+            })
+            .collect();
+
         // Phase B: walk every row, collecting kmers by canonical rotation into
         // brick-count frequency tables. One motif namespace per row (the format has
         // no segments): a run's `count` is copies of that letter's kmer, and we score
@@ -1080,7 +1186,10 @@ impl BrickPlot {
         let mut canonical_freq: HashMap<String, usize> = HashMap::new();
         let mut rotation_freq: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
-        for (motif_str, strigar_str) in strigars_ref {
+        for (row, (motif_str, strigar_str)) in strigars_ref.iter().enumerate() {
+            if rejected.contains(&row) {
+                continue;
+            }
             let local_map = parse_motif_map(motif_str);
             for (count, letter) in parse_strigar_runs(strigar_str) {
                 if let Some(kmer) = local_map.get(&letter) {
@@ -1106,7 +1215,10 @@ impl BrickPlot {
         // lexicographically (larger wins) to match Phase C's fallback selection below.
         let mut consensus_rotations: HashMap<String, String> = HashMap::new();
         if let Some(cons_row) = self.consensus_row {
-            if let Some((motif_str, strigar_str)) = strigars_ref.get(cons_row) {
+            if let Some((motif_str, strigar_str)) = strigars_ref
+                .get(cons_row)
+                .filter(|_| !rejected.contains(&cons_row))
+            {
                 let local_map = parse_motif_map(motif_str);
                 // Tally copies per rotation within the consensus row.
                 let mut cons_rotation_freq: HashMap<String, HashMap<String, usize>> =
@@ -1184,7 +1296,13 @@ impl BrickPlot {
         // TAACCC:A in another) is automatically assigned the same token and colour.
         let mut expanded_strigars: Vec<String> = Vec::new();
 
-        for (motif_str, strigar_str) in strigars_ref {
+        for (row, (motif_str, strigar_str)) in strigars_ref.iter().enumerate() {
+            if rejected.contains(&row) {
+                // Keep the row slot so every other per-row vector stays aligned;
+                // it simply draws no bricks.
+                expanded_strigars.push(String::new());
+                continue;
+            }
             let local_map = parse_motif_map(motif_str);
             let mut local_to_global: HashMap<String, char> = HashMap::new();
             for (letter, kmer) in &local_map {
@@ -1255,6 +1373,7 @@ impl BrickPlot {
         self.motifs = Some(global_to_display);
         self.strigar_exp = Some(expanded_strigars);
         self.motif_lengths = Some(global_to_length);
+        self.strigar_issues = issues;
 
         self
     }

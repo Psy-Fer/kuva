@@ -130,36 +130,69 @@ Bricks are proportional to motif length (CAT = 3 bp wide; single-nucleotide inte
 
 ---
 
-## Bladerunner stitched format
+## Bladerunner format contract
 
-Bladerunner's stitched output joins multiple STR candidates with `|` separators. Each `|`-delimited section is its own candidate with its own local letter assignments; `with_strigars` handles this automatically.
+A row carries one flat motif namespace: every letter in the strigar string is
+looked up in that row's own motif string, and letters are local to the row.
+Letters are **bijective base-26** (`A`..`Z`, then `AA`, `AB`, ...), so a row can
+reference more than 26 distinct motifs. The tokeniser consumes the maximal run
+of uppercase characters, which is why a multi-character letter such as `3AA` is
+read as three copies of `AA` and not as `3A` plus a stray `A`.
 
-### Inter-candidate gaps
+```text
+motif string    AATGG:A,CAG:B,TTTTC:AA
+strigar string  10A2B3AA
+                 ^   ^  ^
+                 |   |  +-- 3 copies of TTTTC
+                 |   +----- 2 copies of CAG
+                 +--------- 10 copies of AATGG
+```
 
-Gaps between candidates appear as `N@` in the strigar (where N is the gap width in nucleotides) and render as light grey bricks:
+A count is a number of **copies of that letter's k-mer**, not a number of
+nucleotides: `10A` with `AATGG:A` is 10 bricks of 5 nt each.
 
-| Gap type | Motif string entry | Strigar token | Rendered width |
-|----------|-------------------|---------------|----------------|
-| **Large gap** (above threshold) | *(none)* | `N@` | N nt |
-| **Small gap** (below threshold) | `@:SEQUENCE` | `1@` | `len(seq)` nt |
+### The superseded `|` / `@` format is rejected
+
+An earlier bladerunner contract joined candidates with `|` separators and
+encoded inter-candidate gaps as `N@` (or `@:SEQUENCE` for a small gap). Neither
+character has meaning now, and the segment structure they carried cannot be
+recovered from what is left, so **rows containing them are rejected rather than
+reinterpreted**.
+
+This is deliberate. The tokeniser skips characters it cannot use, so an
+old-format row would otherwise quietly lose its separators and still draw: the
+wrong bricks in the wrong order, looking exactly like a valid row. Failing is
+the safer default when the alternative is a plausible but wrong figure.
+
+A rejected row keeps its slot in the plot (so names and offsets stay aligned
+with the other rows) but draws no bricks, and the reason is reported:
 
 ```rust,no_run
 # use kuva::plot::BrickPlot;
-# use kuva::render::plots::Plot;
-// Three stitched candidates; two large gaps between them.
-// ACCCTA, TAACCC, CCCTAA are all rotations of the same unit —
-// with_strigars assigns them the same global letter and colour.
-let strigars: Vec<(String, String)> = vec![
-    (
-        "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
-        "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
-    ),
-];
+use kuva::plot::brick::StrigarIssue;
 
-let plot = BrickPlot::new()
-    .with_names(vec!["read_1"])
-    .with_strigars(strigars);
+let plot = BrickPlot::new().with_strigars(vec![
+    ("ACCCTA:A".to_string(), "2A|36@".to_string()),   // old format
+]);
+
+for issue in plot.strigar_issues() {
+    match issue {
+        StrigarIssue::LegacyFormat { row, marker } => {
+            eprintln!("row {row}: superseded STRIGAR format (found {marker:?})");
+        }
+        StrigarIssue::Unparseable { row, fragment } => {
+            eprintln!("row {row}: cannot read {fragment:?}");
+        }
+    }
+}
 ```
+
+Validation runs before the motif-frequency passes, so a rejected row cannot
+influence the canonical-rotation ranking, global letters, or colours that the
+remaining rows share.
+
+Regenerate STRIGAR strings from a current bladerunner, or build rows through
+the builder API instead.
 
 ### Aligning reads by genomic position
 
@@ -176,8 +209,8 @@ Use `with_start_positions` to pass the reference coordinate where each read begi
 // with_x_origin(19) places x=0 at the repeat start; the pre-repeat
 // flanking region of read_1 appears at negative x values.
 let strigars: Vec<(String, String)> = vec![
-    ("A:A | @:GAA | AGA:B".to_string(), "16A | 1@ | 9B".to_string()),
-    ("AGA:A".to_string(),               "12A".to_string()),
+    ("A:A,GAA:B,AGA:C".to_string(), "16A1B9C".to_string()),
+    ("AGA:A".to_string(),           "12A".to_string()),
 ];
 
 let plot = BrickPlot::new()

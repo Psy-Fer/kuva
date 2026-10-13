@@ -1092,3 +1092,90 @@ fn notation_labels_are_all_or_nothing() {
         "expected one fallback label on the notated row"
     );
 }
+
+// ── STRIGAR format contract ──────────────────────────────────────────────────
+
+#[test]
+fn test_legacy_strigar_format_is_rejected_not_reinterpreted() {
+    // The pre-bladerunner format separated segments with `|` and encoded gaps
+    // with `@`. The tokeniser skips characters it cannot use, so without an
+    // explicit check these rows would lose their separators and still render:
+    // a row of bricks in the wrong order, with nothing saying the input was
+    // never understood. Reject the row instead.
+    let legacy = vec![
+        ("AATGG:A,CAG:B".to_string(), "10A|2B".to_string()),
+        ("AATGG:A".to_string(), "5A2@".to_string()),
+    ];
+    let plot = BrickPlot::new().with_strigars(legacy);
+
+    let issues = plot.strigar_issues();
+    assert_eq!(
+        issues.len(),
+        2,
+        "expected one issue per legacy row: {issues:?}"
+    );
+    assert!(
+        issues
+            .iter()
+            .all(|i| matches!(i, kuva::plot::brick::StrigarIssue::LegacyFormat { .. })),
+        "legacy markers should be reported as LegacyFormat, not as generic \
+         unparseable characters: {issues:?}"
+    );
+
+    // Rejected rows draw nothing rather than drawing something wrong.
+    let expanded = plot.strigar_exp.as_ref().expect("strigar_exp set");
+    assert_eq!(expanded.len(), 2, "row slots must stay aligned");
+    assert!(
+        expanded.iter().all(|e| e.is_empty()),
+        "a rejected row must expand to no bricks, got {expanded:?}"
+    );
+}
+
+#[test]
+fn test_current_strigar_format_still_parses() {
+    let plot = BrickPlot::new().with_strigars(vec![
+        ("AATGG:A,CAG:B".to_string(), "10A2B".to_string()),
+        ("AATGG:AA,CAG:AB".to_string(), "3AA4AB".to_string()),
+    ]);
+
+    assert!(
+        plot.strigar_issues().is_empty(),
+        "current-format rows should be clean: {:?}",
+        plot.strigar_issues()
+    );
+    let expanded = plot.strigar_exp.as_ref().expect("strigar_exp set");
+    // 10 + 2 copies, then 3 + 4 copies: counts are brick counts, not characters.
+    assert_eq!(expanded[0].chars().count(), 12);
+    assert_eq!(expanded[1].chars().count(), 7);
+}
+
+#[test]
+fn test_a_rejected_row_does_not_steer_global_motif_assignment() {
+    // Validation runs before the frequency passes, so a rejected row must not
+    // contribute its letters to the canonical/colour ranking shared by all rows.
+    let with_legacy = BrickPlot::new().with_strigars(vec![
+        ("AATGG:A".to_string(), "2A".to_string()),
+        ("CAG:A".to_string(), "99A|1A".to_string()),
+    ]);
+    let without = BrickPlot::new().with_strigars(vec![("AATGG:A".to_string(), "2A".to_string())]);
+
+    let a = with_legacy.motifs.as_ref().expect("motifs set");
+    let b = without.motifs.as_ref().expect("motifs set");
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "the rejected row's motif leaked into the global map: {a:?} vs {b:?}"
+    );
+}
+
+#[test]
+fn test_unparseable_strigar_characters_are_reported() {
+    let plot = BrickPlot::new().with_strigars(vec![("AATGG:A".to_string(), "2A!3a".to_string())]);
+    let issues = plot.strigar_issues();
+    assert!(
+        issues
+            .iter()
+            .any(|i| matches!(i, kuva::plot::brick::StrigarIssue::Unparseable { fragment, .. } if *fragment == '!')),
+        "expected the `!` to be reported: {issues:?}"
+    );
+}
