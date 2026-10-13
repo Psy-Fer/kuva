@@ -361,7 +361,7 @@ impl ScatterPlot {
         self
     }
 
-    /// Annotate the plot with the Pearson R² value.
+    /// Annotate the plot with the signed Pearson correlation coefficient r.
     ///
     /// Requires a trend line to be set via [`with_trend`](Self::with_trend).
     pub fn with_correlation(mut self) -> Self {

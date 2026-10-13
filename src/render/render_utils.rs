@@ -55,7 +55,18 @@ pub fn arrow_head_path(
 /// compute_tick_step(min, max, target_ticks)
 pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
     let raw_step = (max - min) / target_ticks as f64;
+    // A nonzero subnormal range can underflow when divided by the tick count.
+    let raw_step = if raw_step == 0.0 && max > min {
+        f64::from_bits(1)
+    } else {
+        raw_step
+    };
     let magnitude = 10f64.powf(raw_step.abs().log10().floor());
+    let magnitude = if magnitude == 0.0 && raw_step > 0.0 {
+        f64::from_bits(1)
+    } else {
+        magnitude
+    };
     let residual = raw_step / magnitude;
 
     // handle between 1 and 10
@@ -71,34 +82,235 @@ pub fn compute_tick_step(min: f64, max: f64, target_ticks: usize) -> f64 {
         10.0
     };
     // now multiply the nice value by the mag to get the nice tick
-    nice_residual * magnitude
+    let step = nice_residual * magnitude;
+    if step.is_infinite() && raw_step.is_finite() {
+        raw_step
+    } else {
+        step
+    }
 }
 
-/// Generate nice ticks for an axis
+/// Generate nice ticks for an axis.
+/// Returns no ticks for non-finite/reversed bounds or an unrepresentable grid count.
+/// Dense grids retain distinct floats even when the virtual index count overflows,
+/// up to `MAX_LINEAR_TICKS` positions; beyond that the axis is degenerate and
+/// returns no ticks.
 pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
     let step = compute_tick_step(min, max, target_ticks);
-    let start = (min / step).ceil() * step;
-    let end = (max / step).floor() * step;
-
-    let mut ticks = Vec::new();
-    let mut tick = start;
-    // Use a relative tolerance (fraction of step) so the loop terminates correctly
-    // regardless of data magnitude. An absolute 1e-8 tolerance caused ~10M iterations
-    // when the entire axis range was smaller than 1e-8 (e.g. values at 1e-14 scale).
-    while tick <= end + step.abs() * 1e-6 {
-        // Round to 6 significant figures to suppress float noise from accumulated additions.
-        // Scale-invariant: works correctly at any magnitude (unlike a fixed 1e6 factor).
-        let rounded = if tick == 0.0 {
-            0.0
+    let mut last_exponent = i32::MIN;
+    let mut last_factor = 1.0;
+    linear_ticks(min, max, step, |value| {
+        let factor = if value == 0.0 {
+            1.0
         } else {
-            let d = tick.abs().log10().floor() as i32;
-            let factor = 10f64.powi(6 - d);
-            (tick * factor).round() / factor
+            let d = value.abs().log10().floor() as i32;
+            if d != last_exponent {
+                last_factor = 10f64.powi(6 - d);
+                last_exponent = d;
+            }
+            last_factor
         };
-        ticks.push(rounded);
-        tick += step;
-    }
+        round_tick(value, step, factor, min, max)
+    })
+}
 
+// Suppress float noise without erasing the spacing or leaving the axis range.
+// Decimal scaling can overflow, underflow, or lose low bits at large offsets.
+fn round_tick(value: f64, step: f64, factor: f64, min: f64, max: f64) -> f64 {
+    let scaled = value * factor;
+    // If rounding changes nothing, dividing back can only introduce noise.
+    if !scaled.is_finite() || scaled.fract() == 0.0 {
+        return value;
+    }
+    let rounded = scaled.round() / factor;
+    if rounded.is_finite()
+        && rounded >= min
+        && rounded <= max
+        && (rounded - value).abs() <= step.abs() * 1e-6
+    {
+        rounded
+    } else {
+        value
+    }
+}
+
+// Retain the grid phase when adding a small displacement to a large minimum.
+// Each sum's error and the product's FMA residual correct double rounding.
+fn shifted_tick(min: f64, index: f64, step: f64, offset: f64) -> f64 {
+    let product = index * step;
+    let product_error = index.mul_add(step, -product);
+    let distance = product + offset;
+    let part = distance - product;
+    let distance_error = (product - (distance - part)) + (offset - part);
+    let value = min + distance;
+    if !value.is_finite() {
+        return value;
+    }
+    let part = value - min;
+    let value_error = (min - (value - part)) + (distance - part);
+    value + (value_error + distance_error + product_error)
+}
+
+// Find the first index whose monotone position exceeds value, or end if none does.
+fn next_distinct_index(
+    mut first: usize,
+    mut end: usize,
+    value: f64,
+    position: impl Fn(usize) -> f64,
+) -> usize {
+    while first < end {
+        let middle = first + (end - first) / 2;
+        if position(middle) > value {
+            end = middle;
+        } else {
+            first = middle + 1;
+        }
+    }
+    first
+}
+
+/// Upper bound on the positions one linear axis may produce. An axis is a few
+/// hundred pixels wide, so any request beyond this is degenerate rather than
+/// dense: a step far below the data's own resolution, or a range spanning more
+/// floats than could ever be drawn. Exceeding it yields no ticks, matching the
+/// other unrepresentable-grid guards, rather than a truncated axis that would
+/// silently label only its leading fraction.
+const MAX_LINEAR_TICKS: usize = 100_000;
+
+/// Map a finite float onto the unsigned total order, so the number of
+/// representable values between two floats is their difference. Negative
+/// patterns are inverted; non-negative ones get the sign bit set.
+fn ordered_bits(value: f64) -> u64 {
+    let bits = value.to_bits();
+    if bits & (1 << 63) != 0 {
+        !bits
+    } else {
+        bits | (1 << 63)
+    }
+}
+
+fn linear_ticks(min: f64, max: f64, step: f64, mut round: impl FnMut(f64) -> f64) -> Vec<f64> {
+    if !min.is_finite() || !max.is_finite() || max < min || !step.is_finite() || step <= 0.0 {
+        return Vec::new();
+    }
+    let low = min / step;
+    let high = max / step;
+    // At these indices every integer and its neighbors are representable.
+    // Check the rounded grid positions, so e.g. 5 * 0.2 still reaches tick 1.
+    let (first, offset, count) =
+        if low.abs() <= (1u64 << 52) as f64 && high.abs() <= (1u64 << 52) as f64 {
+            let first = low.floor();
+            let first = if first * step < min {
+                first + 1.0
+            } else {
+                first
+            };
+            let last = high.ceil();
+            let last = if last * step > max { last - 1.0 } else { last };
+            (Some(first), 0.0, last - first)
+        } else {
+            // Remainders retain the grid phase when division overflows or cannot
+            // distinguish consecutive indices. Keep the offset separate from min.
+            let offset = -(min % step);
+            // Start one grid point before the truncating remainder's anchor.
+            // Check positions against max instead of trusting a rounded last index.
+            let count = ((max - min) / step).ceil().next_up() + 3.0;
+            (None, offset, count)
+        };
+    if !count.is_finite() || count >= usize::MAX as f64 {
+        let closest = if min >= 0.0 {
+            min
+        } else if max <= 0.0 {
+            -max
+        } else {
+            0.0
+        };
+        let gap = (closest.next_up() - closest).min(closest - closest.next_down());
+        // Each float's rounding interval is wider than this step, so every
+        // float in the same-sign range has at least one grid point rounding to it.
+        if step <= gap * 0.5 {
+            // The walk visits every float in the range, so count them first:
+            // the total order makes that exact without iterating.
+            let span = ordered_bits(max) - ordered_bits(min);
+            if span >= MAX_LINEAR_TICKS as u64 {
+                return Vec::new();
+            }
+            let mut ticks = Vec::with_capacity(span as usize + 1);
+            let mut value = min;
+            loop {
+                ticks.push(value);
+                let next = value.next_up();
+                if next > max {
+                    break;
+                }
+                value = next;
+            }
+            return ticks;
+        }
+        return Vec::new();
+    }
+    if count < 0.0 {
+        return Vec::new();
+    }
+    let position = |index: usize| match first {
+        Some(first) => (first + index as f64) * step,
+        None => shifted_tick(min, index as f64 - 1.0, step, offset),
+    };
+    let last = count as usize;
+    let mut ticks = Vec::new();
+    let mut index = 0usize;
+    while index <= last {
+        let value = position(index);
+        if value < min {
+            let Some(next_index) = index.checked_add(1) else {
+                break;
+            };
+            index = next_index;
+            continue;
+        }
+        if !value.is_finite() || value > max {
+            break;
+        }
+        let rounded = round(value);
+        if rounded >= min
+            && rounded <= max
+            && ticks.last().is_none_or(|&previous| rounded > previous)
+        {
+            ticks.push(rounded);
+            // A step far below the axis's own resolution can still name more
+            // positions than any axis could draw, even once duplicates are
+            // dropped. Bail rather than return an unusable list.
+            if ticks.len() >= MAX_LINEAR_TICKS {
+                return Vec::new();
+            }
+        }
+        let Some(next_index) = index.checked_add(1) else {
+            break;
+        };
+        if next_index > last {
+            break;
+        }
+        // A tiny step at a large offset can map many indices to the same float.
+        // Jump to the next representable position instead of scanning those indices.
+        // Only the shifted path can repeat a position, so the extra evaluation
+        // here is skipped entirely on the common indexed path.
+        if first.is_none() && position(next_index) <= value {
+            // Aim at the next rounding midpoint, not its full float value:
+            // a larger jump can skip a distinct position when step is near one ULP.
+            let half_gap = (value.next_up() - value) * 0.5;
+            let next = ((((value - min) - offset) + half_gap) / step)
+                .next_down()
+                .next_down()
+                .floor()
+                + 1.0;
+            if !next.is_finite() || next >= usize::MAX as f64 {
+                break;
+            }
+            index = (next as usize).max(next_index);
+        } else {
+            index = next_index;
+        }
+    }
     ticks
 }
 
@@ -106,60 +318,123 @@ pub fn generate_ticks(min: f64, max: f64, target_ticks: usize) -> Vec<f64> {
 /// boundary.
 ///
 /// Finds the smallest integer multiplier `n` such that `n` divides `total_bins`
-/// evenly and the resulting tick count stays within `target_ticks`.  The tick
+/// evenly and the resulting tick count stays within `target_ticks`. The tick
 /// step is then `n * bin_width`, guaranteeing alignment with bar edges.
+/// Returns no ticks for non-finite bounds/width or an unrepresentable bin count/step.
 pub fn generate_ticks_bin_aligned(
     x_min: f64,
     x_max: f64,
     bin_width: f64,
     target_ticks: usize,
 ) -> Vec<f64> {
+    if !x_min.is_finite() || !x_max.is_finite() || !bin_width.is_finite() {
+        return Vec::new();
+    }
     if bin_width <= 0.0 || x_max <= x_min {
         return generate_ticks(x_min, x_max, target_ticks);
     }
-
-    let total_bins = ((x_max - x_min) / bin_width).round() as usize;
+    let count = ((x_max - x_min) / bin_width).round();
+    if !count.is_finite() || count >= usize::MAX as f64 {
+        return Vec::new();
+    }
+    let total_bins = count as usize;
     if total_bins == 0 {
         return vec![x_min, x_max];
     }
-
     // Maximum number of tick intervals that keeps labels readable.
-    let target_intervals = (target_ticks.saturating_sub(1)).max(2);
-
-    // Find the smallest n that divides total_bins evenly and gives ≤ target_intervals.
-    let n = (1..=total_bins)
-        .find(|&n| n > 0 && total_bins.is_multiple_of(n) && total_bins / n <= target_intervals)
-        .unwrap_or(total_bins);
-
+    let target_intervals = target_ticks.saturating_sub(1).max(2).min(total_bins);
+    // The largest permitted interval count gives the smallest bin multiplier.
+    // Check requested counts alongside factor pairs through sqrt(total_bins).
+    // Small requests finish quickly; large requests avoid a long descending scan.
+    let mut intervals = target_intervals;
+    let mut factor = 1usize;
+    let mut best = 1usize;
+    let num_steps = loop {
+        if total_bins.is_multiple_of(intervals) {
+            break intervals;
+        }
+        let complement = total_bins / factor;
+        if factor > complement {
+            break best;
+        }
+        if total_bins.is_multiple_of(factor) {
+            // Increasing factors give decreasing complements. The first
+            // permitted complement is the largest possible interval count.
+            if complement <= target_intervals {
+                break complement;
+            }
+            if factor <= target_intervals {
+                best = factor;
+            }
+        }
+        intervals -= 1;
+        factor += 1;
+    };
+    let n = total_bins / num_steps;
     let step = n as f64 * bin_width;
-    let num_steps = total_bins / n;
-
-    (0..=num_steps)
-        .map(|k| {
-            let v = x_min + k as f64 * step;
-            (v * 1e9).round() / 1e9 // round to suppress float noise
-        })
-        .collect()
-}
-
-/// Generate ticks at exact multiples of `step` within [min, max].
-pub fn generate_ticks_with_step(min: f64, max: f64, step: f64) -> Vec<f64> {
-    if step <= 0.0 {
-        return generate_ticks(min, max, 5);
+    if !step.is_finite() {
+        return Vec::new();
     }
-    let start = (min / step).ceil() * step;
-    let end = (max / step).floor() * step;
+    let position = |k: usize| {
+        // Form the bin index first; k * n <= total_bins for every checked index.
+        let bin = k * n;
+        // Match the renderer's separate multiplication and addition at bar edges.
+        x_min + bin as f64 * bin_width
+    };
+    // The guarded bin count leaves room for this exclusive end index.
+    let end = num_steps + 1;
     let mut ticks = Vec::new();
-    let mut tick = start;
-    while tick <= end + 1e-9 * step.abs().max(1e-10) {
-        ticks.push((tick * 1e9).round() / 1e9);
-        tick += step;
+    let mut k = 0usize;
+    let mut value = position(k);
+    while k < end {
+        let rounded = round_tick(value, step, 1e9, x_min, x_max);
+        if rounded.is_finite()
+            && rounded >= x_min
+            && rounded <= x_max
+            && ticks.last().is_none_or(|&previous| rounded > previous)
+        {
+            ticks.push(rounded);
+        }
+        let next = k + 1;
+        if next == end {
+            break;
+        }
+        let next_value = position(next);
+        if next_value <= value {
+            k = next_distinct_index(next, end, value, position);
+            if k == end {
+                break;
+            }
+            value = position(k);
+        } else {
+            k = next;
+            value = next_value;
+        }
     }
     ticks
 }
 
+/// Generate ticks at multiples of `step` within [min, max].
+/// Duplicate rounded positions are omitted. Finite nonpositive steps use automatic ticks;
+/// non-finite bounds/steps or an unrepresentable grid count return no ticks.
+/// Dense grids retain distinct floats even when the virtual index count overflows,
+/// up to `MAX_LINEAR_TICKS` positions; beyond that the axis is degenerate and
+/// returns no ticks.
+pub fn generate_ticks_with_step(min: f64, max: f64, step: f64) -> Vec<f64> {
+    if !step.is_finite() {
+        return Vec::new();
+    }
+    if step <= 0.0 {
+        return generate_ticks(min, max, 5);
+    }
+    linear_ticks(min, max, step, |value| {
+        round_tick(value, step, 1e9, min, max)
+    })
+}
+
 /// Generate minor tick positions between each pair of consecutive major ticks.
-/// `subdivisions` is the total number of sub-intervals (e.g. 5 → 4 minor marks per gap).
+/// `subdivisions` is the total number of sub-intervals (e.g. 5 -> 4 minor marks per gap).
+/// Non-finite/reversed gaps and duplicate or endpoint-rounded positions are omitted.
 pub fn generate_minor_ticks(major_ticks: &[f64], subdivisions: u32) -> Vec<f64> {
     if major_ticks.len() < 2 || subdivisions < 2 {
         return Vec::new();
@@ -168,10 +443,75 @@ pub fn generate_minor_ticks(major_ticks: &[f64], subdivisions: u32) -> Vec<f64> 
     for pair in major_ticks.windows(2) {
         let lo = pair[0];
         let hi = pair[1];
-        let step = (hi - lo) / subdivisions as f64;
-        for k in 1..subdivisions {
-            let v = lo + k as f64 * step;
-            minor.push((v * 1e9).round() / 1e9);
+        if !lo.is_finite() || !hi.is_finite() || lo.next_up() >= hi {
+            continue;
+        }
+        let n = subdivisions as f64;
+        // Opposite signs need endpoint weights to preserve exact cancellation.
+        let opposite = lo < 0.0 && hi > 0.0;
+        let delta = hi - lo;
+        // Powers of two retain the endpoint bits while bounding u32-weighted products.
+        let scale = if opposite && lo.abs().max(hi.abs()) > f64::MAX / n * 0.5 {
+            (1u64 << 32) as f64
+        } else {
+            1.0
+        };
+        let a = lo / scale;
+        let b = hi / scale;
+        let step = if opposite {
+            (b - a) / n * scale
+        } else {
+            delta / n
+        };
+        let position = |k: u32| {
+            if !opposite {
+                return if step.is_normal() {
+                    (k as f64).mul_add(step, lo)
+                } else {
+                    (k as f64 / n).mul_add(delta, lo)
+                };
+            }
+            // Evaluate ((n-k)*lo + k*hi)/n with product, sum, and division residuals.
+            let left = (subdivisions - k) as f64 * a;
+            let right = k as f64 * b;
+            let errors =
+                ((subdivisions - k) as f64).mul_add(a, -left) + (k as f64).mul_add(b, -right);
+            let sum = left + right;
+            let part = sum - left;
+            let error = (left - (sum - part)) + (right - part) + errors;
+            let value = sum / n;
+            let remainder = (-value).mul_add(n, sum) + error;
+            (value + remainder / n) * scale
+        };
+        let mut k = 1u32;
+        let mut value = position(k);
+        while k < subdivisions {
+            if value >= hi {
+                break;
+            }
+            let rounded = round_tick(value, step, 1e9, lo, hi);
+            if rounded.is_finite()
+                && rounded > lo
+                && rounded < hi
+                && minor.last().is_none_or(|&previous| rounded > previous)
+            {
+                minor.push(rounded);
+            }
+            let next = k + 1;
+            if next >= subdivisions {
+                break;
+            }
+            let next_value = position(next);
+            // Find the first different float instead of scanning repeated positions.
+            if next_value <= value {
+                k = next_distinct_index(next as usize, subdivisions as usize, value, |index| {
+                    position(index as u32)
+                }) as u32;
+                value = position(k);
+            } else {
+                k = next;
+                value = next_value;
+            }
         }
     }
     minor
@@ -511,40 +851,128 @@ pub fn simple_kde_reflect(
         .collect()
 }
 
-/// linear regression of a scatter plot so we can make the equation and get correlation
+/// Unweighted ordinary least-squares fit, returning `(slope, intercept, r)`.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or results that cannot be represented as finite `f64` values. This
+/// includes spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`. Pearson's signed `r` is undefined for constant
+/// coordinates.
 pub fn linear_regression<I>(points: I) -> Option<(f64, f64, f64)>
 where
     I: IntoIterator,
     I::Item: Into<(f64, f64)>,
 {
-    let mut vals = Vec::new();
+    // The public iterator need not be repeatable; collect it once for the passes.
+    let vals: Vec<_> = points.into_iter().map(Into::into).collect();
+    let fit = linear_fit(vals.iter().copied())?;
+    // The public tuple has nowhere to report an undefined r, so keep the
+    // historical behaviour of no fit at all when y is constant.
+    Some((fit.slope, fit.intercept, fit.r?))
+}
 
-    for (x, y) in points.into_iter().map(Into::into) {
-        vals.push((x, y));
+struct CenteredSums {
+    mean: (f64, f64),
+    offset: (f64, f64),
+    xx: f64,
+    xy: f64,
+    yy: f64,
+}
+
+impl CenteredSums {
+    fn new<I>(points: I) -> Option<Self>
+    where
+        I: Iterator<Item = (f64, f64)> + Clone,
+    {
+        let (x0, _) = points.clone().next()?;
+        let (mut n, mut sum_x, mut sum_y) = (0usize, 0.0, 0.0);
+        let mut x_varies = false;
+        for (x, y) in points.clone() {
+            n += 1;
+            sum_x += x;
+            sum_y += y;
+            x_varies |= x != x0;
+        }
+        let mean_x = sum_x / n as f64;
+        let mean_y = sum_y / n as f64;
+        // Constant y keeps a well-defined least-squares line (a flat one); only its
+        // correlation is undefined, which `correlation` reports separately. A
+        // non-finite mean also covers any NaN or infinite coordinate.
+        if !x_varies || !mean_x.is_finite() || !mean_y.is_finite() {
+            return None;
+        }
+        let (mut sum_dx, mut sum_dy) = (0.0, 0.0);
+        let (mut xx, mut xy, mut yy) = (0.0, 0.0, 0.0);
+        for (x, y) in points {
+            let dx = x - mean_x;
+            let dy = y - mean_y;
+            sum_dx += dx;
+            sum_dy += dy;
+            xx += dx * dx;
+            xy += dx * dy;
+            yy += dy * dy;
+        }
+        let offset_x = sum_dx / n as f64;
+        let offset_y = sum_dy / n as f64;
+        let xx = xx - offset_x * sum_dx;
+        let xy = xy - offset_x * sum_dy;
+        let yy = yy - offset_y * sum_dy;
+        // `yy == 0` is the constant-y case, kept for the flat line. Any other
+        // non-normal spread is outside the range this fit can represent.
+        let yy_usable = yy == 0.0 || (yy.is_normal() && yy > 0.0);
+        (xx.is_normal() && xx > 0.0 && yy_usable).then_some(Self {
+            mean: (mean_x, mean_y),
+            offset: (offset_x, offset_y),
+            xx,
+            xy,
+            yy,
+        })
     }
 
-    if vals.len() < 2 {
+    /// `None` when y is constant: the coefficient is `0/0` there, not zero.
+    fn correlation(&self) -> Option<f64> {
+        (self.yy > 0.0).then(|| (self.xy / (self.xx.sqrt() * self.yy.sqrt())).clamp(-1.0, 1.0))
+    }
+}
+
+pub(crate) struct LinearFit {
+    sums: CenteredSums,
+    pub slope: f64,
+    pub intercept: f64,
+    /// `None` when y is constant, where the coefficient is undefined.
+    pub r: Option<f64>,
+}
+
+impl LinearFit {
+    pub fn predict(&self, x: f64) -> Option<f64> {
+        let (mean_x, mean_y) = self.sums.mean;
+        let (offset_x, offset_y) = self.sums.offset;
+        let y = mean_y + (offset_y + self.slope * ((x - mean_x) - offset_x));
+        y.is_finite().then_some(y)
+    }
+}
+
+pub(crate) fn linear_fit<I>(points: I) -> Option<LinearFit>
+where
+    I: IntoIterator,
+    I::IntoIter: Clone,
+    I::Item: Into<(f64, f64)>,
+{
+    let sums = CenteredSums::new(points.into_iter().map(Into::into))?;
+    let (mean_x, mean_y) = sums.mean;
+    let (offset_x, offset_y) = sums.offset;
+    let slope = sums.xy / sums.xx;
+    let intercept = (mean_y + (offset_y - slope * offset_x)) - slope * mean_x;
+    if !slope.is_finite() || !intercept.is_finite() {
         return None;
     }
-
-    let n = vals.len() as f64;
-    let (sum_x, sum_y, sum_xy, sum_x2) = vals.iter().fold((0.0, 0.0, 0.0, 0.0), |acc, (x, y)| {
-        (acc.0 + x, acc.1 + y, acc.2 + x * y, acc.3 + x * x)
-    });
-
-    let denom = n * sum_x2 - sum_x * sum_x;
-    if denom.abs() < 1e-8 {
-        return None;
-    }
-
-    let slope = (n * sum_xy - sum_x * sum_y) / denom;
-    let intercept = (sum_y - slope * sum_x) / n;
-
-    // Pearson correlation coefficient
-    let r = pearson_corr(&vals)?;
-
-    // y = mx+b and r
-    Some((slope, intercept, r))
+    let r = sums.correlation();
+    Some(LinearFit {
+        sums,
+        slope,
+        intercept,
+        r,
+    })
 }
 
 /// LOESS / LOWESS: locally-weighted linear regression smoother.
@@ -552,15 +980,23 @@ where
 /// For each of `n_out` query points evenly spaced across the data's x-range, fits
 /// a degree-1 weighted least-squares line to the `span` fraction of nearest points
 /// (weighted by the tricube kernel of scaled distance) and evaluates it there.
+/// Distance weights do not include residual-based outlier reweighting.
 /// Returns `(x, y_smoothed)` pairs sorted by x. `span` is clamped to `[0.05, 1.0]`;
-/// returns an empty vec if there are fewer than 3 points or the x-range is degenerate.
+/// returns an empty vec if there are fewer than 3 points, fewer than 2 requested
+/// outputs, non-finite observations, a NaN span, or a degenerate/non-finite x-range.
+/// A neighborhood with no weighted x variation uses its weighted mean. Queries
+/// with no positive weights or an unrepresentable prediction are omitted.
 pub fn loess<I>(points: I, span: f64, n_out: usize) -> Vec<(f64, f64)>
 where
     I: IntoIterator,
     I::Item: Into<(f64, f64)>,
 {
     let mut pts: Vec<(f64, f64)> = points.into_iter().map(Into::into).collect();
-    if pts.len() < 3 || n_out == 0 {
+    if pts.len() < 3
+        || n_out < 2
+        || span.is_nan()
+        || pts.iter().any(|&(x, y)| !x.is_finite() || !y.is_finite())
+    {
         return Vec::new();
     }
     pts.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -579,42 +1015,125 @@ where
     };
 
     let mut out = Vec::with_capacity(n_out);
+    let mut local = Vec::with_capacity(k);
+    let mut nearest = Vec::with_capacity(k);
     for i in 0..n_out {
         let t = i as f64 / (n_out - 1) as f64;
         let x0 = x_min + t * (x_max - x_min);
 
         // The k nearest neighbours by |x - x0| set the local bandwidth.
-        let mut dist: Vec<f64> = pts.iter().map(|(x, _)| (x - x0).abs()).collect();
-        let mut idx: Vec<usize> = (0..n).collect();
-        idx.sort_by(|&a, &b| dist[a].total_cmp(&dist[b]));
-        let d_max = dist[idx[k - 1]].max(1e-12);
+        loess_neighbors(&pts, x0, k, &mut nearest);
+        let d_max = nearest[k - 1].1;
 
-        // Weighted degree-1 fit over the k neighbours.
-        let (mut sw, mut swx, mut swy, mut swxx, mut swxy) = (0.0, 0.0, 0.0, 0.0, 0.0);
-        for &j in idx.iter().take(k) {
+        local.clear();
+        for &(j, distance) in &nearest {
             let (x, y) = pts[j];
-            let w = tricube(dist[j] / d_max);
-            sw += w;
-            swx += w * x;
-            swy += w * y;
-            swxx += w * x * x;
-            swxy += w * x * y;
+            // Coincident selected points have equal distance weights.
+            let w = if d_max == 0.0 {
+                1.0
+            } else {
+                tricube(distance / d_max)
+            };
+            local.push((x, y, w));
         }
-        dist.clear();
-
-        let denom = sw * swxx - swx * swx;
-        let y0 = if sw <= 0.0 {
-            continue;
-        } else if denom.abs() < 1e-12 {
-            swy / sw // degenerate (all neighbours share an x) -> weighted mean
-        } else {
-            let slope = (sw * swxy - swx * swy) / denom;
-            let intercept = (swy - slope * swx) / sw;
-            slope * x0 + intercept
-        };
-        out.push((x0, y0));
+        if let Some(y0) = loess_fit(&mut local, x0) {
+            out.push((x0, y0));
+        }
     }
     out
+}
+
+fn loess_neighbors(pts: &[(f64, f64)], x0: f64, k: usize, nearest: &mut Vec<(usize, f64)>) {
+    // Sorted x values give two runs of increasing distance from the query.
+    // Merge their first k observations in the same order as a stable distance sort.
+    let split = pts.partition_point(|p| p.0 < x0);
+    let distance = |i: usize| (pts[i].0 - x0).abs();
+    let (mut left_start, mut left_end, mut left) = (split, split, split);
+    let mut right = split;
+    let mut left_distance = 0.0;
+    let mut right_distance = if right < pts.len() {
+        distance(right)
+    } else {
+        0.0
+    };
+    nearest.clear();
+    while nearest.len() < k {
+        if left == left_end && left_start > 0 {
+            left_end = left_start;
+            left_start -= 1;
+            left_distance = distance(left_start);
+            // Different x values can have equal rounded distances. Visit a left
+            // tie group in increasing index order, matching the original sort.
+            while left_start > 0 && distance(left_start - 1) == left_distance {
+                left_start -= 1;
+            }
+            left = left_start;
+        }
+        if left < left_end && (right == pts.len() || left_distance <= right_distance) {
+            nearest.push((left, left_distance));
+            left += 1;
+        } else {
+            nearest.push((right, right_distance));
+            right += 1;
+            if right < pts.len() {
+                right_distance = distance(right);
+            }
+        }
+    }
+}
+
+fn loess_fit(local: &mut [(f64, f64, f64)], x0: f64) -> Option<f64> {
+    let &(x_ref, y_ref, max_weight) = local.first()?;
+    if max_weight == 0.0 {
+        return None;
+    }
+
+    // Anchor at the nearest observation, not a possibly distant query. Scaling
+    // keeps the moments bounded without an epsilon tied to the units of x.
+    let (x_scale, y_scale) = local
+        .iter()
+        .filter(|p| p.2 > 0.0)
+        .fold((0.0_f64, 0.0_f64), |(xs, ys), &(x, y, _)| {
+            (xs.max((x - x_ref).abs()), ys.max(y.abs()))
+        });
+    let (mut sw, mut sx, mut sy) = (0.0, 0.0, 0.0);
+    for (x, y, w) in local.iter_mut().filter(|p| p.2 > 0.0) {
+        *x = if x_scale == 0.0 {
+            0.0
+        } else {
+            (*x - x_ref) / x_scale
+        };
+        let difference = *y - y_ref;
+        *y = if y_scale == 0.0 {
+            0.0
+        } else if difference.is_finite() {
+            difference / y_scale
+        } else {
+            // Opposite-sign finite y values can overflow before division.
+            *y / y_scale - y_ref / y_scale
+        };
+        *w /= max_weight;
+        sw += *w;
+        sx += *w * *x;
+        sy += *w * *y;
+    }
+    let mean_x = sx / sw;
+    let mean_y = sy / sw;
+    let (mut variance, mut covariance) = (0.0, 0.0);
+    for &(x, y, w) in local.iter().filter(|p| p.2 > 0.0) {
+        let dx = x - mean_x;
+        variance += w * dx * dx;
+        covariance += w * dx * (y - mean_y);
+    }
+    let prediction = if variance == 0.0 {
+        mean_y
+    } else {
+        let query_x = (x0 - x_ref) / x_scale;
+        (covariance / variance).mul_add(query_x - mean_x, mean_y)
+    };
+    // Fusing restoration also avoids an overflowing product when y_ref cancels it.
+    let y0 = prediction.mul_add(y_scale, y_ref);
+    y0.is_finite().then_some(y0)
 }
 
 /// One label for the force-directed [`repel_labels`] layout. `pos` is the label
@@ -762,36 +1281,13 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
     result
 }
 
-// Pearson correlation coefficient (r)
+/// Pearson's signed correlation coefficient, computed from all supplied points.
+///
+/// Returns `None` for fewer than two points, non-finite coordinates, constant
+/// x or y, or spreads too large or too small to square in `f64`, roughly beyond
+/// `1e150` or below `1e-150`.
 pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
-    let n = data.len();
-    if n < 2 {
-        return None;
-    }
-
-    let (mut sum_x, mut sum_y) = (0.0, 0.0);
-    for &(x, y) in data {
-        sum_x += x;
-        sum_y += y;
-    }
-
-    let mean_x = sum_x / n as f64;
-    let mean_y = sum_y / n as f64;
-
-    let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
-    for &(x, y) in data {
-        let dx = x - mean_x;
-        let dy = y - mean_y;
-        cov += dx * dy;
-        var_x += dx * dx;
-        var_y += dy * dy;
-    }
-
-    if var_x == 0.0 || var_y == 0.0 {
-        return None;
-    }
-
-    Some(cov / (var_x.sqrt() * var_y.sqrt()))
+    CenteredSums::new(data.iter().copied())?.correlation()
 }
 
 // ── Phylogenetic tree helpers ─────────────────────────────────────────────────
@@ -1126,6 +1622,199 @@ pub fn probit(p: f64) -> f64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn linear_fit_keeps_representable_extrapolation() {
+        let fit = linear_fit([(-1e-3, -1e-3), (1e-3, 1e-3)]).unwrap();
+        assert_eq!(fit.predict(-1e308), Some(-1e308));
+        assert_eq!(fit.predict(1e308), Some(1e308));
+        assert_eq!(fit.predict(f64::NAN), None);
+        assert_eq!(fit.predict(f64::INFINITY), None);
+        let fit = linear_fit([(0.0, 0.0), (1.0, 2.0)]).unwrap();
+        assert_eq!(fit.predict(f64::MAX), None);
+    }
+
+    #[test]
+    fn linear_ticks_preserve_tiny_and_subnormal_steps() {
+        for step in [1e-12, 1e-310] {
+            let ticks = generate_ticks_with_step(0.0, 4.0 * step, step);
+            assert_eq!(ticks, (0..=4).map(|k| k as f64 * step).collect::<Vec<_>>());
+        }
+        let smallest = f64::from_bits(1);
+        assert_eq!(generate_ticks(0.0, smallest, 5), [0.0, smallest]);
+        let ticks = generate_ticks(0.0, 1e-310, 5);
+        assert_eq!(ticks.len(), 6);
+        assert!(ticks
+            .iter()
+            .all(|v| v.is_finite() && (0.0..=1e-310).contains(v)));
+        assert!(ticks.windows(2).all(|p| p[0] < p[1]));
+    }
+
+    #[test]
+    fn linear_ticks_skip_unrepresentable_positions() {
+        for lo in [-1e20_f64, 1e20] {
+            let hi = lo.next_up();
+            for step in [2500.0, 1e-9, 1e-20, 1e-320] {
+                assert_eq!(generate_ticks_with_step(lo, hi, step), [lo, hi]);
+            }
+            assert_eq!(generate_ticks(lo, hi, 6), [lo, hi]);
+        }
+        for (lo, hi) in [
+            (-f64::MAX, (-f64::MAX).next_up()),
+            (f64::MAX.next_down(), f64::MAX),
+        ] {
+            assert_eq!(generate_ticks_with_step(lo, hi, 2e292), [lo, hi]);
+            assert_eq!(generate_ticks(lo, hi, 1), [lo, hi]);
+        }
+    }
+
+    #[test]
+    fn linear_ticks_keep_spacing_at_large_offsets() {
+        let min = 43481.24576689991_f64;
+        let max = 43481.24576689998;
+        let expected = std::iter::successors(Some(min), |&value| Some(value.next_up()))
+            .take(10)
+            .collect::<Vec<_>>();
+        assert_eq!(generate_ticks(min, max, 9), expected);
+        assert_eq!(generate_ticks_with_step(min, max, 5e-12), expected);
+        let ticks = generate_ticks(1e9, 1e9 + 1.0, 5);
+        assert!(ticks.len() >= 5);
+        assert!(ticks.windows(2).all(|p| p[0] < p[1]));
+        assert!(ticks.iter().all(|v| (1e9..=1e9 + 1.0).contains(v)));
+        // Decimal-looking endpoints need not be exact multiples of a binary step.
+        assert_eq!(
+            generate_ticks_with_step(-0.3, 0.3, 0.1),
+            [-0.2, -0.1, 0.0, 0.1, 0.2]
+        );
+    }
+
+    #[test]
+    fn bin_ticks_preserve_representable_boundaries() {
+        for (lo, width) in [(0.0, 1e-12), (0.0, 1e-310), (1e20, 16384.0)] {
+            for bins in [4, 30] {
+                let hi = lo + bins as f64 * width;
+                let multiplier = if bins == 4 { 1 } else { 6 };
+                assert_eq!(
+                    generate_ticks_bin_aligned(lo, hi, width, 6),
+                    (0..=bins / multiplier)
+                        .map(|k| lo + (k * multiplier) as f64 * width)
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+        let lo = -3.1611038473044104;
+        let hi = 89.87440451078888;
+        let width = (hi - lo) / 403.0;
+        let ticks = generate_ticks_bin_aligned(lo, hi, width, 9);
+        assert_eq!(ticks.len(), 2);
+        assert_eq!(ticks[1], hi);
+        for lo in [-1e20_f64, 1e20] {
+            let hi = lo.next_up();
+            let width = (hi - lo) / 1_000_000_000.0;
+            assert_eq!(
+                generate_ticks_bin_aligned(lo, hi, width, 1_000_000_001),
+                [lo, hi]
+            );
+        }
+    }
+
+    #[test]
+    fn bin_ticks_handle_a_large_prime_count() {
+        for target in [6, 1_000_000_006] {
+            assert_eq!(
+                generate_ticks_bin_aligned(0.0, 1_000_000_007.0, 1.0, target),
+                [0.0, 1_000_000_007.0]
+            );
+        }
+    }
+
+    #[test]
+    fn minor_ticks_preserve_representable_subdivisions() {
+        let ticks = generate_minor_ticks(&[0.0, 1e-12, 2e-12], 5);
+        assert_eq!(ticks.len(), 8);
+        assert!(ticks.windows(2).all(|p| p[0] < p[1]));
+        for (actual, expected) in ticks.iter().zip([
+            2e-13, 4e-13, 6e-13, 8e-13, 1.2e-12, 1.4e-12, 1.6e-12, 1.8e-12,
+        ]) {
+            assert!((actual - expected).abs() <= 4.0 * f64::EPSILON * expected);
+        }
+        let smallest = f64::from_bits(1);
+        assert_eq!(generate_minor_ticks(&[0.0, 2.0 * smallest], 5), [smallest]);
+        assert_eq!(
+            generate_minor_ticks(&[0.0, 5.0 * smallest], 3),
+            [2.0 * smallest, 3.0 * smallest]
+        );
+        assert!(generate_minor_ticks(&[1e20, 1e20_f64.next_up()], 5).is_empty());
+        assert!(generate_minor_ticks(&[1e20, 1e20_f64.next_up()], u32::MAX).is_empty());
+        let middle = 1e20_f64.next_up();
+        assert_eq!(
+            generate_minor_ticks(&[1e20, middle.next_up()], u32::MAX),
+            [middle]
+        );
+        for endpoint in [1e8, 1e20, 1e308] {
+            let ticks = generate_minor_ticks(&[-endpoint, endpoint], 6);
+            assert_eq!(ticks.len(), 5);
+            assert_eq!(ticks[2], 0.0);
+            assert_eq!(ticks[0], -ticks[4]);
+            assert_eq!(ticks[1], -ticks[3]);
+        }
+        assert_eq!(
+            generate_minor_ticks(&[-5.406240039962616e-308, -5.406240039962612e-308], 6).len(),
+            3
+        );
+        assert_eq!(generate_minor_ticks(&[-1e20, 2e20], 3), [0.0, 1e20]);
+        let ticks = generate_minor_ticks(&[-1e308, 1e308], 5);
+        for (actual, expected) in ticks.iter().zip([-6e307, -2e307, 2e307, 6e307]) {
+            assert!(actual.is_finite());
+            assert!((actual - expected).abs() <= 4.0 * f64::EPSILON * expected.abs());
+        }
+        assert_eq!(ticks.len(), 4);
+    }
+
+    #[test]
+    fn tick_generators_omit_non_finite_grids() {
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(generate_ticks(invalid, 1.0, 5).is_empty());
+            assert!(generate_ticks_with_step(0.0, invalid, 0.25).is_empty());
+            assert!(generate_ticks_with_step(0.0, 1.0, invalid).is_empty());
+            assert!(generate_ticks_bin_aligned(0.0, 1.0, invalid, 5).is_empty());
+            assert!(generate_minor_ticks(&[0.0, invalid], 5).is_empty());
+        }
+    }
+
+    #[test]
+    fn linear_ticks_refuse_to_outgrow_the_axis() {
+        // A step below half an ULP sends the float walk across the whole range.
+        // [1, 2] holds 2^52 floats, so the count has to be rejected outright
+        // rather than walked.
+        assert!(generate_ticks_with_step(1.0, 2.0, f64::from_bits(1)).is_empty());
+        assert!(generate_ticks_with_step(0.0, 1.0, f64::from_bits(1)).is_empty());
+        // The indexed path overruns without ever losing finiteness: these counts
+        // are representable, just far past anything an axis could draw.
+        assert!(generate_ticks_with_step(0.0, 1.0, 1e-16).is_empty());
+        assert!(generate_ticks_with_step(0.0, 1.0, 1e-9).is_empty());
+        // Ordinary dense requests are untouched on both sides of the bound.
+        let dense = generate_ticks_with_step(0.0, 1.0, 1e-4);
+        assert!(dense.len() > 9_000 && dense.len() < MAX_LINEAR_TICKS);
+        assert!(dense.windows(2).all(|p| p[0] < p[1]));
+        assert_eq!(generate_ticks_with_step(0.0, 1.0, 0.1).len(), 11);
+        // A short walk still returns every float it finds.
+        for lo in [-1e20_f64, 1e20] {
+            assert_eq!(generate_ticks_with_step(lo, lo.next_up(), 2500.0).len(), 2);
+        }
+    }
+
+    #[test]
+    fn ordered_bits_counts_representable_values() {
+        // Adjacent floats differ by one in the total order, including across zero.
+        for value in [-1e20_f64, -1.0, -f64::MIN_POSITIVE, 0.0, 1.0, 1e20] {
+            assert_eq!(ordered_bits(value.next_up()) - ordered_bits(value), 1);
+        }
+        assert_eq!(ordered_bits(0.0) - ordered_bits(-0.0), 1);
+        assert_eq!(ordered_bits(2.0) - ordered_bits(1.0), 1u64 << 52);
+        // Monotone across the whole finite range, so the subtraction never wraps.
+        assert!(ordered_bits(f64::MAX) > ordered_bits(-f64::MAX));
+    }
+
     // ── repel_labels ─────────────────────────────────────────────────────
 
     #[test]
@@ -1183,19 +1872,119 @@ mod tests {
 
     #[test]
     fn loess_recovers_a_linear_relationship() {
-        // Exactly-linear data: the smoother should reproduce y = 2x + 1 closely.
-        let data: Vec<(f64, f64)> = (0..40).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
-        let curve = loess(data.iter().copied(), 0.5, 50);
-        assert_eq!(curve.len(), 50);
-        for &(x, y) in &curve {
-            assert!(
-                (y - (2.0 * x + 1.0)).abs() < 1e-6,
-                "loess off at x={x}: y={y}"
-            );
+        // Changing the origin or units should preserve the same weighted line.
+        for (offset, scale) in [
+            (0.0, 1.0),
+            (1e9, 1.0),
+            (-1e9, 1.0),
+            (1e12, 1.0),
+            (-1e12, 1.0),
+            (0.0, 1e-150),
+            (0.0, 1e-7),
+            (0.0, 1e150),
+        ] {
+            let data: Vec<(f64, f64)> = (0..40)
+                .map(|i| (offset + scale * i as f64, 2.0 * i as f64 + 1.0))
+                .collect();
+            for span in [0.25, 0.5, 1.0] {
+                let curve = loess(data.iter().copied(), span, 50);
+                assert_eq!(curve.len(), 50);
+                for &(x, y) in &curve {
+                    assert!(
+                        (y - (2.0 * ((x - offset) / scale) + 1.0)).abs() < 1e-6,
+                        "loess off at offset={offset}, scale={scale}, span={span}, x={x}: y={y}"
+                    );
+                }
+                // Endpoints span the data range.
+                assert_eq!(curve.first().unwrap().0, offset);
+                assert_eq!(curve.last().unwrap().0, offset + scale * 39.0);
+            }
         }
-        // Endpoints span the data range.
-        assert!((curve.first().unwrap().0 - 0.0).abs() < 1e-9);
-        assert!((curve.last().unwrap().0 - 39.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn loess_preserves_constants_in_sparse_neighborhoods() {
+        for value in [7.0, 1e-300, 1e16, 1e308] {
+            for xs in [
+                vec![0.0, 1000.0, 2000.0],
+                (0..11).map(f64::from).chain([1000.0]).collect(),
+            ] {
+                for span in [0.5, 0.8, 1.0] {
+                    let curve = loess(xs.iter().map(|&x| (x, value)), span, 100);
+                    assert_eq!(curve.len(), 100);
+                    for &(x, y) in &curve {
+                        assert!(
+                            (y - value).abs() <= 4.0 * f64::EPSILON * value.abs(),
+                            "constant changed at x={x}, span={span}: y={y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn loess_recovers_a_line_across_a_sparse_gap() {
+        for gap in [1e8, 1e12] {
+            let data = (0..11)
+                .map(f64::from)
+                .chain([gap])
+                .map(|x| (x, 3.0 + 2.0 * x));
+            let curve = loess(data, 0.8, 21);
+            assert_eq!(curve.len(), 21);
+            for &(x, y) in &curve {
+                let expected = 3.0 + 2.0 * x;
+                assert!(
+                    (y - expected).abs() <= 1e-12 * expected,
+                    "gap={gap}, x={x}, y={y}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn loess_keeps_duplicate_neighbors_in_input_order() {
+        let mut data = [
+            (0.0, 1.0),
+            (0.0, 10.0),
+            (0.0, 100.0),
+            (0.0, 1000.0),
+            (1.0, 5.0),
+            (2.0, 7.0),
+        ];
+        // Only three of the four coincident observations are selected.
+        assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 37.0).abs() < 1e-12);
+        data.reverse();
+        assert!((loess(data.iter().copied(), 0.5, 3)[0].1 - 370.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn loess_neighbors_preserve_rounded_distance_ties() {
+        let data = [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (1e20, 3.0), (2e20, 4.0)];
+        // Three different left coordinates and the right coordinate all round
+        // to distance 1e20. The earlier indices must be selected first.
+        let mut nearest = Vec::new();
+        loess_neighbors(&data, 1e20, 4, &mut nearest);
+        assert_eq!(nearest, [(3, 0.0), (0, 1e20), (1, 1e20), (2, 1e20)]);
+    }
+
+    #[test]
+    fn loess_handles_opposite_sign_y_without_overflow() {
+        let data = [(0.0, -1e308), (1.0, 1e308), (2.0, 0.0)];
+        for (span, count, expected) in [
+            (0.5, 3, vec![-1e308, 1e308, 0.0]),
+            (1.0, 5, vec![-1e308, 0.0, 1e308, 5e307, 0.0]),
+        ] {
+            let curve = loess(data, span, count);
+            assert_eq!(curve.len(), expected.len());
+            for ((x, y), expected) in curve.into_iter().zip(expected) {
+                assert!(y.is_finite());
+                assert!(
+                    (y - expected).abs() <= 8.0 * f64::EPSILON * 1e308,
+                    "x={x}, y={y}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1237,6 +2026,14 @@ mod tests {
         assert!(loess([(0.0, 1.0), (1.0, 2.0)], 0.5, 10).is_empty()); // < 3 points
                                                                       // All same x -> degenerate range.
         assert!(loess([(1.0, 1.0), (1.0, 2.0), (1.0, 3.0)], 0.5, 10).is_empty());
+        let data = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)];
+        assert!(loess(data, 0.5, 0).is_empty());
+        assert!(loess(data, 0.5, 1).is_empty());
+        assert!(loess(data, f64::NAN, 10).is_empty());
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(loess([(0.0, invalid), (1.0, 2.0), (2.0, 3.0)], 1.0, 10).is_empty());
+            assert!(loess([(invalid, 1.0), (1.0, 2.0), (2.0, 3.0)], 1.0, 10).is_empty());
+        }
     }
 
     // ── wrap_text ────────────────────────────────────────────────────────

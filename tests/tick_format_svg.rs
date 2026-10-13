@@ -30,6 +30,28 @@ fn test_auto_integers() {
 }
 
 #[test]
+fn test_auto_preserves_small_nonzero_labels() {
+    for (value, expected) in [
+        (1e-12, "1e-12"),
+        (-1e-12, "-1e-12"),
+        (1e-310, "1e-310"),
+        (-1e-310, "-1e-310"),
+    ] {
+        assert_eq!(TickFormat::Auto.format(value), expected);
+    }
+    assert_eq!(TickFormat::Auto.format(-0.0), "0");
+    assert_eq!(TickFormat::Integer.format(1e-12), "0");
+    assert_eq!(TickFormat::Fixed(2).format(1e-12), "0.00");
+
+    let layout = Layout::new((-4e-12, 4e-12), (0.0, 1.0)).with_x_tick_step(1e-12);
+    let svg = make_scatter(vec![(-4e-12, 0.0), (4e-12, 1.0)], layout);
+    for label in ["-4e-12", "-2e-12", "2e-12", "4e-12"] {
+        assert!(svg.contains(&format!(">{label}<")), "missing label {label}");
+    }
+    common::write_test_output("test_outputs/tick_format_auto_small.svg", &svg).unwrap();
+}
+
+#[test]
 fn test_fixed() {
     let data = vec![
         (0.0, 0.0),
