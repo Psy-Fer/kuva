@@ -2162,3 +2162,27 @@ fn test_upset_output_is_deterministic() {
         }
     }
 }
+
+#[test]
+fn test_upset_rejects_more_sets_than_the_mask_holds() {
+    let matrix = |n: usize| {
+        let header = (0..n)
+            .map(|i| format!("S{i}"))
+            .collect::<Vec<_>>()
+            .join("\t");
+        let row = vec!["1"; n].join("\t");
+        format!("{header}\n{row}\n")
+    };
+    // 65 columns have no bit left to occupy; before the cap this panicked in a
+    // debug build and silently folded set 64 onto set 0 in a release one.
+    for n in [65, 66, 100] {
+        let (stdout, stderr, code) = run_with_stdin(&["upset"], &matrix(n));
+        assert_ne!(code, 0, "{n} columns");
+        assert!(stdout.is_empty(), "{n} columns");
+        assert!(stderr.contains("at most 64 sets"), "{n} columns: {stderr}");
+    }
+    // The limit itself still works.
+    let (stdout, stderr, code) = run_with_stdin(&["upset"], &matrix(64));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("<svg"));
+}

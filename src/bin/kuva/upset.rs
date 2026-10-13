@@ -45,6 +45,14 @@ pub fn run(args: UpSetArgs) -> Result<(), String> {
         return Err("upset input has no data rows".into());
     }
     let ncols = table.rows[0].len();
+    // Intersections are u64 bitmasks, so a 65th column has no bit of its own and
+    // would wrap onto the first. Say so rather than drawing a quietly wrong plot.
+    if ncols > UpSetPlot::MAX_SETS {
+        return Err(format!(
+            "upset supports at most {} sets, but the input has {ncols} columns",
+            UpSetPlot::MAX_SETS
+        ));
+    }
 
     // Set names from header or generate defaults.
     let set_names: Vec<String> = if let Some(ref hdr) = table.header {

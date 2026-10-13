@@ -117,6 +117,16 @@ impl Default for UpSetPlot {
 }
 
 impl UpSetPlot {
+    /// Maximum number of sets an UpSet plot can represent.
+    ///
+    /// Every intersection is a `u64` bitmask over the sets ([`UpSetIntersection::mask`]),
+    /// so there is no bit for a 65th set. [`with_sets`](Self::with_sets) and
+    /// [`with_data`](Self::with_data) drop any set past this limit rather than
+    /// wrapping its shift back onto an existing one, which would silently merge
+    /// two unrelated sets. `kuva upset` rejects such input outright instead,
+    /// because the CLI has somewhere to report the problem.
+    pub const MAX_SETS: usize = 64;
+
     /// Create an UpSet plot with default settings.
     ///
     /// Defaults: `ByFrequency` sort, count labels shown, set-size bars shown,
@@ -161,12 +171,16 @@ impl UpSetPlot {
         I: IntoIterator<Item = (S, J)>,
         J: IntoIterator<Item = T>,
     {
-        let named: Vec<(String, std::collections::HashSet<T>)> = sets
+        let mut named: Vec<(String, std::collections::HashSet<T>)> = sets
             .into_iter()
             .map(|(name, items)| (name.into(), items.into_iter().collect()))
             .collect();
 
-        let n = named.len();
+        // No bit exists for a set past the 64th, so drop the extras. Everything
+        // below counts over `named`, so the names, sizes and masks all stay
+        // consistent with each other; see [`UpSetPlot::MAX_SETS`].
+        named.truncate(Self::MAX_SETS);
+
         self.set_names = named.iter().map(|(name, _)| name.clone()).collect();
         self.set_sizes = named.iter().map(|(_, s)| s.len()).collect();
 
@@ -197,7 +211,6 @@ impl UpSetPlot {
             .collect();
         intersections.sort_by_key(|i| i.mask);
         self.intersections = intersections;
-        let _ = n;
         self
     }
 
@@ -241,6 +254,10 @@ impl UpSetPlot {
     ) -> Self {
         self.set_names = set_names.into_iter().map(Into::into).collect();
         self.set_sizes = set_sizes.into_iter().collect();
+        // A mask is a `u64`, so a 65th name could never be addressed by one and
+        // would only add an always-empty row; see [`UpSetPlot::MAX_SETS`].
+        self.set_names.truncate(Self::MAX_SETS);
+        self.set_sizes.truncate(Self::MAX_SETS);
         self.intersections = intersections
             .into_iter()
             .map(|(mask, count)| UpSetIntersection { mask, count })

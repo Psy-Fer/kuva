@@ -13577,7 +13577,9 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         return;
     }
 
-    let n_sets = up.set_names.len();
+    // `set_names` is a public field, so a caller can push past the limit the
+    // builders enforce. Clamp here too: the dot-matrix shifts below are `1u64 << j`.
+    let n_sets = up.set_names.len().min(UpSetPlot::MAX_SETS);
     let n_cols = sorted.len();
 
     let theme = &computed.theme;
