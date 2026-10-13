@@ -741,3 +741,51 @@ fn test_manhattan_repel_labels() {
     common::write_test_output("test_outputs/manhattan_repel.svg", &svg).unwrap();
     assert!(svg.contains("<svg"));
 }
+
+#[test]
+fn test_manhattan_omits_invalid_points() {
+    let mp = ManhattanPlot::new()
+        .with_data(vec![
+            ("1", f64::NAN),
+            ("1", 1e-6),
+            ("2", -0.3),
+            ("2", 0.4),
+            ("2", 1.5),
+        ])
+        .with_point_labels(vec![("1", 1.0, "real_hit")])
+        .with_label_top(1);
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout);
+    let circles = scene
+        .elements
+        .iter()
+        .filter(|p| matches!(p, kuva::render::render::Primitive::Circle { .. }))
+        .count();
+    assert_eq!(circles, 2);
+    let svg = SvgBackend.render_scene(&scene);
+    assert!(!svg.contains("NaN"));
+    assert!(svg.contains(">real_hit</text>"));
+}
+
+#[test]
+fn test_manhattan_all_zero_pvalues_stay_representable() {
+    let mp = ManhattanPlot::new().with_data(vec![("1", 0.0), ("2", 0.0)]);
+    assert!(mp.floor().is_finite(), "floor = {}", mp.floor());
+    let plots = vec![Plot::Manhattan(mp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"));
+}
+
+#[test]
+fn test_manhattan_without_any_plottable_point_draws_nothing_unusable() {
+    // Every p-value is invalid, so there is no x range; the chromosome labels
+    // still have spans to walk and must not emit an unmappable position.
+    let mp = ManhattanPlot::new().with_data(vec![("1", -0.2), ("2", 1.5)]);
+    let plots = vec![Plot::Manhattan(mp)];
+    assert!(plots[0].bounds().is_none());
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"), "{svg}");
+}

@@ -35,6 +35,8 @@ std::fs::write("pie.svg", svg).unwrap();
 
 > Only the *ratio* between slice values matters — absolute magnitudes are irrelevant. `.with_slice("A", 1.0, ...)` and `.with_slice("A", 100.0, ...)` produce the same slice if all others scale identically.
 
+Slice values must be zero or positive and sum to more than zero; otherwise no slices are drawn, the legend omits percentages, and the CLI reports the problem.
+
 ---
 
 ## Donut chart

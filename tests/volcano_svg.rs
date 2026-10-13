@@ -272,3 +272,41 @@ fn test_volcano_repel_labels() {
         "repel should draw leader lines"
     );
 }
+
+#[test]
+fn test_volcano_omits_invalid_points() {
+    let valid = vec![("sig", 3.0, 1e-6), ("ns", -0.5, 0.4)];
+    let mut with_invalid = valid.clone();
+    with_invalid.extend([
+        ("nan_p", 0.5, f64::NAN),
+        ("negative_p", 0.6, -0.2),
+        ("above_one", 0.7, 1.5),
+        ("nan_fc", f64::NAN, 0.01),
+    ]);
+    let render = |points: Vec<(&'static str, f64, f64)>| {
+        let vp = VolcanoPlot::new().with_points(points).with_label_top(5);
+        let plots = vec![Plot::Volcano(vp)];
+        let layout = Layout::auto_from_plots(&plots);
+        let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+        let start = svg.find("kuva-clip-").unwrap();
+        let end = start + svg[start..].find('"').unwrap();
+        svg.replace(&svg[start..end], "kuva-clip")
+    };
+    let svg = render(with_invalid);
+    assert_eq!(svg, render(valid));
+    assert!(!svg.contains("NaN") && !svg.contains("negative_p"));
+}
+
+#[test]
+fn test_volcano_all_zero_pvalues_stay_representable() {
+    let vp = VolcanoPlot::new().with_points(vec![("a", 1.0, 0.0), ("b", -1.0, 0.0)]);
+    // No non-zero p-value means no smallest one to clamp to; the floor still has
+    // to be finite or every point maps to -inf.
+    assert!(vp.floor().is_finite(), "floor = {}", vp.floor());
+    let plots = vec![Plot::Volcano(vp)];
+    let (_, (y_min, y_max)) = plots[0].bounds().expect("zero p-values still plot");
+    assert!(y_min.is_finite() && y_max.is_finite(), "{y_min} {y_max}");
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(!svg.contains("NaN") && !svg.contains("inf"));
+}

@@ -2073,3 +2073,116 @@ fn test_unknown_subcommand() {
     let (_, _, code) = run_with_file(&["notaplot"]);
     assert_ne!(code, 0, "unknown subcommand should exit with non-zero code");
 }
+
+fn assert_rejected(cases: Vec<(Vec<&str>, &str, &str)>) {
+    for (args, input, message) in cases {
+        let (stdout, stderr, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{args:?}");
+        assert!(stdout.is_empty(), "{args:?}");
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn test_invalid_volcano_pvalues_are_rejected() {
+    let volcano = [
+        "volcano",
+        "--name-col",
+        "g",
+        "--x-col",
+        "fc",
+        "--y-col",
+        "p",
+    ];
+    assert_rejected(vec![
+        (
+            volcano.to_vec(),
+            "g\tfc\tp\na\t1\t0.01\nb\t0.5\t-0.2\n",
+            "Row 1: p-value -0.2 is outside [0, 1]",
+        ),
+        (
+            volcano.to_vec(),
+            "g\tfc\tp\na\t1\t0.01\nb\t0.5\t1.5\n",
+            "Row 1: p-value 1.5 is outside [0, 1]",
+        ),
+        (
+            [volcano.as_slice(), &["--pvalue-col-is-log"]].concat(),
+            "g\tfc\tp\na\t1\t2\nb\t0.5\t-0.3\n",
+            "Row 1: -log10(p) value -0.3 is negative",
+        ),
+    ]);
+}
+
+#[test]
+fn test_invalid_manhattan_pvalues_are_rejected() {
+    let manhattan = ["manhattan", "--chr-col", "chr", "--pvalue-col", "p"];
+    assert_rejected(vec![
+        (
+            manhattan.to_vec(),
+            "chr\tp\n1\t0.01\n2\t-0.3\n",
+            "Row 1: p-value -0.3 is outside [0, 1]",
+        ),
+        (
+            [manhattan.as_slice(), &["--pvalue-col-is-log"]].concat(),
+            "chr\tp\n1\t2\n2\t-0.3\n",
+            "Row 1: -log10(p) value -0.3 is negative",
+        ),
+    ]);
+}
+
+#[test]
+fn test_invalid_pie_values_are_rejected() {
+    let pie = ["pie", "--label-col", "l", "--value-col", "v"];
+    assert_rejected(vec![
+        (
+            pie.to_vec(),
+            "l\tv\na\t3\nb\t-1\n",
+            "Row 1: pie value -1 is negative",
+        ),
+        (pie.to_vec(), "l\tv\na\t0\nb\t0\n", "pie values sum to zero"),
+        (pie.to_vec(), "l\tv\n", "pie has no values to draw"),
+        // `--count-by` cannot produce a negative or zero count, but a table with
+        // no rows gives it nothing to count, which is the same empty pie.
+        (
+            vec!["pie", "--count-by", "l"],
+            "l\tv\n",
+            "pie has no values to draw",
+        ),
+    ]);
+}
+
+#[test]
+fn test_upset_output_is_deterministic() {
+    for sort in ["frequency", "natural"] {
+        let args = ["upset", &data("upset.tsv"), "--sort", sort];
+        let (first, stderr, code) = run_with_file(&args);
+        assert_eq!(code, 0, "{stderr}");
+        for _ in 0..4 {
+            assert_eq!(run_with_file(&args).0, first, "--sort {sort}");
+        }
+    }
+}
+
+#[test]
+fn test_upset_rejects_more_sets_than_the_mask_holds() {
+    let matrix = |n: usize| {
+        let header = (0..n)
+            .map(|i| format!("S{i}"))
+            .collect::<Vec<_>>()
+            .join("\t");
+        let row = vec!["1"; n].join("\t");
+        format!("{header}\n{row}\n")
+    };
+    // 65 columns have no bit left to occupy; before the cap this panicked in a
+    // debug build and silently folded set 64 onto set 0 in a release one.
+    for n in [65, 66, 100] {
+        let (stdout, stderr, code) = run_with_stdin(&["upset"], &matrix(n));
+        assert_ne!(code, 0, "{n} columns");
+        assert!(stdout.is_empty(), "{n} columns");
+        assert!(stderr.contains("at most 64 sets"), "{n} columns: {stderr}");
+    }
+    // The limit itself still works.
+    let (stdout, stderr, code) = run_with_stdin(&["upset"], &matrix(64));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("<svg"));
+}

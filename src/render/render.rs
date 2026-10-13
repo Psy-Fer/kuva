@@ -2742,7 +2742,9 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     let theme = &computed.theme;
 
-    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    let Some(total) = pie.total() else {
+        return;
+    };
 
     let has_outside = matches!(
         pie.label_position,
@@ -9984,6 +9986,15 @@ fn draw_repel_labels(
 /// Draw a set of top-N labels in the requested [`LabelStyle`]. `anchors` are
 /// `(cx, cy, text)` in screen coordinates. Shared by volcano, manhattan, and
 /// scatter so all four placement styles behave identically.
+fn keep_top(ranked: &mut Vec<(f64, usize)>, n: usize) {
+    let by_y = |a: &(f64, usize), b: &(f64, usize)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
+    if n < ranked.len() {
+        ranked.select_nth_unstable_by(n, by_y);
+        ranked.truncate(n);
+    }
+    ranked.sort_by(by_y);
+}
+
 fn draw_labels(
     scene: &mut Scene,
     computed: &ComputedLayout,
@@ -10137,6 +10148,9 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Draw points: NS first, then Down, then Up
     for pass in 0..3u8 {
         for (pi, p) in vp.points.iter().enumerate() {
+            if !p.is_plottable() {
+                continue;
+            }
             let is_up = p.log2fc >= vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let is_down = p.log2fc <= -vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let color = match (pass, is_up, is_down) {
@@ -10203,22 +10217,22 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     // Collect significant points, sort by pvalue ascending, take top N
-    let mut sig_points: Vec<(f64, f64, &str)> = vp
+    let mut ranked: Vec<(f64, usize)> = vp
         .points
         .iter()
-        .filter(|p| p.pvalue <= vp.p_cutoff)
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
-            (
-                computed.map_x(p.log2fc),
-                computed.map_y(y_val),
-                p.name.as_str(),
-            )
-        })
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable() && p.pvalue <= vp.p_cutoff)
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
         .collect();
     // Sort by pvalue ascending = highest -log10(p) = smallest cy
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(vp.label_top);
+    keep_top(&mut ranked, vp.label_top);
+    let sig_points: Vec<(f64, f64, &str)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &vp.points[i];
+            (computed.map_x(p.log2fc), cy, p.name.as_str())
+        })
+        .collect();
 
     let anchors: Vec<(f64, f64, String)> = sig_points
         .iter()
@@ -10293,7 +10307,9 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
     // Pre-bucket points by chromosome so each span lookup is O(1) instead of O(n).
     let mut by_chr: HashMap<&str, Vec<usize>> = HashMap::new();
     for (idx, p) in mp.points.iter().enumerate() {
-        by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        if p.is_plottable() {
+            by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        }
     }
     for (span_idx, span) in mp.spans.iter().enumerate() {
         let color = if let Some(ref pal) = mp.palette {
@@ -10356,17 +10372,22 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
 
     // Collect all points, sort by screen y ascending (most significant = smallest y = top)
     // No genome-wide threshold filter: label the top-N most significant regardless.
-    let mut sig_points: Vec<(f64, f64, String)> = mp
+    let mut ranked: Vec<(f64, usize)> = mp
         .points
         .iter()
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable())
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
+        .collect();
+    keep_top(&mut ranked, mp.label_top);
+    let sig_points: Vec<(f64, f64, String)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &mp.points[i];
             let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
-            (computed.map_x(p.x), computed.map_y(y_val), label)
+            (computed.map_x(p.x), cy, label)
         })
         .collect();
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(mp.label_top);
 
     draw_labels(scene, computed, &sig_points, mp.point_size, &mp.label_style);
 }
@@ -10402,7 +10423,10 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
+        // A plot with nothing plottable has no x range, so `map_x` is not finite
+        // here. The range comparisons are both false for NaN, so test it directly
+        // rather than writing an unusable coordinate into the output.
+        if !mid_x.is_finite() || mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
             continue;
         }
         let (anchor, rotate) = match computed.x_tick_rotate {
@@ -10583,8 +10607,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
         pie.label_position,
         PieLabelPosition::Outside | PieLabelPosition::Auto
     );
-    if has_outside {
-        let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    if let (true, Some(total)) = (has_outside, pie.total()) {
         let max_label_px = pie
             .slices
             .iter()
@@ -12667,9 +12690,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
             }
             Plot::Pie(pie) => {
                 if pie.legend_label.is_some() {
-                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+                    let total = pie.total();
                     for slice in &pie.slices {
-                        let label = if pie.show_percent {
+                        let label = if let (true, Some(total)) = (pie.show_percent, total) {
                             let pct = slice.value / total * 100.0;
                             if slice.label.is_empty() {
                                 format!("{:.1}%", pct)
@@ -13554,7 +13577,9 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         return;
     }
 
-    let n_sets = up.set_names.len();
+    // `set_names` is a public field, so a caller can push past the limit the
+    // builders enforce. Clamp here too: the dot-matrix shifts below are `1u64 << j`.
+    let n_sets = up.set_names.len().min(UpSetPlot::MAX_SETS);
     let n_cols = sorted.len();
 
     let theme = &computed.theme;
@@ -16444,10 +16469,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             if !has_outside {
                 break;
             }
-            let total: f64 = pie.slices.iter().map(|s| s.value).sum();
-            if total <= 0.0 {
+            let Some(total) = pie.total() else {
                 break;
-            }
+            };
             let max_label_px = pie
                 .slices
                 .iter()

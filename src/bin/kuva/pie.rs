@@ -89,8 +89,22 @@ pub fn run(args: PieArgs) -> Result<(), String> {
         let value_col = args.value_col.unwrap_or(ColSpec::Index(1));
         let labels = table.col_str(&label_col)?;
         let values = table.col_f64(&value_col)?;
+        if let Some((row_i, v)) = values.iter().enumerate().find(|(_, v)| **v < 0.0) {
+            return Err(format!("Row {row_i}: pie value {v} is negative"));
+        }
         (labels, values)
     };
+
+    // Both paths have to clear the bar the renderer sets, a positive total, so
+    // check it here rather than in the branch that reads values from a column.
+    // `--count-by` only ever produces positive counts, but it produces none at
+    // all from a table with no rows, which leaves the same empty pie.
+    if values.is_empty() {
+        return Err("pie has no values to draw".to_string());
+    }
+    if values.iter().sum::<f64>() <= 0.0 {
+        return Err("pie values sum to zero; there is nothing to draw".to_string());
+    }
 
     let colors: Vec<String> = if let Some(ref cc) = args.color_col {
         table.col_str(cc)?

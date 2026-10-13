@@ -123,7 +123,7 @@ All color methods accept any CSS color string.
 
 ## Zero and extreme p-values
 
-p-values of exactly `0.0` cannot be log-transformed. They are automatically clamped to the smallest non-zero p-value in the data. To set an explicit ceiling (useful when comparing multiple plots on the same y-axis scale):
+p-values of exactly `0.0` cannot be log-transformed. They are automatically clamped to the smallest non-zero p-value in the data. Points with a p-value outside `[0, 1]` (including NaN) or a non-finite fold change are not drawn or labeled, and the CLI rejects such p-values with the row number. To set an explicit ceiling (useful when comparing multiple plots on the same y-axis scale):
 
 ```rust,no_run
 # use kuva::plot::VolcanoPlot;

@@ -86,6 +86,12 @@ impl Default for PiePlot {
 }
 
 impl PiePlot {
+    pub(crate) fn total(&self) -> Option<f64> {
+        let total: f64 = self.slices.iter().map(|s| s.value).sum();
+        let valid = total.is_finite() && total > 0.0 && self.slices.iter().all(|s| s.value >= 0.0);
+        valid.then_some(total)
+    }
+
     /// Create a pie chart with default settings.
     ///
     /// Defaults: full pie (`inner_radius = 0.0`), Auto label positioning,

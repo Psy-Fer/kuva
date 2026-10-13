@@ -427,6 +427,25 @@ impl DataTable {
             .collect()
     }
 
+    pub fn col_pvalues(&self, col: &ColSpec, negative_log10: bool) -> Result<Vec<f64>, String> {
+        self.col_f64(col)?
+            .into_iter()
+            .enumerate()
+            .map(|(row_i, v)| {
+                if negative_log10 {
+                    if v < 0.0 {
+                        return Err(format!("Row {row_i}: -log10(p) value {v} is negative"));
+                    }
+                    Ok(10.0_f64.powf(-v))
+                } else if (0.0..=1.0).contains(&v) {
+                    Ok(v)
+                } else {
+                    Err(format!("Row {row_i}: p-value {v} is outside [0, 1]"))
+                }
+            })
+            .collect()
+    }
+
     /// Extract a numeric column, treating empty / NA-token cells as missing (`None`) rather than
     /// erroring. A non-empty cell that is neither an NA token nor a number is still a hard error
     /// (keeps the wrong-column-selection safety net). See issue #108.

@@ -50,7 +50,14 @@ pub struct VolcanoPoint {
     /// log₂ fold change on the x-axis.
     pub log2fc: f64,
     /// Raw p-value (not −log10). Zero p-values are handled automatically.
+    /// Points with a p-value outside `[0, 1]` or a non-finite `log2fc` are not drawn.
     pub pvalue: f64,
+}
+
+impl VolcanoPoint {
+    pub(crate) fn is_plottable(&self) -> bool {
+        self.log2fc.is_finite() && (0.0..=1.0).contains(&self.pvalue)
+    }
 }
 
 /// Builder for a volcano plot.
@@ -169,16 +176,25 @@ impl VolcanoPlot {
 
     /// Compute the p-value floor used for -log10 transformation.
     /// Uses explicit floor if set, otherwise finds minimum non-zero p-value.
+    /// With no plottable non-zero p-value to clamp to, falls back to the
+    /// smallest the transform can represent rather than leaving the floor at
+    /// infinity, which would map every point to `-inf`.
     pub fn floor(&self) -> f64 {
         if let Some(f) = self.pvalue_floor {
             return f;
         }
-        self.points
+        let smallest = self
+            .points
             .iter()
+            .filter(|p| p.is_plottable())
             .map(|p| p.pvalue)
             .filter(|&p| p > 0.0)
-            .fold(f64::INFINITY, f64::min)
-            .max(1e-300)
+            .fold(f64::INFINITY, f64::min);
+        if smallest.is_finite() {
+            smallest.max(1e-300)
+        } else {
+            1e-300
+        }
     }
 
     /// Add a single point by name, log₂FC, and raw p-value.
