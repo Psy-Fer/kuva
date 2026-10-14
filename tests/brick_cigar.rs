@@ -557,3 +557,82 @@ fn first_rows_bar_and_decorations_are_not_clipped_at_the_top() {
         );
     }
 }
+
+/// The legend box must be wide enough for the CIGAR operation labels, not just
+/// the motif labels.
+///
+/// `collect_legend_entries` appends a swatch per CIGAR op that occurs, but the
+/// legend *width* is reserved separately in `Layout::auto_from_plots`. When only
+/// the first of those knew about the op entries, the box was sized to the widest
+/// motif ("CAG", 3 chars) and longer op labels ("insertion", 9 chars) were drawn
+/// past its right edge, and past the canvas edge too.
+#[test]
+fn legend_box_fits_the_cigar_operation_labels() {
+    /// `(x, width)` of the legend border: the last unfilled, stroked rect.
+    fn legend_box(svg: &str) -> (f64, f64) {
+        svg.split("<rect")
+            .skip(1)
+            .filter(|r| r.contains(r#"fill="none""#) && r.contains("stroke="))
+            .filter_map(|r| {
+                let num = |name: &str| -> Option<f64> {
+                    r.split(&format!("{name}=\""))
+                        .nth(1)?
+                        .split('"')
+                        .next()?
+                        .parse()
+                        .ok()
+                };
+                Some((num("x")?, num("width")?))
+            })
+            .last()
+            .expect("legend border rect")
+    }
+
+    fn render(with_cigars: bool) -> String {
+        let n = 4;
+        let mut plot = BrickPlot::new()
+            .with_strigars((0..n).map(|_| ("CAG:A,CAA:B", "3A3B9A")))
+            .with_names((0..n).map(|i| format!("read{i}")));
+        if with_cigars {
+            // Match + insertion + deletion, so the legend carries the long labels.
+            plot = plot.with_cigars((0..n).map(|_| "20M3I10M3D12M"));
+            assert!(plot.cigar_issues().is_empty(), "{:?}", plot.cigar_issues());
+        }
+        let plots = vec![Plot::Brick(plot)];
+        let layout = Layout::auto_from_plots(&plots).with_width(820.0);
+        kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout))
+    }
+
+    let with = render(true);
+    let without = render(false);
+
+    // The op entries must widen the box; motif labels alone are only 3 chars.
+    let (_, bw_with) = legend_box(&with);
+    let (_, bw_without) = legend_box(&without);
+    assert!(
+        bw_with > bw_without,
+        "CIGAR op labels did not widen the legend box ({bw_without} -> {bw_with})"
+    );
+
+    // And each op label must actually fit inside it. 6.0 px/char at font-size 12
+    // is a deliberate under-estimate of DejaVu Sans, so this asserts a lower
+    // bound on the space needed rather than an exact metric.
+    let (bx, bw) = legend_box(&with);
+    let box_right = bx + bw;
+    for op in [CigarOp::Match, CigarOp::Insertion, CigarOp::Deletion] {
+        let label = op.label();
+        let needle = format!(">{label}</text>");
+        let before = with.split(&needle).next().expect("label present");
+        let x: f64 = before
+            .rsplit(" x=\"")
+            .next()
+            .and_then(|v| v.split('"').next())
+            .and_then(|v| v.parse().ok())
+            .expect("label x");
+        let need = x + label.chars().count() as f64 * 6.0;
+        assert!(
+            need <= box_right,
+            "legend label {label:?} needs at least {need} but the box ends at {box_right}"
+        );
+    }
+}

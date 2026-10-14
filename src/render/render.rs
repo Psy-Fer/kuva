@@ -12465,34 +12465,13 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 // motif legend keeps its frequency ordering. Only the ops that
                 // actually occur are listed, so a plot with no soft clips does
                 // not advertise a softclip swatch.
-                if brickplot.cigars.is_some() {
-                    let cl = brickplot.cigar_layout();
-                    let mut seen: Vec<CigarOp> = Vec::new();
-                    for spans in cl.spans.iter().flatten() {
-                        for sp in spans {
-                            if !seen.contains(&sp.op) {
-                                seen.push(sp.op);
-                            }
-                        }
-                    }
-                    // Fixed order, not discovery order, so the legend is stable
-                    // across datasets.
-                    for op in [
-                        CigarOp::Match,
-                        CigarOp::Mismatch,
-                        CigarOp::Insertion,
-                        CigarOp::Deletion,
-                        CigarOp::SoftClip,
-                    ] {
-                        if seen.contains(&op) {
-                            entries.push(LegendEntry {
-                                label: op.label().to_string(),
-                                color: brickplot.cigar_color(op).to_string(),
-                                shape: LegendShape::Rect,
-                                dasharray: None,
-                            });
-                        }
-                    }
+                for op in brickplot.cigar_legend_ops() {
+                    entries.push(LegendEntry {
+                        label: op.label().to_string(),
+                        color: brickplot.cigar_color(op).to_string(),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
                 }
             }
             Plot::Box(boxplot) => {

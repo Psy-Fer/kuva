@@ -908,6 +908,15 @@ impl Layout {
                         note_legend_label(&mut max_label_len, &mut max_label_w, v, mark_bonus);
                     }
                 }
+                // CIGAR operation entries are appended to the legend by
+                // `collect_legend_entries`, so they must be measured here too or
+                // the box is sized to the motif labels alone and a longer op
+                // label ("insertion") is drawn outside it. Same list, via the
+                // shared `cigar_legend_ops`, so the two cannot drift apart.
+                for op in bp.cigar_legend_ops() {
+                    legend_entry_count += 1;
+                    note_legend_label(&mut max_label_len, &mut max_label_w, op.label(), 0);
+                }
                 // Reserve vertical space for per-block notation labels when enabled.
                 if bp
                     .notations

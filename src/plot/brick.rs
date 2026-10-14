@@ -864,6 +864,40 @@ impl BrickPlot {
         self.cigar_layout().draws_bar.iter().filter(|b| **b).count()
     }
 
+    /// The CIGAR operations this plot's legend should list, in a fixed order.
+    ///
+    /// Only the ops that actually occur are returned, so a plot with no soft
+    /// clips does not advertise a softclip swatch. The order is fixed rather
+    /// than discovery order, so the legend is stable across datasets.
+    ///
+    /// Shared by legend *entry* collection and legend *width* reservation:
+    /// those are computed in different modules, and when only one of them knew
+    /// about these entries the labels were drawn outside the legend box.
+    pub(crate) fn cigar_legend_ops(&self) -> Vec<CigarOp> {
+        if self.cigars.is_none() {
+            return Vec::new();
+        }
+        let cl = self.cigar_layout();
+        let mut seen: Vec<CigarOp> = Vec::new();
+        for spans in cl.spans.iter().flatten() {
+            for sp in spans {
+                if !seen.contains(&sp.op) {
+                    seen.push(sp.op);
+                }
+            }
+        }
+        [
+            CigarOp::Match,
+            CigarOp::Mismatch,
+            CigarOp::Insertion,
+            CigarOp::Deletion,
+            CigarOp::SoftClip,
+        ]
+        .into_iter()
+        .filter(|op| seen.contains(op))
+        .collect()
+    }
+
     /// Rows whose CIGAR could not be used, with the reason.
     pub fn cigar_issues(&self) -> Vec<CigarIssue> {
         self.cigar_layout().issues
