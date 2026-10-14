@@ -1624,7 +1624,7 @@ impl Plot {
         }
     }
 
-    /// `bw_mode` forces every colorbar's colormap to `ColorMap::Grayscale`, matching
+    /// `bw_mode` forces every colorbar's colormap to the BW grey ramp, matching
     /// the data fills the renderer draws when BW mode is on (see e.g. `add_heatmap`),
     /// so the colorbar and the data it labels stay in sync. Exception: `Scatter3D`'s
     /// colorbar is suppressed entirely (`None`) in BW mode, because its point fills
@@ -1633,7 +1633,7 @@ impl Plot {
     pub fn colorbar_info(&self, bw_mode: bool) -> Option<ColorBarInfo> {
         let cmap_of = |c: &ColorMap| -> ColorMap {
             if bw_mode {
-                ColorMap::Grayscale
+                crate::render::bw::bw_colormap()
             } else {
                 c.clone()
             }

@@ -2169,7 +2169,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     //         });
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hist2d.color_map.clone()
     };
@@ -3033,7 +3033,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     let norm = |v: f64| (v - min) / (max - min + f64::EPSILON);
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         heatmap.color_map.clone()
     };
@@ -5045,7 +5045,7 @@ fn add_surface3d(
 
     let surface_cmap = if has_cmap {
         if computed.bw_mode {
-            Some(crate::plot::ColorMap::Grayscale)
+            Some(crate::render::bw::bw_colormap())
         } else {
             s.z_colormap.clone()
         }
@@ -8259,7 +8259,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     use crate::plot::phylo::post_order_dfs;
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cm.color_map.clone()
     };
@@ -11475,7 +11475,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let effective_max_r = dp.max_radius.min((cell_w.min(cell_h) / 2.0) * 0.9);
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         dp.color_map.clone()
     };
@@ -11527,7 +11527,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
     const EPSILON: f64 = f64::EPSILON;
 
     let dice_cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         dp.color_map.clone()
     };
@@ -12126,7 +12126,7 @@ fn add_dice_legends(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout)
     if dp.fill_legend_label.is_some() {
         let (fill_min, fill_max) = dp.fill_range.unwrap_or_else(|| dp.fill_extent());
         let cmap = if computed.bw_mode {
-            crate::plot::ColorMap::Grayscale
+            crate::render::bw::bw_colormap()
         } else {
             dp.color_map.clone()
         };
@@ -14810,7 +14810,7 @@ fn add_contour(cp: &ContourPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let z_span = z_max - z_min + f64::EPSILON;
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cp.color_map.clone()
     };
@@ -20843,7 +20843,7 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
         });
     let (v_min, v_max) = hb.color_range.unwrap_or((v_min_raw, v_max_raw));
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hb.color_map.clone()
     };
@@ -20960,7 +20960,7 @@ fn add_hexbin(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLayout) {
         1.0
     };
     let hexbin_cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hb.color_map.clone()
     };
@@ -23663,7 +23663,7 @@ const CALENDAR_TIP_JS: &str = r#"(function(){
 
 fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cp.color_map.clone()
     };
@@ -24950,7 +24950,7 @@ fn add_quiver(q: &crate::plot::quiver::QuiverPlot, scene: &mut Scene, computed: 
         } else if let Some(ref cmap) = q.color_map {
             let cmap_bw;
             let cmap = if computed.bw_mode {
-                cmap_bw = crate::plot::ColorMap::Grayscale;
+                cmap_bw = crate::render::bw::bw_colormap();
                 &cmap_bw
             } else {
                 cmap

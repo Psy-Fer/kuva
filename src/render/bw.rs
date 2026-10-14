@@ -1,6 +1,7 @@
 use crate::plot::line::LineStyle;
-use crate::plot::{FillPattern, MarkerShape};
+use crate::plot::{ColorMap, FillPattern, MarkerShape};
 use crate::render::render::Scene;
+use std::sync::Arc;
 
 /// Grey shade sequence for BW mode.
 ///
@@ -42,6 +43,28 @@ const BW_SHAPES: &[MarkerShape] = &[
     MarkerShape::Cross,
     MarkerShape::Plus,
 ];
+
+/// Lowest point of the `Grayscale` ramp used for *continuous* data in BW mode.
+///
+/// The ramp itself starts at pure `#ffffff`, which is invisible against kuva's
+/// white canvas. For a dense grid (heatmap, clustermap) that is merely faint,
+/// but for a plot that omits empty cells (hexbin, calendar) it is ambiguous:
+/// a minimum-value cell reads as *no data* rather than *least data*. Starting
+/// at `#f0f0f0` keeps the lightest cells visible while leaving essentially the
+/// whole tonal range intact, and matches the floor `BW_GREYS` already applies
+/// to categorical fills for exactly the same reason.
+const BW_CONTINUOUS_FLOOR: f64 = 0.12;
+
+/// The colormap continuous data uses in BW mode.
+///
+/// Every BW override routes through this, fills and colorbars alike, so the bar
+/// always describes the ramp the cells were actually drawn with.
+pub fn bw_colormap() -> ColorMap {
+    ColorMap::Custom(Arc::new(|t: f64| {
+        let t = t.clamp(0.0, 1.0);
+        ColorMap::Grayscale.map(BW_CONTINUOUS_FLOOR + t * (1.0 - BW_CONTINUOUS_FLOOR))
+    }))
+}
 
 /// Returns the grey shade and fill pattern for group index `i` in BW mode.
 ///
