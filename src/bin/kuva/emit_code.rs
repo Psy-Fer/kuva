@@ -1312,6 +1312,10 @@ fn marker_shape_ctor(m: MarkerShape) -> &'static str {
         MarkerShape::Diamond => "MarkerShape::Diamond",
         MarkerShape::Cross => "MarkerShape::Cross",
         MarkerShape::Plus => "MarkerShape::Plus",
+        MarkerShape::TriangleDown => "MarkerShape::TriangleDown",
+        MarkerShape::Star => "MarkerShape::Star",
+        MarkerShape::Pentagon => "MarkerShape::Pentagon",
+        MarkerShape::Hexagon => "MarkerShape::Hexagon",
     }
 }
 
@@ -1331,10 +1335,12 @@ pub fn emit_scatter_plot(p: &ScatterPlot) -> String {
         frags.push(format!(".with_legend({})", str_lit(label)));
     }
     if let Some(ref t) = p.trend {
-        let ctor = match t {
-            TrendLine::Linear => "TrendLine::Linear",
-        };
-        frags.push(format!(".with_trend({ctor})"));
+        match t {
+            TrendLine::Linear => frags.push(".with_trend(TrendLine::Linear)".to_string()),
+            TrendLine::Loess { span } => {
+                frags.push(format!(".with_loess_span({})", f64_lit(*span)))
+            }
+        }
     }
     if p.show_equation {
         frags.push(".with_equation()".to_string());
@@ -1344,6 +1350,20 @@ pub fn emit_scatter_plot(p: &ScatterPlot) -> String {
     }
     if p.marker != MarkerShape::Circle {
         frags.push(format!(".with_marker({})", marker_shape_ctor(p.marker)));
+    }
+    if let Some(ref labels) = p.point_labels {
+        let list = labels
+            .iter()
+            .map(|l| str_lit(l))
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_labels(vec![{list}])"));
+        if !matches!(p.label_style, LabelStyle::Nudge) {
+            frags.push(format!(
+                ".with_label_style({})",
+                label_style_ctor(&p.label_style)
+            ));
+        }
     }
     chain("ScatterPlot::new()", frags)
 }
@@ -1921,6 +1941,46 @@ pub fn emit_histogram_plot(p: &Histogram) -> String {
             frags.push(format!(".with_kde_samples({})", p.kde_samples));
         }
     }
+    if let Some(method) = p.bin_method {
+        // Fully-qualified so the emitted snippet needs no extra `use`.
+        let variant = match method {
+            kuva::plot::BinMethod::Sturges => "Sturges",
+            kuva::plot::BinMethod::Scott => "Scott",
+            kuva::plot::BinMethod::FreedmanDiaconis => "FreedmanDiaconis",
+        };
+        frags.push(format!(
+            ".with_bin_method(kuva::plot::BinMethod::{variant})"
+        ));
+    }
+    if p.step {
+        frags.push(".with_step(true)".to_string());
+    }
+    if p.cumulative {
+        frags.push(".with_cumulative(true)".to_string());
+    }
+    if let Some(ref w) = p.weights {
+        let list = w.iter().map(|v| f64_lit(*v)).collect::<Vec<_>>().join(", ");
+        frags.push(format!(".with_weights(vec![{list}])"));
+    }
+    for g in &p.groups {
+        let data = g
+            .data
+            .iter()
+            .map(|v| f64_lit(*v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let label = match &g.label {
+            Some(l) => format!("Some({}.to_string())", str_lit(l)),
+            None => "None".to_string(),
+        };
+        frags.push(format!(
+            ".with_group(vec![{data}], {}, {label})",
+            str_lit(&g.color)
+        ));
+    }
+    if p.stacked {
+        frags.push(".with_stacked(true)".to_string());
+    }
     chain("Histogram::new()", frags)
 }
 
@@ -2131,6 +2191,15 @@ pub fn emit_survival_plot(p: &SurvivalPlot) -> String {
     }
     if let Some(ref label) = p.legend_label {
         frags.push(format!(".with_legend({})", str_lit(label)));
+    }
+    if p.risk_table {
+        frags.push(".with_risk_table(true)".to_string());
+    }
+    if p.median_lines {
+        frags.push(".with_median_lines(true)".to_string());
+    }
+    if p.logrank_pvalue {
+        frags.push(".with_logrank_pvalue(true)".to_string());
     }
     chain("SurvivalPlot::new()", frags)
 }
@@ -3006,6 +3075,9 @@ pub fn emit_strip_plot(p: &StripPlot) -> String {
             .join(", ");
         frags.push(format!(".with_tooltip_labels(vec![{list}])"));
     }
+    if p.horizontal {
+        frags.push(".with_horizontal(true)".to_string());
+    }
     chain("StripPlot::new()", frags)
 }
 
@@ -3197,6 +3269,7 @@ fn label_style_ctor(style: &LabelStyle) -> String {
             f64_lit(*offset_x),
             f64_lit(*offset_y)
         ),
+        LabelStyle::Repel => "LabelStyle::Repel".to_string(),
     }
 }
 

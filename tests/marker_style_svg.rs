@@ -645,3 +645,73 @@ fn test_stroke_width_value_is_sane() {
         panic!("no <circle> element found in SVG");
     }
 }
+
+// ── Marker shapes ────────────────────────────────────────────────────────────
+
+/// Showcase of every marker shape in one row, written to test_outputs/ for visual
+/// inspection. Each shape is its own single-point series so the glyphs are isolated.
+#[test]
+fn test_marker_shapes_showcase() {
+    use kuva::plot::scatter::MarkerShape;
+    let shapes = [
+        MarkerShape::Circle,
+        MarkerShape::Square,
+        MarkerShape::Triangle,
+        MarkerShape::TriangleDown,
+        MarkerShape::Diamond,
+        MarkerShape::Cross,
+        MarkerShape::Plus,
+        MarkerShape::Star,
+        MarkerShape::Pentagon,
+        MarkerShape::Hexagon,
+    ];
+    let plots: Vec<Plot> = shapes
+        .iter()
+        .enumerate()
+        .map(|(i, &shape)| {
+            Plot::Scatter(
+                ScatterPlot::new()
+                    .with_data(vec![(i as f64 + 1.0, 1.0)])
+                    .with_marker(shape)
+                    .with_size(11.0)
+                    .with_color("#4e79a7"),
+            )
+        })
+        .collect();
+    let svg = render(plots, "Marker shapes");
+    write("marker_shapes_showcase", &svg);
+
+    // Filled polygon shapes (triangle x2, diamond, star, pentagon, hexagon) draw <path>;
+    // square draws <rect>; circle draws <circle>; cross/plus draw <line>.
+    assert!(svg.contains("<path"), "polygon markers must draw paths");
+    assert!(svg.contains("<rect"), "square marker must draw a rect");
+    assert!(svg.contains("<circle"), "circle marker must draw a circle");
+    assert!(svg.contains("<line"), "cross/plus markers must draw lines");
+}
+
+/// Each new filled shape renders a closed path with the series colour.
+#[test]
+fn test_new_marker_shapes_render() {
+    use kuva::plot::scatter::MarkerShape;
+    for (shape, name) in [
+        (MarkerShape::TriangleDown, "triangle_down"),
+        (MarkerShape::Star, "star"),
+        (MarkerShape::Pentagon, "pentagon"),
+        (MarkerShape::Hexagon, "hexagon"),
+    ] {
+        let plot = ScatterPlot::new()
+            .with_data(vec![(1.0, 1.0), (2.0, 2.0), (3.0, 1.5)])
+            .with_marker(shape)
+            .with_size(10.0)
+            .with_color("#e15759");
+        let svg = render(vec![Plot::Scatter(plot)], name);
+        write(&format!("marker_{name}"), &svg);
+        // One closed filled path per data point (3), in the series colour.
+        let paths = svg.matches("<path").count();
+        assert!(paths >= 3, "{name}: expected >=3 marker paths, got {paths}");
+        assert!(
+            svg.contains("#e15759"),
+            "{name}: marker fill colour missing"
+        );
+    }
+}

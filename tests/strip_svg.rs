@@ -705,3 +705,135 @@ fn test_strip_swarm_stays_within_own_category_slot() {
         }
     }
 }
+
+// ── Horizontal orientation (coord_flip) ─────────────────────────────────────────
+// Categories move to the Y axis, values to X. The renderer already supported the
+// swap for every style; these assert it end-to-end and write SVGs for inspection.
+
+/// The category (group) label text-elements, returned as `(x, y)` screen coords.
+fn category_label_positions(svg: &str, labels: &[&str]) -> Vec<(f64, f64)> {
+    labels
+        .iter()
+        .map(|lab| {
+            let needle = format!(">{lab}</text>");
+            let end = svg
+                .find(&needle)
+                .unwrap_or_else(|| panic!("no label {lab}"));
+            let tag = &svg[svg[..end].rfind("<text").unwrap()..end];
+            let get = |attr: &str| -> f64 {
+                let s = tag.find(attr).unwrap() + attr.len();
+                let e = tag[s..].find('"').unwrap() + s;
+                tag[s..e].parse().unwrap()
+            };
+            (get(" x=\""), get(" y=\""))
+        })
+        .collect()
+}
+
+#[test]
+fn test_strip_horizontal_jitter() {
+    let strip = StripPlot::new()
+        .with_group("A", vec![1.0, 2.0, 2.5, 3.1, 4.0, 3.5, 2.8])
+        .with_group("B", vec![2.0, 2.1, 3.5, 3.8, 4.0, 4.2, 5.0])
+        .with_group("C", vec![0.5, 1.5, 1.8, 2.2, 3.0, 3.3, 4.5])
+        .with_color("steelblue")
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Strip (jitter)")
+        .with_x_label("Values");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/strip_horizontal.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // Categories are on the Y axis: the three labels share one x (left gutter) and
+    // sit at distinct, monotonically-changing y positions.
+    let pos = category_label_positions(&svg, &["A", "B", "C"]);
+    assert!(
+        (pos[0].0 - pos[1].0).abs() < 0.5 && (pos[1].0 - pos[2].0).abs() < 0.5,
+        "horizontal strip: category labels must share one x (Y-axis gutter), got {pos:?}"
+    );
+    assert!(
+        pos[0].1 > pos[1].1 && pos[1].1 > pos[2].1,
+        "categories should stack down the Y axis, got {pos:?}"
+    );
+}
+
+#[test]
+fn test_strip_horizontal_swarm() {
+    let strip = StripPlot::new()
+        .with_group("Control", vec![4.1, 5.0, 5.3, 5.8, 6.2, 4.7, 5.5, 5.1, 4.9])
+        .with_group(
+            "Treatment",
+            vec![5.5, 6.1, 6.4, 7.2, 7.8, 6.9, 7.0, 6.6, 6.2],
+        )
+        .with_color("darkorange")
+        .with_swarm()
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Beeswarm")
+        .with_x_label("Value");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/strip_horizontal_swarm.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    let pos = category_label_positions(&svg, &["Control", "Treatment"]);
+    assert!(
+        (pos[0].0 - pos[1].0).abs() < 0.5,
+        "swarm category labels must share the Y-axis gutter x, got {pos:?}"
+    );
+}
+
+#[test]
+fn test_strip_horizontal_center() {
+    let strip = StripPlot::new()
+        .with_group("A", vec![1.0, 2.0, 3.0, 4.0])
+        .with_group("B", vec![2.0, 3.0, 4.0, 5.0])
+        .with_center()
+        .with_horizontal(true);
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Horizontal Center")
+        .with_x_label("Value");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/strip_horizontal_center.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(svg.contains("<circle") || svg.contains("<path"));
+}
+
+/// Marker opacity at density: overlapping points build up visible density. Asserts
+/// the fill-opacity reaches the SVG. Writes an SVG for visual inspection at scale.
+#[test]
+fn test_strip_opacity_dense() {
+    // A deterministic dense group (120 points) so overlap is real.
+    let dense: Vec<f64> = (0..120)
+        .map(|i| {
+            let t = i as f64;
+            5.0 + (t * 0.7).sin() * 1.2 + (t * 0.13).cos() * 0.6
+        })
+        .collect();
+    let strip = StripPlot::new()
+        .with_group("Dense", dense)
+        .with_color("steelblue")
+        .with_point_size(4.0)
+        .with_marker_opacity(0.3)
+        .with_swarm();
+
+    let plots = vec![Plot::Strip(strip)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Dense beeswarm with marker opacity")
+        .with_y_label("Value");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/strip_opacity_dense.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    assert!(
+        svg.contains("fill-opacity=\"0.3"),
+        "marker opacity must reach the SVG as fill-opacity"
+    );
+}

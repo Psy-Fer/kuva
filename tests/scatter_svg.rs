@@ -453,3 +453,126 @@ fn test_scatter_empty_data() {
         "populated series legend should appear"
     );
 }
+
+// ── LOESS smoother ───────────────────────────────────────────────────────────
+
+/// LOESS smoother draws a multi-segment stroked path (not the single straight
+/// line a linear trend produces). Written to test_outputs/ for visual inspection.
+#[test]
+fn test_scatter_loess_smoother() {
+    // Noisy sine so the smoother has a curve to follow.
+    let data: Vec<(f64, f64)> = (0..120)
+        .map(|i| {
+            let x = i as f64 / 120.0 * 10.0;
+            let noise = ((i as f64 * 12.9898).sin() * 43758.5453).fract() - 0.5;
+            (x, x.sin() + 0.6 * noise)
+        })
+        .collect();
+    let plot = ScatterPlot::new()
+        .with_data(data)
+        .with_size(3.0)
+        .with_color("#4e79a7")
+        .with_loess()
+        .with_trend_color("#e15759");
+
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(plot.clone())]).with_title("LOESS");
+    let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Scatter(plot)], layout));
+    common::write_test_output("test_outputs/scatter_loess.svg", &svg).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // The smoother is a stroked, unfilled polyline in the trend colour.
+    assert!(
+        svg.contains("#e15759") && svg.contains("fill=\"none\""),
+        "loess should draw a stroked path in the trend colour"
+    );
+    // A LOESS path has many segments; a linear trend would have a single <line>.
+    let loess_path = svg
+        .match_indices("<path")
+        .map(|(i, _)| {
+            let end = svg[i..].find('>').unwrap() + i;
+            &svg[i..=end]
+        })
+        .find(|t| t.contains("#e15759"))
+        .expect("loess path present");
+    assert!(
+        loess_path.matches(" L").count() > 20,
+        "loess path should be a many-segment polyline"
+    );
+}
+
+/// A smaller span produces a wigglier curve (more total vertical variation) than
+/// a larger span on the same data.
+#[test]
+fn test_scatter_loess_span_controls_smoothness() {
+    use kuva::render::render_utils::loess;
+    let data: Vec<(f64, f64)> = (0..120)
+        .map(|i| {
+            let x = i as f64 / 120.0 * 10.0;
+            let noise = ((i as f64 * 78.233).sin() * 43758.5453).fract() - 0.5;
+            (x, x.sin() + 0.7 * noise)
+        })
+        .collect();
+    let variation = |span: f64| -> f64 {
+        loess(data.iter().copied(), span, 100)
+            .windows(2)
+            .map(|w| (w[1].1 - w[0].1).abs())
+            .sum::<f64>()
+    };
+    assert!(
+        variation(0.1) > variation(0.6),
+        "smaller span should wiggle more than a larger span"
+    );
+}
+
+// ── Point labels + repel ─────────────────────────────────────────────────────
+
+/// Per-point labels with force-directed (Repel) placement draw the label text plus
+/// thin leader lines back to clustered points. Written to test_outputs/ for review.
+#[test]
+fn test_scatter_repel_labels() {
+    use kuva::plot::LabelStyle;
+    // Two tight clusters so repulsion has to move labels off each other.
+    let pts = [
+        (1.0, 2.0, "Alpha"),
+        (1.1, 2.1, "Beta"),
+        (1.05, 1.95, "Gamma"),
+        (4.0, 5.0, "Delta"),
+        (4.1, 4.9, "Epsilon"),
+        (3.95, 5.05, "Zeta"),
+    ];
+    let plot = ScatterPlot::new()
+        .with_data(pts.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>())
+        .with_size(5.0)
+        .with_color("#4e79a7")
+        .with_labels(
+            pts.iter()
+                .map(|(_, _, l)| l.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .with_label_style(LabelStyle::Repel);
+
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(plot.clone())]).with_title("Repel labels");
+    let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Scatter(plot)], layout));
+    common::write_test_output("test_outputs/scatter_repel_labels.svg", &svg).unwrap();
+
+    for name in ["Alpha", "Delta", "Zeta"] {
+        assert!(svg.contains(&format!(">{name}<")), "label {name} missing");
+    }
+    // Leader lines are thin gray strokes.
+    assert!(
+        svg.contains("stroke=\"#888888\""),
+        "repel should draw leader lines"
+    );
+}
+
+/// Empty label strings leave their points unlabelled.
+#[test]
+fn test_scatter_labels_skip_empty() {
+    let plot = ScatterPlot::new()
+        .with_data(vec![(1.0, 1.0), (2.0, 2.0), (3.0, 3.0)])
+        .with_labels(vec!["keep", "", "alsokeep"]);
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(plot.clone())]);
+    let svg = SvgBackend.render_scene(&render_multiple(vec![Plot::Scatter(plot)], layout));
+    common::write_test_output("test_outputs/scatter_labels_partial.svg", &svg).unwrap();
+    assert!(svg.contains(">keep<") && svg.contains(">alsokeep<"));
+}

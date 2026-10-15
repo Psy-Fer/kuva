@@ -367,7 +367,7 @@ fn test_generate_ticks_small_scale_bounded() {
     // All tick values must be within the axis range
     for &t in &ticks {
         assert!(
-            t >= 1e-14 * 0.999 && t <= 2e-14 * 1.001,
+            (1e-14 * 0.999..=2e-14 * 1.001).contains(&t),
             "tick {t} is outside expected range [1e-14, 2e-14]"
         );
     }

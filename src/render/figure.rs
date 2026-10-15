@@ -1,5 +1,5 @@
 use crate::plot::legend::{LegendEntry, LegendGroup};
-use crate::render::layout::{ComputedLayout, Layout, DEFAULT_FONT_FAMILY};
+use crate::render::layout::{Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
 use crate::render::render::{
     collect_legend_entries, render_legend_at, render_multiple, render_twin_y, Primitive, Scene,
@@ -661,9 +661,20 @@ impl Figure {
                                     + (col_span as f64 - 1.0) * spacing;
                                 let mut provisional = clone_layout(&layouts[i]);
                                 provisional.width = Some(cell_w);
-                                let cl = ComputedLayout::from_layout(&provisional);
+                                // Resolve the notation tiers the same way the
+                                // panel render will, so the overhead here is the
+                                // margin the panel actually ends up with.
+                                let cl = crate::render::render::resolve_brick_notation_tiers(
+                                    &plots[i],
+                                    &mut provisional,
+                                );
                                 let overhead = cl.margin_top + cl.margin_bottom;
-                                let desired = rh * n as f64 + overhead;
+                                // Size from the y extent, not the row count:
+                                // CIGAR bars add height to the rows that draw
+                                // one, and using `n` would squash every brick
+                                // row below `row_height_px`.
+                                let units = bp.cigar_layout().total_units.max(n as f64);
+                                let desired = rh * units + overhead;
                                 // Always set — desired is typically smaller than
                                 // the default cell_height, so "> cell_height" would
                                 // silently skip every brick row height request.
@@ -930,6 +941,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.subtitle = l.subtitle.clone();
     new.x_categories = l.x_categories.clone();
     new.y_categories = l.y_categories.clone();
+    new.y_category_positions = l.y_category_positions.clone();
     new.show_legend = l.show_legend;
     new.show_colorbar = l.show_colorbar;
     new.legend_position = l.legend_position;
@@ -955,6 +967,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.suppress_x_ticks = l.suppress_x_ticks;
     new.suppress_y_ticks = l.suppress_y_ticks;
     new.font_family = l.font_family.clone();
+    new.tick_font_family = l.tick_font_family.clone();
     new.title_size = l.title_size;
     new.subtitle_size = l.subtitle_size;
     new.label_size = l.label_size;
@@ -990,6 +1003,11 @@ fn clone_layout(l: &Layout) -> Layout {
     new.y_axis_max = l.y_axis_max;
     new.y2_axis_min = l.y2_axis_min;
     new.y2_axis_max = l.y2_axis_max;
+    new.force_margin_left = l.force_margin_left;
+    new.force_margin_right = l.force_margin_right;
+    new.force_margin_top = l.force_margin_top;
+    new.force_margin_bottom = l.force_margin_bottom;
+    new.risk_table_rows = l.risk_table_rows;
     new.x_datetime = l.x_datetime.clone();
     new.y_datetime = l.y_datetime.clone();
     new.x_tick_rotate = l.x_tick_rotate;

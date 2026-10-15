@@ -36,7 +36,10 @@ fn write_figure(name: &str, fig: Figure) {
 
 // ── Shared dataset ───────────────────────────────────────────────────────────
 
-const GROUPS: &[(&str, &str, &[(f64, f64)])] = &[
+/// `(label, colour, points)` for one legend-backed series.
+type SeriesGroup = (&'static str, &'static str, &'static [(f64, f64)]);
+
+const GROUPS: &[SeriesGroup] = &[
     (
         "Alpha",
         "#4477AA",
@@ -216,7 +219,7 @@ fn legend_cell_right() {
 
 fn outside_bottom_columns() {
     // 12 groups to demonstrate multi-column layout below the plot.
-    let extra_groups: &[(&str, &str, &[(f64, f64)])] = &[
+    let extra_groups: &[SeriesGroup] = &[
         ("Alpha", "#4477AA", &[(1.0, 2.0), (2.0, 2.5), (3.0, 3.1)]),
         ("Beta", "#EE6677", &[(1.0, 3.5), (2.0, 4.0), (3.0, 4.8)]),
         ("Gamma", "#228833", &[(1.0, 5.0), (2.0, 5.6), (3.0, 6.2)]),

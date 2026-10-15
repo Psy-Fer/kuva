@@ -1,5 +1,5 @@
 /// Controls how gene labels are positioned on a volcano plot.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub enum LabelStyle {
     /// Label placed at the exact point position — no nudge, no leader line.
     ///
@@ -24,6 +24,23 @@ pub enum LabelStyle {
     /// let style = LabelStyle::Arrow { offset_x: 14.0, offset_y: 16.0 };
     /// ```
     Arrow { offset_x: f64, offset_y: f64 },
+    /// Force-directed (ggrepel / adjustText style) placement: labels are pushed
+    /// off each other and off the data points in 2-D, with a thin leader line
+    /// drawn back to each point. The best option for dense, clustered labels.
+    Repel,
+}
+
+impl LabelStyle {
+    /// Parse a CLI-friendly style name (`exact`, `nudge`, `repel`). `Arrow` is
+    /// omitted because it needs explicit pixel offsets.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "exact" => Some(LabelStyle::Exact),
+            "nudge" => Some(LabelStyle::Nudge),
+            "repel" => Some(LabelStyle::Repel),
+            _ => None,
+        }
+    }
 }
 
 /// A single gene (or feature) displayed in a volcano plot.
@@ -33,7 +50,14 @@ pub struct VolcanoPoint {
     /// log₂ fold change on the x-axis.
     pub log2fc: f64,
     /// Raw p-value (not −log10). Zero p-values are handled automatically.
+    /// Points with a p-value outside `[0, 1]` or a non-finite `log2fc` are not drawn.
     pub pvalue: f64,
+}
+
+impl VolcanoPoint {
+    pub(crate) fn is_plottable(&self) -> bool {
+        self.log2fc.is_finite() && (0.0..=1.0).contains(&self.pvalue)
+    }
 }
 
 /// Builder for a volcano plot.
@@ -152,16 +176,25 @@ impl VolcanoPlot {
 
     /// Compute the p-value floor used for -log10 transformation.
     /// Uses explicit floor if set, otherwise finds minimum non-zero p-value.
+    /// With no plottable non-zero p-value to clamp to, falls back to the
+    /// smallest the transform can represent rather than leaving the floor at
+    /// infinity, which would map every point to `-inf`.
     pub fn floor(&self) -> f64 {
         if let Some(f) = self.pvalue_floor {
             return f;
         }
-        self.points
+        let smallest = self
+            .points
             .iter()
+            .filter(|p| p.is_plottable())
             .map(|p| p.pvalue)
             .filter(|&p| p > 0.0)
-            .fold(f64::INFINITY, f64::min)
-            .max(1e-300)
+            .fold(f64::INFINITY, f64::min);
+        if smallest.is_finite() {
+            smallest.max(1e-300)
+        } else {
+            1e-300
+        }
     }
 
     /// Add a single point by name, log₂FC, and raw p-value.

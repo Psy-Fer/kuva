@@ -130,36 +130,69 @@ Bricks are proportional to motif length (CAT = 3 bp wide; single-nucleotide inte
 
 ---
 
-## Bladerunner stitched format
+## Bladerunner format contract
 
-Bladerunner's stitched output joins multiple STR candidates with `|` separators. Each `|`-delimited section is its own candidate with its own local letter assignments; `with_strigars` handles this automatically.
+A row carries one flat motif namespace: every letter in the strigar string is
+looked up in that row's own motif string, and letters are local to the row.
+Letters are **bijective base-26** (`A`..`Z`, then `AA`, `AB`, ...), so a row can
+reference more than 26 distinct motifs. The tokeniser consumes the maximal run
+of uppercase characters, which is why a multi-character letter such as `3AA` is
+read as three copies of `AA` and not as `3A` plus a stray `A`.
 
-### Inter-candidate gaps
+```text
+motif string    AATGG:A,CAG:B,TTTTC:AA
+strigar string  10A2B3AA
+                 ^   ^  ^
+                 |   |  +-- 3 copies of TTTTC
+                 |   +----- 2 copies of CAG
+                 +--------- 10 copies of AATGG
+```
 
-Gaps between candidates appear as `N@` in the strigar (where N is the gap width in nucleotides) and render as light grey bricks:
+A count is a number of **copies of that letter's k-mer**, not a number of
+nucleotides: `10A` with `AATGG:A` is 10 bricks of 5 nt each.
 
-| Gap type | Motif string entry | Strigar token | Rendered width |
-|----------|-------------------|---------------|----------------|
-| **Large gap** (above threshold) | *(none)* | `N@` | N nt |
-| **Small gap** (below threshold) | `@:SEQUENCE` | `1@` | `len(seq)` nt |
+### The superseded `|` / `@` format is rejected
+
+An earlier bladerunner contract joined candidates with `|` separators and
+encoded inter-candidate gaps as `N@` (or `@:SEQUENCE` for a small gap). Neither
+character has meaning now, and the segment structure they carried cannot be
+recovered from what is left, so **rows containing them are rejected rather than
+reinterpreted**.
+
+This is deliberate. The tokeniser skips characters it cannot use, so an
+old-format row would otherwise quietly lose its separators and still draw: the
+wrong bricks in the wrong order, looking exactly like a valid row. Failing is
+the safer default when the alternative is a plausible but wrong figure.
+
+A rejected row keeps its slot in the plot (so names and offsets stay aligned
+with the other rows) but draws no bricks, and the reason is reported:
 
 ```rust,no_run
 # use kuva::plot::BrickPlot;
-# use kuva::render::plots::Plot;
-// Three stitched candidates; two large gaps between them.
-// ACCCTA, TAACCC, CCCTAA are all rotations of the same unit —
-// with_strigars assigns them the same global letter and colour.
-let strigars: Vec<(String, String)> = vec![
-    (
-        "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
-        "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
-    ),
-];
+use kuva::plot::brick::StrigarIssue;
 
-let plot = BrickPlot::new()
-    .with_names(vec!["read_1"])
-    .with_strigars(strigars);
+let plot = BrickPlot::new().with_strigars(vec![
+    ("ACCCTA:A".to_string(), "2A|36@".to_string()),   // old format
+]);
+
+for issue in plot.strigar_issues() {
+    match issue {
+        StrigarIssue::LegacyFormat { row, marker } => {
+            eprintln!("row {row}: superseded STRIGAR format (found {marker:?})");
+        }
+        StrigarIssue::Unparseable { row, fragment } => {
+            eprintln!("row {row}: cannot read {fragment:?}");
+        }
+    }
+}
 ```
+
+Validation runs before the motif-frequency passes, so a rejected row cannot
+influence the canonical-rotation ranking, global letters, or colours that the
+remaining rows share.
+
+Regenerate STRIGAR strings from a current bladerunner, or build rows through
+the builder API instead.
 
 ### Aligning reads by genomic position
 
@@ -176,8 +209,8 @@ Use `with_start_positions` to pass the reference coordinate where each read begi
 // with_x_origin(19) places x=0 at the repeat start; the pre-repeat
 // flanking region of read_1 appears at negative x values.
 let strigars: Vec<(String, String)> = vec![
-    ("A:A | @:GAA | AGA:B".to_string(), "16A | 1@ | 9B".to_string()),
-    ("AGA:A".to_string(),               "12A".to_string()),
+    ("A:A,GAA:B,AGA:C".to_string(), "16A1B9C".to_string()),
+    ("AGA:A".to_string(),           "12A".to_string()),
 ];
 
 let plot = BrickPlot::new()
@@ -292,6 +325,25 @@ When labels from adjacent runs overlap in pixel space they are staggered vertica
 
 ---
 
+## Marker lines
+
+`with_vline(x)` draws a dashed vertical line across every row at reference coordinate `x`, handy for marking a locus, primer boundary, or variant position. `with_vline_labeled(x, label)` adds a label at the top. For full control over colour, dash pattern, and orientation, pass a [`ReferenceLine`](../reference/layout.md) to `with_marker_line`.
+
+```rust,no_run
+# use kuva::plot::BrickPlot;
+use kuva::render::annotations::ReferenceLine;
+
+let plot = BrickPlot::new()
+    // ... sequences, names, template ...
+    .with_vline_labeled(150.0, "exon boundary")
+    .with_vline(200.0)
+    .with_marker_line(ReferenceLine::vertical(250.0).with_color("blue").with_dasharray("2 2"));
+```
+
+The lines are drawn in the plot's own reference-coordinate system, so they honour `with_x_offset` / `with_x_origin` just like the bricks.
+
+---
+
 ## Row ordering
 
 Row 0 is always rendered at the **top** of the plot. The first entry in `with_names` appears at the top of the y-axis. This matches the natural reading order when row 0 is a reference/consensus sequence.
@@ -367,3 +419,92 @@ Access the populated map via `.template` and pass it to `with_template()`.
 | `BrickTemplate::new().rna()` | Pre-built RNA (A/C/G/U) color template |
 
 **See also:** [Synteny Plot](./synteny.md) for genome-to-genome structural comparison.
+
+## CIGAR bars
+
+`with_cigars` draws a thin band above each row, coloured by that read's CIGAR
+operations, so you can see which bases are supported by the reference and
+which are insertions or soft clips.
+
+```rust
+use kuva::plot::{BrickPlot, BrickSort};
+
+let plot = BrickPlot::new()
+    .with_strigars([
+        ("CAG:A,CAA:B", "3A3B9A1B1A1B18A"),
+        ("CAG:A,CAA:B", "3A3B9A1B1A1B17A"),
+    ])
+    .with_names(["Hap1", "Hap2"])
+    .with_cigars(["108M", "42M3D63M"])
+    .with_sort(BrickSort::Cigar);
+```
+
+The bar is drawn in **read space**, the same coordinate the bricks use, so an
+operation always lines up with the bases beneath it. `M`, `=`, `X`, `I` and `S`
+consume read bases and are drawn with width. `D` and `N` consume only
+reference, so they appear as a zero-width caret at the junction rather than
+opening a gap in the row: a contraction relative to the reference is often the
+most informative thing on an STR plot, and gaps would break the brick grid.
+
+### Deduplication and run brackets
+
+Consecutive rows sharing a CIGAR draw a single bar, bracketed in the gutter
+with an `xN` count. A block of identical reads therefore states its CIGAR once
+and a bar appears only where something changes. Vertical space is charged only
+to rows that draw a bar, so an unchanging run keeps its normal row pitch.
+
+Turn either off with `with_cigar_dedup(false)` or
+`with_cigar_run_bracket(false)`.
+
+### Sorting
+
+`with_sort(BrickSort::Cigar)` groups identical CIGARs, which lets dedup draw
+the fewest possible bars: one per distinct CIGAR. Any other order can split a
+CIGAR across non-adjacent rows and repeat its bar.
+
+`BrickSort::Custom(Vec<usize>)` takes a row order you computed yourself, for
+example a distance-from-consensus ranking. kuva applies the order without
+needing to know how it was derived. Indices that are out of range or repeated
+are ignored, and omitted rows keep their original relative order at the end.
+
+`cigar_bar_count()` reports how many bars will be drawn, which is a quick way
+to see whether the bars are earning their vertical space at a given locus.
+
+### What the bar is telling you
+
+A CIGAR describes how a read differs **from the reference**, not how one
+allele differs from another. Two rows whose bars look different are not
+necessarily different from each other, and two rows with identical bars can
+still carry different repeat structures.
+
+Note also that an indel's position inside a tandem repeat reflects where the
+aligner placed it. kuva draws it where the CIGAR says, without normalising.
+
+### Colours
+
+Operation colours are reserved outside the motif palette, so a motif brick can
+never be mistaken for an insertion. Override them with `with_cigar_colors`:
+
+```rust
+use kuva::plot::{BrickPlot, CigarOp};
+
+let plot = BrickPlot::new().with_cigar_colors([(CigarOp::Insertion, "#f2c53d")]);
+```
+
+### Validation
+
+A CIGAR whose read-consuming length disagrees with its row is rejected rather
+than drawn, and reported by `cigar_issues()`. A bar that is short by a few
+bases misaligns every operation after the first while still looking like a
+valid annotation, which is far worse than no bar at all.
+
+Supply the CIGAR for every base the row draws, **flanks included**. A row
+built with `with_flanked_strigars` is drawn as left flank, then STRIGAR
+bricks, then right flank, and the CIGAR must span all three; `row_base_len(i)`
+returns exactly the length it has to consume. In sequence mode it is just the
+sequence length. The bar starts at the row's first drawn base, so the flanks
+are annotated along with the repeat.
+
+Do not re-derive the CIGAR from locus coordinates: only whatever produced the
+row knows where its own span begins and ends, and an insertion anchored on the
+span boundary cannot be attributed correctly from coordinates alone.

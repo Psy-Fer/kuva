@@ -109,4 +109,37 @@ fn main() {
         .with_width(520.0)
         .with_height(400.0);
     write("three_groups", plots, layout);
+
+    // ── Clinical figure: risk table + median lines + log-rank p-value ─────────
+    let sp = SurvivalPlot::new()
+        .with_group(
+            "Arm A",
+            vec![
+                2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0,
+            ],
+            vec![
+                true, true, false, true, true, false, true, true, false, true, true, false,
+            ],
+        )
+        .with_group(
+            "Arm B",
+            vec![
+                6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0,
+            ],
+            vec![
+                true, false, true, true, false, true, false, true, false, true, false, false,
+            ],
+        )
+        .with_legend("Treatment")
+        .with_risk_table(true)
+        .with_median_lines(true)
+        .with_logrank_pvalue(true);
+    let plots = vec![Plot::Survival(sp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Overall Survival")
+        .with_x_label("Time (months)")
+        .with_y_label("Survival probability")
+        .with_width(640.0)
+        .with_height(560.0);
+    write("clinical", plots, layout);
 }

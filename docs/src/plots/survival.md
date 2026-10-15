@@ -43,7 +43,7 @@ Tick marks on the curve indicate censored observations — subjects who were sti
 
 ## Multi-group comparison
 
-Add one `.with_group()` per arm. Attach `.with_legend()` to label the curves. The log-rank p-value is user-supplied — compute it externally and annotate with `.with_pvalue_text()`.
+Add one `.with_group()` per arm. Attach `.with_legend()` to label the curves. Annotate a p-value with `.with_pvalue_text()` for a pre-computed value, or `.with_logrank_pvalue(true)` to compute the log-rank test from the raw data (see [Clinical annotations](#clinical-annotations)).
 
 ```rust,no_run
 use kuva::plot::survival::SurvivalPlot;
@@ -76,6 +76,43 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 ```
 
 <img src="../assets/survival/multi_group.svg" alt="Two-arm survival comparison with log-rank p-value" width="560">
+
+---
+
+## Clinical annotations
+
+Three options turn a survival plot into a publication-style clinical figure:
+
+- `.with_risk_table(true)` draws a **number-at-risk table** below the plot, one row per group, with counts at each x-axis tick (survminer `risk.table = TRUE`). Space for the table is reserved automatically.
+- `.with_median_lines(true)` draws **median-survival reference lines**: a dashed horizontal at S = 0.5 out to each curve's median time, then a dashed vertical down to the axis (survminer `surv.median.line`). Groups whose survival never reaches 0.5 get no line.
+- `.with_logrank_pvalue(true)` computes the **log-rank test** p-value from the raw data and annotates it (e.g. `log-rank p = 0.023`), overriding any `.with_pvalue_text()`. Two groups use the exact Mantel-Haenszel statistic; three or more use the `Σ (O−E)²/E` approximation.
+
+```rust,no_run
+# use kuva::plot::survival::SurvivalPlot;
+let plot = SurvivalPlot::new()
+    .with_group("Arm A", arm_a_times, arm_a_events)
+    .with_group("Arm B", arm_b_times, arm_b_events)
+    .with_legend("Treatment")
+    .with_risk_table(true)
+    .with_median_lines(true)
+    .with_logrank_pvalue(true);
+```
+
+<img src="../assets/survival/clinical.svg" alt="Survival plot with risk table, median lines, and log-rank p-value" width="620">
+
+### Reading the number-at-risk table
+
+Each cell is the **number of subjects still under follow-up at that time**: everyone whose observed time (event or censoring) is greater than or equal to the tick. It is a plain integer count, and it only ever decreases from left to right as subjects have the event or are censored. The columns line up with the time ticks on the x-axis.
+
+In the figure above (12 subjects per arm):
+
+- At time 0 both arms start at the full cohort (12 and 12).
+- Arm A drops to 4 by time 10: only the 4 subjects whose follow-up reached month 10 are still being observed; the other 8 have already had the event or been censored.
+- Arm B falls more slowly (12 at time 5, still 10 at time 10) because its events happen later.
+
+**The table count is not the survival probability times N.** The curve shows the estimated survival *probability* S(t) (a value between 0 and 1); the table shows the *denominator* behind that estimate (how many people the curve is actually based on at each time). The two match only when there is no censoring. With censoring they diverge: in the figure, Arm A's curve sits near S(10) ≈ 0.43, which would suggest about 0.43 × 12 ≈ 5 survivors, yet only **4** are still at risk, and the difference is exactly the subjects censored before month 10.
+
+Read the two together: when the risk-table count gets small (single digits, or 0), the curve at that time is based on very few subjects and its later steps should be treated as uncertain, which is why clinical figures print the table directly under the curve.
 
 ---
 
@@ -160,6 +197,9 @@ let plots = vec![Plot::Survival(plot)];
 | `.with_censoring(bool)` | `true` | Show censoring tick marks on curves |
 | `.with_censoring_size(px)` | `4.0` | Half-height of censoring ticks |
 | `.with_pvalue_text(s)` | — | P-value or annotation rendered in the upper-right corner |
+| `.with_risk_table(bool)` | `false` | Number-at-risk table below the plot |
+| `.with_median_lines(bool)` | `false` | Median-survival reference lines |
+| `.with_logrank_pvalue(bool)` | `false` | Compute and annotate the log-rank p-value |
 | `.with_legend(label)` | — | Legend title (one entry per group) |
 
 **See also:** [Forest Plot](./forest.md) for point-estimate meta-analysis, [ROC Curve](./roc.md) for another step-function statistical curve.
@@ -181,6 +221,9 @@ Kaplan-Meier survival curve — estimates the survival function from time-to-eve
 | `--no-censoring` | off | Hide censoring tick marks |
 | `--line-width <PX>` | `2.0` | Stroke width of survival curves |
 | `--legend <LABEL>` | — | Add a legend |
+| `--risk-table` | off | Draw a number-at-risk table below the plot |
+| `--median-lines` | off | Draw median-survival reference lines |
+| `--logrank` | off | Compute and annotate the log-rank p-value |
 
 ```bash
 kuva survival data.tsv --time-col time --event-col event

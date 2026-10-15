@@ -1,6 +1,6 @@
 # Scatter Plot
 
-A scatter plot renders individual (x, y) data points as markers. It supports trend lines, error bars, variable point sizes, per-point colors, and six marker shapes.
+A scatter plot renders individual (x, y) data points as markers. It supports trend lines (linear and LOESS), error bars, variable point sizes, per-point colors, and ten marker shapes.
 
 **Import path:** `kuva::plot::scatter::ScatterPlot`
 
@@ -54,7 +54,7 @@ std::fs::write("scatter.svg", svg).unwrap();
 
 ## Trend line
 
-Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the Pearson R² value.
+Add a linear trend line with `.with_trend(TrendLine::Linear)`. Optionally overlay the regression equation and the signed Pearson correlation coefficient r. The fit uses ordinary least squares with an intercept and all supplied points. For this fit, the coefficient of determination is `R^2 = r^2`; for example, `r = -1` describes a perfect descending line with `R^2 = 1`. The line and its annotations are omitted for fewer than two points, constant x, non-finite coordinates, or coefficients that cannot be represented as finite `f64` values. Constant y keeps its flat trend line, but drops the `r` annotation, since the coefficient is undefined there rather than zero. An extrapolated line is omitted if either endpoint cannot be represented.
 
 ```rust,no_run
 use kuva::plot::scatter::{ScatterPlot, TrendLine};
@@ -76,7 +76,7 @@ let plot = ScatterPlot::new()
     .with_trend(TrendLine::Linear)
     .with_trend_color("crimson")   // defaults to "black"
     .with_equation()               // show y = mx + b
-    .with_correlation();           // show R²
+    .with_correlation();           // show signed r
 
 let plots = vec![Plot::Scatter(plot)];
 let layout = Layout::auto_from_plots(&plots)
@@ -90,6 +90,24 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 <img src="../assets/scatter/trend.svg" alt="Scatter with linear trend line" width="560">
 
 > **Tip:** `.with_equation()` and `.with_correlation()` render the fit statistics as floating text in the data area. For a cleaner presentation — particularly with dense point clouds — consider using `Layout::with_stats_box()` to display fit statistics in a bordered inset box instead. See [Stats Box](../reference/stats_box.md).
+
+### LOESS smoother
+
+For data with a non-linear relationship, overlay a LOESS (locally-weighted regression) smoother instead of a straight line. `.with_loess()` uses a default span of `0.5`; `.with_loess_span(f)` sets the span (the fraction of points in each local fit, `0.05`–`1.0`): smaller spans follow local detail, larger spans give a smoother curve.
+
+Each prediction fits a local straight line using distance weights. These weights do not downweight a point because its y value is an outlier. A fitted line can extend beyond the observed y range; the plot clips the curve at its axis limits. Log axes transform the drawn curve, rather than fitting logarithms of the observations.
+
+```rust,no_run
+# use kuva::plot::scatter::ScatterPlot;
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_loess()                  // or .with_loess_span(0.2)
+    .with_trend_color("crimson");
+```
+
+Equation and correlation annotations apply to the linear fit only, not to LOESS.
+
+<img src="../assets/scatter/loess.svg" alt="Scatter with a LOESS smoother" width="560">
 
 ---
 
@@ -184,7 +202,7 @@ let plot = ScatterPlot::new()
 
 ## Marker shapes
 
-Six marker shapes are available via `MarkerShape`. They are particularly useful when overlaying multiple series on the same axes.
+Ten marker shapes are available via `MarkerShape`. They are particularly useful when overlaying multiple series on the same axes.
 
 ```rust,no_run
 use kuva::plot::scatter::{ScatterPlot, MarkerShape};
@@ -218,7 +236,7 @@ let layout = Layout::auto_from_plots(&plots)
 let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 ```
 
-Available variants: `Circle` (default), `Square`, `Triangle`, `Diamond`, `Cross`, `Plus`.
+Available variants: `Circle` (default), `Square`, `Triangle` (up), `TriangleDown`, `Diamond`, `Cross`, `Plus`, `Star`, `Pentagon`, `Hexagon`.
 
 <img src="../assets/scatter/markers.svg" alt="Scatter marker shapes" width="560">
 
@@ -385,6 +403,31 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 ---
 
+## Point labels
+
+Attach a text label to each point with `.with_labels(iter)` (aligned to the data by index; an empty string leaves a point unlabelled). The placement is controlled by `.with_label_style(LabelStyle::…)`, shared with the volcano and Manhattan plots:
+
+| Style | Placement |
+|-------|-----------|
+| `LabelStyle::Exact` | At the point, no adjustment (may overlap) |
+| `LabelStyle::Nudge` (default) | Sorted left-to-right and nudged vertically |
+| `LabelStyle::Arrow { offset_x, offset_y }` | Fixed pixel offset with a leader line |
+| `LabelStyle::Repel` | Force-directed (ggrepel / adjustText style): labels pushed off each other and off the points in 2-D, with thin leader lines |
+
+`.with_repel_labels()` is shorthand for `.with_label_style(LabelStyle::Repel)`, the best choice for dense, clustered labels.
+
+```rust,no_run
+# use kuva::plot::ScatterPlot;
+let plot = ScatterPlot::new()
+    .with_data(data)
+    .with_labels(vec!["Alpha", "Beta", "Gamma", "Delta"])
+    .with_repel_labels();
+```
+
+<img src="../assets/scatter/labels_repel.svg" alt="Scatter with force-directed point labels" width="560">
+
+---
+
 ## Multiple series
 
 Wrap multiple `ScatterPlot` structs in a `Vec<Plot>` and pass them to `render_multiple()`. Legends are shown when any series has a label attached via `.with_legend()`.
@@ -432,10 +475,12 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_marker(MarkerShape)` | Set marker shape (default `Circle`) |
 | `.with_legend(s)` | Attach a legend label to this series |
 | `.with_trend(TrendLine)` | Overlay a trend line |
-| `.with_trend_color(s)` | Set trend line color |
-| `.with_trend_width(w)` | Set trend line stroke width |
+| `.with_loess()` | Overlay a LOESS smoother (default span 0.5) |
+| `.with_loess_span(f)` | LOESS smoother with an explicit span (0.05–1.0) |
+| `.with_trend_color(s)` | Set trend/smoother line color |
+| `.with_trend_width(w)` | Set trend/smoother line stroke width |
 | `.with_equation()` | Annotate the plot with the regression equation |
-| `.with_correlation()` | Annotate the plot with R² |
+| `.with_correlation()` | Annotate the plot with signed Pearson r |
 | `.with_x_err(iter)` | Symmetric X error bars |
 | `.with_x_err_asymmetric(iter)` | Asymmetric X error bars: `(neg, pos)` tuples |
 | `.with_y_err(iter)` | Symmetric Y error bars |
@@ -443,14 +488,17 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_band(lower, upper)` | Confidence band aligned to scatter x positions |
 | `.with_marker_opacity(f)` | Fill alpha: `0.0` = hollow, `1.0` = solid (default: solid) |
 | `.with_marker_stroke_width(w)` | Outline stroke at the fill color; `None` = no stroke (default) |
+| `.with_labels(iter)` | Per-point text labels (aligned by index; `""` skips a point) |
+| `.with_label_style(LabelStyle)` | Label placement: `Exact` / `Nudge` / `Arrow` / `Repel` |
+| `.with_repel_labels()` | Shorthand for `.with_label_style(LabelStyle::Repel)` |
 
 ### `MarkerShape` variants
 
-`Circle` · `Square` · `Triangle` · `Diamond` · `Cross` · `Plus`
+`Circle` · `Square` · `Triangle` (up) · `TriangleDown` · `Diamond` · `Cross` · `Plus` · `Star` · `Pentagon` · `Hexagon`
 
 ### `TrendLine` variants
 
-`Linear` — fits y = mx + b by ordinary least squares.
+`Linear`: fits y = mx + b by ordinary least squares. `Loess { span }`: locally-weighted regression smoother for non-linear trends.
 
 **See also:** [Line Plot](./line.md) for connected/ordered data, [Hexbin Plot](./hexbin.md) for large-N density, [Joint Plot](./jointplot.md) for scatter with marginal distributions.
 
@@ -469,9 +517,14 @@ Scatter plot of (x, y) point pairs. Supports multi-series coloring, trend lines,
 | `--color-by <COL>` | — | Group by this column; each group gets a distinct color |
 | `--color <CSS>` | `steelblue` | Point color (single-series only) |
 | `--size <PX>` | `3.0` | Point radius in pixels |
+| `--marker <SHAPE>` | `circle` | Marker shape: `circle`, `square`, `triangle`, `triangle-down`, `diamond`, `cross`, `plus`, `star`, `pentagon`, `hexagon` |
 | `--trend` | off | Overlay a linear trend line |
+| `--loess` | off | Overlay a LOESS smoother (local regression) instead of a linear trend |
+| `--loess-span <F>` | `0.5` | LOESS span, 0.05–1.0 (implies `--loess`); smaller = wigglier |
 | `--equation` | off | Annotate with regression equation (requires `--trend`) |
-| `--correlation` | off | Annotate with Pearson R² (requires `--trend`) |
+| `--correlation` | off | Annotate with signed Pearson r (requires `--trend`) |
+| `--label-col <COL>` | — | Label each point with this column (single-series mode only) |
+| `--label-style <STYLE>` | `nudge` | Point-label placement: `nudge`, `exact`, or `repel` |
 | `--legend` | off | Show legend |
 | `--x-date-format <FMT>` | — | Parse the X column as a date/time (see [Date/time X axis](../cli/index.md#datetime-x-axis-scatter-line)) |
 
@@ -483,6 +536,10 @@ kuva scatter measurements.tsv --x time --y value \
 
 kuva scatter measurements.tsv --x time --y value \
     --trend --equation --correlation --log-y
+
+# star markers with a LOESS smoother
+kuva scatter measurements.tsv --x time --y value \
+    --marker star --loess-span 0.3
 
 kuva scatter prices.tsv --x date --y close --x-date-format "%Y-%m-%d"
 ```

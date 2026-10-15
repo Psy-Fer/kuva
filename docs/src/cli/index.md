@@ -104,6 +104,71 @@ kuva scatter data.tsv --x 0 --y 1          # by index
 kuva scatter data.tsv --x time --y value   # by name (requires header)
 ```
 
+An all-numeric column name (such as a year) works too. A bare numeric argument is read as an index first; if that index is out of range and the file has a header column literally named by that number, it selects that column instead:
+
+```bash
+kuva scatter expression.tsv --x 2023 --y 2024 --header   # columns named "2023" / "2024"
+```
+
+In-range indices are never reinterpreted, so `--x 0` always means the first column. This bare-number fallback only resolves names whose numeric value exceeds the column count (years and similar).
+
+To remove the ambiguity entirely, prefix the value:
+
+| Prefix | Meaning | Example |
+|--------|---------|---------|
+| `name:` or `col:` | Always a column name, even an all-digit one | `--x name:2024`, `--group-col col:1` |
+| `idx:` or `index:` or `#` | Always a 0-based index, never resolved to a name | `--x idx:2`, `--y #3` |
+| *(none)* | Bare token: numeric = index-first (with the fallback above), otherwise a name | `--x time`, `--y 4` |
+
+`name:` is the way to select a column whose name is a small number that would otherwise be read as an index (e.g. a column literally named `1` in a 5-column file: `--x name:1`). `idx:` forces a pure index, so an out-of-range `idx:` errors rather than falling back to a name. Prefixes work on every column argument (`--x`, `--y`, `--value-col`, `--group-col`, `--color-by`, `--axes`, …) in every subcommand.
+
+#### Ranges and globs (multi-column arguments)
+
+Multi-column arguments (`--y`, `--value-cols`, `--samples`, `--axes`) also accept **index ranges** and **name globs**, which expand to several columns at once:
+
+| Form | Selects | Example |
+|------|---------|---------|
+| `a..b` | Indices `a` up to (but not including) `b` | `--y 1..4` -> columns 1, 2, 3 |
+| `a..=b` | Indices `a` through `b` inclusive | `--y 1..=3` -> columns 1, 2, 3 |
+| `a..` | Index `a` to the last column | `--y 3..` |
+| `..b` | The first column up to `b` (exclusive) | `--y ..4` |
+| `..` | Every column | `--y ..` |
+| `pat*` / `*pat` / `*pat*` | Header names matching the glob (`*` = any run of characters) | `--y sum_*`, `--y *_A` |
+
+You can mix all forms in one comma-separated list (duplicates are removed, order preserved):
+
+```bash
+kuva line data.tsv --x date --y "y1,sum_*"      # y1 plus every sum_* column
+kuva line data.tsv --x 0 --y 3..                 # column 3 to the last
+kuva box  data.tsv --y "a*"                       # a single glob is a valid multi-column selection
+```
+
+A single glob or range on its own still routes into the plot's multi-column (grouped/overlaid) path. Globs need a header row; a glob that matches nothing is an error. Ranges are index-based. (For `--value-cols`/`--axes`, which take space-separated values rather than commas, pass each selector as its own value: `--value-cols a1 b*`.)
+
+### Missing values *(scatter, line, histogram, bar, parallel)*
+
+Empty cells, cells holding a missing-value token (`NA`, `NaN`, `null`, `N/A`, `.` by default,
+case-insensitive), and non-finite values (`inf`, `-inf`) are treated as missing rather than
+aborting the command (non-finite values would otherwise corrupt axis ranges). A cell that is
+neither empty, a token, nor a number is still an error, so selecting the wrong column is caught.
+
+- `--na-strategy <drop|zero|error>`: what to do with a missing value in a selected numeric column.
+  `drop` (default) removes the row and prints a one-line note; `zero` replaces it with 0; `error`
+  restores the old strict behaviour.
+- `--na-values <tokens>`: comma-separated tokens to treat as missing, replacing the default set.
+  Empty cells are always missing. Accepts negative sentinels, e.g. `--na-values -999,NA`.
+- `--clamp-min <N>` / `--clamp-max <N>`: clip numeric values to a bound. Finite values outside the
+  bound are clipped, and crucially `+inf` becomes the max and `-inf` becomes the min, so an infinite
+  value can be capped at a real number rather than dropped. A common case is capping an infinite
+  `-log10(p)` (from a p-value of exactly 0): `--clamp-max 300`. If only one side is set, an infinity
+  on the other side stays missing.
+
+```bash
+kuva scatter data.tsv --x time --y value                 # drops rows with missing x or y
+kuva histogram data.tsv --value-col v --na-strategy zero # missing -> 0
+kuva scatter data.tsv --x pos --y logp --clamp-max 300   # +inf -> 300 instead of dropped
+```
+
 ### Parquet input
 
 Every subcommand that reads tabular data also accepts **`.parquet`** files, not just scatter or any single subcommand: parquet support lives in the shared input layer every subcommand goes through, so it applies uniformly across all of them.

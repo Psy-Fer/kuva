@@ -99,6 +99,13 @@ impl PdfBackend {
 
         let fontdb = Self::fontdb();
         let mut document = Document::new();
+        // Stamp the kuva version into the PDF's document metadata for later issue triage.
+        let stamp = format!("kuva {}", crate::VERSION);
+        document.set_metadata(
+            krilla::metadata::Metadata::new()
+                .creator(stamp.clone())
+                .producer(stamp),
+        );
 
         for scene in scenes {
             let svg_str = SvgBackend::new().render_scene(scene);
@@ -159,7 +166,8 @@ impl PdfBackend {
 
     /// Build the font database used to parse kuva SVGs into `usvg` trees. Loads
     /// the bundled DejaVu variants (so text metrics match kuva's layout) plus
-    /// any system fonts.
+    /// any system fonts, and maps the generic `monospace` family to the bundled
+    /// DejaVu Sans Mono so it renders the same on every system.
     fn fontdb() -> Arc<usvg::fontdb::Database> {
         let mut db = usvg::fontdb::Database::new();
         db.load_font_data(crate::fonts::dejavu_sans().to_vec());
@@ -167,6 +175,7 @@ impl PdfBackend {
         db.load_font_data(crate::fonts::dejavu_sans_oblique().to_vec());
         db.load_font_data(crate::fonts::dejavu_sans_mono().to_vec());
         db.load_system_fonts();
+        db.set_monospace_family("DejaVu Sans Mono");
         Arc::new(db)
     }
 }

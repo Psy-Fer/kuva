@@ -583,15 +583,17 @@ impl Plot {
                     }
                 }
 
-                // Expand for trend line
-                if let Some(trend) = s.trend {
-                    let TrendLine::Linear = trend;
-                    if let Some((slope, intercept, _)) = render_utils::linear_regression(&s.data) {
-                        let y_start = slope * x_min + intercept;
-                        let y_end = slope * x_max + intercept;
-
-                        y_min = y_min.min(y_start).min(y_end);
-                        y_max = y_max.max(y_start).max(y_end);
+                // Expand for a linear trend, which extrapolates to the axis edges.
+                // The LOESS path is clipped to these bounds; it can also exceed the
+                // observed y-range, but is not computed here to expand the axes.
+                if let Some(TrendLine::Linear) = s.trend {
+                    if let Some(fit) = render_utils::linear_fit(&s.data) {
+                        for x in [x_min, x_max] {
+                            if let Some(y) = fit.predict(x) {
+                                y_min = y_min.min(y);
+                                y_max = y_max.max(y);
+                            }
+                        }
                     }
                 }
 
@@ -707,33 +709,18 @@ impl Plot {
                     };
                     return Some(((x_min, x_max), (0.0, max_y)));
                 }
-                // Auto-binning path: use explicit range if set, else derive from data
-                // (mirrors the fallback in the renderer so bounds() always returns a usable range)
-                let range = h.range.unwrap_or_else(|| {
-                    if h.data.is_empty() {
-                        return (0.0, 1.0);
-                    }
-                    let min = h.data.iter().cloned().fold(f64::INFINITY, f64::min);
-                    let max = h.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    (min, max)
-                });
-                let bins = h.bins;
-                let bin_width = (range.1 - range.0) / bins as f64;
+                // Auto-binning path: reuse the renderer's shared binning so bounds()
+                // agrees on bin count and peak for every mode (step/cumulative/stacked/
+                // weighted/bin-method).
+                let Some(binned) = h.compute_bins() else {
+                    return Some(((0.0, 1.0), (0.0, 1.0)));
+                };
+                let range = binned.range;
+                let mut max_y = binned.max_y;
 
-                let mut counts = vec![0usize; bins];
-                for &value in &h.data {
-                    if value < range.0 || value > range.1 {
-                        continue;
-                    }
-                    let bin = ((value - range.0) / bin_width).floor() as usize;
-                    let bin = if bin == bins { bin - 1 } else { bin };
-                    counts[bin] += 1;
-                }
-
-                let max_count = *counts.iter().max().unwrap_or(&1) as f64;
-                let mut max_y = if h.normalize { 1.0 } else { max_count };
-
-                if h.show_kde && h.data.len() >= 2 {
+                // KDE overlay only applies to a single, non-cumulative series (matches the
+                // renderer guard); extend the y-extent to fit its peak when present.
+                if h.show_kde && h.groups.is_empty() && !h.cumulative && h.data.len() >= 2 {
                     let bw = h
                         .kde_bandwidth
                         .unwrap_or_else(|| render_utils::silverman_bandwidth(&h.data));
@@ -741,8 +728,8 @@ impl Plot {
                     let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
                     let kde = render_utils::simple_kde(&h.data, bw, h.kde_samples);
                     let peak_density = kde.iter().map(|(_, y)| *y).fold(0.0_f64, f64::max);
-                    let scale_norm = if h.normalize { 1.0 / max_count } else { 1.0 };
-                    let kde_peak_height = peak_density * density_norm * n * bin_width * scale_norm;
+                    let kde_peak_height =
+                        peak_density * density_norm * n * binned.bin_width * binned.norm;
                     max_y = max_y.max(kde_peak_height);
                 }
 
@@ -876,30 +863,34 @@ impl Plot {
                 if sp.groups.is_empty() {
                     return None;
                 }
-                let x_min = 0.5;
-                let x_max = sp.groups.len() as f64 + 0.5;
-                let mut y_min = f64::INFINITY;
-                let mut y_max = f64::NEG_INFINITY;
+                let cat_min = 0.5;
+                let cat_max = sp.groups.len() as f64 + 0.5;
+                let mut val_min = f64::INFINITY;
+                let mut val_max = f64::NEG_INFINITY;
                 for g in &sp.groups {
                     for &v in &g.values {
-                        y_min = y_min.min(v);
-                        y_max = y_max.max(v);
+                        val_min = val_min.min(v);
+                        val_max = val_max.max(v);
                     }
                 }
-                if y_min == f64::INFINITY {
+                if val_min == f64::INFINITY {
                     return None;
                 }
-                Some(((x_min, x_max), (y_min, y_max)))
+                if sp.horizontal {
+                    Some(((val_min, val_max), (cat_min, cat_max)))
+                } else {
+                    Some(((cat_min, cat_max), (val_min, val_max)))
+                }
             }
             Plot::Volcano(vp) => {
-                if vp.points.is_empty() {
+                if !vp.points.iter().any(|p| p.is_plottable()) {
                     return None;
                 }
                 let floor = vp.floor();
                 let mut x_min = f64::INFINITY;
                 let mut x_max = f64::NEG_INFINITY;
                 let mut y_max = f64::NEG_INFINITY;
-                for p in &vp.points {
+                for p in vp.points.iter().filter(|p| p.is_plottable()) {
                     x_min = x_min.min(p.log2fc);
                     x_max = x_max.max(p.log2fc);
                     let y = -(p.pvalue.max(floor)).log10();
@@ -908,7 +899,7 @@ impl Plot {
                 Some(((x_min, x_max), (0.0, y_max)))
             }
             Plot::Manhattan(mp) => {
-                if mp.points.is_empty() {
+                if !mp.points.iter().any(|p| p.is_plottable()) {
                     return None;
                 }
                 let floor = mp.floor();
@@ -929,6 +920,7 @@ impl Plot {
                 let y_max = mp
                     .points
                     .iter()
+                    .filter(|p| p.is_plottable())
                     .map(|p| -(p.pvalue.max(floor)).log10())
                     .fold(mp.genome_wide, f64::max);
                 Some(((x_min, x_max), (0.0, y_max)))
@@ -1203,7 +1195,11 @@ impl Plot {
                     hi = 1.0;
                 }
 
-                Some(((lo, hi), (0.0, rows as f64)))
+                // CIGAR bars add vertical space, charged only to the rows
+                // that draw one. `cigar_layout` is the single source of that
+                // arithmetic so the reserved extent matches what is rendered.
+                let y_extent = bp.cigar_layout().total_units.max(rows as f64);
+                Some(((lo, hi), (0.0, y_extent)))
             }
             Plot::Forest(fp) => {
                 if fp.rows.is_empty() {
@@ -1293,6 +1289,37 @@ impl Plot {
                 }
                 if !x_min.is_finite() {
                     return None;
+                }
+                // Per-point labels are drawn clear of the dot (`dot_radius + 4px`,
+                // then the glyphs themselves) entirely in *pixel* space, which
+                // `bounds()` has no way to measure. When the tallest labelled point
+                // is also the tallest point overall, that text lands above the axis
+                // maximum and the plot-area clip rectangle slices its top off.
+                // Reserve headroom in data space instead: 8% of the span covers the
+                // dot plus a ~9px label at every default figure size, and
+                // `auto_nice_range` rounds it out to a real tick from there. Points
+                // below the baseline label *downwards*, so pad that end too; the
+                // label sits a full line-height lower there, hence the larger share.
+                // Only the labelled extremes are padded, so a label well inside the
+                // data range leaves the axis untouched.
+                let label_pad = (y_max - y_min).abs().max(1.0);
+                let labelled_top = lp
+                    .points
+                    .iter()
+                    .filter(|p| p.label.is_some() && p.y >= lp.baseline)
+                    .map(|p| p.y)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                if labelled_top.is_finite() {
+                    y_max = y_max.max(labelled_top + label_pad * 0.08);
+                }
+                let labelled_bottom = lp
+                    .points
+                    .iter()
+                    .filter(|p| p.label.is_some() && p.y < lp.baseline)
+                    .map(|p| p.y)
+                    .fold(f64::INFINITY, f64::min);
+                if labelled_bottom.is_finite() {
+                    y_min = y_min.min(labelled_bottom - label_pad * 0.12);
                 }
                 // Pad x so dots at x=0 aren't clipped by the left axis border.
                 let x_span = (x_max - x_min).max(1.0);
@@ -1628,7 +1655,7 @@ impl Plot {
         }
     }
 
-    /// `bw_mode` forces every colorbar's colormap to `ColorMap::Grayscale`, matching
+    /// `bw_mode` forces every colorbar's colormap to the BW grey ramp, matching
     /// the data fills the renderer draws when BW mode is on (see e.g. `add_heatmap`),
     /// so the colorbar and the data it labels stay in sync. Exception: `Scatter3D`'s
     /// colorbar is suppressed entirely (`None`) in BW mode, because its point fills
@@ -1637,7 +1664,7 @@ impl Plot {
     pub fn colorbar_info(&self, bw_mode: bool) -> Option<ColorBarInfo> {
         let cmap_of = |c: &ColorMap| -> ColorMap {
             if bw_mode {
-                ColorMap::Grayscale
+                crate::render::bw::bw_colormap()
             } else {
                 c.clone()
             }

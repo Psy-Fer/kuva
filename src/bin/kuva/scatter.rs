@@ -1,15 +1,15 @@
 use clap::Args;
 
-use kuva::plot::scatter::{ScatterPlot, TrendLine};
+use kuva::plot::scatter::{MarkerShape, ScatterPlot, TrendLine};
 use kuva::render::layout::Layout;
 use kuva::render::palette::Palette;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
-use crate::data::{ColSpec, DataTable, InputArgs};
+use crate::data::{apply_na, ColSpec, DataTable, InputArgs};
 use crate::layout_args::{
     apply_axis_args, apply_base_args, apply_log_args, date_axis_from_args, AxisArgs, BaseArgs,
-    DateArgs, LogArgs,
+    DateArgs, LogArgs, NaArgs,
 };
 use crate::output::write_output;
 
@@ -39,15 +39,37 @@ pub struct ScatterArgs {
     #[arg(long)]
     pub size: Option<f64>,
 
+    /// Marker shape: circle (default), square, triangle, triangle-down, diamond,
+    /// cross, plus, star, pentagon, hexagon.
+    #[arg(long)]
+    pub marker: Option<String>,
+
+    /// Label each point with the values of this column (single-series mode only).
+    #[arg(long)]
+    pub label_col: Option<ColSpec>,
+
+    /// Point-label placement: nudge (default), exact, or repel (force-directed).
+    #[arg(long)]
+    pub label_style: Option<String>,
+
     /// Overlay a linear trend line.
     #[arg(long)]
     pub trend: bool,
+
+    /// Overlay a LOESS smoother (local regression) instead of a linear trend.
+    #[arg(long)]
+    pub loess: bool,
+
+    /// LOESS span: fraction of points per local fit, 0.05–1.0 (default 0.5).
+    /// Smaller = wigglier. Implies --loess.
+    #[arg(long)]
+    pub loess_span: Option<f64>,
 
     /// Annotate with the regression equation (requires --trend).
     #[arg(long)]
     pub equation: bool,
 
-    /// Annotate with the Pearson R² value (requires --trend).
+    /// Annotate with the signed Pearson correlation coefficient r (requires --trend).
     #[arg(long)]
     pub correlation: bool,
 
@@ -66,6 +88,8 @@ pub struct ScatterArgs {
     pub log: LogArgs,
     #[command(flatten)]
     pub date: DateArgs,
+    #[command(flatten)]
+    pub na: NaArgs,
 }
 
 pub fn run(args: ScatterArgs) -> Result<(), String> {
@@ -77,6 +101,9 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     };
     let mut proj: Vec<ColSpec> = std::iter::once(x_spec).chain(y_specs).collect();
     if let Some(ref c) = args.color_by {
+        proj.push(c.clone());
+    }
+    if let Some(ref c) = args.label_col {
         proj.push(c.clone());
     }
     let table = DataTable::parse(
@@ -98,15 +125,33 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     } else {
         args.y
     };
-    // When --x-date-format is set, the X column holds date/time strings, not
-    // plain numbers — parse it accordingly wherever `col_f64` would otherwise
-    // be used for X.
-    let read_x = |t: &DataTable, c: &ColSpec| -> Result<Vec<f64>, String> {
+    // Expand column ranges / globs against the parsed table (issue #109).
+    let y_cols = table.expand_columns(&y_cols)?;
+    let (na_set, na_strat, clamp) = args.na.resolve()?;
+    // When --x-date-format is set, the X column holds date/time strings, not plain numbers.
+    // Read X (and Y) as `Option<f64>` (NA-aware); date-parsed X has no missing handling here.
+    let read_x_opt = |t: &DataTable, c: &ColSpec| -> Result<Vec<Option<f64>>, String> {
         match &args.date.x_date_format {
-            Some(fmt) => t.col_date_f64(c, fmt),
-            None => t.col_f64(c),
+            Some(fmt) => Ok(t.col_date_f64(c, fmt)?.into_iter().map(Some).collect()),
+            None => t.col_f64_opt(c, &na_set, clamp),
         }
     };
+    // Build cleaned (x, y) pairs applying the missing-value strategy.
+    let clean = |xs: Vec<Option<f64>>, ys: Vec<Option<f64>>| -> Result<Vec<(f64, f64)>, String> {
+        let n = xs.len();
+        let keep = apply_na(na_strat, &[&xs, &ys], n)?;
+        Ok(keep
+            .iter()
+            .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
+            .collect())
+    };
+
+    if args.label_col.is_some() && (args.color_by.is_some() || y_cols.len() > 1) {
+        return Err(
+            "--label-col is only supported in single-series mode (no --color-by, a single --y)"
+                .to_string(),
+        );
+    }
 
     let mut plots: Vec<ScatterPlot> = if let Some(color_by) = args.color_by {
         if y_cols.len() > 1 {
@@ -123,9 +168,10 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .into_iter()
             .enumerate()
             .map(|(i, (name, subtable))| {
-                let xs = read_x(&subtable, &x_col)?;
-                let ys = subtable.col_f64(y_col)?;
-                let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
+                let data = clean(
+                    read_x_opt(&subtable, &x_col)?,
+                    subtable.col_f64_opt(y_col, &na_set, clamp)?,
+                )?;
                 let grp_color = palette[i].to_string();
                 let mut plot = ScatterPlot::new()
                     .with_data(data)
@@ -141,14 +187,13 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     } else if y_cols.len() > 1 {
         // Multi-column mode: one series per y column, auto-colored by palette.
         let palette = Palette::category10();
-        let xs = read_x(&table, &x_col)?;
+        let xs = read_x_opt(&table, &x_col)?;
         y_cols
             .iter()
             .enumerate()
             .map(|(i, y_col)| {
                 let series_name = col_display_name(&table, y_col);
-                let ys = table.col_f64(y_col)?;
-                let data: Vec<(f64, f64)> = xs.iter().copied().zip(ys).collect();
+                let data = clean(xs.clone(), table.col_f64_opt(y_col, &na_set, clamp)?)?;
                 let grp_color = palette[i].to_string();
                 let mut plot = ScatterPlot::new()
                     .with_data(data)
@@ -163,17 +208,51 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
             .collect::<Result<Vec<_>, String>>()?
     } else {
         let y_col = &y_cols[0];
-        let xs = read_x(&table, &x_col)?;
-        let ys = table.col_f64(y_col)?;
-        let data: Vec<(f64, f64)> = xs.into_iter().zip(ys).collect();
-        let plot = ScatterPlot::new()
+        // Compute the kept-row indices explicitly so point labels stay aligned to the
+        // (x, y) pairs after missing-value rows are dropped.
+        let xs = read_x_opt(&table, &x_col)?;
+        let ys = table.col_f64_opt(y_col, &na_set, clamp)?;
+        let keep = apply_na(na_strat, &[&xs, &ys], xs.len())?;
+        let data: Vec<(f64, f64)> = keep
+            .iter()
+            .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
+            .collect();
+        let mut plot = ScatterPlot::new()
             .with_data(data)
             .with_color(&color)
             .with_size(size);
+        if let Some(ref lcol) = args.label_col {
+            let all = table.col_str(lcol)?;
+            let labels: Vec<String> = keep
+                .iter()
+                .map(|&i| all.get(i).cloned().unwrap_or_default())
+                .collect();
+            plot = plot.with_labels(labels);
+        }
         vec![plot]
     };
 
-    if trend {
+    if let Some(ref m) = args.marker {
+        let shape = MarkerShape::parse(m)
+            .ok_or_else(|| format!("unknown --marker '{m}' (see --help for shapes)"))?;
+        plots = plots.into_iter().map(|p| p.with_marker(shape)).collect();
+    }
+
+    if let Some(ref s) = args.label_style {
+        let style = kuva::plot::LabelStyle::parse(s).ok_or_else(|| {
+            format!("unknown --label-style '{s}' (expected nudge, exact, or repel)")
+        })?;
+        plots = plots
+            .into_iter()
+            .map(|p| p.with_label_style(style.clone()))
+            .collect();
+    }
+
+    // LOESS takes precedence over --trend when both are given.
+    if args.loess || args.loess_span.is_some() {
+        let span = args.loess_span.unwrap_or(0.5);
+        plots = plots.into_iter().map(|p| p.with_loess_span(span)).collect();
+    } else if trend {
         plots = plots
             .into_iter()
             .map(|p| p.with_trend(TrendLine::Linear))
@@ -229,13 +308,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
 /// Return a human-readable name for a column: the header name when available,
 /// or "col_N" for index-based specs with no header.
 fn col_display_name(table: &DataTable, col: &ColSpec) -> String {
-    match col {
-        ColSpec::Name(n) => n.clone(),
-        ColSpec::Index(i) => table
-            .header
-            .as_ref()
-            .and_then(|h| h.get(*i))
-            .cloned()
-            .unwrap_or_else(|| format!("col_{i}")),
-    }
+    // Delegate to the shared resolver so an all-numeric column name (e.g. "2024")
+    // shows its header label rather than "col_2024" (issue #109).
+    table.col_display_name(col)
 }

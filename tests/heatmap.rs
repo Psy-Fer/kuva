@@ -384,7 +384,7 @@ fn test_heatmap_default_range_unchanged() {
     // Verify default behaviour is identical to before: bounds are 0.5..cols+0.5
     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
     let hm = Heatmap::new().with_data(data);
-    let plots = vec![Plot::Heatmap(hm)];
+    let plots = [Plot::Heatmap(hm)];
     let b = plots[0].bounds().unwrap();
     assert_eq!(b, ((0.5, 2.5), (0.5, 2.5)));
 }
@@ -396,7 +396,7 @@ fn test_heatmap_custom_range_bounds() {
         .with_data(data)
         .with_x_range(-10.0, 10.0)
         .with_y_range(-4.0, 4.0);
-    let plots = vec![Plot::Heatmap(hm)];
+    let plots = [Plot::Heatmap(hm)];
     let b = plots[0].bounds().unwrap();
     assert_eq!(b, ((-10.0, 10.0), (-4.0, 4.0)));
 }

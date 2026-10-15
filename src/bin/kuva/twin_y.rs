@@ -177,13 +177,7 @@ fn build_xy_plot(
 /// Return a human-readable name for a column: the header name when available,
 /// or "col_N" for index-based specs with no header.
 fn col_display_name(table: &DataTable, col: &ColSpec) -> String {
-    match col {
-        ColSpec::Name(n) => n.clone(),
-        ColSpec::Index(i) => table
-            .header
-            .as_ref()
-            .and_then(|h| h.get(*i))
-            .cloned()
-            .unwrap_or_else(|| format!("col_{i}")),
-    }
+    // Delegate to the shared resolver so an all-numeric column name (e.g. "2024")
+    // shows its header label rather than "col_2024" (issue #109).
+    table.col_display_name(col)
 }

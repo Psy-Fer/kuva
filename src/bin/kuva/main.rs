@@ -5,6 +5,7 @@ mod calendar;
 mod candlestick;
 mod chord;
 mod contour;
+mod coverage;
 mod data;
 mod density;
 #[cfg(feature = "doom")]
@@ -170,6 +171,8 @@ enum Commands {
     /// Twin-Y (dual-axis) plot — two series sharing an x-axis with independent y-scales.
     #[command(name = "twin-y")]
     TwinY(twin_y::TwinYArgs),
+    /// Genomic coverage plot — stacked depth tracks + variants + feature bands on a shared locus.
+    Coverage(coverage::CoverageArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -244,6 +247,7 @@ fn main() {
         Commands::Gantt(args) => gantt::run(args),
         Commands::Quiver(args) => quiver::run(args),
         Commands::TwinY(args) => twin_y::run(args),
+        Commands::Coverage(args) => coverage::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

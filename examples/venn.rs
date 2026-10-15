@@ -47,9 +47,9 @@ fn main() {
     println!("  basic_2set");
 
     // ── 2. Basic 3-set: three experimental gene lists ─────────────────────────
-    let deseq2 = vec!["BRCA1", "TP53", "MYC", "EGFR", "VEGFA", "CDKN2A", "KRAS"];
-    let edger = vec!["TP53", "MYC", "KRAS", "PIK3CA", "PTEN", "RB1"];
-    let limma = vec!["BRCA1", "MYC", "EGFR", "PIK3CA", "CDKN2A", "MDM2"];
+    let deseq2 = ["BRCA1", "TP53", "MYC", "EGFR", "VEGFA", "CDKN2A", "KRAS"];
+    let edger = ["TP53", "MYC", "KRAS", "PIK3CA", "PTEN", "RB1"];
+    let limma = ["BRCA1", "MYC", "EGFR", "PIK3CA", "CDKN2A", "MDM2"];
 
     let venn = VennPlot::new()
         .with_set("DESeq2", deseq2.iter().map(|s| s.to_string()).collect())

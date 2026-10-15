@@ -827,9 +827,9 @@ impl Canvas {
                 // hardcoded 0.35) keeps this in lockstep with the renderer.
                 let baseline = center_offset(*size as f64, FontStyle::Regular);
                 let row = self.to_cy(y_s - baseline);
-                // Lower any `$...$` math regions to inline Unicode (σ, x²,
-                // √(…)) — the character grid renders the result directly.
-                // No-op for plain labels.
+                // Lookup tier: the terminal can't typeset, so `$...$` math is
+                // lowered to inline Unicode (σ, x², √(…)). No-op for plain
+                // labels (needs_rewrite also catches escaped `\$`).
                 let lowered;
                 let content: &str = if crate::render::math::needs_rewrite(content) {
                     lowered = crate::render::math::to_unicode(content);
@@ -909,8 +909,19 @@ impl Canvas {
                 anchor,
                 ..
             } => {
-                // Flatten spans to plain text; terminal doesn't support inline styling.
-                let content: String = spans.iter().map(|s| s.text.as_str()).collect();
+                // Flatten spans to plain text; terminal doesn't support inline
+                // styling, and math spans always take the lookup tier here (a
+                // character grid can't hold a typeset fragment).
+                let content: String = spans
+                    .iter()
+                    .map(|s| {
+                        if s.math {
+                            crate::render::math::to_unicode(&format!("${}$", s.text))
+                        } else {
+                            s.text.clone()
+                        }
+                    })
+                    .collect();
                 let rgb = self.text_color;
                 let x_s = x + tx;
                 let y_s = y + ty;

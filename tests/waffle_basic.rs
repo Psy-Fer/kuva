@@ -66,7 +66,7 @@ fn test_waffle_largest_remainder_rounding() {
     assert_eq!(counts.iter().sum::<usize>(), 100);
     // All three should be close to 33 or 34
     for &c in &counts {
-        assert!(c >= 33 && c <= 34);
+        assert!((33..=34).contains(&c));
     }
 }
 

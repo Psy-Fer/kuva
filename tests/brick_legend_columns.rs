@@ -115,3 +115,42 @@ fn test_legend_columns_extends_canvas() {
         "OutsideBottomColumns must extend canvas height"
     );
 }
+
+// ── Vertical marker lines ───────────────────────────────────────────────────────
+
+#[test]
+fn test_brick_vlines() {
+    let mut tmpl: HashMap<char, String> = HashMap::new();
+    for (ch, col) in [
+        ('A', "#00a000"),
+        ('C', "#0000ff"),
+        ('G', "#d17105"),
+        ('T', "#ff0000"),
+    ] {
+        tmpl.insert(ch, col.to_string());
+    }
+    let bp = BrickPlot::new()
+        .with_sequences(vec![
+            "ACGTACGTACGTACGT".to_string(),
+            "ACGTACGTACGTAC".to_string(),
+            "ACGTACGTACGTACGTAC".to_string(),
+        ])
+        .with_names(vec!["r1".to_string(), "r2".to_string(), "r3".to_string()])
+        .with_template(tmpl)
+        .with_vline_labeled(5.0, "cut site")
+        .with_vline(12.0);
+
+    let plots = vec![Plot::Brick(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Brick vlines");
+    let svg = render_to_svg(plots, layout);
+    write("brick_vlines", &svg);
+
+    assert!(svg.contains("<svg"));
+    // Two dashed reference lines + the label text.
+    assert_eq!(
+        svg.matches("stroke-dasharray=\"6 4\"").count(),
+        2,
+        "expected two dashed marker lines"
+    );
+    assert!(svg.contains(">cut site<"), "vline label missing");
+}

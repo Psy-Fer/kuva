@@ -124,3 +124,122 @@ fn test_palette_tritanopia() {
     assert!(svg.contains("#4477aa"), "expected tol_bright[0]");
     assert!(svg.contains("#ee6677"), "expected tol_bright[1]");
 }
+
+// ── LTC palettes (#112) ─────────────────────────────────────────────────────────
+// Render representative small/medium/large LTC palettes into test_outputs/ for
+// visual inspection; assert the palette colours actually reach the SVG. Hex in the
+// output is lowercased, so assertions use the lowercase form.
+
+#[test]
+fn test_palette_ltc_maya_auto_cycle() {
+    // 5-colour palette across 5 line series.
+    let series: Vec<Plot> = (0..5)
+        .map(|i| {
+            let base = i as f64;
+            Plot::Line(
+                LinePlot::new()
+                    .with_data(vec![(0.0, base), (1.0, base + 1.0), (2.0, base + 0.5)])
+                    .with_legend(format!("S{i}")),
+            )
+        })
+        .collect();
+
+    let layout = Layout::auto_from_plots(&series)
+        .with_palette(Palette::maya())
+        .with_title("LTC maya");
+    let svg = SvgBackend.render_scene(&render_multiple(series, layout));
+    common::write_test_output("test_outputs/palette_ltc_maya.svg", &svg).unwrap();
+
+    // maya = 3d5a80, 98c1d9, e0fbfc, ee6c4d, 293241
+    for c in ["#3d5a80", "#98c1d9", "#ee6c4d", "#293241"] {
+        assert!(svg.contains(c), "expected maya colour {c}");
+    }
+}
+
+#[test]
+fn test_palette_ltc_minou_auto_cycle() {
+    // 6-colour palette across 6 scatter series.
+    let series: Vec<Plot> = (0..6)
+        .map(|i| {
+            let base = i as f64;
+            Plot::Scatter(
+                ScatterPlot::new()
+                    .with_data(vec![(0.0, base), (1.0, base + 1.0), (2.0, base + 2.0)])
+                    .with_legend(format!("G{i}")),
+            )
+        })
+        .collect();
+
+    let layout = Layout::auto_from_plots(&series)
+        .with_palette(Palette::minou())
+        .with_title("LTC minou");
+    let svg = SvgBackend.render_scene(&render_multiple(series, layout));
+    common::write_test_output("test_outputs/palette_ltc_minou.svg", &svg).unwrap();
+
+    // minou = 00798c, d1495b, edae49, 66a182, 2e4057, 8d96a3
+    for c in [
+        "#00798c", "#d1495b", "#edae49", "#66a182", "#2e4057", "#8d96a3",
+    ] {
+        assert!(svg.contains(c), "expected minou colour {c}");
+    }
+}
+
+#[test]
+fn test_palette_ltc_casa_natal_auto_cycle() {
+    // Largest LTC palette (9 colours) across 9 line series — exercises the full set.
+    let series: Vec<Plot> = (0..9)
+        .map(|i| {
+            let base = i as f64;
+            Plot::Line(
+                LinePlot::new()
+                    .with_data(vec![(0.0, base), (1.0, base + 1.0), (2.0, base + 0.7)])
+                    .with_legend(format!("L{i}")),
+            )
+        })
+        .collect();
+
+    let layout = Layout::auto_from_plots(&series)
+        .with_palette(Palette::casa_natal())
+        .with_title("LTC casa_natal");
+    let svg = SvgBackend.render_scene(&render_multiple(series, layout));
+    common::write_test_output("test_outputs/palette_ltc_casa_natal.svg", &svg).unwrap();
+
+    // casa_natal first/last few: 245e55 ... 1d1d1b, eae4da
+    for c in ["#245e55", "#ed773c", "#808bc5", "#1d1d1b", "#eae4da"] {
+        assert!(svg.contains(c), "expected casa_natal colour {c}");
+    }
+}
+
+#[test]
+fn test_palette_ltc_constructors_are_valid() {
+    // Every LTC constructor: non-empty, valid #rrggbb, name matches.
+    let pals = [
+        (Palette::paloma(), "paloma", 5),
+        (Palette::maya(), "maya", 5),
+        (Palette::dora(), "dora", 5),
+        (Palette::ploen(), "ploen", 5),
+        (Palette::olga(), "olga", 5),
+        (Palette::mterese(), "mterese", 5),
+        (Palette::franscoise(), "franscoise", 5),
+        (Palette::fernande(), "fernande", 4),
+        (Palette::sylvie(), "sylvie", 5),
+        (Palette::expevo(), "expevo", 6),
+        (Palette::minou(), "minou", 6),
+        (Palette::alger(), "alger", 5),
+        (Palette::seafarer(), "seafarer", 5),
+        (Palette::luminaries(), "luminaries", 6),
+        (Palette::casa_natal(), "casa_natal", 9),
+    ];
+    for (pal, name, n) in pals {
+        assert_eq!(pal.name, name);
+        assert_eq!(pal.len(), n, "{name} colour count");
+        for c in pal.colors() {
+            assert_eq!(c.len(), 7, "{name}: {c} not #rrggbb");
+            assert!(c.starts_with('#'));
+            assert!(
+                c[1..].chars().all(|ch| ch.is_ascii_hexdigit()),
+                "{name}: {c}"
+            );
+        }
+    }
+}

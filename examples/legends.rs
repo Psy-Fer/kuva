@@ -290,11 +290,22 @@ fn data_coords() {
     write("data_coords", plots, layout);
 }
 
+/// `(label, colour, marker shape, points)` for a manually-built legend entry.
+type ShapedSeries = (
+    &'static str,
+    &'static str,
+    LegendShape,
+    &'static [(f64, f64)],
+);
+
+/// `(label, colour, points)` for a series that takes the default marker.
+type PlainSeries = (&'static str, &'static str, &'static [(f64, f64)]);
+
 // ── 8. Manual legend entries ──────────────────────────────────────────────────
 
 fn manual_entries() {
     // Three scatter series with different marker shapes.
-    let series: &[(&str, &str, LegendShape, &[(f64, f64)])] = &[
+    let series: &[ShapedSeries] = &[
         (
             "Healthy",
             "steelblue",
@@ -330,7 +341,7 @@ fn manual_entries() {
         .map(|(label, color, shape, _)| LegendEntry {
             label: (*label).into(),
             color: (*color).into(),
-            shape: shape.clone(),
+            shape: *shape,
             dasharray: None,
         })
         .collect();
@@ -348,7 +359,7 @@ fn manual_entries() {
 
 fn size_override() {
     // Long labels that would overflow the default auto-sized box.
-    let series: &[(&str, &str, &[(f64, f64)])] = &[
+    let series: &[PlainSeries] = &[
         (
             "Homo sapiens (reference)",
             "steelblue",

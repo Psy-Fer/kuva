@@ -6,10 +6,40 @@ pub enum MarkerShape {
     #[default]
     Circle,
     Square,
+    /// Upward-pointing triangle.
     Triangle,
     Diamond,
+    /// Diagonal cross (×).
     Cross,
+    /// Upright cross (+).
     Plus,
+    /// Downward-pointing triangle.
+    TriangleDown,
+    /// Five-pointed star.
+    Star,
+    /// Regular pentagon (point up).
+    Pentagon,
+    /// Regular hexagon (point up).
+    Hexagon,
+}
+
+impl MarkerShape {
+    /// Parse a CLI-friendly shape name. Accepts common aliases; case-insensitive.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().replace('_', "-").as_str() {
+            "circle" | "o" => Some(MarkerShape::Circle),
+            "square" | "s" => Some(MarkerShape::Square),
+            "triangle" | "triangle-up" | "^" => Some(MarkerShape::Triangle),
+            "diamond" | "d" => Some(MarkerShape::Diamond),
+            "cross" | "x" => Some(MarkerShape::Cross),
+            "plus" | "+" => Some(MarkerShape::Plus),
+            "triangle-down" | "v" => Some(MarkerShape::TriangleDown),
+            "star" | "*" => Some(MarkerShape::Star),
+            "pentagon" | "p" => Some(MarkerShape::Pentagon),
+            "hexagon" | "hex" | "h" => Some(MarkerShape::Hexagon),
+            _ => None,
+        }
+    }
 }
 
 /// Trend line variant to overlay on a scatter plot.
@@ -17,6 +47,11 @@ pub enum MarkerShape {
 pub enum TrendLine {
     /// Ordinary least-squares linear fit: y = mx + b.
     Linear,
+    /// LOESS / LOWESS locally-weighted regression smoother. `span` is the
+    /// fraction of points (0, 1] included in each local fit (a.k.a. bandwidth);
+    /// smaller = wigglier, larger = smoother. ggplot2 `geom_smooth(method='loess')`,
+    /// plotly `trendline='lowess'`.
+    Loess { span: f64 },
     // Polynomial(u8),
     // Exponential,
 }
@@ -112,6 +147,11 @@ pub struct ScatterPlot {
     /// Series/group name used for `data-group` in interactive SVGs.
     /// Does not affect legend rendering; set independently of `legend_label`.
     pub group_name: Option<String>,
+    /// Per-point text labels, aligned to `data` by index. An empty string leaves
+    /// that point unlabelled. Placed according to [`label_style`](Self::label_style).
+    pub point_labels: Option<Vec<String>>,
+    /// How point labels are placed (default [`LabelStyle::Nudge`]).
+    pub label_style: crate::plot::volcano::LabelStyle,
 }
 
 impl Default for ScatterPlot {
@@ -145,6 +185,8 @@ impl ScatterPlot {
             show_tooltips: false,
             tooltip_labels: None,
             group_name: None,
+            point_labels: None,
+            label_style: crate::plot::volcano::LabelStyle::Nudge,
         }
     }
 
@@ -289,6 +331,22 @@ impl ScatterPlot {
         self
     }
 
+    /// Overlay a LOESS smoother with the default span (`0.5`).
+    /// Equivalent to `with_trend(TrendLine::Loess { span: 0.5 })`.
+    pub fn with_loess(mut self) -> Self {
+        self.trend = Some(TrendLine::Loess { span: 0.5 });
+        self
+    }
+
+    /// Overlay a LOESS smoother with an explicit span (fraction of points per
+    /// local fit, clamped to `[0.05, 1.0]`). Smaller = more local detail.
+    pub fn with_loess_span(mut self, span: f64) -> Self {
+        self.trend = Some(TrendLine::Loess {
+            span: span.clamp(0.05, 1.0),
+        });
+        self
+    }
+
     /// Set the trend line color (default `"black"`).
     pub fn with_trend_color<S: Into<String>>(mut self, color: S) -> Self {
         self.trend_color = color.into();
@@ -303,7 +361,7 @@ impl ScatterPlot {
         self
     }
 
-    /// Annotate the plot with the Pearson R² value.
+    /// Annotate the plot with the signed Pearson correlation coefficient r.
     ///
     /// Requires a trend line to be set via [`with_trend`](Self::with_trend).
     pub fn with_correlation(mut self) -> Self {
@@ -314,6 +372,27 @@ impl ScatterPlot {
     /// Set the trend line stroke width in pixels (default `1.0`).
     pub fn with_trend_width(mut self, width: f64) -> Self {
         self.trend_width = width;
+        self
+    }
+
+    /// Attach per-point text labels, aligned to the data by index. An empty
+    /// string leaves that point unlabelled. Placed per [`with_label_style`](Self::with_label_style)
+    /// (default [`LabelStyle::Nudge`](crate::plot::LabelStyle::Nudge)).
+    pub fn with_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.point_labels = Some(labels.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Choose how point labels are placed (`Exact`, `Nudge`, `Arrow`, `Repel`).
+    pub fn with_label_style(mut self, style: crate::plot::volcano::LabelStyle) -> Self {
+        self.label_style = style;
+        self
+    }
+
+    /// Convenience: place point labels with force-directed (ggrepel-style) repulsion.
+    /// Equivalent to `with_label_style(LabelStyle::Repel)`.
+    pub fn with_repel_labels(mut self) -> Self {
+        self.label_style = crate::plot::volcano::LabelStyle::Repel;
         self
     }
 

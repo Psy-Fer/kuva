@@ -48,7 +48,7 @@ Up-regulated genes (red, right) include AKT1, EGFR, and FGFR1 at the top right. 
 
 ## Gene labels
 
-`.with_label_top(n)` labels the `n` most significant points (lowest p-values). Three placement styles are available via `.with_label_style()`.
+`.with_label_top(n)` labels the `n` most significant points (lowest p-values). Four placement styles are available via `.with_label_style()`: `Nudge` (default), `Exact`, `Arrow`, and `Repel` (force-directed, ggrepel-style, best for dense clusters).
 
 ### Nudge (default)
 
@@ -123,7 +123,7 @@ All color methods accept any CSS color string.
 
 ## Zero and extreme p-values
 
-p-values of exactly `0.0` cannot be log-transformed. They are automatically clamped to the smallest non-zero p-value in the data. To set an explicit ceiling (useful when comparing multiple plots on the same y-axis scale):
+p-values of exactly `0.0` cannot be log-transformed. They are automatically clamped to the smallest non-zero p-value in the data. Points with a p-value outside `[0, 1]` (including NaN) or a non-finite fold change are not drawn or labeled, and the CLI rejects such p-values with the row number. To set an explicit ceiling (useful when comparing multiple plots on the same y-axis scale):
 
 ```rust,no_run
 # use kuva::plot::VolcanoPlot;
@@ -148,7 +148,7 @@ let vp = VolcanoPlot::new()
 | `.with_color_ns(s)` | Not-significant point color (default `"#aaaaaa"`) |
 | `.with_point_size(f)` | Circle radius in pixels (default `3.0`) |
 | `.with_label_top(n)` | Label the `n` most significant points (default `0`) |
-| `.with_label_style(s)` | `Nudge` (default), `Exact`, or `Arrow { offset_x, offset_y }` |
+| `.with_label_style(s)` | `Nudge` (default), `Exact`, `Arrow { offset_x, offset_y }`, or `Repel` (force-directed) |
 | `.with_pvalue_floor(f)` | Explicit p-value floor for −log₁₀ transform |
 | `.with_legend(s)` | Show an Up / Down / NS legend box |
 
@@ -171,6 +171,7 @@ Volcano plot for differential expression results.
 | `--fc-cutoff <F>` | `1.0` | \|log₂FC\| threshold |
 | `--p-cutoff <F>` | `0.05` | p-value significance threshold |
 | `--top-n <N>` | `0` | Label the N most-significant points |
+| `--label-style <STYLE>` | `nudge` | Label placement: `nudge`, `exact`, or `repel` |
 | `--color-up <CSS>` | `firebrick` | Up-regulated point color |
 | `--color-down <CSS>` | `steelblue` | Down-regulated point color |
 | `--color-ns <CSS>` | `#aaaaaa` | Not-significant point color |

@@ -173,6 +173,8 @@ impl Histogram2D {
     /// The coefficient is computed from all points passed to
     /// [`with_data`](Self::with_data), including those clipped outside the
     /// plot range. Displayed as `r = 0.85`.
+    /// The annotation is omitted for fewer than two points, constant x or y,
+    /// or non-finite coordinates, since Pearson correlation is undefined.
     ///
     /// ```rust,no_run
     /// use kuva::plot::Histogram2D;

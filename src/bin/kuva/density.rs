@@ -55,7 +55,7 @@ pub struct DensityArgs {
 
 pub fn run(args: DensityArgs) -> Result<(), String> {
     // Multi-column --y mode: one density curve per column
-    if args.y.len() > 1 {
+    if args.y.len() > 1 || args.y.iter().any(|c| c.is_multi()) {
         if args.color_by.is_some() {
             return Err(
                 "--y with multiple columns is mutually exclusive with --color-by".to_string(),
@@ -67,9 +67,10 @@ pub fn run(args: DensityArgs) -> Result<(), String> {
             args.input.delimiter,
             &args.y,
         )?;
+        // Expand column ranges / globs against the parsed table (issue #109).
+        let cols = table.expand_columns(&args.y)?;
         let pal = Palette::category10();
-        let plots: Vec<Plot> = args
-            .y
+        let plots: Vec<Plot> = cols
             .iter()
             .enumerate()
             .map(|(i, col)| {

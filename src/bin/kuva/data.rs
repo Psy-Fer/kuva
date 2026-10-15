@@ -4,22 +4,125 @@ use std::str::FromStr;
 
 use clap::Args;
 
-/// A column selector: either a 0-based integer index or a header name.
+/// A column selector.
+///
+/// From the CLI, a value may be prefixed to force an interpretation:
+/// - `idx:N` / `index:N` / `#N` -> a 0-based index, never reinterpreted (`ForcedIndex`)
+/// - `name:X` / `col:X` -> always a column name (`Name`), even if `X` is all-digits
+/// - a bare all-digit token -> `Index` (index-first, with the out-of-range name fallback in
+///   [`DataTable::resolve`]); a bare non-numeric token -> `Name`.
 #[derive(Debug, Clone)]
 pub enum ColSpec {
+    /// Bare numeric token: a 0-based index that falls back to a header column *named* by that
+    /// number when the index is out of range (issue #109).
     Index(usize),
+    /// A column name (from `name:`/`col:`, or any non-numeric bare token).
     Name(String),
+    /// An explicit 0-based index (from `idx:`/`index:`/`#`): never resolved to a name.
+    ForcedIndex(usize),
+    /// A 0-based index range (`2..5`, `2..=5`, `3..`, `..4`, `..`). Multi-column: expands
+    /// via [`DataTable::expand_columns`]; invalid for single-column arguments.
+    Range {
+        start: Option<usize>,
+        end: Option<usize>,
+        inclusive: bool,
+    },
+    /// A glob over header names (`sum_*`, `*_A`, `y*`, `*mid*`). Multi-column: expands via
+    /// [`DataTable::expand_columns`]; invalid for single-column arguments.
+    Glob(String),
 }
 
 impl FromStr for ColSpec {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Explicit index override: `idx:N`, `index:N`, or `#N`.
+        for pfx in ["idx:", "index:", "#"] {
+            if let Some(rest) = s.strip_prefix(pfx) {
+                let i = rest.parse::<usize>().map_err(|_| {
+                    format!("'{s}': '{rest}' after '{pfx}' is not a 0-based column index")
+                })?;
+                return Ok(ColSpec::ForcedIndex(i));
+            }
+        }
+        // Explicit name override: `name:X` or `col:X` (X may be all-digits or contain `..`/`*`).
+        for pfx in ["name:", "col:"] {
+            if let Some(rest) = s.strip_prefix(pfx) {
+                return Ok(ColSpec::Name(rest.to_string()));
+            }
+        }
+        // Index range: `a..b`, `a..=b`, `a..`, `..b`, `..`.
+        if s.contains("..") {
+            let (sep, inclusive) = if s.contains("..=") {
+                ("..=", true)
+            } else {
+                ("..", false)
+            };
+            let (lhs, rhs) = s.split_once(sep).unwrap();
+            let parse_end = |t: &str| -> Result<Option<usize>, String> {
+                if t.is_empty() {
+                    Ok(None)
+                } else {
+                    t.parse::<usize>()
+                        .map(Some)
+                        .map_err(|_| format!("'{s}': '{t}' is not a 0-based index in a range"))
+                }
+            };
+            return Ok(ColSpec::Range {
+                start: parse_end(lhs)?,
+                end: parse_end(rhs)?,
+                inclusive,
+            });
+        }
+        // Glob over header names.
+        if s.contains('*') {
+            return Ok(ColSpec::Glob(s.to_string()));
+        }
+        // Bare token: numeric -> index (heuristic), else name.
         if let Ok(i) = s.parse::<usize>() {
             Ok(ColSpec::Index(i))
         } else {
             Ok(ColSpec::Name(s.to_string()))
         }
     }
+}
+
+impl ColSpec {
+    /// True for selectors that expand to (potentially) several columns: ranges and globs.
+    /// Used by subcommands to route a single such selector into their multi-column path.
+    pub fn is_multi(&self) -> bool {
+        matches!(self, ColSpec::Range { .. } | ColSpec::Glob(_))
+    }
+}
+
+/// Simple glob match: `*` matches any run of characters. Supports prefix (`a*`), suffix (`*a`),
+/// contains (`*a*`), and interior (`a*b*c`) patterns. No character classes or escaping.
+pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == name;
+    }
+    if !name.starts_with(parts[0]) {
+        return false;
+    }
+    let mut pos = parts[0].len();
+    let last = parts.len() - 1;
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            continue;
+        }
+        if i == last {
+            // Final literal must be a suffix of the remaining tail.
+            return name[pos..].ends_with(part);
+        }
+        if part.is_empty() {
+            continue;
+        }
+        match name[pos..].find(part) {
+            Some(idx) => pos += idx + part.len(),
+            None => return false,
+        }
+    }
+    true
 }
 
 #[derive(Args, Debug)]
@@ -196,7 +299,24 @@ impl DataTable {
     /// Resolve a `ColSpec` to a 0-based column index.
     pub fn resolve(&self, col: &ColSpec) -> Result<usize, String> {
         match col {
-            ColSpec::Index(i) => Ok(*i),
+            ColSpec::Index(i) => {
+                // A numeric token is normally a 0-based index. But because `--x 2024` parses to
+                // `Index(2024)`, an all-numeric column *name* (e.g. a year) could never be selected.
+                // So when the index is out of range and the file has a header, fall back to a column
+                // literally named by that number. In-range indices are untouched, keeping existing
+                // "numeric = index" behaviour fully backward compatible (issue #109).
+                if let Some(header) = self.header.as_ref() {
+                    if *i >= header.len() {
+                        let as_name = i.to_string();
+                        if let Some(pos) = header.iter().position(|h| h == &as_name) {
+                            return Ok(pos);
+                        }
+                    }
+                }
+                Ok(*i)
+            }
+            // Explicit `idx:`/`#`: a pure index, never reinterpreted as a name.
+            ColSpec::ForcedIndex(i) => Ok(*i),
             ColSpec::Name(name) => {
                 let header = self.header.as_ref().ok_or_else(|| {
                     format!(
@@ -212,7 +332,74 @@ impl DataTable {
                     )
                 })
             }
+            ColSpec::Range { .. } | ColSpec::Glob(_) => Err(
+                "a column range or glob selects multiple columns and cannot be used for a \
+                 single-column argument (only for multi-column ones like --y)"
+                    .to_string(),
+            ),
         }
+    }
+
+    /// Number of columns: the header width, or the widest data row.
+    fn n_cols(&self) -> usize {
+        self.header
+            .as_ref()
+            .map(|h| h.len())
+            .unwrap_or_else(|| self.rows.iter().map(|r| r.len()).max().unwrap_or(0))
+    }
+
+    /// Expand a list of selectors (which may include ranges and globs) into concrete per-column
+    /// specs, in order, de-duplicated. Single selectors pass through unchanged.
+    pub fn expand_columns(&self, cols: &[ColSpec]) -> Result<Vec<ColSpec>, String> {
+        let mut out: Vec<ColSpec> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push = |idx: usize, out: &mut Vec<ColSpec>| {
+            if seen.insert(idx) {
+                out.push(ColSpec::ForcedIndex(idx));
+            }
+        };
+        let ncols = self.n_cols();
+        for col in cols {
+            match col {
+                ColSpec::Range {
+                    start,
+                    end,
+                    inclusive,
+                } => {
+                    let lo = start.unwrap_or(0);
+                    let hi = match end {
+                        Some(e) if *inclusive => e + 1,
+                        Some(e) => *e,
+                        None => ncols,
+                    }
+                    .min(ncols);
+                    for i in lo..hi {
+                        push(i, &mut out);
+                    }
+                }
+                ColSpec::Glob(pattern) => {
+                    let header = self.header.as_ref().ok_or_else(|| {
+                        format!("glob '{pattern}' needs a header row (use --header)")
+                    })?;
+                    let mut any = false;
+                    for (i, name) in header.iter().enumerate() {
+                        if glob_match(pattern, name) {
+                            push(i, &mut out);
+                            any = true;
+                        }
+                    }
+                    if !any {
+                        return Err(format!(
+                            "glob '{pattern}' matched no columns. Available: {}",
+                            header.join(", ")
+                        ));
+                    }
+                }
+                // Single selectors resolve now so the result is a flat, concrete list.
+                other => push(self.resolve(other)?, &mut out),
+            }
+        }
+        Ok(out)
     }
 
     /// Extract a column as f64 values.
@@ -222,12 +409,67 @@ impl DataTable {
             .iter()
             .enumerate()
             .map(|(row_i, row)| {
-                row.get(idx)
-                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))
-                    .and_then(|s| {
-                        s.parse::<f64>()
-                            .map_err(|_| format!("Row {row_i}: cannot parse '{s}' as a number"))
-                    })
+                let s = row
+                    .get(idx)
+                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?;
+                let v = s
+                    .parse::<f64>()
+                    .map_err(|_| format!("Row {row_i}: cannot parse '{s}' as a number"))?;
+                // Reject non-finite values (inf / NaN) here rather than letting them silently
+                // corrupt axis auto-ranging. Subcommands that read via `col_f64_opt` (scatter,
+                // line, histogram) instead treat them as missing / clampable (issue #108).
+                if v.is_finite() {
+                    Ok(v)
+                } else {
+                    Err(format!("Row {row_i}: value '{s}' is not finite (inf/NaN)"))
+                }
+            })
+            .collect()
+    }
+
+    pub fn col_pvalues(&self, col: &ColSpec, negative_log10: bool) -> Result<Vec<f64>, String> {
+        self.col_f64(col)?
+            .into_iter()
+            .enumerate()
+            .map(|(row_i, v)| {
+                if negative_log10 {
+                    if v < 0.0 {
+                        return Err(format!("Row {row_i}: -log10(p) value {v} is negative"));
+                    }
+                    Ok(10.0_f64.powf(-v))
+                } else if (0.0..=1.0).contains(&v) {
+                    Ok(v)
+                } else {
+                    Err(format!("Row {row_i}: p-value {v} is outside [0, 1]"))
+                }
+            })
+            .collect()
+    }
+
+    /// Extract a numeric column, treating empty / NA-token cells as missing (`None`) rather than
+    /// erroring. A non-empty cell that is neither an NA token nor a number is still a hard error
+    /// (keeps the wrong-column-selection safety net). See issue #108.
+    ///
+    /// `clamp = (min, max)` clips finite values into the given bounds and, crucially, maps `+inf`
+    /// to `max` and `-inf` to `min` (so an infinite value can be capped at a real number rather
+    /// than dropped). Any value still non-finite after clamping (e.g. `-inf` with no lower bound,
+    /// or `NaN`) is treated as missing, because it is not plottable and would corrupt axis
+    /// auto-ranging. Pass `(None, None)` for no clamping (the default: all non-finite → missing).
+    pub fn col_f64_opt(
+        &self,
+        col: &ColSpec,
+        na: &NaSet,
+        clamp: (Option<f64>, Option<f64>),
+    ) -> Result<Vec<Option<f64>>, String> {
+        let idx = self.resolve(col)?;
+        self.rows
+            .iter()
+            .enumerate()
+            .map(|(row_i, row)| {
+                let s = row
+                    .get(idx)
+                    .ok_or_else(|| format!("Row {row_i}: no column at index {idx}"))?;
+                parse_cell_opt(s, na, clamp).map_err(|e| format!("Row {row_i}: {e}"))
             })
             .collect()
     }
@@ -273,12 +515,20 @@ impl DataTable {
     pub fn col_display_name(&self, col: &ColSpec) -> String {
         match col {
             ColSpec::Name(n) => n.clone(),
-            ColSpec::Index(i) => self
-                .header
-                .as_ref()
-                .and_then(|h| h.get(*i))
-                .cloned()
-                .unwrap_or_else(|| format!("col_{i}")),
+            ColSpec::Index(i) | ColSpec::ForcedIndex(i) => {
+                // Route through resolve() so a numeric name that fell back to a header column
+                // (e.g. "2024") shows its label rather than "col_2024".
+                let idx = self.resolve(col).unwrap_or(*i);
+                self.header
+                    .as_ref()
+                    .and_then(|h| h.get(idx))
+                    .cloned()
+                    .unwrap_or_else(|| format!("col_{i}"))
+            }
+            // Multi-column selectors are expanded (via expand_columns) before display; a bare
+            // call here is a fallback only.
+            ColSpec::Range { .. } => "range".to_string(),
+            ColSpec::Glob(p) => p.clone(),
         }
     }
 
@@ -422,7 +672,13 @@ where
     let parquet_schema = builder.parquet_schema().clone();
     let fields = arrow_schema.fields();
 
-    let (col_indices, header): (Vec<usize>, Vec<String>) = if project.is_empty() {
+    // Ranges/globs need the full schema to expand, so read every column when any is present
+    // (the caller expands them against the returned header). Explicit specs still project.
+    let read_all = project.is_empty()
+        || project
+            .iter()
+            .any(|s| matches!(s, ColSpec::Range { .. } | ColSpec::Glob(_)));
+    let (col_indices, header): (Vec<usize>, Vec<String>) = if read_all {
         (
             (0..fields.len()).collect(),
             fields.iter().map(|f| f.name().clone()).collect(),
@@ -438,6 +694,25 @@ where
         for spec in project {
             let (idx, name) = match spec {
                 ColSpec::Index(i) => {
+                    if *i >= fields.len() {
+                        // Out of range: fall back to a column literally named by that number
+                        // (e.g. a year column "2024"), matching the TSV/CSV path (issue #109).
+                        let as_name = i.to_string();
+                        match fields.iter().position(|f| f.name() == &as_name) {
+                            Some(pos) => (pos, fields[pos].name().clone()),
+                            None => {
+                                return Err(format!(
+                                    "Column index {i} out of range (file has {} columns)",
+                                    fields.len()
+                                ));
+                            }
+                        }
+                    } else {
+                        (*i, fields[*i].name().clone())
+                    }
+                }
+                // Explicit `idx:`/`#`: a pure index, no name fallback.
+                ColSpec::ForcedIndex(i) => {
                     if *i >= fields.len() {
                         return Err(format!(
                             "Column index {i} out of range (file has {} columns)",
@@ -458,6 +733,11 @@ where
                         )
                     })?;
                     (idx, n.clone())
+                }
+                // `read_all` above is true whenever a range/glob is present, so this branch
+                // only runs for explicit single specs.
+                ColSpec::Range { .. } | ColSpec::Glob(_) => {
+                    unreachable!("ranges/globs force read_all")
                 }
             };
             if seen.insert(idx) {
@@ -637,6 +917,111 @@ fn arrow_dict_to_string(
 /// yellow-orange-red, blues, greens, grayscale (grey/gray), oranges, purples, reds,
 /// brown-green, pink-green, purple-green, purple-orange, red-blue, red-grey,
 /// red-yellow-blue, red-yellow-green, spectral, rainbow, sinebow.
+/// The set of cell values treated as "missing" by [`DataTable::col_f64_opt`]. An empty (or
+/// whitespace-only) cell is ALWAYS missing; the token set adds named sentinels, matched
+/// case-insensitively.
+#[derive(Debug, Clone)]
+pub struct NaSet {
+    tokens: std::collections::HashSet<String>,
+}
+
+impl NaSet {
+    /// The default NA tokens: `NA`, `NaN`, `null`, `N/A`, `.` (plus empty cells always).
+    pub fn default_tokens() -> Self {
+        Self::from_tokens(
+            ["na", "nan", "null", "n/a", "."]
+                .iter()
+                .map(|s| s.to_string()),
+        )
+    }
+    pub fn from_tokens(tokens: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            tokens: tokens
+                .into_iter()
+                .map(|t| t.trim().to_ascii_lowercase())
+                .collect(),
+        }
+    }
+    pub fn is_na(&self, s: &str) -> bool {
+        let t = s.trim();
+        t.is_empty() || self.tokens.contains(&t.to_ascii_lowercase())
+    }
+}
+
+/// Parse one cell into an optional number, NA-aware. Empty / NA-token cells become `None`; a
+/// parsed value is clamped (`+inf`→max, `-inf`→min, finite outliers clipped) and anything still
+/// non-finite becomes `None` (missing). A non-empty, non-NA, non-numeric cell is an error. Shared
+/// by [`DataTable::col_f64_opt`] and the row-wise readers (parallel coords).
+pub fn parse_cell_opt(
+    s: &str,
+    na: &NaSet,
+    clamp: (Option<f64>, Option<f64>),
+) -> Result<Option<f64>, String> {
+    if na.is_na(s) {
+        return Ok(None);
+    }
+    match s.parse::<f64>() {
+        Ok(mut v) => {
+            if let Some(mx) = clamp.1 {
+                v = v.min(mx);
+            }
+            if let Some(mn) = clamp.0 {
+                v = v.max(mn);
+            }
+            Ok(v.is_finite().then_some(v))
+        }
+        Err(_) => Err(format!("cannot parse '{s}' as a number")),
+    }
+}
+
+/// How to handle missing values in selected numeric columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaStrategy {
+    /// Drop any row that has a missing value in a selected column (default).
+    Drop,
+    /// Replace missing values with 0.
+    Zero,
+    /// Treat any missing value as a hard error (the pre-#108 behaviour).
+    Error,
+}
+
+/// Resolve a missing-value strategy over a set of aligned numeric columns, returning the row
+/// indices to keep. The caller uses these to filter every column (numeric and string) in lockstep,
+/// building each numeric column as `col[i].unwrap_or(0.0)` (already `Some` under Drop/Error; filled
+/// with 0 under Zero). For `Drop`, prints a one-line note to stderr when rows are removed.
+pub fn apply_na(
+    strategy: NaStrategy,
+    cols: &[&[Option<f64>]],
+    n: usize,
+) -> Result<Vec<usize>, String> {
+    match strategy {
+        NaStrategy::Drop => {
+            let keep: Vec<usize> = (0..n)
+                .filter(|&i| cols.iter().all(|c| c[i].is_some()))
+                .collect();
+            let dropped = n - keep.len();
+            if dropped > 0 {
+                eprintln!(
+                    "note: dropped {dropped} row(s) with missing or non-finite values \
+                     (use --na-strategy zero to keep them as 0, or error to fail)"
+                );
+            }
+            Ok(keep)
+        }
+        NaStrategy::Zero => Ok((0..n).collect()),
+        NaStrategy::Error => {
+            for c in cols {
+                if let Some(i) = c.iter().position(|v| v.is_none()) {
+                    return Err(format!(
+                        "Row {i}: missing value (use --na-strategy drop or zero to handle it)"
+                    ));
+                }
+            }
+            Ok((0..n).collect())
+        }
+    }
+}
+
 pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
     use kuva::plot::ColorMap;
     match name.to_ascii_lowercase().replace('_', "-").as_str() {
@@ -692,6 +1077,87 @@ pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
             );
             ColorMap::Viridis
         }
+    }
+}
+
+#[cfg(test)]
+mod na_tests {
+    use super::*;
+
+    fn table(content: &str) -> DataTable {
+        DataTable::parse_str(content, None, HeaderMode::Header, Some(',')).unwrap()
+    }
+
+    #[test]
+    fn na_set_matches_empty_and_tokens_case_insensitively() {
+        let na = NaSet::default_tokens();
+        assert!(na.is_na(""));
+        assert!(na.is_na("  "));
+        assert!(na.is_na("NA") && na.is_na("na") && na.is_na("nan"));
+        assert!(na.is_na("null") && na.is_na("."));
+        assert!(!na.is_na("0") && !na.is_na("3.5") && !na.is_na("foo"));
+    }
+
+    #[test]
+    fn col_f64_opt_marks_missing_but_errors_on_real_garbage() {
+        let t = table("x,y\n1,10\n2,\n3,NA\n");
+        let ys = t
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .unwrap();
+        assert_eq!(ys, vec![Some(10.0), None, None]);
+        // A non-NA, non-numeric cell is still a hard error.
+        let bad = table("x,y\n1,10\n2,foo\n");
+        assert!(bad
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .is_err());
+    }
+
+    #[test]
+    fn col_f64_opt_treats_non_finite_as_missing() {
+        // inf / -inf / infinity parse to non-finite floats; treat them as missing (not real values)
+        // so they can't corrupt axis ranges. (nan is already caught as an NA token.)
+        let t = table("x,y\n1,inf\n2,-inf\n3,Infinity\n4,5\n");
+        let ys = t
+            .col_f64_opt(&ColSpec::Index(1), &NaSet::default_tokens(), (None, None))
+            .unwrap();
+        assert_eq!(ys, vec![None, None, None, Some(5.0)]);
+    }
+
+    #[test]
+    fn col_f64_opt_clamp_maps_inf_and_clips_finite() {
+        let t = table("x,y\n1,inf\n2,-inf\n3,500\n4,-7\n5,50\n");
+        let na = NaSet::default_tokens();
+        // clamp [0, 300]: +inf -> 300, -inf -> 0, 500 -> 300, -7 -> 0, 50 unchanged.
+        let two_sided = t
+            .col_f64_opt(&ColSpec::Index(1), &na, (Some(0.0), Some(300.0)))
+            .unwrap();
+        assert_eq!(
+            two_sided,
+            vec![Some(300.0), Some(0.0), Some(300.0), Some(0.0), Some(50.0)]
+        );
+        // Only a max bound: +inf -> 300, but -inf has no floor so stays non-finite -> missing.
+        let max_only = t
+            .col_f64_opt(&ColSpec::Index(1), &na, (None, Some(300.0)))
+            .unwrap();
+        assert_eq!(
+            max_only,
+            vec![Some(300.0), None, Some(300.0), Some(-7.0), Some(50.0)]
+        );
+    }
+
+    #[test]
+    fn apply_na_drop_keeps_rows_where_all_present() {
+        let xs = vec![Some(1.0), None, Some(3.0), Some(4.0)];
+        let ys = vec![Some(10.0), Some(20.0), None, Some(40.0)];
+        let keep = apply_na(NaStrategy::Drop, &[&xs, &ys], 4).unwrap();
+        assert_eq!(keep, vec![0, 3]); // rows 1 (x missing) and 2 (y missing) dropped
+    }
+
+    #[test]
+    fn apply_na_zero_keeps_all_and_error_fails() {
+        let xs = vec![Some(1.0), None];
+        assert_eq!(apply_na(NaStrategy::Zero, &[&xs], 2).unwrap(), vec![0, 1]);
+        assert!(apply_na(NaStrategy::Error, &[&xs], 2).is_err());
     }
 }
 
@@ -834,5 +1300,216 @@ mod tests {
             vec![99.0],
             "col 'b' returned a's value — on-disk order bug"
         );
+    }
+}
+
+// ── Issue #109: all-numeric column names ────────────────────────────────────────
+// `--x 2024` parses to `ColSpec::Index(2024)`; when that index is out of range and a
+// header column is literally named "2024", resolve to that column. Not parquet-gated,
+// so this runs on every test build.
+#[cfg(test)]
+mod colspec_tests {
+    use super::*;
+
+    fn headered(content: &str) -> DataTable {
+        DataTable::parse_str(content, None, HeaderMode::Header, Some(',')).unwrap()
+    }
+
+    #[test]
+    fn numeric_name_out_of_range_resolves_to_header_column() {
+        let t = headered("gene,2023,2024\nBRCA,5,9\nTP53,6,10\n");
+        // Index 2024 is way out of range -> falls back to the column named "2024".
+        let idx = t.resolve(&ColSpec::Index(2024)).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(t.col_f64(&ColSpec::Index(2024)).unwrap(), vec![9.0, 10.0]);
+        assert_eq!(t.col_f64(&ColSpec::Index(2023)).unwrap(), vec![5.0, 6.0]);
+        // Display name reflects the header label, not "col_2024".
+        assert_eq!(t.col_display_name(&ColSpec::Index(2024)), "2024");
+    }
+
+    #[test]
+    fn in_range_index_is_untouched_by_numeric_name_fallback() {
+        // Header cells are themselves numbers, but an in-range index must still mean the index.
+        let t = headered("10,11,12\n1,2,3\n");
+        assert_eq!(t.resolve(&ColSpec::Index(0)).unwrap(), 0); // NOT a name lookup
+        assert_eq!(t.col_f64(&ColSpec::Index(0)).unwrap(), vec![1.0]);
+        // Index 1 is in range -> stays index 1 (the "11" column), not a name lookup.
+        assert_eq!(t.resolve(&ColSpec::Index(1)).unwrap(), 1);
+        assert_eq!(t.col_f64(&ColSpec::Index(1)).unwrap(), vec![2.0]);
+    }
+
+    #[test]
+    fn out_of_range_numeric_with_no_matching_name_still_errors() {
+        let t = headered("gene,value\nBRCA,5\n");
+        // No column named "7" and index 7 is out of range -> the later lookup errors.
+        assert!(t.col_f64(&ColSpec::Index(7)).is_err());
+    }
+
+    #[test]
+    fn colspec_parses_all_digit_string_as_index() {
+        // Documents the parse behaviour the resolve() fallback compensates for.
+        assert!(matches!(
+            "2024".parse::<ColSpec>(),
+            Ok(ColSpec::Index(2024))
+        ));
+        assert!(matches!("gene".parse::<ColSpec>(), Ok(ColSpec::Name(_))));
+    }
+
+    // ── Explicit prefixes: name:/col: force a name, idx:/index:/# force an index ─────
+
+    #[test]
+    fn prefixes_parse_to_the_right_variant() {
+        assert!(matches!(
+            "idx:2".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(2))
+        ));
+        assert!(matches!(
+            "index:5".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(5))
+        ));
+        assert!(matches!(
+            "#7".parse::<ColSpec>(),
+            Ok(ColSpec::ForcedIndex(7))
+        ));
+        // name:/col: force a Name even for an all-digit body.
+        assert!(matches!(
+            "name:2024".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "2024"
+        ));
+        assert!(matches!(
+            "col:1".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "1"
+        ));
+        // A non-numeric body after idx: is an error.
+        assert!("idx:abc".parse::<ColSpec>().is_err());
+        // name: can carry a literal name that itself contains a colon.
+        assert!(matches!(
+            "name:idx:2".parse::<ColSpec>(),
+            Ok(ColSpec::Name(n)) if n == "idx:2"
+        ));
+    }
+
+    #[test]
+    fn forced_name_selects_a_small_in_range_numeric_column() {
+        // Columns literally named "30","10","20" at indices 0,1,2. The whole point of the
+        // escape hatch: select the column NAMED "10" (index 1), not index 10.
+        let t = headered("30,10,20\n1,7,4\n2,8,5\n");
+        let name10 = "name:10".parse::<ColSpec>().unwrap();
+        assert_eq!(t.resolve(&name10).unwrap(), 1);
+        assert_eq!(t.col_f64(&name10).unwrap(), vec![7.0, 8.0]);
+        assert_eq!(t.col_display_name(&name10), "10");
+    }
+
+    #[test]
+    fn forced_index_is_pure_and_never_falls_back_to_a_name() {
+        let t = headered("gene,2024\nBRCA,9\n");
+        // Bare 2024 -> heuristic -> the "2024" column (index 1).
+        assert_eq!(t.resolve(&ColSpec::Index(2024)).unwrap(), 1);
+        // idx:2024 -> pure index 2024 -> out of range -> hard error, no name rescue.
+        let forced = "idx:2024".parse::<ColSpec>().unwrap();
+        assert_eq!(t.resolve(&forced).unwrap(), 2024);
+        assert!(t.col_f64(&forced).is_err());
+    }
+
+    // ── Ranges and globs (issue #109) ───────────────────────────────────────
+
+    fn idxs(t: &DataTable, spec: &str) -> Vec<usize> {
+        let cs: Vec<ColSpec> = spec.split(' ').map(|s| s.parse().unwrap()).collect();
+        t.expand_columns(&cs)
+            .unwrap()
+            .iter()
+            .map(|c| t.resolve(c).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn range_parses_all_forms() {
+        assert!(matches!(
+            "2..5".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(2),
+                end: Some(5),
+                inclusive: false
+            })
+        ));
+        assert!(matches!(
+            "2..=5".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(2),
+                end: Some(5),
+                inclusive: true
+            })
+        ));
+        assert!(matches!(
+            "3..".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: Some(3),
+                end: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            "..4".parse::<ColSpec>(),
+            Ok(ColSpec::Range {
+                start: None,
+                end: Some(4),
+                ..
+            })
+        ));
+        assert!(matches!("y*".parse::<ColSpec>(), Ok(ColSpec::Glob(_))));
+    }
+
+    #[test]
+    fn expand_ranges() {
+        let t = headered("a,b,c,d,e\n1,2,3,4,5\n");
+        assert_eq!(idxs(&t, "1..4"), vec![1, 2, 3]); // exclusive
+        assert_eq!(idxs(&t, "1..=3"), vec![1, 2, 3]); // inclusive
+        assert_eq!(idxs(&t, "3.."), vec![3, 4]); // to last
+        assert_eq!(idxs(&t, "..2"), vec![0, 1]); // from start
+        assert_eq!(idxs(&t, ".."), vec![0, 1, 2, 3, 4]); // all
+                                                         // Out-of-range end is clamped to the column count.
+        assert_eq!(idxs(&t, "3..99"), vec![3, 4]);
+    }
+
+    #[test]
+    fn expand_globs() {
+        let t = headered("cat,sum_A,sum_B,y1,y2,tot_A\n0,1,2,3,4,5\n");
+        assert_eq!(idxs(&t, "sum_*"), vec![1, 2]); // prefix
+        assert_eq!(idxs(&t, "*_A"), vec![1, 5]); // suffix
+        assert_eq!(idxs(&t, "y*"), vec![3, 4]); // prefix
+    }
+
+    #[test]
+    fn expand_mixes_and_dedupes() {
+        let t = headered("a,b,c,d\n1,2,3,4\n");
+        // Single + range with an overlap: b appears once.
+        assert_eq!(idxs(&t, "b 1..3"), vec![1, 2]);
+    }
+
+    #[test]
+    fn glob_with_no_match_errors() {
+        let t = headered("a,b,c\n1,2,3\n");
+        let cs = vec!["zzz*".parse::<ColSpec>().unwrap()];
+        assert!(t.expand_columns(&cs).is_err());
+    }
+
+    #[test]
+    fn range_glob_invalid_for_single_column() {
+        let t = headered("a,b,c\n1,2,3\n");
+        assert!(t.resolve(&"1..3".parse::<ColSpec>().unwrap()).is_err());
+        assert!(t.resolve(&"a*".parse::<ColSpec>().unwrap()).is_err());
+    }
+
+    #[test]
+    fn glob_match_forms() {
+        assert!(glob_match("sum_*", "sum_A"));
+        assert!(!glob_match("sum_*", "tot_A"));
+        assert!(glob_match("*_A", "sum_A"));
+        assert!(glob_match("*sum*", "x_sum_y"));
+        assert!(glob_match("a*c", "abc"));
+        assert!(glob_match("a*c", "axxxc"));
+        assert!(!glob_match("a*c", "abd"));
+        assert!(glob_match("exact", "exact"));
+        assert!(!glob_match("exact", "exacts"));
     }
 }

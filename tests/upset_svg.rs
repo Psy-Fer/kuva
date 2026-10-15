@@ -270,3 +270,48 @@ fn test_upset_title_and_labels() {
     assert!(svg.contains("Intersection size"));
     assert!(svg.contains("Set size"));
 }
+
+#[test]
+fn test_upset_caps_sets_at_the_mask_width() {
+    // 66 sets, each holding one shared element plus one of its own, so every
+    // set is non-empty and set 64 would alias onto set 0 if the shift wrapped.
+    let sets: Vec<(String, Vec<String>)> = (0..66)
+        .map(|i| {
+            (
+                format!("S{i}"),
+                vec!["shared".to_string(), format!("own{i}")],
+            )
+        })
+        .collect();
+    let up = UpSetPlot::new().with_sets(sets);
+    assert_eq!(up.set_names.len(), UpSetPlot::MAX_SETS);
+    assert_eq!(up.set_sizes.len(), UpSetPlot::MAX_SETS);
+    assert_eq!(up.set_names.last().unwrap(), "S63");
+    // The shared element belongs to all 64 kept sets, so its mask is every bit.
+    assert!(up.intersections.iter().any(|i| i.mask == u64::MAX));
+
+    let plots = vec![Plot::UpSet(up)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("<svg") && !svg.contains("NaN"));
+}
+
+#[test]
+fn test_upset_with_data_caps_set_names() {
+    let names: Vec<String> = (0..70).map(|i| format!("S{i}")).collect();
+    let up = UpSetPlot::new().with_data(names, vec![1usize; 70], vec![(0b11u64, 5)]);
+    assert_eq!(up.set_names.len(), UpSetPlot::MAX_SETS);
+    assert_eq!(up.set_sizes.len(), UpSetPlot::MAX_SETS);
+}
+
+#[test]
+fn test_upset_renderer_survives_a_hand_widened_set_list() {
+    // `set_names` is public, so the builder cap is not the only way in.
+    let mut up = UpSetPlot::new().with_data(["A", "B"], [3usize, 4], [(0b11u64, 2)]);
+    up.set_names = (0..70).map(|i| format!("S{i}")).collect();
+    up.set_sizes = vec![1; 70];
+    let plots = vec![Plot::UpSet(up)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains("<svg"));
+}

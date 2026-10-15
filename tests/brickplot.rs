@@ -273,36 +273,6 @@ fn test_brick_canonical_freq_counts_bricks_not_reads() {
 }
 
 #[test]
-fn test_brick_stitched_format_with_gaps() {
-    // Bladerunner stitched STRIGAR format: | as segment separator, @ as gap code.
-    // Read_1: 16×A(1nt) + small gap GAA(3nt) + 9×AGA(3nt)
-    //         AGA region starts at nt position 16+3 = 19.
-    // Read_2: 12×AGA(3nt) starting at position 0.
-    //         with_start_positions([0, 19]) aligns read_2's AGA with read_1's.
-    let strigars: Vec<(String, String)> = vec![
-        (
-            "A:A | @:GAA | AGA:B".to_string(),
-            "16A | 1@ | 9B".to_string(),
-        ),
-        ("AGA:A".to_string(), "12A".to_string()),
-    ];
-    let brickplot = BrickPlot::new()
-        .with_names(vec!["read_1", "read_2"])
-        .with_strigars(strigars)
-        .with_x_origin(19.0)
-        .with_start_positions(vec![0.0_f64, 19.0]);
-
-    let plots = vec![Plot::Brick(brickplot)];
-    let layout = Layout::auto_from_plots(&plots);
-    let scene = render_multiple(plots, layout);
-    let svg = SvgBackend.render_scene(&scene);
-    common::write_test_output("test_outputs/brickplot_stitched_gaps.svg", svg.clone()).unwrap();
-    assert!(svg.contains("<svg"));
-    // Gap bricks should be rendered (grey color in template; SVG emits as #c8c8c8)
-    assert!(svg.contains("#c8c8c8"), "gap bricks should use grey color");
-}
-
-#[test]
 fn test_brick_flanked_strigars() {
     // with_flanked_strigars: left flank + STR + right flank per read.
     // Left/right flanks render with DNA colours; STR bricks use strigar colours.
@@ -444,18 +414,13 @@ fn test_brick_notations() {
 }
 
 #[test]
-fn test_brick_stitched_per_segment_canonical() {
-    // Two reads using bladerunner stitched format.
-    // ACCCTA, TAACCC, CCCTAA are all rotations of the same canonical → must get the same
-    // global letter and therefore the same colour across all candidates.
-    // Large gaps (36@, 213@, 31@) have no motif entry; they are scaled by N nt.
-    // Small-gap case exercised by the previous test.
+fn test_brick_strigar_canonical_unification_across_rows() {
+    // ACCCTA and TAACCC are rotations of the same canonical, appearing under the
+    // local letter A in different rows. They must resolve to the same global token,
+    // hence the same colour: only ONE non-DNA motif colour should appear.
     let strigars: Vec<(String, String)> = vec![
-        (
-            "ACCCTA:A | ACCCTA:A | TAACCC:A,T:B | CCCTAA:A,ACCTAACCCTTAA:B".to_string(),
-            "2A | 36@ | 2A | 213@ | 2A1B3A | 31@ | 2A1B2A".to_string(),
-        ),
         ("ACCCTA:A".to_string(), "5A".to_string()),
+        ("TAACCC:A".to_string(), "3A".to_string()),
     ];
     let brickplot = BrickPlot::new()
         .with_names(vec!["read_1", "read_2"])
@@ -463,20 +428,14 @@ fn test_brick_stitched_per_segment_canonical() {
 
     let plots = vec![Plot::Brick(brickplot)];
     let layout = Layout::auto_from_plots(&plots);
-    let scene = render_multiple(plots, layout);
-    let svg = SvgBackend.render_scene(&scene);
-    common::write_test_output("test_outputs/brickplot_stitched_canonical.svg", svg.clone())
-        .unwrap();
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/brickplot_canonical_unify.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
-    // ACCCTA, TAACCC, CCCTAA all same canonical → single motif colour in SVG
-    // Gaps present → grey bricks
-    assert!(svg.contains("#c8c8c8"), "gap bricks should be grey");
-    // Only one non-gap motif colour should appear for the ACCCTA family
-    // (global letter A = blue = #1f77b4)
+    // 6-mer motif → first palette colour (blue), shared by both rotations.
     assert!(
         svg.contains("#1f77b4"),
-        "ACCCTA-family should be blue (global A)"
+        "the ACCCTA/TAACCC canonical family should share global colour A"
     );
 }
 
@@ -486,170 +445,126 @@ fn test_brick_stitched_per_segment_canonical() {
 // motifs, STRIGAR, and traditional (human-readable) encoding.
 
 #[test]
-fn test_brick_spec_form_b_gap_width() {
-    // Spec §6, Form B: N@ in STRIGAR with NO matching @:{seq} motifs entry.
-    // The gap width is N nucleotides, taken directly from the STRIGAR count.
-    // Spec: "gap of N nucleotides … N is already in nt"
-    //
-    // motifs: 2 segments — CAG:A, TGC:A
-    // STRIGAR: 3 segments — 3A | 30@ | 2A
-    // The 30@ has no motifs entry → form B → 30 grey bricks of width 1 each.
-    //
-    // Total row width = 3*3 (CAG) + 30 (gap) + 2*3 (TGC) = 9 + 30 + 6 = 45 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | TGC:A".to_string(),
-        "3A | 30@ | 2A".to_string(),
-    )]);
-
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
-    assert!(
-        (x_max - 45.0).abs() < 0.01,
-        "form B 30@ gap: expected total width 45 nt, got {}",
-        x_max
-    );
+fn test_brick_consensus_label_deterministic() {
+    // A consensus row can carry two rotations of the same canonical under different
+    // letters (CAGA and ACAG both canonicalise to ACAG). The display label must lock to
+    // the higher-copy-count rotation (CAGA: 10 vs ACAG: 2), never flipping with HashMap
+    // iteration order. Build many times — each parse builds a freshly-seeded HashMap, so
+    // any residual order dependence would surface as an intermittent wrong winner.
+    for _ in 0..64 {
+        let bp = BrickPlot::new()
+            .with_names(vec!["consensus"])
+            .with_consensus_row(0)
+            .with_strigars(vec![("CAGA:A,ACAG:B".to_string(), "10A2B".to_string())]);
+        let motifs = bp.motifs.as_ref().expect("strigar mode sets motifs");
+        let displays: Vec<&str> = motifs.values().map(String::as_str).collect();
+        assert!(
+            displays.contains(&"CAGA"),
+            "consensus label must lock to higher-count rotation CAGA, got {displays:?}"
+        );
+        assert!(
+            !displays.contains(&"ACAG"),
+            "lower-count rotation ACAG must never win, got {displays:?}"
+        );
+    }
 }
 
 #[test]
-fn test_brick_spec_form_a_gap_width() {
-    // Spec §6, Form A: 1@ in STRIGAR WITH a matching @:{seq} motifs entry.
-    // The gap width is len(seq) × 1 nucleotides (not 1).
-    // Spec: "nucleotide width = len(seq) from the @:{seq} motifs entry"
-    //
-    // motifs: CAG:A | @:ATGAT | TGC:A  (middle segment is the form A gap with seq "ATGAT", len=5)
-    // STRIGAR: 3A | 1@ | 2A
-    // Gap width = len("ATGAT") * 1 = 5 nt.
-    //
-    // Total row width = 3*3 (CAG) + 5 (gap) + 2*3 (TGC) = 9 + 5 + 6 = 20 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | @:ATGAT | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
+fn test_brick_motif_colors_stable_across_plots() {
+    // Colours keyed by canonical k-mer must be representation-independent: the same
+    // motif gets the same colour regardless of its per-plot frequency rank, and any
+    // rotation of the motif resolves to the same entry. This is the contract that lets
+    // bladerunner stop reproducing kuva's internal token numbering.
+    use std::collections::HashMap;
+    let mut colors: HashMap<String, String> = HashMap::new();
+    colors.insert("AATGG".to_string(), "#123456".to_string());
+    colors.insert("CAG".to_string(), "#abcdef".to_string());
 
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
-    assert!(
-        (x_max - 20.0).abs() < 0.01,
-        "form A @:ATGAT gap: expected total width 20 nt, got {}",
-        x_max
-    );
+    let render = |motif_map: &str| -> String {
+        let bp = BrickPlot::new()
+            .with_names(vec!["r1"])
+            .with_motif_colors(colors.clone())
+            .with_strigars(vec![(motif_map.to_string(), "20A2B".to_string())]);
+        let plots = vec![Plot::Brick(bp)];
+        let layout = Layout::auto_from_plots(&plots);
+        SvgBackend.render_scene(&render_multiple(plots, layout))
+    };
+
+    // Plot 1: AATGG is the most frequent motif (letter A). Plot 2: CAG is most frequent,
+    // and AATGG is supplied as a DIFFERENT rotation (GGAAT) — must still resolve the same.
+    let svg1 = render("AATGG:A,CAG:B");
+    let svg2 = render("CAG:A,GGAAT:B");
+
+    // Both explicit colours appear in both plots despite differing frequency ranks
+    // and despite AATGG being supplied as the GGAAT rotation in plot 2.
+    for (svg, which) in [(&svg1, "plot1"), (&svg2, "plot2")] {
+        assert!(
+            svg.contains("#123456"),
+            "AATGG must keep its explicit colour in {which}"
+        );
+        assert!(
+            svg.contains("#abcdef"),
+            "CAG must keep its explicit colour in {which}"
+        );
+    }
 }
 
 #[test]
-fn test_brick_spec_form_a_vs_b_disambiguation_of_1at() {
-    // Spec §6: disambiguation rule — `1@` behaves differently depending on whether
-    // the current motifs position is `@:{seq}` (form A) or absent (form B).
-    //
-    // Form A: motifs has `@:AT` at the gap position → gap width = len("AT") = 2 nt.
-    //   Total = 3*3 (CAG) + 2 (gap) + 2*3 (TGC) = 17 nt.
-    //
-    // Form B: motifs has no @-entry → gap width = 1 nt (count taken directly).
-    //   Total = 3*3 (CAG) + 1 (gap) + 2*3 (TGC) = 16 nt.
+fn test_brick_strigar_multichar_letters_no_panic() {
+    // Regression for the bladerunner contract: letters are bijective base-26 strings,
+    // so a row with >26 motifs uses multi-character letters (AA, AB, ...). The parser
+    // must consume the maximal uppercase run as one letter; reading a single char
+    // truncated `1AA` to `1A` + stray `A` and panicked with ParseIntError(Empty).
+    fn motif_letter(mut idx: usize) -> String {
+        let mut out = Vec::new();
+        loop {
+            out.push(b'A' + (idx % 26) as u8);
+            if idx < 26 {
+                break;
+            }
+            idx = idx / 26 - 1;
+        }
+        out.reverse();
+        String::from_utf8(out).unwrap()
+    }
+    // 27 distinct kmers → the 27th letter is "AA"; also forces >26 global tokens.
+    let motifs: String = (0..27)
+        .map(|i| format!("ACG{i}:{}", motif_letter(i)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let strigar = "5A1AA"; // 5 copies of letter A, 1 copy of letter AA
 
-    let form_a = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | @:AT | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
-    let form_b = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "CAG:A | TGC:A".to_string(),
-        "3A | 1@ | 2A".to_string(),
-    )]);
-
-    let x_max_a = Plot::Brick(form_a).bounds().expect("form A bounds").0 .1;
-    let x_max_b = Plot::Brick(form_b).bounds().expect("form B bounds").0 .1;
-
-    // 3×CAG(3nt) + gap + 2×TGC(3nt) = 9 + gap + 6
-    assert!(
-        (x_max_a - 17.0).abs() < 0.01,
-        "form A 1@ with @:AT: expected 17 nt (2-nt gap), got {}",
-        x_max_a
-    );
-    assert!(
-        (x_max_b - 16.0).abs() < 0.01,
-        "form B 1@ no motifs entry: expected 16 nt (1-nt gap), got {}",
-        x_max_b
-    );
-}
-
-#[test]
-fn test_brick_spec_bean1_sca31_renders() {
-    // Full BEAN1/SCA31 locus example from the bladerunner format specification.
-    // 8 segments in both motifs and STRIGAR; segments 5 and 7 are form A gaps
-    // (@:AT → 2 nt wide, @:GAA → 3 nt wide).
-    //
-    // Cross-segment canonical unification: ATGGA (seg 3) and GAATG (seg 6) are
-    // rotations of the same canonical ("AATGG") and must receive the same global
-    // letter and colour. Similarly ATGA (seg 3) and AATG (seg 6) share canonical
-    // "AATG".
-    let strigars = vec![(
-        "ATAAA:A,AT:B | ATA:A | ATGGA:A,TGGA:B,ATGA:C,AGA:D | ATA:A | @:AT | GAATG:A,AATG:B | @:GAA | TAA:A,A:B".to_string(),
-        "22A1B22A | 27A | 61A1B154A1C78A1C18A1D24A1C2A1C75A1C80A1C74A1C117A | 9A | 1@ | 129A1B93A | 1@ | 11A1B1A1B2A2B1A2B2A".to_string(),
-    )];
-    let brickplot = BrickPlot::new()
-        .with_names(vec!["SCA31_read"])
-        .with_strigars(strigars);
-
-    let plots = vec![Plot::Brick(brickplot)];
-    let layout = Layout::auto_from_plots(&plots).with_title("BEAN1/SCA31 locus (spec example)");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
-    common::write_test_output("test_outputs/brickplot_bean1_sca31.svg", svg.clone()).unwrap();
-
-    assert!(svg.contains("<svg"), "must produce valid SVG");
-    // Form A gaps (AT=2nt, GAA=3nt) produce grey bricks.
-    assert!(
-        svg.contains("#c8c8c8"),
-        "form A gap segments must render as grey bricks"
-    );
-    // At least the primary motif colour must appear.
-    assert!(
-        svg.contains("#1f77b4"),
-        "primary motif (global A) must use the first palette colour"
-    );
-}
-
-#[test]
-fn test_brick_spec_bean1_sca31_gap_widths() {
-    // The BEAN1/SCA31 example has two form A gaps:
-    //   segment 5: @:AT  → 2 nt
-    //   segment 7: @:GAA → 3 nt
-    // Verify the overall row width matches the expected nucleotide total.
-    //
-    // Segment nucleotide widths:
-    //   1: ATAAA(5)×22 + AT(2)×1 + ATAAA(5)×22 = 110 + 2 + 110 = 222
-    //   2: ATA(3)×27 = 81
-    //   3: ATGGA(5)×(61+154+78+18+24+2+75+80+74+117)  [A counts summed]
-    //      + TGGA(4)×1 + ATGA(4)×(1+1+1+1+1+1+1) + AGA(3)×1
-    //      A-runs total: 61+154+78+18+24+2+75+80+74+117 = 683 → 683*5 = 3415
-    //      B-runs: 1*4 = 4
-    //      C-runs: (1+1+1+1+1+1+1)*4 = 7*4 = 28   ← 7 C-tokens in the STRIGAR
-    //      D-runs: 1*3 = 3
-    //      = 3415 + 4 + 28 + 3 = 3450
-    //   4: ATA(3)×9 = 27
-    //   5: gap AT = 2
-    //   6: GAATG(5)×129 + AATG(4)×1 + GAATG(5)×93
-    //      = (129+93)*5 + 4 = 222*5 + 4 = 1110 + 4 = 1114
-    //   7: gap GAA = 3
-    //   8: TAA(3)×(11+1+2+1+2) + A(1)×(1+1+2+2)
-    //      = 17*3 + 6*1 = 51 + 6 = 57
-    //
-    // Grand total = 222 + 81 + 3450 + 27 + 2 + 1114 + 3 + 57 = 4956 nt
-    //
-    // Note: GAATG and ATGGA are rotations of canonical "AATGG" → same global letter
-    // (5-mer, length 5). AATG and ATGA are rotations of canonical "AATG" → same
-    // global letter (4-mer, length 4). AGA (canonical "AAG", 3-mer, length 3).
-    // ATA and TAA are rotations of canonical "AAT" → same global letter (3-mer).
-    let strigars = vec![(
-        "ATAAA:A,AT:B | ATA:A | ATGGA:A,TGGA:B,ATGA:C,AGA:D | ATA:A | @:AT | GAATG:A,AATG:B | @:GAA | TAA:A,A:B".to_string(),
-        "22A1B22A | 27A | 61A1B154A1C78A1C18A1D24A1C2A1C75A1C80A1C74A1C117A | 9A | 1@ | 129A1B93A | 1@ | 11A1B1A1B2A2B1A2B2A".to_string(),
-    )];
     let bp = BrickPlot::new()
-        .with_names(vec!["SCA31_read"])
-        .with_strigars(strigars);
+        .with_names(vec!["row1"])
+        .with_strigars(vec![(motifs, strigar.to_string())]);
 
-    let x_max = Plot::Brick(bp).bounds().expect("should have bounds").0 .1;
+    let plots = vec![Plot::Brick(bp)];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     assert!(
-        (x_max - 4956.0).abs() < 0.01,
-        "BEAN1/SCA31 total width: expected 4956 nt, got {}",
-        x_max
+        svg.contains("<svg"),
+        "multi-char letters must render, not panic"
     );
+}
+
+#[test]
+fn test_brick_strigar_real_31_motif_row() {
+    // The verbatim 31-motif row from the bladerunner contract doc (CPUM_TYMS). It has
+    // multi-character letters up to AE, a 56 bp kmer (Z), and single-base motifs. Must
+    // build and render without panicking and produce valid SVG.
+    let strigar = "3B1C2B1C4B1C2B3C6B1C2B1D3E1F2A1G3A2H3A1H2A1I4A1J2A1H4A1K5A2H2A1L2M1N2O1P2Q1R1Q2S1T6U2V1W1X1Y2X1Z2T1AA1AB1S2AB1AC1AD1AE2AD";
+    let motifs = "TGATGG:A,TGGTGA:B,TGGAGA:C,TGGAGATGGT:D,GATGGCGATGGA:E,GATGG:F,TGG:G,AGATGG:H,G:I,AGATGGTGAATGG:J,AGAGG:K,TGAGGGGTGGTGCCT:L,ATC:M,TCGATTGC:N,AC:O,AAAAATGGCAAGTTTAA:P,TAT:Q,GTGTACTT:R,CA:S,ATG:T,A:U,GCT:V,GCGTGGGCCAAGTTACTTGTGCA:W,GGT:X,AAGTGTTCTGCA:Y,TGCCTGCACCTCAGTTGTAGGGTGTCCGTAGGATGTGAGGCCAGTCCCCGGGCTTA:Z,CTTTAAATCCTGCCTAGT:AA,ATT:AB,TCTTGTCGCT:AC,TAA:AD,AAGGCC:AE";
+
+    let bp = BrickPlot::new()
+        .with_names(vec!["CPUM_TYMS_read"])
+        .with_mark_primary()
+        .with_strigars(vec![(motifs.to_string(), strigar.to_string())]);
+
+    let plots = vec![Plot::Brick(bp)];
+    let layout = Layout::auto_from_plots(&plots).with_title("CPUM_TYMS 31-motif row");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/brickplot_cpum_tyms_31motif.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"), "31-motif row must render, not panic");
 }
 
 #[test]
@@ -728,29 +643,6 @@ fn test_brick_spec_multi_segment_single_candidate() {
     assert!(
         (x_max - 48.0).abs() < 0.01,
         "single-segment 3-motif: expected 48 nt, got {}",
-        x_max
-    );
-}
-
-#[test]
-fn test_brick_spec_segment_count_mismatch_form_b() {
-    // Spec §4: "The motifs string has one fewer segment than the STRIGAR string
-    // when a form B gap is present."
-    // motifs: 2 segments, STRIGAR: 3 segments (2 repeat + 1 form-B gap).
-    // Both must parse without panic.
-    //
-    // motifs: ATAAA:A | ATA:A
-    // STRIGAR: 10A | 50@ | 5A
-    // Width = 10*5 + 50 + 5*3 = 50 + 50 + 15 = 115 nt.
-    let bp = BrickPlot::new().with_names(vec!["r1"]).with_strigars(vec![(
-        "ATAAA:A | ATA:A".to_string(),
-        "10A | 50@ | 5A".to_string(),
-    )]);
-
-    let x_max = Plot::Brick(bp).bounds().expect("bounds").0 .1;
-    assert!(
-        (x_max - 115.0).abs() < 0.01,
-        "form B 50@ gap (2 motif segs, 3 strigar segs): expected 115 nt, got {}",
         x_max
     );
 }
@@ -845,7 +737,7 @@ fn test_brickplot_row_height_standalone_sizing() {
 
     // 8 rows at 20 px/row — should produce a taller canvas
     let brick8 = BrickPlot::new()
-        .with_sequences(vec!["ACGT"; 8].to_vec())
+        .with_sequences(["ACGT"; 8].to_vec())
         .with_names((1..=8).map(|i| format!("r{i}")).collect::<Vec<_>>())
         .with_template(tmpl.template.clone())
         .with_row_height(20.0);
@@ -873,5 +765,417 @@ fn test_brickplot_row_height_standalone_sizing() {
     assert!(
         (diff - 100.0).abs() < 1.0,
         "canvas height difference should be 5 * row_height = 100 px, got {diff}"
+    );
+}
+
+// Per-run notation labels are packed into vertical stagger tiers. An
+// unplaceable label used to be dropped back onto tier 0 (`unwrap_or(0)`),
+// overwriting whatever was already there instead of staggering further up.
+//
+// Reproducing it needs *clustered* labels rather than merely many of them: the
+// density guard trips on the total label width, so evenly spread labels are
+// suppressed wholesale before the tiers can fill. A tight run of short blocks
+// followed by one very long block keeps the total small while piling a dozen
+// labels into a narrow x range.
+/// A strigar whose motif runs cluster tightly: short `(CAG)n` blocks packed
+/// against a long `(CAACACAACAA)n` one, which is the shape that makes labels
+/// collide. At width 2100 the full set fits, but only by using every tier.
+fn clustered_notation_plot(width: f64) -> kuva::render::render::Scene {
+    let strigar = format!("{}{}A", "1A1B".repeat(6), 200);
+    let motifs = "CAG:A,CAACACAACAA:B";
+    // Row 0 renders at the top and is the only row with a notation: the
+    // consensus-above-the-reads shape the notation track is meant for.
+    let plot = BrickPlot::new()
+        .with_strigars((0..2).map(|_| (motifs, strigar.as_str())))
+        .with_names((0..2).map(|i| format!("read{i}")))
+        .with_notations([Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("notation stagger")
+        .with_width(width)
+        .with_height(320.0);
+    render_multiple(plots, layout)
+}
+
+/// Notation labels grouped by the tier (text baseline) they were placed on.
+/// Each entry is `(left_px, right_px, text)`; widths are derived from the real
+/// font size rather than guessed from markup.
+fn notation_tiers(
+    scene: &kuva::render::render::Scene,
+) -> std::collections::BTreeMap<String, Vec<(f64, f64, String)>> {
+    let mut by_tier: std::collections::BTreeMap<String, Vec<(f64, f64, String)>> =
+        std::collections::BTreeMap::new();
+    for p in &scene.elements {
+        if let kuva::render::render::Primitive::Text {
+            x,
+            y,
+            content,
+            size,
+            ..
+        } = p
+        {
+            // Notation labels are the only "(motif)count" texts.
+            if !content.starts_with('(') {
+                continue;
+            }
+            // DejaVu Sans averages ~0.55 em per glyph; labels are centred.
+            let half = content.chars().count() as f64 * (*size as f64) * 0.55 * 0.5;
+            by_tier.entry(format!("{y:.1}")).or_default().push((
+                x - half,
+                x + half,
+                content.clone(),
+            ));
+        }
+    }
+    by_tier
+}
+
+#[test]
+fn notation_labels_never_overlap_on_a_tier() {
+    let scene = clustered_notation_plot(2100.0);
+    let by_tier = notation_tiers(&scene);
+    assert!(!by_tier.is_empty(), "expected notation labels to render");
+
+    for (y, mut items) in by_tier {
+        items.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("finite"));
+        for w in items.windows(2) {
+            assert!(
+                w[1].0 >= w[0].1,
+                "labels overlap on tier y={y}: {} [{:.1}..{:.1}] and {} [{:.1}..{:.1}]",
+                w[0].2,
+                w[0].0,
+                w[0].1,
+                w[1].2,
+                w[1].0,
+                w[1].1
+            );
+        }
+    }
+}
+
+#[test]
+fn notation_labels_use_every_tier_before_giving_up() {
+    let scene = clustered_notation_plot(2100.0);
+    let by_tier = notation_tiers(&scene);
+    let labels: usize = by_tier.values().map(|v| v.len()).sum();
+
+    // 13 labelable runs on the notated row: the whole set must be drawn.
+    assert_eq!(labels, 13, "expected every notation label to be drawn");
+    // The row needs the full tier budget. Were the budget still four, this
+    // locus would have fallen back to "complex structure" instead.
+    assert_eq!(
+        by_tier.len(),
+        kuva::plot::brick::BRICK_NOTATION_TIERS,
+        "expected the row to stagger across every available tier"
+    );
+}
+
+#[test]
+fn y_axis_labels_sit_on_the_rows_they_name() {
+    // Rows of different lengths, so a band's brick count identifies which row
+    // it is independently of the axis labels.
+    let plot = BrickPlot::new()
+        .with_strigars([("CAG:A", "20A"), ("CAG:A", "60A")])
+        .with_names(["row0_short", "row1_long"]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(600.0)
+        .with_height(300.0);
+    let scene = render_multiple(plots, layout);
+
+    // Band top edge -> number of bricks drawn on it.
+    let mut bricks: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut label_y: std::collections::HashMap<&str, f64> = Default::default();
+    for p in &scene.elements {
+        match p {
+            // Bricks are tall and narrow: taller than a 12px legend swatch,
+            // narrower than the canvas background or the legend box.
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height > 20.0 && *width < 60.0 => {
+                *bricks.entry(format!("{y:.1}")).or_default() += 1;
+            }
+            kuva::render::render::Primitive::Text { y, content, .. } => {
+                for name in ["row0_short", "row1_long"] {
+                    if content == name {
+                        label_y.insert(name, *y);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let (short_band, long_band) = {
+        let two = bricks
+            .iter()
+            .find(|(_, &n)| n == 20)
+            .expect("a band of 20 bricks");
+        let six = bricks
+            .iter()
+            .find(|(_, &n)| n == 60)
+            .expect("a band of 60 bricks");
+        (two.0.parse::<f64>().unwrap(), six.0.parse::<f64>().unwrap())
+    };
+
+    // Each tick label must be nearer its own band than the other one. Before
+    // the display-order fix the two labels were swapped: the axis claimed the
+    // top row was `row1_long` when the bricks there were `row0_short`.
+    let short_label = label_y["row0_short"];
+    let long_label = label_y["row1_long"];
+    assert!(
+        (short_label - short_band).abs() < (short_label - long_band).abs(),
+        "row0_short labelled at {short_label:.1}, but its 20-brick band is at \
+         {short_band:.1} and the other at {long_band:.1}"
+    );
+    assert!(
+        (long_label - long_band).abs() < (long_label - short_band).abs(),
+        "row1_long labelled at {long_label:.1}, but its 60-brick band is at \
+         {long_band:.1} and the other at {short_band:.1}"
+    );
+}
+
+/// A locus whose few, well-spread runs need only one notation tier.
+fn simple_notation_plot(width: f64) -> kuva::render::render::Scene {
+    let plot = BrickPlot::new()
+        .with_strigars((0..2).map(|_| ("CAG:A,CAACACAACAA:B", "5A3B4A2B6A")))
+        .with_names((0..2).map(|i| format!("read{i}")))
+        .with_notations([Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("notation stagger")
+        .with_width(width)
+        .with_height(320.0);
+    render_multiple(plots, layout)
+}
+
+/// `(top of the first brick row, baseline of the highest notation label)`.
+fn brick_top_and_top_label(scene: &kuva::render::render::Scene) -> (f64, f64) {
+    let mut brick_top = f64::INFINITY;
+    let mut label_top = f64::INFINITY;
+    for p in &scene.elements {
+        match p {
+            // Bricks are the small rects; skip the plot frame and legend box.
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height < 40.0 && *width < 60.0 => brick_top = brick_top.min(*y),
+            kuva::render::render::Primitive::Text { y, content, .. }
+                if content.starts_with('(') =>
+            {
+                label_top = label_top.min(*y)
+            }
+            _ => {}
+        }
+    }
+    (brick_top, label_top)
+}
+
+#[test]
+fn non_top_row_notations_stay_inside_their_own_band() {
+    // Three rows, notation on the middle one only. Drawn above its top edge it
+    // would float over the row before it and read as that row's annotation, so
+    // it must land between its own band's edges instead.
+    let plot = BrickPlot::new()
+        .with_strigars((0..3).map(|_| ("CAG:A", "20A")))
+        .with_names(["row0", "row1", "row2"])
+        .with_notations([None, Some("x".to_string()), None]);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(800.0)
+        .with_height(360.0);
+    let scene = render_multiple(plots, layout);
+
+    // Distinct band top edges, in draw order: display row 0, 1, 2.
+    let mut band_tops: Vec<f64> = Vec::new();
+    let mut label_y: Option<f64> = None;
+    for p in &scene.elements {
+        match p {
+            kuva::render::render::Primitive::Rect {
+                y, height, width, ..
+            } if *height > 20.0
+                && *width < 60.0
+                && !band_tops.iter().any(|t| (t - y).abs() < 0.01) =>
+            {
+                band_tops.push(*y)
+            }
+            kuva::render::render::Primitive::Text { y, content, .. }
+                if content.starts_with('(') =>
+            {
+                label_y = Some(*y);
+            }
+            _ => {}
+        }
+    }
+    band_tops.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+    assert_eq!(band_tops.len(), 3, "expected three brick bands");
+    let band_h = band_tops[1] - band_tops[0];
+    let y = label_y.expect("expected a notation label");
+
+    assert!(
+        y > band_tops[1] && y < band_tops[1] + band_h,
+        "notation at {y:.1} must sit inside its own band \
+         ({:.1}..{:.1}), not over the row above",
+        band_tops[1],
+        band_tops[1] + band_h
+    );
+
+    // And it gets a backing plate, or the text would fight the brick colours.
+    let plates = scene
+        .elements
+        .iter()
+        .filter(|p| {
+            matches!(
+                p,
+                kuva::render::render::Primitive::Rect { opacity: Some(o), height, .. }
+                    if *o < 1.0 && *height < 20.0
+            )
+        })
+        .count();
+    assert_eq!(
+        plates, 1,
+        "expected one backing plate behind the in-band label"
+    );
+}
+
+#[test]
+fn notation_margin_reserves_only_the_tiers_used() {
+    // One tier of labels versus six: the top margin must follow the labels,
+    // not reserve the worst case for both.
+    let (simple_brick, simple_label) = brick_top_and_top_label(&simple_notation_plot(900.0));
+    let (dense_brick, dense_label) = brick_top_and_top_label(&clustered_notation_plot(2100.0));
+
+    assert!(
+        simple_brick < dense_brick,
+        "a one-tier locus must not reserve as much head room as a six-tier one \
+         (brick top {simple_brick:.1} vs {dense_brick:.1})"
+    );
+
+    // The reservation is consumed exactly, so the highest label sits in the
+    // same place either way: no blank tiers left under the title.
+    assert!(
+        (simple_label - dense_label).abs() < 0.5,
+        "top label should start at the same height regardless of tier count \
+         ({simple_label:.1} vs {dense_label:.1})"
+    );
+
+    // And it stays on the canvas, above the bricks it annotates.
+    assert!(simple_label > 0.0, "top label ran off the canvas");
+    assert!(
+        simple_label < simple_brick,
+        "notation labels must sit above the first brick row"
+    );
+}
+
+#[test]
+fn notation_labels_are_all_or_nothing() {
+    // The same locus too narrow to label: no tier arrangement fits, so every
+    // row must show the fallback rather than a silently incomplete label set.
+    let scene = clustered_notation_plot(900.0);
+    assert!(
+        notation_tiers(&scene).is_empty(),
+        "expected no partial notation labels when the locus cannot be labelled in full"
+    );
+
+    let fallbacks = scene
+        .elements
+        .iter()
+        .filter(|p| {
+            matches!(
+                p,
+                kuva::render::render::Primitive::Text { content, .. }
+                    if content.contains("complex structure")
+            )
+        })
+        .count();
+    assert_eq!(
+        fallbacks, 1,
+        "expected one fallback label on the notated row"
+    );
+}
+
+// ── STRIGAR format contract ──────────────────────────────────────────────────
+
+#[test]
+fn test_legacy_strigar_format_is_rejected_not_reinterpreted() {
+    // The pre-bladerunner format separated segments with `|` and encoded gaps
+    // with `@`. The tokeniser skips characters it cannot use, so without an
+    // explicit check these rows would lose their separators and still render:
+    // a row of bricks in the wrong order, with nothing saying the input was
+    // never understood. Reject the row instead.
+    let legacy = vec![
+        ("AATGG:A,CAG:B".to_string(), "10A|2B".to_string()),
+        ("AATGG:A".to_string(), "5A2@".to_string()),
+    ];
+    let plot = BrickPlot::new().with_strigars(legacy);
+
+    let issues = plot.strigar_issues();
+    assert_eq!(
+        issues.len(),
+        2,
+        "expected one issue per legacy row: {issues:?}"
+    );
+    assert!(
+        issues
+            .iter()
+            .all(|i| matches!(i, kuva::plot::brick::StrigarIssue::LegacyFormat { .. })),
+        "legacy markers should be reported as LegacyFormat, not as generic \
+         unparseable characters: {issues:?}"
+    );
+
+    // Rejected rows draw nothing rather than drawing something wrong.
+    let expanded = plot.strigar_exp.as_ref().expect("strigar_exp set");
+    assert_eq!(expanded.len(), 2, "row slots must stay aligned");
+    assert!(
+        expanded.iter().all(|e| e.is_empty()),
+        "a rejected row must expand to no bricks, got {expanded:?}"
+    );
+}
+
+#[test]
+fn test_current_strigar_format_still_parses() {
+    let plot = BrickPlot::new().with_strigars(vec![
+        ("AATGG:A,CAG:B".to_string(), "10A2B".to_string()),
+        ("AATGG:AA,CAG:AB".to_string(), "3AA4AB".to_string()),
+    ]);
+
+    assert!(
+        plot.strigar_issues().is_empty(),
+        "current-format rows should be clean: {:?}",
+        plot.strigar_issues()
+    );
+    let expanded = plot.strigar_exp.as_ref().expect("strigar_exp set");
+    // 10 + 2 copies, then 3 + 4 copies: counts are brick counts, not characters.
+    assert_eq!(expanded[0].chars().count(), 12);
+    assert_eq!(expanded[1].chars().count(), 7);
+}
+
+#[test]
+fn test_a_rejected_row_does_not_steer_global_motif_assignment() {
+    // Validation runs before the frequency passes, so a rejected row must not
+    // contribute its letters to the canonical/colour ranking shared by all rows.
+    let with_legacy = BrickPlot::new().with_strigars(vec![
+        ("AATGG:A".to_string(), "2A".to_string()),
+        ("CAG:A".to_string(), "99A|1A".to_string()),
+    ]);
+    let without = BrickPlot::new().with_strigars(vec![("AATGG:A".to_string(), "2A".to_string())]);
+
+    let a = with_legacy.motifs.as_ref().expect("motifs set");
+    let b = without.motifs.as_ref().expect("motifs set");
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "the rejected row's motif leaked into the global map: {a:?} vs {b:?}"
+    );
+}
+
+#[test]
+fn test_unparseable_strigar_characters_are_reported() {
+    let plot = BrickPlot::new().with_strigars(vec![("AATGG:A".to_string(), "2A!3a".to_string())]);
+    let issues = plot.strigar_issues();
+    assert!(
+        issues
+            .iter()
+            .any(|i| matches!(i, kuva::plot::brick::StrigarIssue::Unparseable { fragment, .. } if *fragment == '!')),
+        "expected the `!` to be reported: {issues:?}"
     );
 }

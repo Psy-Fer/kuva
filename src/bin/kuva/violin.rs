@@ -67,18 +67,20 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
         .unwrap_or_else(|| "steelblue".to_string());
 
     // Multi-column --y mode: each column is a group
-    if args.y.len() > 1 {
+    if args.y.len() > 1 || args.y.iter().any(|c| c.is_multi()) {
         let table = DataTable::parse(
             args.input.input.as_deref(),
             args.input.header_mode(),
             args.input.delimiter,
             &args.y,
         )?;
+        // Expand column ranges / globs against the parsed table (issue #109).
+        let cols = table.expand_columns(&args.y)?;
         let mut plot = ViolinPlot::new().with_color(&color);
         if let Some(bw) = args.bandwidth {
             plot = plot.with_bandwidth(bw);
         }
-        for col in &args.y {
+        for col in &cols {
             let name = table.col_display_name(col);
             let values = table.col_f64(col)?;
             plot = plot.with_group(name, values);
@@ -87,7 +89,7 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
             plot = plot.with_group_colors(colors);
         } else {
             let pal = Palette::category10();
-            let colors: Vec<String> = (0..args.y.len()).map(|i| pal[i].to_string()).collect();
+            let colors: Vec<String> = (0..cols.len()).map(|i| pal[i].to_string()).collect();
             plot = plot.with_group_colors(colors);
         }
         if args.overlay_swarm {

@@ -15,7 +15,6 @@ set -euo pipefail
 BIN=""
 SAVE=0
 OUTDIR="smoke_test_outputs"
-
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -95,6 +94,39 @@ check "scatter color-by" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --color-by group --legend \
         --title "Scatter by Group" --x-label "X" --y-label "Y"
 
+# Issue #109: select all-numeric column NAMES (years), not positional indices.
+check "scatter numeric column names" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --header \
+        --title "Expression 2023 vs 2024" --x-label "2023" --y-label "2024"
+
+check "scatter marker star" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --marker star --size 5 \
+        --title "Star markers"
+
+check "scatter loess" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --loess-span 0.4 \
+        --title "LOESS smoother"
+
+check "scatter repel labels" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x 2023 --y 2024 --label-col gene \
+        --label-style repel --header --title "Repel labels"
+
+# Column ranges and globs (issue #109) on multi-column --y.
+check "box column range" \
+    "$BIN" box "$DATA/parallel.tsv" --y "0..4" --header --title "All numeric columns"
+
+check "box column glob" \
+    "$BIN" box "$DATA/parallel.tsv" --y "sepal*" --header --title "Sepal columns"
+
+# Explicit selection prefixes: name:/col: force a name, idx:/# force an index.
+check "scatter name: prefix" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x name:2023 --y name:2024 --header \
+        --title "Forced names"
+
+check "scatter idx: prefix" \
+    "$BIN" scatter "$DATA/year_columns.tsv" --x idx:1 --y idx:3 --header \
+        --title "Forced indices"
+
 check "scatter trend" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y --trend --equation --correlation \
         --title "Scatter with Trend" --x-label "X" --y-label "Y"
@@ -134,6 +166,29 @@ check "scatter date x-axis explicit unit" \
     "$BIN" scatter "$DATA/candlestick.tsv" --x date --y close \
         --x-date-format "%Y-%m-%d" --x-date-unit months --x-date-tick-format "%b %y" \
         --title "Close price by month"
+
+# ── missing values (#108) ───────────────────────────────────────────────────
+check "scatter missing values (drop)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --title "Missing values dropped"
+
+check "scatter missing values (zero)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --na-strategy zero
+
+check "histogram missing values" \
+    "$BIN" histogram "$DATA/missing.tsv" --value-col y
+
+check_error "scatter missing values (error strategy)" \
+    "$BIN" scatter "$DATA/missing.tsv" --x x --y y --na-strategy error
+
+check "scatter clamp infinities" \
+    "$BIN" scatter "$DATA/inf_data.tsv" --x x --y y --clamp-min 0 --clamp-max 300 \
+        --title "Infinities capped to [0, 300]"
+
+check "bar missing values (drop)" \
+    "$BIN" bar "$DATA/missing.tsv" --label-col x --value-col y
+
+check "parallel missing values (drop)" \
+    "$BIN" parallel "$DATA/missing.tsv" --value-cols x y
 
 # ── line ──────────────────────────────────────────────────────────────────────
 check "line color-by" \
@@ -203,7 +258,27 @@ check "histogram bin-aligned 6 bins" \
 
 check "histogram bin-aligned 7 bins normalize" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bins 7 --normalize \
-        --title "Bin-Aligned Ticks (7 bins)" --x-label "Value" --y-label "Density"
+        --title "Bin-Aligned Ticks (7 bins)" --x-label "Value" --y-label "Count"
+
+check "histogram step" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --step \
+        --title "Step Histogram" --x-label "Value" --y-label "Count"
+
+check "histogram cumulative" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --cumulative \
+        --title "Cumulative" --x-label "Value" --y-label "Cumulative count"
+
+check "histogram bin-method fd" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bin-method fd \
+        --title "Freedman-Diaconis bins" --x-label "Value" --y-label "Count"
+
+check "histogram weighted" \
+    "$BIN" histogram "$DATA/parallel.tsv" --header --value-col sepal_length \
+        --weight-col petal_length --title "Weighted" --x-label "Sepal length"
+
+check "histogram stacked" \
+    "$BIN" histogram "$DATA/parallel.tsv" --header --y sepal_length,petal_length \
+        --stacked --legend --title "Stacked" --x-label "Length"
 
 # ── box ───────────────────────────────────────────────────────────────────────
 check "box basic" \
@@ -263,6 +338,14 @@ check "strip center" \
     "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --center \
         --title "Expression Spread" --x-label "Group" --y-label "Expression"
 
+check "strip horizontal swarm" \
+    "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --swarm --horizontal \
+        --title "Expression Spread" --x-label "Expression" --y-label "Group"
+
+check "strip opacity" \
+    "$BIN" strip "$DATA/samples.tsv" --group-col group --value-col expression --swarm --opacity 0.35 \
+        --title "Expression Spread" --x-label "Group" --y-label "Expression"
+
 # ── forest ────────────────────────────────────────────────────────────────────
 check "forest basic" \
     "$BIN" forest "$DATA/forest.tsv" --label-col study --estimate-col estimate \
@@ -305,6 +388,10 @@ check "volcano pvalue-col-is-log" \
     "$BIN" volcano "$DATA/volcano_logp.tsv" --name-col gene --x-col log2fc --y-col neg_log10_pvalue --pvalue-col-is-log \
         --title "Differential Expression (log p input)" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
 
+check "volcano repel labels" \
+    "$BIN" volcano "$DATA/volcano.tsv" --name-col gene --x-col log2fc --y-col pvalue --top-n 12 --label-style repel \
+        --title "Differential Expression" --x-label "log2 Fold Change" "--y-label=-log10(p-value)"
+
 # ── manhattan ─────────────────────────────────────────────────────────────────
 check "manhattan sequential" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue \
@@ -313,6 +400,16 @@ check "manhattan sequential" \
 check "manhattan top-n" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue --top-n 10 \
         --title "GWAS Results" --x-label "Chromosome" "--y-label=-log10(p-value)"
+
+check "manhattan repel labels" \
+    "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pvalue-col pvalue --top-n 8 --label-style repel \
+        --title "GWAS Results" --x-label "Chromosome" "--y-label=-log10(p-value)"
+
+# ── survival clinical ─────────────────────────────────────────────────────────
+check "survival clinical" \
+    "$BIN" survival "$DATA/survival.tsv" --time-col time --event-col event --group-col group --header \
+        --risk-table --median-lines --logrank --legend "Arm" \
+        --title "Overall Survival" --x-label "Time (months)" --y-label "Survival probability"
 
 check "manhattan hg38" \
     "$BIN" manhattan "$DATA/gene_stats.tsv" --chr-col chr --pos-col pos --pvalue-col pvalue --genome-build hg38 \
@@ -955,6 +1052,11 @@ check "funnel diverging" \
         --left-label "Treatment" --right-label "Placebo" \
         --title "Diverging Funnel"
 
+check "funnel color-mode" \
+    "$BIN" funnel "$DATA/funnel.tsv" \
+        --label stage --value n_screened --color-mode gradient \
+        --title "Gradient Funnel"
+
 # ── rose ──────────────────────────────────────────────────────────────────────
 check "rose basic" \
     "$BIN" rose "$DATA/rose.tsv" \
@@ -1023,10 +1125,14 @@ check "quiver grid on + tight bounds" \
         --tight-bounds --pivot middle \
         --title "Quiver Grid + Clip"
 
+
 # ── math in labels ──────────────────────────────────────────────────────────
-# $...$ math regions in labels are lowered to inline Unicode (σ², a/b, √(…), ∑)
-# by every backend. Exercised across plot types and label slots to confirm it
-# is not scatter-specific.
+# $...$ math regions in labels. A binary built with `typst-math` (as the
+# released binaries are) typesets these via the typst tier (real 2-D math
+# embedded in the SVG); a build without it lowers them to inline Unicode
+# (σ², a/b, √(…), ∑) via the always-on lookup tier. Same commands either way
+# — exercised across plot types and label slots to confirm it is not
+# scatter-specific.
 check "math superscript + sqrt" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
         --x-label 'Variance, $\sigma^2$ (units)' --y-label '$\sqrt{x^2+y^2}$'
@@ -1045,7 +1151,7 @@ check "math greek and operators" \
 
 check "math in rotated y-label" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
-        --y-label 'Energy $E = mc^2$'
+        --y-label 'Energy $E = m c^2$'
 
 check "math on line plot" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value \
@@ -1200,6 +1306,55 @@ check_error "twin-y unsupported plot type" \
     "$BIN" twin-y "$TWIN_Y_DATA" --x month --y temp --y2 rain --primary-type bar
 
 rm -f "$TWIN_Y_DATA"
+
+# ── coverage ──────────────────────────────────────────────────────────────────
+check "coverage full (depth+variants+features+locus)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal \
+        --variants "$DATA/coverage_variants.tsv" --features "$DATA/coverage_features.tsv" \
+        --locus-start 1000000 --locus-end 1040000 --x-label "chr7 position"
+
+check "coverage depth only (default sample)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv"
+
+check "coverage multi-sample" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal
+
+check "coverage min-coverage threshold" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal --min-coverage 20
+
+check "coverage variants only" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --variants "$DATA/coverage_variants.tsv"
+
+check "coverage features only" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --features "$DATA/coverage_features.tsv" --feature-name amplicons
+
+check "coverage real CoVarPlot ARTIC data" \
+    "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 \
+        --variants "$DATA/covar_variants.tsv" --features "$DATA/covar_amplicons.tsv" \
+        --feature-name amplicons --regions "$DATA/covar_genes.tsv" --region-name genes \
+        --x-label "MN908947.3" --title "SARS-CoV-2 amplicon coverage"
+
+check "coverage real pools overlaid" \
+    "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 --overlay-samples \
+        --regions "$DATA/covar_genes.tsv" --region-name genes --x-label "MN908947.3"
+
+# ── math (typst tier) ─────────────────────────────────────────────────────────
+# Deeper 2-D math (stacked fractions, radicals, limits). With `typst-math`
+# these come back as embedded typst fragments; a build without it still passes
+# via the lookup tier's inline forms.
+check "typst fraction" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --title 'Rate $\frac{a + b}{c}$'
+
+check "typst sqrt + sum" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --x-label '$\sqrt{x^2 + y^2}$' --y-label '$\sum_{i=1}^{n} x_i$'
+
+check "typst quadratic in rotated y-label" \
+    "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
+        --y-label '$x = \frac{-b \pm \sqrt{b^2 - 4 a c}}{2 a}$'
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

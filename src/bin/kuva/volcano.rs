@@ -36,6 +36,10 @@ pub struct VolcanoArgs {
     #[arg(long)]
     pub top_n: Option<usize>,
 
+    /// Label placement: nudge (default), exact, or repel (force-directed).
+    #[arg(long)]
+    pub label_style: Option<String>,
+
     /// Color for up-regulated points (default: "firebrick").
     #[arg(long)]
     pub color_up: Option<String>,
@@ -88,13 +92,7 @@ pub fn run(args: VolcanoArgs) -> Result<(), String> {
 
     let names = table.col_str(&name_col)?;
     let fcs = table.col_f64(&x_col)?;
-    let raw_pvals = table.col_f64(&y_col)?;
-
-    let pvals: Vec<f64> = if args.pvalue_col_is_log {
-        raw_pvals.into_iter().map(|v| 10.0_f64.powf(-v)).collect()
-    } else {
-        raw_pvals
-    };
+    let pvals = table.col_pvalues(&y_col, args.pvalue_col_is_log)?;
 
     let points: Vec<(String, f64, f64)> = names
         .into_iter()
@@ -113,6 +111,12 @@ pub fn run(args: VolcanoArgs) -> Result<(), String> {
     }
     if let Some(n) = args.top_n {
         plot = plot.with_label_top(n);
+    }
+    if let Some(ref s) = args.label_style {
+        let style = kuva::plot::LabelStyle::parse(s).ok_or_else(|| {
+            format!("unknown --label-style '{s}' (expected nudge, exact, or repel)")
+        })?;
+        plot = plot.with_label_style(style);
     }
     if let Some(ref c) = args.color_up {
         plot = plot.with_color_up(c.clone());

@@ -168,7 +168,7 @@ kuva funnel [OPTIONS] [INPUT]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--orientation <MODE>` | `vertical` | `vertical` or `horizontal`. |
-| `--color-by <MODE>` | `uniform` | `uniform`, `stage`, `gradient`. |
+| `--color-mode <MODE>` | `uniform` | `uniform`, `stage`, `gradient`. (Alias: `--color-by`, kept for backward compatibility.) |
 | `--no-connectors` | off | Hide trapezoidal connectors between bars. |
 | `--connector-opacity <F>` | `0.4` | Connector fill opacity 0–1. |
 | `--no-values` | off | Hide absolute value labels on bars. |
@@ -187,7 +187,7 @@ kuva funnel funnel.tsv --label stage --value count -o funnel.svg
 kuva funnel funnel.tsv --orientation horizontal --show-percents -o funnel_h.svg
 
 # Stage colors + gradient
-kuva funnel funnel.tsv --color-by gradient -o funnel_grad.svg
+kuva funnel funnel.tsv --color-mode gradient -o funnel_grad.svg
 
 # Diverging back-to-back (treatment vs control)
 kuva funnel funnel.tsv --label stage --value n_screened --mirror-col n_placebo \

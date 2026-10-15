@@ -54,7 +54,7 @@ pub struct RidgelineArgs {
 
 pub fn run(args: RidgelineArgs) -> Result<(), String> {
     // Multi-column --y mode: one ridge per column
-    if args.y.len() > 1 {
+    if args.y.len() > 1 || args.y.iter().any(|c| c.is_multi()) {
         if args.group_by.is_some() {
             return Err(
                 "--y with multiple columns is mutually exclusive with --group-by".to_string(),
@@ -66,6 +66,8 @@ pub fn run(args: RidgelineArgs) -> Result<(), String> {
             args.input.delimiter,
             &args.y,
         )?;
+        // Expand column ranges / globs against the parsed table (issue #109).
+        let cols = table.expand_columns(&args.y)?;
         let mut plot = RidgelinePlot::new()
             .with_filled(args.filled)
             .with_opacity(args.opacity)
@@ -73,7 +75,7 @@ pub fn run(args: RidgelineArgs) -> Result<(), String> {
         if let Some(bw) = args.bandwidth {
             plot = plot.with_bandwidth(bw);
         }
-        for col in &args.y {
+        for col in &cols {
             let name = table.col_display_name(col);
             let vals = table.col_f64(col)?;
             plot = plot.with_group(name, vals);

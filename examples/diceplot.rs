@@ -20,6 +20,9 @@ const OUT: &str = "docs/src/assets/diceplot";
 
 /// ggdiceplot's diverging colour scale: #40004B (purple) → white → #00441B (green).
 /// Matches `scale_fill_gradient2(low="#40004B", high="#00441B", mid="white")`.
+/// `(taxon, group, cell_index, log2 fold change, -log10 p)` for one dice cell.
+type DiceRow = (&'static str, &'static str, usize, Option<f64>, Option<f64>);
+
 fn ggdiceplot_diverging() -> ColorMap {
     ColorMap::Custom(Arc::new(|t: f64| {
         // t in [0,1]: 0 = low (#40004B), 0.5 = mid (white), 1 = high (#00441B)
@@ -190,7 +193,7 @@ fn oral_microbiome() {
         "Gingivitis".into(),
     ];
 
-    let data: Vec<(&str, &str, usize, Option<f64>, Option<f64>)> = vec![
+    let data: Vec<DiceRow> = vec![
         // Campylobacter_showae
         ("C. showae", "Saliva", 0, Some(2.55), Some(4.82)),
         ("C. showae", "Saliva", 1, Some(-0.67), Some(1.30)),
@@ -293,7 +296,7 @@ fn zebra_domino() {
         "Oligodendrocyte",
     ];
 
-    let mut data: Vec<(&str, &str, usize, Option<f64>, Option<f64>)> = Vec::new();
+    let mut data: Vec<DiceRow> = Vec::new();
 
     for (gi, gene) in genes.iter().enumerate() {
         for (ci, cell_type) in cell_types.iter().enumerate() {

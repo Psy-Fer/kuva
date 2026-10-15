@@ -1,13 +1,13 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, muted_subtitle_color,
-    XLabelPlacer,
+    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
+    muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
-use crate::render::render_utils::{self, linear_regression, pearson_corr, percentile};
+use crate::render::render_utils::{self, linear_fit, pearson_corr, percentile};
 use crate::render::text_metrics::{
     ascent, cap_height, center_offset, descent, line_height, mean_char_width, measure_text_width,
     text_height, widest_text_width, FontStyle,
@@ -309,6 +309,7 @@ fn draw_whisker(
 
 use crate::plot::band::BandPlot;
 use crate::plot::bar::BarPlot;
+use crate::plot::brick::{CigarOp, BAR_ROW_UNITS};
 use crate::plot::bump::{BumpPlot, CurveStyle};
 use crate::plot::calendar::{
     dow_mon0, from_jd, period_grid_pos, period_max_cols, to_jd, CalendarAgg, CalendarPlot,
@@ -378,6 +379,11 @@ pub struct TextSpan {
     pub italic: bool,
     pub underline: bool,
     pub code: bool,
+    /// `text` is the body of a `$...$` math region (without the dollars).
+    /// With the `typst-math` feature, backends typeset it via the typst tier and
+    /// splice the fragment into the line; without it (and always on the
+    /// terminal) it is lowered to inline Unicode by the lookup tier.
+    pub math: bool,
 }
 
 impl TextSpan {
@@ -388,6 +394,7 @@ impl TextSpan {
             italic: false,
             underline: false,
             code: false,
+            math: false,
         }
     }
 }
@@ -395,7 +402,7 @@ impl TextSpan {
 /// Data for a `<path>` SVG element.
 ///
 /// Boxed inside `Primitive::Path` to keep the enum small.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathData {
     pub d: String,
     pub fill: Option<Color>,
@@ -405,7 +412,7 @@ pub struct PathData {
     pub stroke_dasharray: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Primitive {
     Circle {
         cx: f64,
@@ -804,7 +811,66 @@ fn draw_marker(
                 stroke_dasharray: None,
             });
         }
+        MarkerShape::TriangleDown => {
+            let h = size * 1.7;
+            let verts = [
+                (cx, cy + h * 0.6),
+                (cx - size, cy - h * 0.4),
+                (cx + size, cy - h * 0.4),
+            ];
+            add_filled_polygon(scene, &verts, fill);
+        }
+        MarkerShape::Star => {
+            // 5-pointed star: outer radius `r`, inner radius ~0.4r, first point up.
+            let r = size * 1.25;
+            let inner = r * 0.4;
+            let mut verts = Vec::with_capacity(10);
+            for k in 0..10 {
+                let ang = -std::f64::consts::FRAC_PI_2 + k as f64 * std::f64::consts::PI / 5.0;
+                let rad = if k % 2 == 0 { r } else { inner };
+                verts.push((cx + rad * ang.cos(), cy + rad * ang.sin()));
+            }
+            add_filled_polygon(scene, &verts, fill);
+        }
+        MarkerShape::Pentagon => {
+            add_filled_polygon(scene, &regular_polygon(cx, cy, size * 1.2, 5), fill);
+        }
+        MarkerShape::Hexagon => {
+            add_filled_polygon(scene, &regular_polygon(cx, cy, size * 1.15, 6), fill);
+        }
     }
+}
+
+/// Vertices of a regular `n`-gon centred at `(cx, cy)`, first vertex pointing up.
+fn regular_polygon(cx: f64, cy: f64, r: f64, n: usize) -> Vec<(f64, f64)> {
+    (0..n)
+        .map(|k| {
+            let ang = -std::f64::consts::FRAC_PI_2 + k as f64 * std::f64::consts::TAU / n as f64;
+            (cx + r * ang.cos(), cy + r * ang.sin())
+        })
+        .collect()
+}
+
+/// Add a closed filled polygon path (thin same-colour stroke, matching Triangle/Diamond).
+fn add_filled_polygon(scene: &mut Scene, verts: &[(f64, f64)], fill: &str) {
+    let mut d = String::with_capacity(verts.len() * 16 + 8);
+    let mut rb = ryu::Buffer::new();
+    for (i, &(x, y)) in verts.iter().enumerate() {
+        d.push(if i == 0 { 'M' } else { 'L' });
+        d.push_str(rb.format(round2(x)));
+        d.push(',');
+        d.push_str(rb.format(round2(y)));
+        d.push(' ');
+    }
+    d.push('Z');
+    scene.add(Primitive::Path(Box::new(PathData {
+        d,
+        fill: Some(fill.into()),
+        stroke: fill.into(),
+        stroke_width: 0.5,
+        opacity: None,
+        stroke_dasharray: None,
+    })));
 }
 
 fn add_band(band: &BandPlot, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
@@ -1041,23 +1107,23 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
     if let Some(trend) = scatter.trend {
         match trend {
             TrendLine::Linear => {
-                if let Some((slope, intercept, r)) = linear_regression(&scatter.data) {
+                if let Some(fit) = linear_fit(&scatter.data) {
+                    let (slope, intercept, r) = (fit.slope, fit.intercept, fit.r);
                     // get line start and end co-ords
                     let x1 = computed.x_range.0;
                     let x2 = computed.x_range.1;
-                    let y1 = slope * x1 + intercept;
-                    let y2 = slope * x2 + intercept;
-
-                    // draw the line
-                    scene.add(Primitive::Line {
-                        x1: computed.map_x(x1),
-                        y1: computed.map_y(y1),
-                        x2: computed.map_x(x2),
-                        y2: computed.map_y(y2),
-                        stroke: Color::from(&scatter.trend_color),
-                        stroke_width: scatter.trend_width,
-                        stroke_dasharray: None,
-                    });
+                    // Extrapolated endpoints can exceed f64 even for finite data.
+                    if let (Some(y1), Some(y2)) = (fit.predict(x1), fit.predict(x2)) {
+                        scene.add(Primitive::Line {
+                            x1: computed.map_x(x1),
+                            y1: computed.map_y(y1),
+                            x2: computed.map_x(x2),
+                            y2: computed.map_y(y2),
+                            stroke: Color::from(&scatter.trend_color),
+                            stroke_width: scatter.trend_width,
+                            stroke_dasharray: None,
+                        });
+                    }
 
                     // display equation and correlation
                     if scatter.show_equation || scatter.show_correlation {
@@ -1065,27 +1131,72 @@ fn add_scatter(scatter: &ScatterPlot, scene: &mut Scene, computed: &ComputedLayo
                         if scatter.show_equation {
                             label.push_str(&format!("y = {:.2}x + {:.2}", slope, intercept));
                         }
-                        if scatter.show_correlation {
+                        // Constant y has no correlation to report; the flat line
+                        // is still drawn above.
+                        if let (true, Some(r)) = (scatter.show_correlation, r) {
                             if !label.is_empty() {
                                 label.push_str("  ");
                             }
                             label.push_str(&format!("r = {:.2}", r));
                         }
-
-                        scene.add(Primitive::Text {
-                            x: computed.margin_left + 10.0,
-                            y: computed.margin_top + 20.0,
-                            content: label,
-                            size: computed.body_size,
-                            anchor: TextAnchor::Start,
-                            rotate: None,
-                            bold: false,
-                            color: None,
-                        });
+                        if !label.is_empty() {
+                            scene.add(Primitive::Text {
+                                x: computed.margin_left + 10.0,
+                                y: computed.margin_top + 20.0,
+                                content: label,
+                                size: computed.body_size,
+                                anchor: TextAnchor::Start,
+                                rotate: None,
+                                bold: false,
+                                color: None,
+                            });
+                        }
                     }
                 }
-            } // _ => {}
+            }
+            TrendLine::Loess { span } => {
+                // Locally-weighted smoother, drawn as a clipped polyline. Evaluate at a
+                // fixed resolution across the x-range; equation/correlation don't apply.
+                let curve = render_utils::loess(&scatter.data, span, 100);
+                if curve.len() >= 2 {
+                    let screen: Vec<(f64, f64)> = curve
+                        .iter()
+                        .map(|&(x, y)| (computed.map_x(x), computed.map_y(y)))
+                        .collect();
+                    let stroke = if computed.bw_mode {
+                        Color::from("#1a1a1a")
+                    } else {
+                        Color::from(&scatter.trend_color)
+                    };
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d: build_path(&screen),
+                        fill: None,
+                        stroke,
+                        stroke_width: scatter.trend_width.max(1.5),
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                }
+            }
         }
+    }
+
+    // Per-point text labels (Exact / Nudge / Arrow / Repel), drawn last so they sit on top.
+    if let Some(labels) = &scatter.point_labels {
+        let anchors: Vec<(f64, f64, String)> = scatter
+            .data
+            .iter()
+            .zip(labels.iter())
+            .filter(|(_, l)| !l.is_empty())
+            .map(|(p, l)| (computed.map_x(p.x), computed.map_y(p.y), l.clone()))
+            .collect();
+        draw_labels(
+            scene,
+            computed,
+            &anchors,
+            scatter.size,
+            &scatter.label_style,
+        );
     }
 }
 
@@ -1878,72 +1989,119 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
         return;
     }
 
-    // fold is basically a fancy for loop
-    let range: (f64, f64) = hist.range.unwrap_or_else(|| {
-        let min: f64 = hist.data.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max: f64 = hist.data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        (min, max)
-    });
+    // Shared binning (weights, cumulative, stacking, bin-method, normalize) so the
+    // renderer and bounds() never disagree.
+    let Some(binned) = hist.compute_bins() else {
+        return;
+    };
+    let range = binned.range;
+    let bin_width = binned.bin_width;
+    let norm = binned.norm;
 
-    let bin_width: f64 = (range.1 - range.0) / hist.bins as f64;
-    let mut counts: Vec<usize> = vec![0; hist.bins];
+    // Running per-bin baseline for stacking; stays zero when layers overlay.
+    let mut baseline = vec![0.0_f64; binned.bins];
 
-    for &value in &hist.data {
-        if value < range.0 || value > range.1 {
-            continue;
+    for (layer_idx, heights) in binned.layers.iter().enumerate() {
+        let color = &binned.colors[layer_idx];
+
+        if hist.step {
+            // Outline-only staircase. Overlay layers sit on y=0 (open profile);
+            // stacked layers trace a closed band between baseline and baseline+height.
+            let mut path = String::with_capacity(binned.bins * 24);
+            let mut rb = ryu::Buffer::new();
+            let mut cmd = |p: &mut String, c: char, x: f64, y: f64| {
+                p.push(c);
+                p.push(' ');
+                p.push_str(rb.format(round2(x)));
+                p.push(' ');
+                p.push_str(rb.format(round2(y)));
+                p.push(' ');
+            };
+            let top_px = |i: usize| computed.map_y((baseline[i] + heights[i]) * norm);
+            // Left-to-right across the tops.
+            cmd(&mut path, 'M', computed.map_x(range.0), top_px(0));
+            for i in 0..binned.bins {
+                let xl = computed.map_x(range.0 + i as f64 * bin_width);
+                let xr = computed.map_x(range.0 + (i + 1) as f64 * bin_width);
+                cmd(&mut path, 'L', xl, top_px(i));
+                cmd(&mut path, 'L', xr, top_px(i));
+            }
+            if binned.stacked {
+                // Close the band back along the baseline profile, right-to-left.
+                for i in (0..binned.bins).rev() {
+                    let xl = computed.map_x(range.0 + i as f64 * bin_width);
+                    let xr = computed.map_x(range.0 + (i + 1) as f64 * bin_width);
+                    cmd(&mut path, 'L', xr, computed.map_y(baseline[i] * norm));
+                    cmd(&mut path, 'L', xl, computed.map_y(baseline[i] * norm));
+                }
+                path.push('Z');
+            } else {
+                // Drop to the axis at the right edge for a clean open staircase.
+                cmd(&mut path, 'L', computed.map_x(range.1), computed.map_y(0.0));
+            }
+            let stroke = if computed.bw_mode {
+                Color::from("#1a1a1a")
+            } else {
+                Color::from(color.as_str())
+            };
+            scene.add(Primitive::Path(Box::new(PathData {
+                d: path,
+                fill: None,
+                stroke,
+                stroke_width: 2.0,
+                opacity: None,
+                stroke_dasharray: None,
+            })));
+        } else {
+            for (i, &count) in heights.iter().enumerate() {
+                if count == 0.0 {
+                    continue;
+                }
+                let base = if binned.stacked { baseline[i] } else { 0.0 };
+                let x = range.0 + i as f64 * bin_width;
+                let x0 = computed.map_x(x);
+                let x1 = computed.map_x(x + bin_width);
+                let yb = computed.map_y(base * norm);
+                let yt = computed.map_y((base + count) * norm);
+
+                let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
+                    format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                });
+                if let Some(ref t) = tip {
+                    scene.add(Primitive::GroupStart {
+                        transform: None,
+                        title: Some(t.clone()),
+                        extra_attrs: None,
+                    });
+                }
+                rect_bw(
+                    scene,
+                    computed,
+                    bw_idx,
+                    color,
+                    x0,
+                    yt.min(yb),
+                    (x1 - x0).abs(),
+                    (yb - yt).abs(),
+                    None,
+                    None,
+                    None,
+                );
+                if tip.is_some() {
+                    scene.add(Primitive::GroupEnd);
+                }
+            }
         }
-        let bin: usize = ((value - range.0) / bin_width).floor() as usize;
-        let bin: usize = if bin == hist.bins { bin - 1 } else { bin };
-        counts[bin] += 1;
+
+        if binned.stacked {
+            for (b, h) in baseline.iter_mut().zip(heights.iter()) {
+                *b += *h;
+            }
+        }
     }
 
-    let max_count: f64 = *counts.iter().max().unwrap_or(&1) as f64;
-    let norm: f64 = if hist.normalize { 1.0 / max_count } else { 1.0 };
-
-    for (i, count) in counts.iter().enumerate() {
-        if *count == 0 {
-            continue;
-        }
-        let x = range.0 + i as f64 * bin_width;
-        let height = *count as f64 * norm;
-
-        let x0 = computed.map_x(x);
-        let x1 = computed.map_x(x + bin_width);
-        let y0 = computed.map_y(0.0);
-        let y1 = computed.map_y(height);
-
-        let rect_width = (x1 - x0).abs();
-        let rect_height = (y0 - y1).abs();
-
-        let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-            format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
-        });
-        if let Some(ref t) = tip {
-            scene.add(Primitive::GroupStart {
-                transform: None,
-                title: Some(t.clone()),
-                extra_attrs: None,
-            });
-        }
-        rect_bw(
-            scene,
-            computed,
-            bw_idx,
-            &hist.color,
-            x0,
-            y1.min(y0),
-            rect_width,
-            rect_height,
-            None,
-            None,
-            None,
-        );
-        if tip.is_some() {
-            scene.add(Primitive::GroupEnd);
-        }
-    }
-
-    if hist.show_kde && hist.data.len() >= 2 {
+    // KDE overlay applies only to a single, non-cumulative series.
+    if hist.show_kde && hist.groups.is_empty() && !hist.cumulative && hist.data.len() >= 2 {
         let bw = hist
             .kde_bandwidth
             .unwrap_or_else(|| render_utils::silverman_bandwidth(&hist.data));
@@ -2011,7 +2169,7 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     //         });
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hist2d.color_map.clone()
     };
@@ -2046,18 +2204,18 @@ fn add_histogram2d(hist2d: &Histogram2D, scene: &mut Scene, computed: &ComputedL
     }
 
     if hist2d.show_correlation {
-        let corr =
-            pearson_corr(&hist2d.data).expect("hist2d correlation requires at least 2 data points");
-        scene.add(Primitive::Text {
-            x: computed.width - 120.0,
-            y: computed.margin_top + 20.0,
-            content: format!("r = {:.2}", corr),
-            size: computed.body_size,
-            anchor: TextAnchor::End,
-            rotate: None,
-            bold: false,
-            color: None,
-        });
+        if let Some(corr) = pearson_corr(&hist2d.data) {
+            scene.add(Primitive::Text {
+                x: computed.width - 120.0,
+                y: computed.margin_top + 20.0,
+                content: format!("r = {:.2}", corr),
+                size: computed.body_size,
+                anchor: TextAnchor::End,
+                rotate: None,
+                bold: false,
+                color: None,
+            });
+        }
     }
 }
 
@@ -2584,7 +2742,9 @@ fn add_violin(violin: &ViolinPlot, scene: &mut Scene, computed: &ComputedLayout)
 fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
     let theme = &computed.theme;
 
-    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    let Some(total) = pie.total() else {
+        return;
+    };
 
     let has_outside = matches!(
         pie.label_position,
@@ -2635,7 +2795,44 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         let large_arc = if sweep > std::f64::consts::PI { 1 } else { 0 };
 
-        let path_data = if inner_radius == 0.0 {
+        // An SVG arc whose start and end points coincide is a zero-length arc,
+        // not a full circle.  A 100% slice must therefore use two half-arcs.
+        let full_sweep =
+            (sweep - std::f64::consts::TAU).abs() <= f64::EPSILON * std::f64::consts::TAU;
+        let path_data = if full_sweep {
+            let half_angle = angle + std::f64::consts::PI;
+            let half_x = cx + radius * half_angle.cos();
+            let half_y = cy + radius * half_angle.sin();
+
+            if inner_radius == 0.0 {
+                format!(
+                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} Z",
+                    r = radius
+                )
+            } else {
+                let inner_start_x = cx + inner_radius * angle.cos();
+                let inner_start_y = cy + inner_radius * angle.sin();
+                let inner_half_x = cx + inner_radius * half_angle.cos();
+                let inner_half_y = cy + inner_radius * half_angle.sin();
+                // One subpath, not two: outer ring clockwise, `L` inwards, then
+                // the inner ring counter-clockwise, exactly as the partial-sweep
+                // donut below does. Two separate subpaths would rely on the
+                // nonzero rule being evaluated *across* subpaths, which the SVG
+                // spec gives but kuva's own backends do not — `raster.rs` fills
+                // each subpath independently (`for sub in &subs`), and
+                // `terminal.rs` flushes its point list on every `MoveTo`, so a
+                // second subpath would paint the hole solid instead of clearing
+                // it. Keeping one subpath fills correctly everywhere.
+                format!(
+                    "M{x1},{y1} A{r},{r} 0 0,1 {half_x},{half_y} A{r},{r} 0 0,1 {x1},{y1} \
+                     L{inner_start_x},{inner_start_y} \
+                     A{ir},{ir} 0 0,0 {inner_half_x},{inner_half_y} \
+                     A{ir},{ir} 0 0,0 {inner_start_x},{inner_start_y} Z",
+                    r = radius,
+                    ir = inner_radius
+                )
+            }
+        } else if inner_radius == 0.0 {
             format!(
                 "M{cx},{cy} L{x1},{y1} A{r},{r} 0 {large_arc},1 {x2},{y2} Z",
                 r = radius
@@ -2836,7 +3033,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     let norm = |v: f64| (v - min) / (max - min + f64::EPSILON);
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         heatmap.color_map.clone()
     };
@@ -3003,6 +3200,21 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     }
 }
 
+/// Pattern index for a CIGAR operation in black-and-white mode.
+///
+/// Distinct per operation so the bar stays readable without colour; the
+/// indices are separate from the motif bricks' own pattern assignment, which
+/// is keyed on the motif letter.
+fn cigar_bw_idx(op: CigarOp) -> usize {
+    match op {
+        CigarOp::Match => 0,
+        CigarOp::Mismatch => 1,
+        CigarOp::Insertion => 2,
+        CigarOp::Deletion => 3,
+        CigarOp::SoftClip => 4,
+    }
+}
+
 fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Use expanded strigars when available, otherwise raw sequences
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
@@ -3108,17 +3320,32 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             });
 
     // Helper: draw one brick rect. `yr` is the y-flipped row index for pixel mapping.
+    // `gap < 1.0` leaves the usual inter-brick gap; `gap == 1.0` draws full-width, used
+    // when merging same-colour runs so a run renders as one solid bar.
     let draw_brick = |scene: &mut Scene,
                       x_start: f64,
                       width: f64,
-                      yr: usize,
+                      y_top: f64,
                       eff_offset: f64,
                       bw_idx: usize,
-                      color_str: &str| {
+                      color_str: &str,
+                      gap: f64| {
         let x0 = computed.map_x(x_start - eff_offset);
         let x1 = computed.map_x(x_start + width - eff_offset);
-        let y0 = computed.map_y(yr as f64 + 1.0);
-        let y1 = computed.map_y(yr as f64);
+        // `y_top` is the row's top edge in data space. Rows are no longer a
+        // fixed pitch apart: a row that draws a CIGAR bar is pushed down to
+        // make room for it, so the caller supplies the resolved position
+        // rather than a row index.
+        let y0 = computed.map_y(y_top);
+        let y1 = computed.map_y(y_top - 1.0);
+        // One constant gap per brick, in data units (5% of a single unit), independent of
+        // how wide the brick is. Deriving the gap from the brick's own width made it
+        // proportional, so a 47 bp motif rendered a gap ~50x the normal one (DBQD2_XYLT1).
+        let unit_px = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+        let gap_px = if gap < 1.0 { unit_px * 0.05 } else { 0.0 };
+        let full_w = (x1 - x0).abs();
+        // Clamp so a sub-unit-width brick never shrinks away entirely.
+        let w = (full_w - gap_px).max(full_w * 0.5);
         rect_bw(
             scene,
             computed,
@@ -3126,7 +3353,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             color_str,
             x0,
             y0,
-            (x1 - x0).abs() * 0.95,
+            w,
             (y1 - y0).abs() * 0.95,
             None,
             None,
@@ -3134,32 +3361,42 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
         );
     };
 
-    // Pass 1: brick rects. Row 0 renders at the TOP of the plot (y-flip via yr).
-    for i in 0..num_rows {
-        let yr = num_rows - 1 - i;
+    // Run-length merging kicks in only when enabled AND the per-unit pixel width is
+    // small enough that the inter-brick gaps would be invisible, so the per-brick
+    // appearance is preserved wherever the gaps could actually be seen.
+    const BRICK_MERGE_MAX_PX_PER_UNIT: f64 = 4.0;
+    let px_per_unit = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+    let merge = brickplot.merge_runs && px_per_unit < BRICK_MERGE_MAX_PX_PER_UNIT;
+
+    // CIGAR bar placement and the row y-layout it implies. Shared with
+    // `Plot::bounds` so the reserved extent and the drawn geometry agree.
+    let cl = brickplot.cigar_layout();
+    // Data-space top edge of the row at display position `pos`. With no bars
+    // this reduces to the old `num_rows - 1 - i` pitch.
+    let row_y_top = |pos: usize| -> f64 { cl.total_units - cl.row_top_units[pos] };
+
+    // Pass 1: brick rects. Display position 0 renders at the TOP of the plot.
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let yr = row_y_top(pos);
         let eff_offset = row_offset(i) - right_align_shift[i];
         let ll = left_len(i);
         let sw = str_width(i);
 
-        // 1a. Left flank (negative data positions relative to STR start).
+        // Build the row's segments left-to-right: left flank, STR bricks, right flank.
+        // Each entry is (x_start, width, colour, bw_index). The three sections are
+        // contiguous in x, so a merged run can span section boundaries when colours match.
+        let mut segs: Vec<(f64, f64, &str, usize)> = Vec::new();
+
+        // Left flank (negative data positions relative to STR start).
         if let Some(ref flanks) = brickplot.left_flanks {
             if let Some(flank) = flanks.get(i) {
                 for (k, ch) in flank.chars().enumerate() {
-                    let x_start = -(ll) + k as f64;
-                    draw_brick(
-                        scene,
-                        x_start,
-                        1.0,
-                        yr,
-                        eff_offset,
-                        dna_bw_idx(ch),
-                        dna_color(ch),
-                    );
+                    segs.push((-ll + k as f64, 1.0, dna_color(ch), dna_bw_idx(ch)));
                 }
             }
         }
 
-        // 1b. STR bricks.
+        // STR bricks.
         let row = &rows[i];
         let template = brickplot
             .template
@@ -3177,32 +3414,177 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 .get(&value)
                 .expect("BrickPlot value not found in template colormap");
             let bw_idx = *template_bw_idx.get(&value).unwrap_or(&0);
-            draw_brick(
-                scene,
-                x_start,
-                width,
-                yr,
-                eff_offset,
-                bw_idx,
-                color.as_str(),
-            );
+            segs.push((x_start, width, color.as_str(), bw_idx));
             x_pos += width;
         }
 
-        // 1c. Right flank.
+        // Right flank.
         if let Some(ref flanks) = brickplot.right_flanks {
             if let Some(flank) = flanks.get(i) {
                 for (k, ch) in flank.chars().enumerate() {
-                    let x_start = sw + k as f64;
-                    draw_brick(
-                        scene,
-                        x_start,
-                        1.0,
-                        yr,
-                        eff_offset,
-                        dna_bw_idx(ch),
-                        dna_color(ch),
+                    segs.push((sw + k as f64, 1.0, dna_color(ch), dna_bw_idx(ch)));
+                }
+            }
+        }
+
+        if merge {
+            // Collapse maximal runs of identical (colour, bw) into one full-width rect.
+            let mut idx = 0;
+            while idx < segs.len() {
+                let (start_x, mut w, color, bw) = segs[idx];
+                let mut end = idx + 1;
+                while end < segs.len() && segs[end].2 == color && segs[end].3 == bw {
+                    w += segs[end].1;
+                    end += 1;
+                }
+                draw_brick(scene, start_x, w, yr, eff_offset, bw, color, 1.0);
+                idx = end;
+            }
+        } else {
+            for &(x_start, width, color, bw_idx) in &segs {
+                draw_brick(scene, x_start, width, yr, eff_offset, bw_idx, color, 0.95);
+            }
+        }
+    }
+
+    // Pass 1b: CIGAR bars. One thin band above a row, coloured by the read's
+    // CIGAR operations, so a reader can see which bases are reference-supported
+    // and which are insertions or soft clips.
+    //
+    // Drawn in READ space, the same coordinate the bricks use, so an operation
+    // always lines up with the bases beneath it. `M`/`I`/`S`/`X` consume read
+    // bases and get width; `D` consumes only reference, so it is a zero-width
+    // caret at the junction rather than a gap in the row.
+    if brickplot.cigars.is_some() {
+        let unit_px = (computed.map_x(1.0) - computed.map_x(0.0)).abs();
+        for (pos, &i) in cl.order.iter().enumerate() {
+            if !cl.draws_bar[pos] {
+                continue;
+            }
+            let Some(spans) = cl.spans[pos].as_ref() else {
+                continue;
+            };
+            let eff_offset = row_offset(i) - right_align_shift[i];
+            // The CIGAR covers every base the row draws, so it starts at the
+            // row's first drawn base: the left flank, not the STRIGAR. Bricks
+            // put the STRIGAR at x = 0 and the left flank at negative x, so
+            // shift the whole bar left by the flank length. Right anchoring
+            // needs no special handling: `eff_offset` already carries the
+            // per-row shift that the bricks use.
+            let bar_x0 = -left_len(i);
+            let y_row_top = row_y_top(pos);
+            let y_px_top = computed.map_y(y_row_top + BAR_ROW_UNITS);
+            let y_px_bot = computed.map_y(y_row_top);
+            let alloc_top = y_px_top.min(y_px_bot);
+            let alloc_h = (y_px_bot - y_px_top).abs();
+            // Keep the top of the allocation free for the deletion caret's
+            // apex and the run-count's ascender. Both are drawn above the bar,
+            // and on the first row the allocation's top edge *is* the plot
+            // edge, so anything above it is clipped away.
+            let head = alloc_h * 0.22;
+            let bar_h = (alloc_h - head) * 0.8;
+            let bar_y = alloc_top + head;
+
+            for sp in spans {
+                if sp.op == CigarOp::Deletion {
+                    continue; // drawn as a caret in the overlay pass below
+                }
+                if sp.len <= 0.0 {
+                    continue;
+                }
+                let x0 = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let x1 = computed.map_x(bar_x0 + sp.start + sp.len - eff_offset);
+                let w = (x1 - x0).abs().max(0.6);
+                rect_bw(
+                    scene,
+                    computed,
+                    cigar_bw_idx(sp.op),
+                    brickplot.cigar_color(sp.op),
+                    x0.min(x1),
+                    bar_y,
+                    w,
+                    bar_h,
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            // Deletion carets last, so a caret is never painted over by a
+            // span that happens to start at the same base.
+            for sp in spans.iter().filter(|s| s.op == CigarOp::Deletion) {
+                let cx = computed.map_x(bar_x0 + sp.start - eff_offset);
+                let half = (unit_px * 0.35).clamp(1.5, 4.0);
+                let d = format!(
+                    "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} Z",
+                    cx - half,
+                    bar_y + bar_h,
+                    cx,
+                    alloc_top,
+                    cx + half,
+                    bar_y + bar_h,
+                );
+                scene.add(Primitive::Path(Box::new(PathData {
+                    d,
+                    fill: Some(Color::from(brickplot.cigar_color(CigarOp::Deletion))),
+                    stroke: Color::from(brickplot.cigar_color(CigarOp::Deletion)),
+                    stroke_width: 0.0,
+                    opacity: None,
+                    stroke_dasharray: None,
+                })));
+            }
+
+            // Run bracket: shows that this one bar speaks for every row in the
+            // run beneath it, so a row with no bar reads as "same as above"
+            // rather than "no CIGAR for this read".
+            if brickplot.cigar_dedup && brickplot.cigar_run_bracket {
+                let (first, last) = cl.runs[cl.run_of_row[pos]];
+                if last > first {
+                    let y_end = computed.map_y(row_y_top(last) - 1.0);
+                    // Sit in the tick-mark gutter, between the right-anchored
+                    // row labels and the plot edge, so the bracket never lands
+                    // on a label.
+                    let gx = computed.margin_left - 2.0;
+                    let cap = 3.5;
+                    let d = format!(
+                        "M{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2} L{:.2},{:.2}",
+                        gx - cap,
+                        bar_y,
+                        gx,
+                        bar_y,
+                        gx,
+                        y_end,
+                        gx - cap,
+                        y_end,
                     );
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: None,
+                        stroke: Color::from("#6b7177"),
+                        stroke_width: 1.1,
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                    // The count goes just inside the plot area, at the bar's
+                    // left end, rather than in the gutter: the gutter already
+                    // holds the row labels, whose width is not known here, so
+                    // anything placed there collides with them.
+                    scene.add(Primitive::Text {
+                        x: computed.margin_left + 3.0,
+                        y: bar_y + bar_h,
+                        content: format!("x{}", last - first + 1),
+                        // Clamped to the band height: at a small `row_height_px`
+                        // a fixed size would overflow the allocation and clip.
+                        size: computed
+                            .tick_size
+                            .saturating_sub(2)
+                            .min(alloc_h as u32)
+                            .max(5),
+                        anchor: TextAnchor::Start,
+                        rotate: None,
+                        bold: false,
+                        color: Some(Color::from("#4a4f54")),
+                    });
                 }
             }
         }
@@ -3210,8 +3592,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 
     // Pass 2: show_values — character labels centred inside STR bricks.
     if brickplot.show_values {
-        for i in 0..num_rows {
-            let yr = num_rows - 1 - i;
+        for (pos, &i) in cl.order.iter().enumerate() {
+            let yr = row_y_top(pos);
             let eff_offset = row_offset(i) - right_align_shift[i];
             let row = &rows[i];
             let mut x_pos: f64 = 0.0;
@@ -3224,8 +3606,8 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 let x_start = if has_variable_width { x_pos } else { j as f64 };
                 let x0 = computed.map_x(x_start - eff_offset);
                 let x1 = computed.map_x(x_start + width - eff_offset);
-                let y0 = computed.map_y(yr as f64 + 1.0);
-                let y1 = computed.map_y(yr as f64);
+                let y0 = computed.map_y(yr);
+                let y1 = computed.map_y(yr - 1.0);
                 scene.add(Primitive::Text {
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
@@ -3242,18 +3624,56 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             }
         }
     }
+
+    // Marker lines (vertical/horizontal) drawn over the bricks at reference coords.
+    if !brickplot.vlines.is_empty() {
+        crate::render::annotations::add_reference_lines(&brickplot.vlines, scene, computed);
+    }
 }
 
-/// Render per-block notation labels for a BrickPlot.
-/// Must be called AFTER ClipEnd so labels that sit above the plot area are not clipped.
-fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+/// Where one BrickPlot row's notation labels ended up.
+enum NotationRow {
+    /// The row carries no notation.
+    None,
+    /// The labels do not fit however they are stacked, so the row shows a
+    /// single "complex structure" note instead. Labelling is all-or-nothing: a
+    /// partial set reads as though the dropped blocks were not there at all.
+    Fallback,
+    /// Placed labels as `(center_px, half_width_px, tier, text)`; tier 0 is the
+    /// line nearest the row.
+    Labels(Vec<(f64, f64, usize, String)>),
+}
+
+/// One row's notation labels and the band of pixels they are stacked into.
+struct NotationPlacement {
+    /// The pixel y that tier 0 is measured from.
+    anchor_y: f64,
+    /// Tiers climb away from the plot (the top row, into the margin reserved
+    /// for it) or descend into the row's own band (every other row). Drawing a
+    /// lower row's labels upward would float them over the row above, which
+    /// reads as though they described *that* row.
+    upward: bool,
+    row: NotationRow,
+}
+
+/// Lay out a BrickPlot's notation labels without drawing them, one entry per
+/// display row.
+///
+/// Only horizontal geometry (`map_x` and the plot's left/right edges) decides
+/// how many tiers the top row's labels need, and none of that depends on
+/// `margin_top`. That independence is what lets [`resolve_brick_notation_tiers`]
+/// size the top margin from this result and then re-run it for the same answer.
+fn brickplot_notation_rows(
+    brickplot: &BrickPlot,
+    computed: &ComputedLayout,
+) -> Vec<NotationPlacement> {
     let notations = match brickplot.notations.as_ref() {
         Some(n) => n,
-        None => return,
+        None => return Vec::new(),
     };
     let motifs_map = match brickplot.motifs.as_ref() {
         Some(m) => m,
-        None => return,
+        None => return Vec::new(),
     };
 
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
@@ -3263,7 +3683,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
     };
     let num_rows = rows.len();
     if num_rows == 0 {
-        return;
+        return Vec::new();
     }
 
     let row_offset = |i: usize| -> f64 {
@@ -3311,23 +3731,57 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
         vec![0.0; num_rows]
     };
 
-    const N_TIERS: usize = 4;
+    const N_TIERS: usize = crate::plot::brick::BRICK_NOTATION_TIERS;
     let font_px = computed.body_size as f64;
-    let label_size = (font_px * 0.85) as u32;
     let line_h = font_px * 1.1;
 
-    for (i, notation_opt) in notations.iter().enumerate() {
-        if notation_opt.is_none() {
-            continue;
-        }
-        if i >= num_rows {
+    // Same row layout the bricks and bars use: display order (which `sort` may
+    // have changed) and the uneven pitch that CIGAR bars introduce.
+    let cl = brickplot.cigar_layout();
+
+    let plot_px = computed.plot_width();
+    let plot_left_px = computed.margin_left;
+    let plot_right_px = computed.width - computed.margin_right;
+
+    let mut out: Vec<NotationPlacement> = Vec::with_capacity(cl.order.len());
+
+    for (pos, &i) in cl.order.iter().enumerate() {
+        let row_top = cl.total_units - cl.row_top_units[pos];
+        // The top row's labels go above the plot, clear of any CIGAR bar drawn
+        // in the allowance above the bricks. Every other row stacks downward
+        // from its own top edge instead, so its labels stay on its own band.
+        let upward = pos == 0;
+        let bar_allowance = if cl.draws_bar[pos] {
+            crate::plot::brick::BAR_ROW_UNITS
+        } else {
+            0.0
+        };
+        let band_top_px = computed.map_y(row_top);
+        let band_h = (computed.map_y(row_top - 1.0) - band_top_px).abs();
+        let anchor_y = if upward {
+            computed.map_y(row_top + bar_allowance)
+        } else {
+            band_top_px
+        };
+        // Upward has the whole reserved margin; downward only has the room
+        // between the row's own edges.
+        let tier_budget = if upward {
+            N_TIERS
+        } else {
+            (((band_h - 4.0) / line_h).floor().max(1.0) as usize).min(N_TIERS)
+        };
+
+        let has_notation = notations.get(i).map(|n| n.is_some()).unwrap_or(false);
+        if !has_notation || i >= num_rows {
+            out.push(NotationPlacement {
+                anchor_y,
+                upward,
+                row: NotationRow::None,
+            });
             continue;
         }
 
-        let yr = num_rows - 1 - i;
         let eff_offset = row_offset(i) - right_align_shift[i];
-        let y_top_px = computed.map_y((yr + 1) as f64);
-
         let row = &rows[i];
 
         let letter_width = |ch: char| -> f64 {
@@ -3378,11 +3832,10 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             });
         }
 
-        // Density check: if all label text laid end-to-end exceeds 2× the plot width,
-        // the locus is too complex for per-block labels (e.g. SCA31 expansions with
-        // hundreds of copies). Suppress individual labels and show a single fallback.
-        let plot_px = computed.plot_width();
-        let labelable: Vec<String> = runs
+        // Cheap reject before packing: however well they pack, the labels
+        // cannot fit if laid end-to-end they exceed what every tier together
+        // can hold (e.g. SCA31 expansions with hundreds of copies).
+        let total_label_px: f64 = runs
             .iter()
             .filter(|r| r.letter != '@')
             .filter_map(|r| {
@@ -3390,30 +3843,25 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
                     .get(&r.letter)
                     .map(|k| format!("({}){}", k, r.count))
             })
-            .collect();
-        let total_label_px: f64 = labelable
-            .iter()
-            .map(|l| measure_text_width(l, font_px, FontStyle::Regular))
+            .map(|l| measure_text_width(&l, font_px, FontStyle::Regular))
             .sum();
 
-        if total_label_px > plot_px * 2.0 {
-            let cx = computed.margin_left + plot_px / 2.0;
-            scene.add(Primitive::Text {
-                x: cx,
-                y: y_top_px - 2.0 - 0.5 * line_h,
-                content: "complex structure: see TSV".to_string(),
-                size: label_size,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-                bold: false,
-                color: None,
+        if total_label_px > plot_px * tier_budget as f64 {
+            out.push(NotationPlacement {
+                anchor_y,
+                upward,
+                row: NotationRow::Fallback,
             });
             continue;
         }
 
-        let plot_left_px = computed.margin_left;
-        let plot_right_px = computed.width - computed.margin_right;
+        // Pack greedily into the lowest tier with room. Runs come out in x
+        // order and the clamp below preserves that order, so first-fit by left
+        // edge is an optimal interval packing: a label that finds no tier
+        // genuinely needs more than N_TIERS of them, and the row falls back.
         let mut last_right: [f64; N_TIERS] = [f64::NEG_INFINITY; N_TIERS];
+        let mut placed: Vec<(f64, f64, usize, String)> = Vec::with_capacity(runs.len());
+        let mut unplaceable = false;
 
         for run in &runs {
             if run.letter == '@' {
@@ -3435,22 +3883,162 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             let left_px = clamped_center - text_half_w;
             let right_px = clamped_center + text_half_w;
 
-            let chosen = (0..N_TIERS).find(|&t| left_px > last_right[t]).unwrap_or(0);
+            let Some(chosen) = (0..tier_budget)
+                .find(|&t| left_px > last_right[t] + crate::plot::brick::BRICK_NOTATION_GAP_PX)
+            else {
+                unplaceable = true;
+                break;
+            };
             last_right[chosen] = right_px;
+            placed.push((clamped_center, text_half_w, chosen, label));
+        }
 
-            let y_text = y_top_px - 2.0 - (chosen as f64 + 0.5) * line_h;
-            scene.add(Primitive::Text {
-                x: clamped_center,
-                y: y_text,
-                content: label,
-                size: label_size,
-                anchor: TextAnchor::Middle,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+        out.push(NotationPlacement {
+            anchor_y,
+            upward,
+            row: if unplaceable {
+                NotationRow::Fallback
+            } else {
+                NotationRow::Labels(placed)
+            },
+        });
+    }
+
+    out
+}
+
+/// How many notation tiers a set of plots actually needs above their top row,
+/// so `margin_top` reserves only the lines that get used. A row that falls back
+/// to the "complex structure" note still needs the one line it is drawn on.
+fn brickplot_notation_tiers_used(plots: &[Plot], computed: &ComputedLayout) -> usize {
+    plots
+        .iter()
+        .filter_map(|p| match p {
+            Plot::Brick(bp) => Some(bp),
+            _ => None,
+        })
+        .flat_map(|bp| brickplot_notation_rows(bp, computed))
+        // Only the top row's labels live in the margin; the rest stay inside
+        // their own bands and cost no head room.
+        .filter(|p| p.upward)
+        .map(|p| match p.row {
+            NotationRow::None => 0,
+            NotationRow::Fallback => 1,
+            NotationRow::Labels(ref placed) => {
+                placed.iter().map(|&(_, _, t, _)| t + 1).max().unwrap_or(0)
+            }
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Compute the layout, shrinking the notation tier reservation in `layout` to
+/// the number of tiers the labels really occupy.
+///
+/// `Layout::auto_from_plots` can only reserve the worst case, which leaves a
+/// simple locus with several blank lines of top margin. The label packing
+/// depends on horizontal geometry alone, so re-running it against a layout that
+/// differs only in `margin_top` yields the same placements; the loop is there
+/// purely in case a margin change feeds back into the horizontal margins, and
+/// it keeps the larger reservation if it ever fails to settle.
+pub(crate) fn resolve_brick_notation_tiers(plots: &[Plot], layout: &mut Layout) -> ComputedLayout {
+    let mut computed = ComputedLayout::from_layout(layout);
+    if layout.brick_notation_tiers == 0 {
+        return computed;
+    }
+    for _ in 0..4 {
+        let used = brickplot_notation_tiers_used(plots, &computed);
+        if used == layout.brick_notation_tiers {
+            return computed;
+        }
+        layout.brick_notation_tiers = used;
+        computed = ComputedLayout::from_layout(layout);
+    }
+    // Never settled, so the reservation and the placement disagree. Keep the
+    // worst case: too much head room beats labels clipped off the canvas.
+    layout.brick_notation_tiers = crate::plot::brick::BRICK_NOTATION_TIERS;
+    ComputedLayout::from_layout(layout)
+}
+
+/// Render per-block notation labels for a BrickPlot.
+/// Must be called AFTER ClipEnd so labels that sit above the plot area are not clipped.
+fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    let font_px = computed.body_size as f64;
+    let label_size = (font_px * 0.85) as u32;
+    let line_h = font_px * 1.1;
+    let center_px = computed.margin_left + computed.plot_width() / 2.0;
+
+    // Tier 0 sits just clear of `anchor_y`; further tiers climb away from the
+    // plot for the top row, or descend into the band for the rest.
+    let tier_baseline = |p: &NotationPlacement, tier: usize| -> f64 {
+        if p.upward {
+            p.anchor_y - 2.0 - (tier as f64 + 0.5) * line_h
+        } else {
+            p.anchor_y + 2.0 + font_px + tier as f64 * line_h
+        }
+    };
+
+    for p in brickplot_notation_rows(brickplot, computed) {
+        match p.row {
+            NotationRow::None => {}
+            NotationRow::Fallback => {
+                let y = tier_baseline(&p, 0);
+                if !p.upward {
+                    let w = measure_text_width(
+                        "complex structure: see TSV",
+                        font_px,
+                        FontStyle::Regular,
+                    );
+                    label_plate(scene, center_px, y, w * 0.5, font_px);
+                }
+                scene.add(Primitive::Text {
+                    x: center_px,
+                    y,
+                    content: "complex structure: see TSV".to_string(),
+                    size: label_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+            NotationRow::Labels(ref placed) => {
+                // Plates first, so one label's backing never covers its neighbour.
+                if !p.upward {
+                    for &(x, half_w, tier, _) in placed {
+                        label_plate(scene, x, tier_baseline(&p, tier), half_w, font_px);
+                    }
+                }
+                for (x, _, tier, content) in placed {
+                    scene.add(Primitive::Text {
+                        x: *x,
+                        y: tier_baseline(&p, *tier),
+                        content: content.clone(),
+                        size: label_size,
+                        anchor: TextAnchor::Middle,
+                        rotate: None,
+                        bold: false,
+                        color: None,
+                    });
+                }
+            }
         }
     }
+}
+
+/// A translucent white plate behind a notation label drawn over bricks, so the
+/// text stays legible against whatever motif colour it lands on.
+fn label_plate(scene: &mut Scene, center_x: f64, baseline_y: f64, half_w: f64, font_px: f64) {
+    scene.add(Primitive::Rect {
+        x: center_x - half_w - 2.0,
+        y: baseline_y - font_px * 0.8,
+        width: half_w * 2.0 + 4.0,
+        height: font_px,
+        fill: Color::from("#ffffff"),
+        stroke: None,
+        stroke_width: None,
+        opacity: Some(0.78),
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3697,7 +4285,7 @@ fn add_strip(strip: &StripPlot, scene: &mut Scene, computed: &ComputedLayout) {
             strip.tooltip_labels.as_deref(),
             &group.label,
             label_offset,
-            false,
+            strip.horizontal,
             scene,
             computed,
         );
@@ -4005,6 +4593,9 @@ fn draw_3d_box(
         let perp_sign = if fc_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(0.0, fc_y, -0.5, 0.0, perp_sign, 0.0);
         let (edx, edy) = screen_dir(-0.5, fc_y, -0.5, 0.5, fc_y, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &x_ticks {
             let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4033,6 +4624,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.x_label {
             let (mx, my, _) = proj.project_normalized(0.0, fc_y, -0.5);
             scene.add(Primitive::Text {
@@ -4054,6 +4646,9 @@ fn draw_3d_box(
         let perp_sign = if fc_x < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(fc_x, 0.0, -0.5, perp_sign, 0.0, 0.0);
         let (edx, edy) = screen_dir(fc_x, -0.5, -0.5, fc_x, 0.5, -0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &y_ticks {
             let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
             if t.abs() > 0.501 {
@@ -4082,6 +4677,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.y_label {
             let (mx, my, _) = proj.project_normalized(fc_x, 0.0, -0.5);
             scene.add(Primitive::Text {
@@ -4130,6 +4726,9 @@ fn draw_3d_box(
         let perp_y = if edge_y < 0.0 { -0.1 } else { 0.1 };
         let (ndx, ndy) = perp_vec(edge_x, edge_y, 0.0, perp_x, perp_y, 0.0);
         let (zdx, zdy) = screen_dir(edge_x, edge_y, -0.5, edge_x, edge_y, 0.5);
+        // Axis tick values follow the tick font family; the axis label below
+        // is a title and keeps the main one.
+        start_tick_font(scene, computed);
         for &tick_val in &z_ticks {
             let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
             if t.abs() > 0.501 {
@@ -4156,6 +4755,7 @@ fn draw_3d_box(
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
         if let Some(ref label) = cfg.z_label {
             let (mx, my, _) = proj.project_normalized(edge_x, edge_y, 0.0);
             scene.add(Primitive::Text {
@@ -4445,7 +5045,7 @@ fn add_surface3d(
 
     let surface_cmap = if has_cmap {
         if computed.bw_mode {
-            Some(crate::plot::ColorMap::Grayscale)
+            Some(crate::render::bw::bw_colormap())
         } else {
             s.z_colormap.clone()
         }
@@ -4945,10 +5545,48 @@ fn add_survival(
                 });
             }
         }
+
+        // ── Median-survival reference lines ───────────────────────────────
+        if sp.median_lines {
+            if let Some(t_med) = crate::plot::survival::median_survival(&km) {
+                let med_stroke = if computed.bw_mode {
+                    Color::from("#1a1a1a")
+                } else {
+                    color.clone()
+                };
+                let y_half = computed.map_y(0.5);
+                let x_med = computed.map_x(t_med);
+                // Horizontal at S=0.5 from the axis to the median time, then vertical down.
+                scene.add(Primitive::Line {
+                    x1: computed.map_x(0.0),
+                    y1: y_half,
+                    x2: x_med,
+                    y2: y_half,
+                    stroke: med_stroke.clone(),
+                    stroke_width: 1.0,
+                    stroke_dasharray: Some("4,3".into()),
+                });
+                scene.add(Primitive::Line {
+                    x1: x_med,
+                    y1: y_half,
+                    x2: x_med,
+                    y2: computed.map_y(0.0),
+                    stroke: med_stroke,
+                    stroke_width: 1.0,
+                    stroke_dasharray: Some("4,3".into()),
+                });
+            }
+        }
     }
 
     // ── p-value annotation ────────────────────────────────────────────────
-    if let Some(ref txt) = sp.pvalue_text {
+    // A computed log-rank p-value (when requested) overrides any manual text.
+    let pvalue_text: Option<String> = if sp.logrank_pvalue {
+        crate::plot::survival::logrank_pvalue_text(&sp.groups).or_else(|| sp.pvalue_text.clone())
+    } else {
+        sp.pvalue_text.clone()
+    };
+    if let Some(ref txt) = pvalue_text {
         let x = computed.margin_left + computed.plot_width() - 8.0;
         let y = computed.margin_top + computed.body_size as f64 * 1.5;
         scene.add(Primitive::Text {
@@ -4964,6 +5602,98 @@ fn add_survival(
     }
 }
 
+/// Draw the survival "number at risk" table below the plot. Must be called AFTER
+/// `ClipEnd` (the table sits below the plot-area clip rect and would otherwise be
+/// clipped away, like the Manhattan chromosome labels).
+fn add_survival_risk_table(
+    sp: &crate::plot::survival::SurvivalPlot,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+) {
+    if !sp.risk_table || computed.risk_table_extra <= 0.0 || sp.groups.is_empty() {
+        return;
+    }
+    use crate::plot::survival::n_at_risk;
+    use crate::render::palette::Palette;
+    let cat10 = Palette::category10();
+    let t_max = sp
+        .groups
+        .iter()
+        .flat_map(|g| g.times.iter().copied())
+        .fold(0.0_f64, f64::max);
+
+    let rh = line_height(computed.body_size as f64, FontStyle::Regular);
+    // The reserved band sits at the very bottom of the canvas.
+    let table_top = computed.height - computed.risk_table_extra + rh * 0.5;
+
+    // Columns align with the x-axis ticks that fall within [0, t_max].
+    let ticks: Vec<f64> =
+        render_utils::generate_ticks(computed.x_range.0, computed.x_range.1, computed.x_ticks)
+            .into_iter()
+            .filter(|&t| t >= computed.x_range.0 - 1e-9 && t <= t_max + 1e-9)
+            .collect();
+
+    // Title row.
+    scene.add(Primitive::Text {
+        x: 3.0,
+        y: table_top,
+        content: "Number at risk".to_string(),
+        size: computed.body_size,
+        anchor: TextAnchor::Start,
+        bold: true,
+        rotate: None,
+        color: None,
+    });
+
+    for (gi, group) in sp.groups.iter().enumerate() {
+        let row_y = table_top + rh * (gi as f64 + 1.0);
+        let color_str: &str = group
+            .color
+            .as_deref()
+            .or_else(|| {
+                sp.group_colors
+                    .as_ref()
+                    .and_then(|c| c.get(gi).map(|s| s.as_str()))
+            })
+            .unwrap_or_else(|| {
+                if sp.groups.len() > 1 {
+                    &cat10[gi]
+                } else {
+                    &sp.color
+                }
+            });
+        let row_color = if computed.bw_mode {
+            Some(Color::from("#1a1a1a"))
+        } else {
+            Some(Color::from(color_str))
+        };
+        // Group label at the far left, in the group colour.
+        scene.add(Primitive::Text {
+            x: 3.0,
+            y: row_y,
+            content: group.label.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::Start,
+            bold: false,
+            rotate: None,
+            color: row_color.clone(),
+        });
+        // Counts under each tick.
+        for &t in &ticks {
+            scene.add(Primitive::Text {
+                x: computed.map_x(t),
+                y: row_y,
+                content: n_at_risk(&group.times, t).to_string(),
+                size: computed.body_size,
+                anchor: TextAnchor::Middle,
+                bold: false,
+                rotate: None,
+                color: row_color.clone(),
+            });
+        }
+    }
+}
+
 /// Render a single Kaplan-Meier survival plot.
 pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
@@ -4974,6 +5704,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_survival(sp, &mut scene, &computed);
+    add_survival_risk_table(sp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
@@ -5643,6 +6374,9 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Tick marks & value labels ──────────────────────────────────────────────
+    // Per-axis value labels are tick labels; the axis names above are titles and
+    // keep the main family.
+    start_tick_font(scene, computed);
     // `tick_size` was computed above (with possible font-size reduction to prevent
     // horizontal label collision on densely-spaced axes).
     if pp.show_axis_ticks {
@@ -5683,7 +6417,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
                 });
                 scene.add(Primitive::Text {
                     x: label_x,
-                    y: py + center_offset(tick_size as f64, FontStyle::Regular),
+                    y: py + center_offset(tick_size as f64, computed.tick_font_style()),
                     content: format_tick_value(val),
                     size: tick_size,
                     anchor: if is_last {
@@ -5698,6 +6432,7 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
             }
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Group color mapping ────────────────────────────────────────────────────
     let groups = pp.groups();
@@ -7524,7 +8259,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     use crate::plot::phylo::post_order_dfs;
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cm.color_map.clone()
     };
@@ -9101,6 +9836,9 @@ fn add_colorbar_at(
     // preserves the round decade tick and drops the redundant data-max label.
     let min_label_gap = computed.tick_size as f64;
     let mut last_drawn_y: Option<f64> = None;
+    // Colorbar tick labels are tick labels; the rotated colorbar label below is a
+    // title and keeps the main family.
+    start_tick_font(scene, computed);
     for (pos, label) in tick_entries {
         if *pos < info.min_value || *pos > info.max_value {
             continue;
@@ -9138,6 +9876,7 @@ fn add_colorbar_at(
             color: None,
         });
     }
+    end_tick_font(scene, computed);
 
     // Label rotated -90° to the left of the bar (reads bottom-to-top).
     // Left placement keeps it away from tick labels and avoids right-edge clipping.
@@ -9162,6 +9901,187 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
     let bar_y = computed.margin_top + computed.plot_height() * 0.1;
     let bar_height = computed.plot_height() * 0.8;
     add_colorbar_at(info, scene, computed, bar_x, bar_y, bar_height);
+}
+
+/// Force-directed (ggrepel-style) label placement shared by volcano, manhattan,
+/// and scatter. `anchors` are `(cx, cy, text)` in screen coordinates; `point_size`
+/// is the marker radius so leader lines stop just outside each point.
+fn draw_repel_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    anchors: &[(f64, f64, String)],
+    point_size: f64,
+) {
+    if anchors.is_empty() {
+        return;
+    }
+    let fs = computed.body_size as f64;
+    let half_h = text_height(fs, FontStyle::Regular) * 0.5;
+    let mut items: Vec<render_utils::RepelItem> = anchors
+        .iter()
+        .map(|(cx, cy, text)| {
+            let w = measure_text_width(text, fs, FontStyle::Regular);
+            render_utils::RepelItem {
+                anchor: (*cx, *cy),
+                half_w: w * 0.5 + 2.0,
+                half_h: half_h + 1.0,
+                // Start just above the point.
+                pos: (*cx, cy - point_size - half_h - 3.0),
+            }
+        })
+        .collect();
+    let bounds = (
+        computed.margin_left,
+        computed.margin_top,
+        computed.width - computed.margin_right,
+        computed.height - computed.margin_bottom,
+    );
+    render_utils::repel_labels(&mut items, bounds, 150);
+
+    let leader = if computed.bw_mode {
+        "#1a1a1a"
+    } else {
+        "#888888"
+    };
+    // Leader lines first so the text draws over them.
+    for (item, (ax, ay, _)) in items.iter().zip(anchors) {
+        let dx = ax - item.pos.0;
+        let dy = ay - item.pos.1;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist <= item.half_h + point_size + 2.0 {
+            continue; // label sits on its point; no leader needed
+        }
+        // Start at the label-box edge facing the anchor.
+        let scale_edge = (item.half_w / dx.abs().max(1e-6)).min(item.half_h / dy.abs().max(1e-6));
+        let ex = item.pos.0 + dx * scale_edge;
+        let ey = item.pos.1 + dy * scale_edge;
+        // Stop just outside the marker.
+        let (ux, uy) = (dx / dist, dy / dist);
+        scene.add(Primitive::Line {
+            x1: ex,
+            y1: ey,
+            x2: ax - ux * (point_size + 1.5),
+            y2: ay - uy * (point_size + 1.5),
+            stroke: leader.into(),
+            stroke_width: 0.7,
+            stroke_dasharray: None,
+        });
+    }
+    // Text.
+    let baseline = center_offset(fs, FontStyle::Regular);
+    for (item, (_, _, text)) in items.iter().zip(anchors) {
+        scene.add(Primitive::Text {
+            x: item.pos.0,
+            y: item.pos.1 + baseline,
+            content: text.clone(),
+            size: computed.body_size,
+            anchor: TextAnchor::Middle,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
+    }
+}
+
+/// Draw a set of top-N labels in the requested [`LabelStyle`]. `anchors` are
+/// `(cx, cy, text)` in screen coordinates. Shared by volcano, manhattan, and
+/// scatter so all four placement styles behave identically.
+fn keep_top(ranked: &mut Vec<(f64, usize)>, n: usize) {
+    let by_y = |a: &(f64, usize), b: &(f64, usize)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
+    if n < ranked.len() {
+        ranked.select_nth_unstable_by(n, by_y);
+        ranked.truncate(n);
+    }
+    ranked.sort_by(by_y);
+}
+
+fn draw_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    anchors: &[(f64, f64, String)],
+    point_size: f64,
+    style: &LabelStyle,
+) {
+    match style {
+        LabelStyle::Exact => {
+            for (cx, cy, name) in anchors {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: cy - point_size - 2.0,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Nudge => {
+            // Sort left-to-right, then push each label up when it crowds its neighbour.
+            let mut labels: Vec<(f64, f64, String)> = anchors
+                .iter()
+                .map(|(cx, cy, name)| (*cx, cy - point_size - 2.0, name.clone()))
+                .collect();
+            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let min_gap = computed.body_size as f64 + 2.0;
+            for j in 1..labels.len() {
+                let prev_y = labels[j - 1].1;
+                if (prev_y - labels[j].1).abs() < min_gap {
+                    labels[j].1 = prev_y - min_gap;
+                }
+            }
+            for (cx, label_y, name) in &labels {
+                scene.add(Primitive::Text {
+                    x: *cx,
+                    y: *label_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Arrow { offset_x, offset_y } => {
+            for (cx, cy, name) in anchors {
+                let text_x = cx + offset_x;
+                let text_y = cy - offset_y;
+                let dx = cx - text_x;
+                let dy = cy - text_y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > point_size + 3.0 {
+                    let scale = (len - point_size - 3.0) / len;
+                    scene.add(Primitive::Line {
+                        x1: text_x,
+                        y1: text_y,
+                        x2: text_x + dx * scale,
+                        y2: text_y + dy * scale,
+                        stroke: "#666666".into(),
+                        stroke_width: 0.8,
+                        stroke_dasharray: None,
+                    });
+                }
+                let anchor = if *offset_x >= 0.0 {
+                    TextAnchor::Start
+                } else {
+                    TextAnchor::End
+                };
+                scene.add(Primitive::Text {
+                    x: text_x,
+                    y: text_y,
+                    content: name.clone(),
+                    size: computed.body_size,
+                    anchor,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+            }
+        }
+        LabelStyle::Repel => draw_repel_labels(scene, computed, anchors, point_size),
+    }
 }
 
 fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -9228,6 +10148,9 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     // Draw points: NS first, then Down, then Up
     for pass in 0..3u8 {
         for (pi, p) in vp.points.iter().enumerate() {
+            if !p.is_plottable() {
+                continue;
+            }
             let is_up = p.log2fc >= vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let is_down = p.log2fc <= -vp.fc_cutoff && p.pvalue <= vp.p_cutoff;
             let color = match (pass, is_up, is_down) {
@@ -9294,113 +10217,28 @@ fn add_volcano(vp: &VolcanoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 
     // Collect significant points, sort by pvalue ascending, take top N
-    let mut sig_points: Vec<(f64, f64, &str)> = vp
+    let mut ranked: Vec<(f64, usize)> = vp
         .points
         .iter()
-        .filter(|p| p.pvalue <= vp.p_cutoff)
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
-            (
-                computed.map_x(p.log2fc),
-                computed.map_y(y_val),
-                p.name.as_str(),
-            )
-        })
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable() && p.pvalue <= vp.p_cutoff)
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
         .collect();
     // Sort by pvalue ascending = highest -log10(p) = smallest cy
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(vp.label_top);
+    keep_top(&mut ranked, vp.label_top);
+    let sig_points: Vec<(f64, f64, &str)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &vp.points[i];
+            (computed.map_x(p.log2fc), cy, p.name.as_str())
+        })
+        .collect();
 
-    match vp.label_style {
-        LabelStyle::Exact => {
-            for (cx, cy, name) in &sig_points {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: cy - vp.point_size - 2.0,
-                    content: name.to_string(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Nudge => {
-            // Build label positions: initially just above each point
-            let mut labels: Vec<(f64, f64, String)> = sig_points
-                .iter()
-                .map(|(cx, cy, name)| (*cx, cy - vp.point_size - 2.0, name.to_string()))
-                .collect();
-
-            // Sort by cx (x screen position, left to right)
-            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
-
-            // Greedy vertical nudge: push y up when adjacent labels are too close
-            let min_gap = computed.body_size as f64 + 2.0;
-            for j in 1..labels.len() {
-                let prev_y = labels[j - 1].1;
-                let curr_y = labels[j].1;
-                if (prev_y - curr_y).abs() < min_gap {
-                    labels[j].1 = prev_y - min_gap;
-                }
-            }
-
-            for (cx, label_y, name) in &labels {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: *label_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Arrow { offset_x, offset_y } => {
-            for (cx, cy, name) in &sig_points {
-                let text_x = cx + offset_x;
-                let text_y = cy - offset_y;
-
-                // Leader line from text toward point, stopping short
-                let dx = cx - text_x;
-                let dy = cy - text_y;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > vp.point_size + 3.0 {
-                    let scale = (len - vp.point_size - 3.0) / len;
-                    let end_x = text_x + dx * scale;
-                    let end_y = text_y + dy * scale;
-                    scene.add(Primitive::Line {
-                        x1: text_x,
-                        y1: text_y,
-                        x2: end_x,
-                        y2: end_y,
-                        stroke: "#666666".into(),
-                        stroke_width: 0.8,
-                        stroke_dasharray: None,
-                    });
-                }
-
-                let anchor = if offset_x >= 0.0 {
-                    TextAnchor::Start
-                } else {
-                    TextAnchor::End
-                };
-                scene.add(Primitive::Text {
-                    x: text_x,
-                    y: text_y,
-                    content: name.to_string(),
-                    size: computed.body_size,
-                    anchor,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-    }
+    let anchors: Vec<(f64, f64, String)> = sig_points
+        .iter()
+        .map(|(cx, cy, name)| (*cx, *cy, name.to_string()))
+        .collect();
+    draw_labels(scene, computed, &anchors, vp.point_size, &vp.label_style);
 }
 
 fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -9469,7 +10307,9 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
     // Pre-bucket points by chromosome so each span lookup is O(1) instead of O(n).
     let mut by_chr: HashMap<&str, Vec<usize>> = HashMap::new();
     for (idx, p) in mp.points.iter().enumerate() {
-        by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        if p.is_plottable() {
+            by_chr.entry(p.chromosome.as_str()).or_default().push(idx);
+        }
     }
     for (span_idx, span) in mp.spans.iter().enumerate() {
         let color = if let Some(ref pal) = mp.palette {
@@ -9532,98 +10372,24 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
 
     // Collect all points, sort by screen y ascending (most significant = smallest y = top)
     // No genome-wide threshold filter: label the top-N most significant regardless.
-    let mut sig_points: Vec<(f64, f64, String)> = mp
+    let mut ranked: Vec<(f64, usize)> = mp
         .points
         .iter()
-        .map(|p| {
-            let y_val = -(p.pvalue.max(floor)).log10();
+        .enumerate()
+        .filter(|(_, p)| p.is_plottable())
+        .map(|(i, p)| (computed.map_y(-(p.pvalue.max(floor)).log10()), i))
+        .collect();
+    keep_top(&mut ranked, mp.label_top);
+    let sig_points: Vec<(f64, f64, String)> = ranked
+        .iter()
+        .map(|&(cy, i)| {
+            let p = &mp.points[i];
             let label = p.label.clone().unwrap_or_else(|| p.chromosome.clone());
-            (computed.map_x(p.x), computed.map_y(y_val), label)
+            (computed.map_x(p.x), cy, label)
         })
         .collect();
-    sig_points.sort_by(|a, b| a.1.total_cmp(&b.1));
-    sig_points.truncate(mp.label_top);
 
-    match mp.label_style {
-        LabelStyle::Exact => {
-            for (cx, cy, name) in &sig_points {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: cy - mp.point_size - 2.0,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Nudge => {
-            let mut labels: Vec<(f64, f64, String)> = sig_points
-                .iter()
-                .map(|(cx, cy, name)| (*cx, cy - mp.point_size - 2.0, name.clone()))
-                .collect();
-            labels.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let min_gap = computed.body_size as f64 + 2.0;
-            for j in 1..labels.len() {
-                let prev_y = labels[j - 1].1;
-                if (prev_y - labels[j].1).abs() < min_gap {
-                    labels[j].1 = prev_y - min_gap;
-                }
-            }
-            for (cx, label_y, name) in &labels {
-                scene.add(Primitive::Text {
-                    x: *cx,
-                    y: *label_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor: TextAnchor::Middle,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-        LabelStyle::Arrow { offset_x, offset_y } => {
-            for (cx, cy, name) in &sig_points {
-                let text_x = cx + offset_x;
-                let text_y = cy - offset_y;
-                let dx = cx - text_x;
-                let dy = cy - text_y;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > mp.point_size + 3.0 {
-                    let scale = (len - mp.point_size - 3.0) / len;
-                    let end_x = text_x + dx * scale;
-                    let end_y = text_y + dy * scale;
-                    scene.add(Primitive::Line {
-                        x1: text_x,
-                        y1: text_y,
-                        x2: end_x,
-                        y2: end_y,
-                        stroke: "#666666".into(),
-                        stroke_width: 0.8,
-                        stroke_dasharray: None,
-                    });
-                }
-                let anchor = if offset_x >= 0.0 {
-                    TextAnchor::Start
-                } else {
-                    TextAnchor::End
-                };
-                scene.add(Primitive::Text {
-                    x: text_x,
-                    y: text_y,
-                    content: name.clone(),
-                    size: computed.body_size,
-                    anchor,
-                    rotate: None,
-                    bold: false,
-                    color: None,
-                });
-            }
-        }
-    }
+    draw_labels(scene, computed, &sig_points, mp.point_size, &mp.label_style);
 }
 
 pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
@@ -9650,12 +10416,17 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     let mut placer = XLabelPlacer::new(
         computed.x_label_overlap.clone(),
         computed.tick_size as f64,
+        computed.tick_font_style(),
         computed.x_tick_rotate,
     );
+    start_tick_font(scene, computed);
     for span in &mp.spans {
         let band_px = (computed.map_x(span.x_end) - computed.map_x(span.x_start)).abs();
         let mid_x = computed.map_x((span.x_start + span.x_end) / 2.0);
-        if mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
+        // A plot with nothing plottable has no x range, so `map_x` is not finite
+        // here. The range comparisons are both false for NaN, so test it directly
+        // rather than writing an unusable coordinate into the output.
+        if !mid_x.is_finite() || mid_x < plot_left || mid_x > plot_right || band_px < min_label_px {
             continue;
         }
         let (anchor, rotate) = match computed.x_tick_rotate {
@@ -9676,6 +10447,7 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
             });
         }
     }
+    end_tick_font(scene, computed);
 }
 
 pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
@@ -9835,8 +10607,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
         pie.label_position,
         PieLabelPosition::Outside | PieLabelPosition::Auto
     );
-    if has_outside {
-        let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+    if let (true, Some(total)) = (has_outside, pie.total()) {
         let max_label_px = pie
             .slices
             .iter()
@@ -10704,7 +11475,7 @@ fn add_dot_plot(dp: &DotPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let effective_max_r = dp.max_radius.min((cell_w.min(cell_h) / 2.0) * 0.9);
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         dp.color_map.clone()
     };
@@ -10756,7 +11527,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
     const EPSILON: f64 = f64::EPSILON;
 
     let dice_cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         dp.color_map.clone()
     };
@@ -11355,7 +12126,7 @@ fn add_dice_legends(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout)
     if dp.fill_legend_label.is_some() {
         let (fill_min, fill_max) = dp.fill_range.unwrap_or_else(|| dp.fill_extent());
         let cmap = if computed.bw_mode {
-            crate::plot::ColorMap::Grayscale
+            crate::render::bw::bw_colormap()
         } else {
             dp.color_map.clone()
         };
@@ -11664,32 +12435,43 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                     .as_ref()
                     .expect("BrickPlot legend requires a template colormap");
                 let motifs = brickplot.motifs.as_ref();
-                // Sort by global letter (A = most frequent first, then B, C, …).
-                // '@' (gap) goes last.
+                // Sort by global token. In strigar mode tokens are assigned in frequency
+                // order, so this lists the most-frequent motif first; the display label
+                // comes from `motifs` (the kmer), never the internal token itself.
                 let mut sorted_labels: Vec<(&char, &String)> = labels.iter().collect();
-                sorted_labels.sort_by(|(a, _), (b, _)| match (*a, *b) {
-                    ('@', '@') => std::cmp::Ordering::Equal,
-                    ('@', _) => std::cmp::Ordering::Greater,
-                    (_, '@') => std::cmp::Ordering::Less,
-                    _ => a.cmp(b),
-                });
-                for (letter, color) in sorted_labels {
+                sorted_labels.sort_by_key(|&(a, _)| *a);
+                for (i, (letter, color)) in sorted_labels.iter().enumerate() {
                     let base_label = if let Some(m) = motifs {
-                        m.get(letter).cloned().unwrap_or(letter.to_string())
+                        m.get(*letter)
+                            .cloned()
+                            .unwrap_or_else(|| letter.to_string())
                     } else {
                         letter.to_string()
                     };
-                    let label = if brickplot.mark_primary && *letter == 'A' {
+                    // The most-frequent motif is the primary (global token 0 = first here).
+                    let label = if brickplot.mark_primary && i == 0 {
                         format!("{}*", base_label)
                     } else {
                         base_label
                     };
                     entries.push(LegendEntry {
                         label,
-                        color: color.clone(),
+                        color: (*color).clone(),
                         shape: LegendShape::Rect,
                         dasharray: None,
                     })
+                }
+                // CIGAR operation entries, appended after the motifs so the
+                // motif legend keeps its frequency ordering. Only the ops that
+                // actually occur are listed, so a plot with no soft clips does
+                // not advertise a softclip swatch.
+                for op in brickplot.cigar_legend_ops() {
+                    entries.push(LegendEntry {
+                        label: op.label().to_string(),
+                        color: brickplot.cigar_color(op).to_string(),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
                 }
             }
             Plot::Box(boxplot) => {
@@ -11728,6 +12510,17 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                         shape: LegendShape::Rect,
                         dasharray: None,
                     });
+                }
+                // Stacked/overlaid group series each contribute their own entry.
+                for g in &hist.groups {
+                    if let Some(label) = &g.label {
+                        entries.push(LegendEntry {
+                            label: label.clone(),
+                            color: g.color.clone(),
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        });
+                    }
                 }
             }
             Plot::Waterfall(wp) => {
@@ -11876,9 +12669,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
             }
             Plot::Pie(pie) => {
                 if pie.legend_label.is_some() {
-                    let total: f64 = pie.slices.iter().map(|s| s.value).sum();
+                    let total = pie.total();
                     for slice in &pie.slices {
-                        let label = if pie.show_percent {
+                        let label = if let (true, Some(total)) = (pie.show_percent, total) {
                             let pct = slice.value / total * 100.0;
                             if slice.label.is_empty() {
                                 format!("{:.1}%", pct)
@@ -12222,7 +13015,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             }
                         });
                         let computed_g = crate::plot::roc::compute_group(group);
-                        let auc_str = if group.show_auc_label {
+                        let auc_str = if group.show_auc_label && !computed_g.points.is_empty() {
                             format!("  (AUC = {:.3})", computed_g.auc)
                         } else {
                             String::new()
@@ -12248,7 +13041,7 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                             }
                         });
                         let computed_g = crate::plot::pr::compute_pr_group(group);
-                        let auc_str = if group.show_auc_label {
+                        let auc_str = if group.show_auc_label && !computed_g.points.is_empty() {
                             format!("  (AUC-PR = {:.3})", computed_g.auc)
                         } else {
                             String::new()
@@ -12598,7 +13391,11 @@ pub fn render_legend_at(
     let line_height = (body_size as f64 * 1.5).max(12.0);
 
     let entry_rows = if let Some(groups) = groups {
-        groups.iter().map(|g| g.entries.len() + 1).sum::<usize>()
+        // Each group adds its entries plus a title row, except untitled (empty) groups.
+        groups
+            .iter()
+            .map(|g| g.entries.len() + usize::from(!g.title.is_empty()))
+            .sum::<usize>()
     } else {
         entries.len()
     };
@@ -12723,17 +13520,20 @@ pub fn render_legend_at(
 
     if let Some(groups) = groups {
         for group in groups {
-            scene.add(Primitive::Text {
-                x: x + 5.0,
-                y: cur_y + 5.0,
-                content: group.title.clone(),
-                anchor: TextAnchor::Start,
-                size: body_size,
-                rotate: None,
-                bold: true,
-                color: None,
-            });
-            cur_y += line_height;
+            // Untitled groups (empty title) render their entries with no heading row.
+            if !group.title.is_empty() {
+                scene.add(Primitive::Text {
+                    x: x + 5.0,
+                    y: cur_y + 5.0,
+                    content: group.title.clone(),
+                    anchor: TextAnchor::Start,
+                    size: body_size,
+                    rotate: None,
+                    bold: true,
+                    color: None,
+                });
+                cur_y += line_height;
+            }
             for entry in &group.entries {
                 render_entry(entry, scene, cur_y);
                 cur_y += line_height;
@@ -12756,7 +13556,9 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         return;
     }
 
-    let n_sets = up.set_names.len();
+    // `set_names` is a public field, so a caller can push past the limit the
+    // builders enforce. Clamp here too: the dot-matrix shifts below are `1u64 << j`.
+    let n_sets = up.set_names.len().min(UpSetPlot::MAX_SETS);
     let n_cols = sorted.len();
 
     let theme = &computed.theme;
@@ -14008,7 +14810,7 @@ fn add_contour(cp: &ContourPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let z_span = z_max - z_min + f64::EPSILON;
 
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cp.color_map.clone()
     };
@@ -14947,6 +15749,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: false,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 2;
@@ -14969,6 +15772,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: true,
                             underline: false,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 1;
@@ -14991,6 +15795,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: true,
                             code: false,
+                            math: false,
                         });
                     }
                     i += 2;
@@ -15013,6 +15818,7 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
                             italic: false,
                             underline: false,
                             code: true,
+                            math: false,
                         });
                     }
                     i += 1;
@@ -15027,50 +15833,149 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
     }
     flush(&mut plain, &mut spans);
 
-    // Lower any `$...$` math in each span to inline Unicode, so math works
-    // inside markdown body text just like in plain labels. Math is parsed
-    // after markdown, so the styling markers are already consumed.
-    for span in &mut spans {
-        if crate::render::math::needs_rewrite(&span.text) {
-            span.text = crate::render::math::to_unicode(&span.text);
+    // Math is parsed after markdown, so the styling markers are already
+    // consumed. With `typst-math`, split each span at `$...$` boundaries: math
+    // bodies become dedicated spans (math: true) that backends typeset with
+    // the typst tier and splice into the line; the text between them keeps
+    // the lookup pass for escaped `\$`. Without `typst-math`, everything lowers to
+    // inline Unicode exactly as before.
+    #[cfg(feature = "typst-math")]
+    {
+        use crate::render::math::Segment;
+        let mut spliced: Vec<TextSpan> = Vec::with_capacity(spans.len());
+        for span in spans {
+            if crate::render::math::contains_math(&span.text) {
+                for seg in crate::render::math::split_segments(&span.text) {
+                    match seg {
+                        Segment::Text(t) => {
+                            if !t.is_empty() {
+                                let mut sub = span.clone();
+                                sub.text = if crate::render::math::needs_rewrite(t) {
+                                    crate::render::math::to_unicode(t)
+                                } else {
+                                    t.to_string()
+                                };
+                                sub.math = false;
+                                spliced.push(sub);
+                            }
+                        }
+                        Segment::Math(body) => {
+                            let mut sub = span.clone();
+                            sub.text = body.to_string();
+                            sub.math = true;
+                            spliced.push(sub);
+                        }
+                    }
+                }
+            } else if crate::render::math::needs_rewrite(&span.text) {
+                let mut sub = span;
+                sub.text = crate::render::math::to_unicode(&sub.text);
+                spliced.push(sub);
+            } else {
+                spliced.push(span);
+            }
         }
+        spliced
     }
 
-    spans
+    #[cfg(not(feature = "typst-math"))]
+    {
+        // Lower any `$...$` math in each span to inline Unicode (lookup tier),
+        // so math works inside markdown body text just like in plain labels.
+        for span in &mut spans {
+            if crate::render::math::needs_rewrite(&span.text) {
+                span.text = crate::render::math::to_unicode(&span.text);
+            }
+        }
+        spans
+    }
 }
 
 /// Explode spans into tagged words, then wrap into lines of at most `max_chars`.
-/// Words are never split mid-word; a word that would overflow is moved to the next line.
-fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
-    type Word = (bool, bool, bool, bool, String);
-    // Explode into (bold, italic, underline, code, word) tuples
-    let mut words: Vec<Word> = Vec::new();
-    for span in spans {
-        for word in span.text.split_whitespace() {
-            words.push((
-                span.bold,
-                span.italic,
-                span.underline,
-                span.code,
-                word.to_string(),
-            ));
-        }
+/// Words are never split mid-word; a word that would overflow is moved to the
+/// next line. A math span is one unbreakable word whose length is the typeset
+/// fragment's width expressed in mean-character units (`font_size` sizes the
+/// fragment; it is unused without the `typst-math` feature).
+fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<Vec<TextSpan>> {
+    #[cfg(not(feature = "typst-math"))]
+    let _ = font_size;
+    struct Word {
+        bold: bool,
+        italic: bool,
+        underline: bool,
+        code: bool,
+        math: bool,
+        /// No space before this word: it directly abutted the previous
+        /// (math) word in the source, e.g. the `.` in `$x^2$.`. Text-text
+        /// boundaries always get a space (whitespace collapses as before).
+        flush_left: bool,
+        text: String,
     }
+    // Explode spans into words, tracking adjacency across math boundaries.
+    let mut words: Vec<Word> = Vec::new();
+    let mut prev_math_flush = false; // previous span was math with no gap after it
+    let mut prev_text_trailing_ws = true; // did the previous text span end in whitespace?
+    for span in spans {
+        if span.math {
+            // Unbreakable: the fragment is typeset as one box. It is flush
+            // left iff the preceding text span ended without whitespace
+            // (`x = $\frac{a}{b}$` keeps its space; `($\sigma$)` stays tight).
+            let flush = matches!(words.last(), Some(w) if !w.math) && !prev_text_trailing_ws;
+            words.push(Word {
+                bold: span.bold,
+                italic: span.italic,
+                underline: span.underline,
+                code: span.code,
+                math: true,
+                flush_left: flush,
+                text: span.text.clone(),
+            });
+            prev_math_flush = true;
+            continue;
+        }
+        let starts_flush = !span.text.starts_with(char::is_whitespace);
+        for (j, word) in span.text.split_whitespace().enumerate() {
+            words.push(Word {
+                bold: span.bold,
+                italic: span.italic,
+                underline: span.underline,
+                code: span.code,
+                math: false,
+                flush_left: j == 0 && prev_math_flush && starts_flush,
+                text: word.to_string(),
+            });
+        }
+        prev_math_flush = false;
+        prev_text_trailing_ws = span.text.ends_with(char::is_whitespace) || span.text.is_empty();
+    }
+
+    // The wrapping length of one word, in character units.
+    let word_len = |w: &Word| -> usize {
+        if w.math {
+            math_word_chars(&w.text, font_size)
+        } else {
+            w.text.chars().count()
+        }
+    };
 
     // Pack words onto lines
     let mut lines: Vec<Vec<Word>> = Vec::new();
     let mut cur: Vec<Word> = Vec::new();
     let mut cur_len = 0usize;
 
-    for (bold, italic, underline, code, word) in words {
-        let wlen = word.chars().count();
-        let sep = if cur.is_empty() { 0 } else { 1 };
+    for word in words {
+        let wlen = word_len(&word);
+        let sep = if cur.is_empty() || word.flush_left {
+            0
+        } else {
+            1
+        };
         if cur_len + sep + wlen > max_chars && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             cur_len = 0;
         }
-        cur_len += if cur.is_empty() { wlen } else { wlen + 1 };
-        cur.push((bold, italic, underline, code, word));
+        cur_len += if cur.is_empty() { wlen } else { wlen + sep };
+        cur.push(word);
     }
     if !cur.is_empty() {
         lines.push(cur);
@@ -15081,32 +15986,115 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize) -> Vec<Vec<TextSpan>> {
         .into_iter()
         .map(|line_words| {
             let mut line_spans: Vec<TextSpan> = Vec::new();
-            for (i, (bold, italic, underline, code, word)) in line_words.into_iter().enumerate() {
+            for (i, w) in line_words.into_iter().enumerate() {
+                let space = i > 0 && !w.flush_left;
+                if w.math {
+                    // Inter-word space stays in the neighbouring text span
+                    // (a leading space inside the math body would change the
+                    // typeset expression).
+                    if space {
+                        match line_spans.last_mut() {
+                            Some(last) if !last.math => last.text.push(' '),
+                            _ => line_spans.push(TextSpan::plain(" ")),
+                        }
+                    }
+                    line_spans.push(TextSpan {
+                        text: w.text,
+                        bold: w.bold,
+                        italic: w.italic,
+                        underline: w.underline,
+                        code: w.code,
+                        math: true,
+                    });
+                    continue;
+                }
                 // Try to merge with the last span if styles match
                 if let Some(last) = line_spans.last_mut() {
-                    if last.bold == bold
-                        && last.italic == italic
-                        && last.underline == underline
-                        && last.code == code
+                    if !last.math
+                        && last.bold == w.bold
+                        && last.italic == w.italic
+                        && last.underline == w.underline
+                        && last.code == w.code
                     {
-                        last.text.push(' ');
-                        last.text.push_str(&word);
+                        if space {
+                            last.text.push(' ');
+                        }
+                        last.text.push_str(&w.text);
                         continue;
                     }
                 }
-                // New span: prefix with a space for every word after the first
-                let text = if i == 0 { word } else { format!(" {}", word) };
+                // New span: prefix with a space unless flush against the
+                // previous word (or first on the line).
+                let text = if space {
+                    format!(" {}", w.text)
+                } else {
+                    w.text
+                };
                 line_spans.push(TextSpan {
                     text,
-                    bold,
-                    italic,
-                    underline,
-                    code,
+                    bold: w.bold,
+                    italic: w.italic,
+                    underline: w.underline,
+                    code: w.code,
+                    math: false,
                 });
             }
             line_spans
         })
         .collect()
+}
+
+/// Wrapping length of a `$...$` math word: the typeset fragment's width in
+/// mean-character units, so the line-breaker packs it like any other word.
+/// Falls back to the lookup tier's inline form when the fragment fails to
+/// compile (the backends will draw that same fallback).
+#[cfg(feature = "typst-math")]
+fn math_word_chars(body: &str, font_size: u32) -> usize {
+    let label = format!("${body}$");
+    let fs = font_size as f64;
+    match crate::render::math::fragment_size(&label, fs) {
+        Some((w, _h, _b)) => {
+            // Subtract the fragment's baked-in page margin: inline it
+            // advances like a word, not a padded box.
+            let w = (w - 2.0 * crate::render::math::FRAGMENT_MARGIN_EM * fs).max(1.0);
+            (w / crate::render::text_metrics::mean_char_width(fs)).ceil() as usize
+        }
+        None => crate::render::math::to_unicode(&label).chars().count(),
+    }
+    .max(1)
+}
+
+#[cfg(not(feature = "typst-math"))]
+fn math_word_chars(_body: &str, _font_size: u32) -> usize {
+    1
+}
+
+/// Extra leading needed above (ascent overshoot) and below (descent
+/// overshoot) a rich-text line whose math fragments are taller than the
+/// surrounding text. Zero without the `typst-math` feature.
+#[cfg(feature = "typst-math")]
+fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
+    use crate::render::text_metrics::{ascent, descent, FontStyle};
+    let fs = font_size as f64;
+    let mut asc_extra = 0.0f64;
+    let mut desc_extra = 0.0f64;
+    for sp in spans {
+        if !sp.math {
+            continue;
+        }
+        if let Some((_w, h, baseline)) =
+            crate::render::math::fragment_size(&format!("${}$", sp.text), fs)
+        {
+            asc_extra = asc_extra.max(baseline - ascent(fs, FontStyle::Regular));
+            desc_extra = desc_extra.max((h - baseline) - descent(fs, FontStyle::Regular));
+        }
+    }
+    (asc_extra.max(0.0), desc_extra.max(0.0))
+}
+
+#[cfg(not(feature = "typst-math"))]
+fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32) -> (f64, f64) {
+    (0.0, 0.0)
 }
 
 /// Render a [`LegendPlot`] — a standalone legend grid with no axes or data.
@@ -15377,8 +16365,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Body line — parse inline markup, word-wrap, emit RichText
         let spans = parse_inline_markup(raw);
-        let wrapped_lines = wrap_rich_spans(&spans, max_chars);
+        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size);
         for line_spans in wrapped_lines {
+            // Typeset math fragments can be taller than the text line
+            // (stacked fractions, radicals): grow this line's leading by the
+            // fragment's overshoot above the ascent and below the descent so
+            // neighbouring lines never overlap it.
+            let (asc_extra, desc_extra) = rich_line_math_extents(&line_spans, font_size);
+            cy += asc_extra;
             scene.add(Primitive::RichText {
                 x: text_x,
                 y: cy,
@@ -15387,7 +16381,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 anchor,
                 color: text_color.clone(),
             });
-            cy += line_height;
+            cy += line_height + desc_extra;
         }
     }
 }
@@ -15438,7 +16432,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
-    let mut computed = ComputedLayout::from_layout(&layout);
+    // Reserve only the notation tiers the labels actually occupy, rather than
+    // the worst case `Layout::auto_from_plots` had to assume.
+    let mut computed = resolve_brick_notation_tiers(&plots, &mut layout);
 
     // Pie canvas-widening: when a Pie with outside labels is present, ensure the
     // canvas is wide enough to fit both the leader-line labels AND any legend in the
@@ -15452,10 +16448,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             if !has_outside {
                 break;
             }
-            let total: f64 = pie.slices.iter().map(|s| s.value).sum();
-            if total <= 0.0 {
+            let Some(total) = pie.total() else {
                 break;
-            }
+            };
             let max_label_px = pie
                 .slices
                 .iter()
@@ -15961,6 +16956,13 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         if let Plot::Manhattan(m) = plot {
             add_manhattan_chr_labels(m, &mut scene, &computed);
+        }
+    }
+
+    // Survival number-at-risk table sits below the plot area — emit after ClipEnd.
+    for plot in plots.iter() {
+        if let Plot::Survival(sp) = plot {
+            add_survival_risk_table(sp, &mut scene, &computed);
         }
     }
 
@@ -17203,10 +18205,14 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
         }
 
-        // Emit all labels after geometry so lines never overdraw text.
+        // Emit all labels after geometry so lines never overdraw text. These are
+        // the polar axis's tick labels (ring r-values and theta spokes), so they
+        // follow the tick font family like any cartesian tick label.
+        start_tick_font(scene, computed);
         for prim in label_prims {
             scene.add(prim);
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Data series ───────────────────────────────────────────────────────────
@@ -17429,6 +18435,9 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
     // ── Tick labels on edges ──────────────────────────────────────────────────
     if tp.show_percentages {
+        // Percentage ticks along the three edges are this plot's tick labels;
+        // the corner labels below are axis titles and keep the main family.
+        start_tick_font(scene, computed);
         for ki in 0..=n {
             let k = ki as f64 / n as f64;
             let pct = (k * 100.0).round() as i32;
@@ -17476,6 +18485,7 @@ fn add_ternary(tp: &TernaryPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 color: None,
             });
         }
+        end_tick_font(scene, computed);
     }
 
     // ── Corner labels ─────────────────────────────────────────────────────────
@@ -18366,43 +19376,62 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
             // Label inside cell
             let show_label = mp.show_percents || mp.show_values;
             if show_label && seg_h >= mp.min_label_height && col_w >= mp.min_label_width {
-                let label = if mp.show_percents && mp.show_values {
-                    format!("{:.1}%\n{}", val / col_total * 100.0, val)
-                } else if mp.show_percents {
-                    let pct = val / col_total * 100.0;
-                    format!("{:.1}%", pct)
-                } else {
-                    format!("{}", val)
-                };
-                // Only show if text fits width (measure the widest line for multi-line labels)
-                let widest =
-                    widest_text_width(label.split('\n'), label_size as f64, FontStyle::Regular);
+                // One `Primitive::Text` per line. A `\n` *inside* a single Text
+                // primitive is not a line break for any backend: SVG collapses it
+                // to a space under XML whitespace handling, and the terminal
+                // backend rewrites it to U+FFFD along with every other control
+                // character (the GHSA-3c48 escape-injection guard). Stacking real
+                // primitives is also what makes the width test below mean
+                // anything — it measures the widest line, not the joined string,
+                // so a label that passed the test still overflowed its cell.
+                let mut lines: Vec<String> = Vec::new();
+                if mp.show_percents {
+                    lines.push(format!("{:.1}%", val / col_total * 100.0));
+                }
+                if mp.show_values {
+                    lines.push(format!("{val}"));
+                }
+                let widest = widest_text_width(
+                    lines.iter().map(|s| s.as_str()),
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 if widest < col_w * 0.9 {
                     let cx = col_x + col_w / 2.0;
-                    let cy = seg_top
-                        + seg_h / 2.0
+                    let line_h = text_height(label_size as f64, FontStyle::Regular);
+                    // Centre the whole stack on the segment rather than its first
+                    // line, so a one-line label lands exactly where it used to.
+                    let first_cy = seg_top + seg_h / 2.0
+                        - line_h * (lines.len() as f64 - 1.0) / 2.0
                         + center_offset(label_size as f64, FontStyle::Regular);
-                    label_bg_rect(
-                        scene,
-                        computed,
-                        cx,
-                        cy,
-                        TextAnchor::Middle,
-                        widest,
-                        label_size,
-                        false,
-                        None,
-                    );
-                    scene.add(Primitive::Text {
-                        x: cx,
-                        y: cy,
-                        content: label,
-                        size: label_size,
-                        anchor: TextAnchor::Middle,
-                        rotate: None,
-                        bold: false,
-                        color: Some(in_fill_label_color(computed, "white")),
-                    });
+                    for (li, line) in lines.iter().enumerate() {
+                        let cy = first_cy + line_h * li as f64;
+                        label_bg_rect(
+                            scene,
+                            computed,
+                            cx,
+                            cy,
+                            TextAnchor::Middle,
+                            widest_text_width(
+                                std::iter::once(line.as_str()),
+                                label_size as f64,
+                                FontStyle::Regular,
+                            ),
+                            label_size,
+                            false,
+                            None,
+                        );
+                        scene.add(Primitive::Text {
+                            x: cx,
+                            y: cy,
+                            content: line.clone(),
+                            size: label_size,
+                            anchor: TextAnchor::Middle,
+                            rotate: None,
+                            bold: false,
+                            color: Some(in_fill_label_color(computed, "white")),
+                        });
+                    }
                 }
             }
 
@@ -19230,7 +20259,10 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
 
-        // Concentric rings (polygon or circular)
+        // Concentric rings (polygon or circular). The per-ring value labels are the
+        // radial axis's tick labels, so the whole loop runs inside one tick-font
+        // group rather than opening a new one per ring.
+        start_tick_font(scene, computed);
         for k in 1..=rp.grid_lines {
             let fr = k as f64 / rp.grid_lines as f64;
 
@@ -19284,6 +20316,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
                 color: Some(Color::from(theme.tick_color.as_str())),
             });
         }
+        end_tick_font(scene, computed);
 
         // Axis tick marks
         if rp.axis_ticks {
@@ -19313,6 +20346,9 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
     let label_size = computed.tick_size;
     let line_h = label_size as f64 * 1.2;
 
+    // The spoke names are this plot's category tick labels (the radar analogue of
+    // a cartesian x-category axis), so they follow the tick font family.
+    start_tick_font(scene, computed);
     for i in 0..n {
         let th = angle(i);
         let lx = cx + label_r * radius * th.cos();
@@ -19360,6 +20396,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
             });
         }
     }
+    end_tick_font(scene, computed);
 
     // ── Reference polygons (drawn before series so they stay behind) ──────────
     for ref_poly in &rp.references {
@@ -19825,7 +20862,7 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
         });
     let (v_min, v_max) = hb.color_range.unwrap_or((v_min_raw, v_max_raw));
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hb.color_map.clone()
     };
@@ -19942,7 +20979,7 @@ fn add_hexbin(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLayout) {
         1.0
     };
     let hexbin_cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         hb.color_map.clone()
     };
@@ -22645,7 +23682,7 @@ const CALENDAR_TIP_JS: &str = r#"(function(){
 
 fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let cmap = if computed.bw_mode {
-        crate::plot::ColorMap::Grayscale
+        crate::render::bw::bw_colormap()
     } else {
         cp.color_map.clone()
     };
@@ -23932,7 +24969,7 @@ fn add_quiver(q: &crate::plot::quiver::QuiverPlot, scene: &mut Scene, computed: 
         } else if let Some(ref cmap) = q.color_map {
             let cmap_bw;
             let cmap = if computed.bw_mode {
-                cmap_bw = crate::plot::ColorMap::Grayscale;
+                cmap_bw = crate::render::bw::bw_colormap();
                 &cmap_bw
             } else {
                 cmap

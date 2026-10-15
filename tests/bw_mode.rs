@@ -2078,3 +2078,41 @@ fn bw_layout_flag_propagates_to_computed() {
         "bw_mode should propagate from Layout to ComputedLayout"
     );
 }
+
+/// Continuous data in BW mode must never be filled pure white.
+///
+/// BW mode maps continuous colormaps onto a grey ramp. ColorBrewer *Greys*
+/// starts at `#ffffff`, which is the canvas colour: for plots that omit empty
+/// cells (hexbin, calendar) a minimum-value cell then reads as *no data* rather
+/// than *least data*, and roughly half a realistic hexbin disappeared. The ramp
+/// is floored so the lightest cell stays visible, the same reason the
+/// categorical `BW_GREYS` sequence stops at `#f0f0f0` rather than white.
+#[test]
+fn bw_continuous_fills_are_never_pure_white() {
+    use kuva::plot::hexbin::HexbinPlot;
+
+    // A long thin tail of single-count bins plus one dense bin: the single-count
+    // bins all normalize to 0.0, which is exactly where the ramp used to be white.
+    let mut xs: Vec<f64> = (0..40).map(|i| (i % 8) as f64).collect();
+    let mut ys: Vec<f64> = (0..40).map(|i| (i / 8) as f64).collect();
+    for _ in 0..20 {
+        xs.push(0.0);
+        ys.push(0.0);
+    }
+    let build = || HexbinPlot::new().with_data(xs.clone(), ys.clone());
+    let svg = bw_svg(
+        vec![Plot::Hexbin(build())],
+        Layout::auto_from_plots(&[Plot::Hexbin(build())]),
+    );
+
+    let whites = svg.matches(r##"fill="#ffffff""##).count();
+    assert_eq!(
+        whites, 0,
+        "BW hexbin drew {whites} pure-white cells, which are invisible on the white canvas"
+    );
+    // The ramp must still reach full black, i.e. it is floored, not compressed away.
+    assert!(
+        svg.contains(r##"fill="#000000""##),
+        "BW hexbin lost its dark end; the ramp should still reach black"
+    );
+}
