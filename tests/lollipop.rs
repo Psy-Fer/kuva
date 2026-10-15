@@ -241,3 +241,61 @@ fn test_lollipop_mutation_landscape() {
     assert!(svg.contains("R248W"));
     assert!(svg.contains("N-term"));
 }
+
+/// Regression: a labelled point sitting at the top of the data range had its
+/// label drawn above the axis maximum, where the plot-area clip rectangle sliced
+/// the top off the glyphs (`lollipop_mutation_landscape.svg`, v0.6.0 review).
+/// `bounds()` now reserves headroom for it, so the whole label stays inside the
+/// clip rect.
+#[test]
+fn point_label_at_the_data_maximum_is_not_clipped() {
+    // The tallest point is also the labelled one — the case that used to clip.
+    let lp = LollipopPlot::new()
+        .with_points(vec![(12.0, 3.0), (41.0, 7.0), (124.0, 8.0)])
+        .with_labeled_colored_point(124.0, 8.0, "R248W", "tomato")
+        .with_domain(1.0, 180.0, Some("N-term"), "#4e79a7")
+        .with_domain_height(1.2)
+        .with_dot_radius(4.5);
+    let plots = vec![Plot::Lollipop(lp)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(600.0)
+        .with_height(350.0);
+    let svg = write_svg("lollipop_label_headroom", plots, layout);
+
+    let clip_top = {
+        let after = svg.split("<clipPath").nth(1).expect("a clip rect");
+        let y = after.split(" y=\"").nth(1).expect("clip y");
+        y.split('"').next().unwrap().parse::<f64>().unwrap()
+    };
+    // `<text x=".." y=".." font-size="N" ..>R248W</text>` — the baseline and size
+    // are all we need; 0.8 * size over-estimates DejaVu's ascent (~0.76), so this
+    // is a deliberately strict stand-in for the real ink top.
+    let tag = svg
+        .split("<text ")
+        .find(|t| t.starts_with('x') && t.contains(">R248W<"))
+        .expect("the R248W label");
+    let baseline: f64 = tag
+        .split(" y=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let size: f64 = tag
+        .split("font-size=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let ink_top = baseline - size * 0.8;
+    assert!(
+        ink_top >= clip_top,
+        "label ink top {ink_top} is above the plot-area clip top {clip_top}: \
+         the top of the text is cut off"
+    );
+}

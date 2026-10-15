@@ -1290,6 +1290,37 @@ impl Plot {
                 if !x_min.is_finite() {
                     return None;
                 }
+                // Per-point labels are drawn clear of the dot (`dot_radius + 4px`,
+                // then the glyphs themselves) entirely in *pixel* space, which
+                // `bounds()` has no way to measure. When the tallest labelled point
+                // is also the tallest point overall, that text lands above the axis
+                // maximum and the plot-area clip rectangle slices its top off.
+                // Reserve headroom in data space instead: 8% of the span covers the
+                // dot plus a ~9px label at every default figure size, and
+                // `auto_nice_range` rounds it out to a real tick from there. Points
+                // below the baseline label *downwards*, so pad that end too; the
+                // label sits a full line-height lower there, hence the larger share.
+                // Only the labelled extremes are padded, so a label well inside the
+                // data range leaves the axis untouched.
+                let label_pad = (y_max - y_min).abs().max(1.0);
+                let labelled_top = lp
+                    .points
+                    .iter()
+                    .filter(|p| p.label.is_some() && p.y >= lp.baseline)
+                    .map(|p| p.y)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                if labelled_top.is_finite() {
+                    y_max = y_max.max(labelled_top + label_pad * 0.08);
+                }
+                let labelled_bottom = lp
+                    .points
+                    .iter()
+                    .filter(|p| p.label.is_some() && p.y < lp.baseline)
+                    .map(|p| p.y)
+                    .fold(f64::INFINITY, f64::min);
+                if labelled_bottom.is_finite() {
+                    y_min = y_min.min(labelled_bottom - label_pad * 0.12);
+                }
                 // Pad x so dots at x=0 aren't clipped by the left axis border.
                 let x_span = (x_max - x_min).max(1.0);
                 x_min -= x_span * 0.04;
