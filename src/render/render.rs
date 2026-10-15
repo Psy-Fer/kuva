@@ -19376,43 +19376,62 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
             // Label inside cell
             let show_label = mp.show_percents || mp.show_values;
             if show_label && seg_h >= mp.min_label_height && col_w >= mp.min_label_width {
-                let label = if mp.show_percents && mp.show_values {
-                    format!("{:.1}%\n{}", val / col_total * 100.0, val)
-                } else if mp.show_percents {
-                    let pct = val / col_total * 100.0;
-                    format!("{:.1}%", pct)
-                } else {
-                    format!("{}", val)
-                };
-                // Only show if text fits width (measure the widest line for multi-line labels)
-                let widest =
-                    widest_text_width(label.split('\n'), label_size as f64, FontStyle::Regular);
+                // One `Primitive::Text` per line. A `\n` *inside* a single Text
+                // primitive is not a line break for any backend: SVG collapses it
+                // to a space under XML whitespace handling, and the terminal
+                // backend rewrites it to U+FFFD along with every other control
+                // character (the GHSA-3c48 escape-injection guard). Stacking real
+                // primitives is also what makes the width test below mean
+                // anything — it measures the widest line, not the joined string,
+                // so a label that passed the test still overflowed its cell.
+                let mut lines: Vec<String> = Vec::new();
+                if mp.show_percents {
+                    lines.push(format!("{:.1}%", val / col_total * 100.0));
+                }
+                if mp.show_values {
+                    lines.push(format!("{val}"));
+                }
+                let widest = widest_text_width(
+                    lines.iter().map(|s| s.as_str()),
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 if widest < col_w * 0.9 {
                     let cx = col_x + col_w / 2.0;
-                    let cy = seg_top
-                        + seg_h / 2.0
+                    let line_h = text_height(label_size as f64, FontStyle::Regular);
+                    // Centre the whole stack on the segment rather than its first
+                    // line, so a one-line label lands exactly where it used to.
+                    let first_cy = seg_top + seg_h / 2.0
+                        - line_h * (lines.len() as f64 - 1.0) / 2.0
                         + center_offset(label_size as f64, FontStyle::Regular);
-                    label_bg_rect(
-                        scene,
-                        computed,
-                        cx,
-                        cy,
-                        TextAnchor::Middle,
-                        widest,
-                        label_size,
-                        false,
-                        None,
-                    );
-                    scene.add(Primitive::Text {
-                        x: cx,
-                        y: cy,
-                        content: label,
-                        size: label_size,
-                        anchor: TextAnchor::Middle,
-                        rotate: None,
-                        bold: false,
-                        color: Some(in_fill_label_color(computed, "white")),
-                    });
+                    for (li, line) in lines.iter().enumerate() {
+                        let cy = first_cy + line_h * li as f64;
+                        label_bg_rect(
+                            scene,
+                            computed,
+                            cx,
+                            cy,
+                            TextAnchor::Middle,
+                            widest_text_width(
+                                std::iter::once(line.as_str()),
+                                label_size as f64,
+                                FontStyle::Regular,
+                            ),
+                            label_size,
+                            false,
+                            None,
+                        );
+                        scene.add(Primitive::Text {
+                            x: cx,
+                            y: cy,
+                            content: line.clone(),
+                            size: label_size,
+                            anchor: TextAnchor::Middle,
+                            rotate: None,
+                            bold: false,
+                            color: Some(in_fill_label_color(computed, "white")),
+                        });
+                    }
                 }
             }
 

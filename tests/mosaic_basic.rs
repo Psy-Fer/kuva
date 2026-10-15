@@ -218,3 +218,48 @@ fn test_mosaic_market_share() {
             || svg.contains("West")
     );
 }
+
+/// Regression: with both percents and values on, the cell label was built as a
+/// single `"12.3%\n45"` string. No backend treats a `\n` inside one text
+/// primitive as a line break — SVG collapses it to a space, and the terminal
+/// backend rewrites it to U+FFFD along with every other control character
+/// (`kuva mosaic --show-values --terminal` printed `46.7%<?>70`). The two lines
+/// are now separate primitives.
+#[test]
+fn percent_and_value_labels_are_two_stacked_lines() {
+    let mp = MosaicPlot::new()
+        .with_cell("Group1", "Cat A", 120.0)
+        .with_cell("Group1", "Cat B", 80.0)
+        .with_cell("Group2", "Cat A", 30.0)
+        .with_cell("Group2", "Cat B", 170.0)
+        .with_percents(true)
+        .with_values(true);
+    let svg = render(mp, "Percents + Values");
+    common::write_test_output("test_outputs/mosaic_percents_and_values.svg", &svg).unwrap();
+
+    assert!(
+        !svg.contains('\n'),
+        "no text primitive may carry a raw newline"
+    );
+
+    // Both halves present, and as separate <text> elements rather than one
+    // space-joined run.
+    let texts: Vec<&str> = svg
+        .split("<text ")
+        .skip(1)
+        .filter_map(|t| t.split('>').nth(1))
+        .filter_map(|t| t.split('<').next())
+        .collect();
+    assert!(
+        texts.contains(&"120"),
+        "raw value on its own line, got {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.ends_with('%') && t.contains('.')),
+        "percentage on its own line, got {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.contains("% ")),
+        "percent and value were joined onto one line: {texts:?}"
+    );
+}
