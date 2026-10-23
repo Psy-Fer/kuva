@@ -1,3 +1,4 @@
+use crate::plot::annotations::{stack_levels, BracketAnchor, SignificanceBracket};
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition};
 use crate::plot::pareto::ParetoBar;
@@ -334,6 +335,10 @@ pub struct Layout {
     pub annotations: Vec<TextAnnotation>,
     pub reference_lines: Vec<ReferenceLine>,
     pub shaded_regions: Vec<ShadedRegion>,
+    /// Significance brackets between categorical groups (see
+    /// [`SignificanceBracket`]). Auto-positioned brackets stack above the
+    /// data and grow the value axis to fit.
+    pub brackets: Vec<SignificanceBracket>,
     pub suppress_x_ticks: bool,
     pub suppress_y_ticks: bool,
     pub font_family: Option<String>,
@@ -562,6 +567,7 @@ impl Layout {
             annotations: Vec::new(),
             reference_lines: Vec::new(),
             shaded_regions: Vec::new(),
+            brackets: Vec::new(),
             suppress_x_ticks: false,
             suppress_y_ticks: false,
             font_family: None,
@@ -2302,6 +2308,33 @@ impl Layout {
         self
     }
 
+    /// Add a significance bracket between two categorical groups. See
+    /// [`SignificanceBracket`] for anchors, label formats and positioning.
+    pub fn with_bracket(mut self, bracket: SignificanceBracket) -> Self {
+        self.brackets.push(bracket);
+        self
+    }
+
+    /// Shortcut for a star-labelled bracket between groups `a` and `b` with
+    /// p-value `p`, auto-stacked above the data. Anchors may be category
+    /// labels (`&str`), zero-based indices (`usize`) or axis values (`f64`).
+    ///
+    /// ```
+    /// use kuva::render::layout::Layout;
+    /// let layout = Layout::new((0.5, 2.5), (0.0, 1.0))
+    ///     .with_x_categories(vec!["ctrl".into(), "drug".into()])
+    ///     .with_significance("ctrl", "drug", 0.004);
+    /// assert_eq!(layout.brackets[0].label(), "**");
+    /// ```
+    pub fn with_significance(
+        self,
+        a: impl Into<BracketAnchor>,
+        b: impl Into<BracketAnchor>,
+        p: f64,
+    ) -> Self {
+        self.with_bracket(SignificanceBracket::new(a, b, p))
+    }
+
     pub fn with_font_family<S: Into<String>>(mut self, family: S) -> Self {
         self.font_family = Some(family.into());
         self
@@ -2807,6 +2840,24 @@ pub struct ComputedLayout {
     pub legend_width: f64,
     /// Optional explicit legend height override from `Layout::with_legend_height`.
     pub legend_height_override: Option<f64>,
+    /// Stacking level of each `Layout::brackets` entry (same order); `None`
+    /// for brackets pinned with an explicit position or with an anchor that
+    /// did not resolve.
+    pub bracket_levels: Vec<Option<usize>>,
+    /// Resolved `(lo, hi)` span of each bracket on its category axis, in data
+    /// units; `None` when an anchor did not resolve (nothing is drawn).
+    pub bracket_spans: Vec<Option<(f64, f64)>>,
+    /// Effective orientation of each bracket: `true` when its categories run
+    /// along y (inferred from the layout, or forced by `with_horizontal`).
+    pub bracket_horizontal: Vec<bool>,
+    /// Height of one terminal row in scene pixels when rendering to the
+    /// terminal (`Layout::term_rows`), so bracket labels can clear the bar by
+    /// a whole row; `None` for pixel backends.
+    pub bracket_cell_h: Option<f64>,
+    /// Auto-stack geometry for horizontal brackets (value axis = x).
+    pub bracket_stack_x: BracketStack,
+    /// Auto-stack geometry for vertical brackets (value axis = y).
+    pub bracket_stack_y: BracketStack,
     /// Pixel width of the widest y-axis tick label, computed from actual tick strings.
     /// Used in `axis.rs` to position the Y axis label flush with the tick labels.
     pub y_tick_label_px: f64,
@@ -2960,6 +3011,257 @@ pub struct ComputedLayout {
 /// happens to also be set (e.g. a normalized histogram sharing a panel with
 /// a horizontal bar chart sets `clamp_y_axis`, which must not override the
 /// bar chart's own categorical y-axis).
+/// Geometry of the auto-stacked significance brackets on one value axis.
+/// Level `k` sits at `base + step * (k + 0.5)` in data units — in log10 space
+/// when `log` is set, so brackets keep an even pixel pitch on a log axis.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BracketStack {
+    pub base: f64,
+    pub step: f64,
+    pub log: bool,
+}
+
+impl BracketStack {
+    /// Data-space position of stacking level `level`.
+    pub fn position(&self, level: usize) -> f64 {
+        let v = self.base + self.step * (level as f64 + 0.5);
+        if self.log {
+            10f64.powf(v)
+        } else {
+            v
+        }
+    }
+}
+
+/// Where a bracket anchor lands on its category axis, in data units.
+/// Categories sit at `i + 1`; an unknown label resolves to `None`.
+pub fn resolve_bracket_anchor(
+    anchor: &BracketAnchor,
+    categories: Option<&[String]>,
+) -> Option<f64> {
+    match anchor {
+        BracketAnchor::Index(i) => Some(*i as f64 + 1.0),
+        BracketAnchor::Value(v) => Some(*v),
+        BracketAnchor::Label(l) => categories?
+            .iter()
+            .position(|c| c == l)
+            .map(|i| i as f64 + 1.0),
+    }
+}
+
+/// Everything `from_layout` resolves about the layout's brackets.
+struct ResolvedBrackets {
+    levels: Vec<Option<usize>>,
+    spans: Vec<Option<(f64, f64)>>,
+    horizontal: Vec<bool>,
+    stack_x: BracketStack,
+    stack_y: BracketStack,
+    x_max: f64,
+    y_max: f64,
+}
+
+/// Stack geometry for one value axis, and the axis max after making room.
+///
+/// `plot_px` is the axis length in pixels, `pitch_px` the level pitch and
+/// `head_px` the room the top label needs beyond the top bar; `n_levels` is
+/// the number of occupied levels (`None` when nothing auto-stacks here). The
+/// base is the data maximum the plot reports, so the first bracket clears
+/// every box, bar and whisker.
+///
+/// The pitch is a pixel quantity, so it is solved against the *final* scale:
+/// growing the axis shrinks the pixels per data unit, and a pitch fixed in
+/// data units beforehand would shrink with it. With the stack needing `H`
+/// pixels above the base on a `P`-pixel axis, the span that fits it exactly
+/// is `(base - lo) / (1 - H / P)`; the axis takes that or its current span,
+/// whichever is larger — unless `pinned`, where an explicit override wins.
+#[allow(clippy::too_many_arguments)]
+fn stack_axis(
+    data_range: Option<(f64, f64)>,
+    range: (f64, f64),
+    log: bool,
+    pinned: bool,
+    n_levels: Option<usize>,
+    plot_px: f64,
+    pitch_px: f64,
+    head_px: f64,
+) -> (BracketStack, f64) {
+    let (lo, hi) = range;
+    let to = |v: f64| if log { v.max(1e-10).log10() } else { v };
+    let from = |v: f64| if log { 10f64.powf(v) } else { v };
+    let data_top = data_range.map(|r| r.1).unwrap_or(hi).min(hi);
+    let (lo_s, hi_s) = (to(lo), to(hi));
+    let base = to(data_top);
+    let plot_px = plot_px.max(1.0);
+    let span = (hi_s - lo_s).max(f64::EPSILON);
+
+    let Some(n) = n_levels else {
+        return (
+            BracketStack {
+                base,
+                step: pitch_px * span / plot_px,
+                log,
+            },
+            hi,
+        );
+    };
+    let stack_px = pitch_px * (n as f64 - 0.5) + head_px;
+    // A stack taller than 90% of the axis cannot be fitted by growing the
+    // range without squashing the data into nothing; cap the growth there.
+    let frac = (stack_px / plot_px).min(0.9);
+    let needed_span = (base - lo_s).max(f64::EPSILON) / (1.0 - frac);
+    let final_span = if pinned { span } else { span.max(needed_span) };
+    let step = pitch_px * final_span / plot_px;
+    (
+        BracketStack { base, step, log },
+        from(lo_s + final_span).max(hi),
+    )
+}
+
+/// Resolve every bracket's orientation and span, assign stacking levels per
+/// orientation, and grow whichever value axes need it. `plot_px` is the plot
+/// area `(width, height)` in pixels, `body_px` the default label size, and
+/// `cell_h` the height of one terminal row when rendering to the terminal.
+fn resolve_brackets(
+    layout: &Layout,
+    x: (f64, f64),
+    y: (f64, f64),
+    plot_px: (f64, f64),
+    body_px: f64,
+    cell_h: Option<f64>,
+) -> ResolvedBrackets {
+    let n = layout.brackets.len();
+    let mut out = ResolvedBrackets {
+        levels: Vec::new(),
+        spans: Vec::new(),
+        horizontal: Vec::new(),
+        stack_x: BracketStack::default(),
+        stack_y: BracketStack::default(),
+        x_max: x.1,
+        y_max: y.1,
+    };
+    if n == 0 {
+        return out;
+    }
+    // A plot whose categories sit on y (and not x) is horizontal; a bracket
+    // can also force it.
+    let inferred = layout.y_categories.is_some() && layout.x_categories.is_none();
+    out.horizontal = layout
+        .brackets
+        .iter()
+        .map(|b| b.horizontal || inferred)
+        .collect();
+    out.spans = layout
+        .brackets
+        .iter()
+        .zip(&out.horizontal)
+        .map(|(b, &h)| {
+            let cats = if h {
+                layout.y_categories.as_deref()
+            } else {
+                layout.x_categories.as_deref()
+            };
+            let a = resolve_bracket_anchor(&b.a, cats)?;
+            let c = resolve_bracket_anchor(&b.b, cats)?;
+            Some((a.min(c), a.max(c)))
+        })
+        .collect();
+
+    // Only brackets without an explicit position take part in stacking.
+    let stackable = |want_h: bool| -> Vec<Option<(f64, f64)>> {
+        layout
+            .brackets
+            .iter()
+            .zip(&out.horizontal)
+            .zip(&out.spans)
+            .map(|((b, &h), span)| {
+                if h == want_h && b.position.is_none() {
+                    *span
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+    let v_levels = stack_levels(&stackable(false));
+    let h_levels = stack_levels(&stackable(true));
+    let count = |levels: &[Option<usize>]| levels.iter().flatten().max().map(|m| m + 1);
+
+    // Pitch and headroom follow the labels' pixel size, so a short canvas or
+    // a large font never puts a label on the bar above it; 7% of the axis is
+    // the floor so sparse stacks keep a readable gap.
+    let font_px = |b: &SignificanceBracket| b.font_size.map(|f| f as f64).unwrap_or(body_px);
+    let label_px = |want_h: bool, measure: &dyn Fn(&SignificanceBracket, f64) -> f64| {
+        let mut pitch: f64 = 0.0;
+        let mut head: f64 = 0.0;
+        for (b, &h) in layout.brackets.iter().zip(&out.horizontal) {
+            if h != want_h || b.position.is_some() {
+                continue;
+            }
+            let f = font_px(b);
+            let extent = measure(b, f);
+            // A horizontal label runs sideways across the next level, so
+            // that pitch must clear the whole label plus a gap on each side.
+            pitch = pitch
+                .max(f * 2.2)
+                .max(if want_h { extent + f } else { 0.0 });
+            head = head.max(extent + f * 0.5);
+        }
+        (pitch, head)
+    };
+    let text_w = |b: &SignificanceBracket, f: f64| {
+        crate::render::text_metrics::measure_text_width(
+            &b.label(),
+            f,
+            crate::render::text_metrics::FontStyle::Regular,
+        )
+    };
+    let text_h = |_b: &SignificanceBracket, f: f64| f * 1.1;
+
+    let (mut pitch_v, mut head_v) = label_px(false, &text_h);
+    let (mut pitch_h, mut head_h) = label_px(true, &text_w);
+    // Terminal: a row is the smallest step a label can take. Keep a bar, its
+    // label and a blank row per level, and one column beside a horizontal
+    // bracket (a cell is about half as wide as it is tall).
+    if let Some(ch) = cell_h {
+        let cw = ch * 0.5;
+        pitch_v = pitch_v.max(3.0 * ch);
+        head_v = head_v.max(2.0 * ch);
+        head_h += cw;
+        pitch_h = pitch_h.max(head_h + cw);
+    }
+
+    let (stack_y, y_max) = stack_axis(
+        layout.data_y_range,
+        y,
+        layout.log_y,
+        layout.y_axis_max.is_some(),
+        count(&v_levels),
+        plot_px.1,
+        (plot_px.1 * 0.07).max(pitch_v),
+        head_v,
+    );
+    let (stack_x, x_max) = stack_axis(
+        layout.data_x_range,
+        x,
+        layout.log_x,
+        layout.x_axis_max.is_some(),
+        count(&h_levels),
+        plot_px.0,
+        (plot_px.0 * 0.07).max(pitch_h),
+        head_h,
+    );
+    out.levels = v_levels
+        .iter()
+        .zip(&h_levels)
+        .map(|(v, h)| v.or(*h))
+        .collect();
+    out.stack_x = stack_x;
+    out.stack_y = stack_y;
+    out.x_max = x_max;
+    out.y_max = y_max;
+    out
+}
+
 fn resolve_axis_range(
     range: (f64, f64),
     data_range: Option<(f64, f64)>,
@@ -3600,6 +3902,23 @@ impl ComputedLayout {
         let y_min = layout.y_axis_min.unwrap_or(y_min);
         let y_max = layout.y_axis_max.unwrap_or(y_max);
 
+        // Significance brackets: resolve each bracket's span on its category
+        // axis, stack the auto-positioned ones so none overlap, and grow the
+        // value axis so the stack and its labels fit inside the plot area. An
+        // explicit axis-max override is left alone — the user asked for it.
+        let brackets = resolve_brackets(
+            layout,
+            (x_min, x_max),
+            (y_min, y_max),
+            (
+                width - margin_left - margin_right,
+                height - margin_top - margin_bottom,
+            ),
+            layout.body_size as f64 * s,
+            layout.term_rows.map(|r| height / r as f64),
+        );
+        let (x_max, y_max) = (brackets.x_max, brackets.y_max);
+
         let y2_range = layout.y2_range.map(|range| {
             resolve_axis_range(
                 range,
@@ -3660,6 +3979,12 @@ impl ComputedLayout {
             stats_position: layout.stats_position,
             legend_width: effective_legend_width,
             legend_height_override: layout.legend_height.map(|h| h * s),
+            bracket_levels: brackets.levels,
+            bracket_spans: brackets.spans,
+            bracket_horizontal: brackets.horizontal,
+            bracket_cell_h: layout.term_rows.map(|r| height / r as f64),
+            bracket_stack_x: brackets.stack_x,
+            bracket_stack_y: brackets.stack_y,
             y_tick_label_px,
             log_x: layout.log_x,
             log_y: layout.log_y,

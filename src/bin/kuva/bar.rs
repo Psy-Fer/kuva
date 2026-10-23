@@ -9,7 +9,9 @@ use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
 use crate::data::{apply_na, ColSpec, DataTable, InputArgs};
-use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs, NaArgs};
+use crate::layout_args::{
+    apply_axis_args, apply_base_args, apply_signif_args, AxisArgs, BaseArgs, NaArgs, SignifArgs,
+};
 use crate::output::write_output;
 
 /// Bar chart from label and value columns.
@@ -60,6 +62,8 @@ pub struct BarArgs {
     pub base: BaseArgs,
     #[command(flatten)]
     pub axis: AxisArgs,
+    #[command(flatten)]
+    pub signif: SignifArgs,
     #[command(flatten)]
     pub na: NaArgs,
 }
@@ -163,14 +167,15 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         if args.base.emit_code {
             print!(
                 "{}",
-                crate::emit_code::assemble(
+                crate::emit_code::assemble_with_signif(
                     &["kuva::plot::BarPlot"],
                     "Bar",
                     &[crate::emit_code::emit_bar_plot(&plot)],
                     &args.base,
                     Some(&args.axis),
                     None,
-                )
+                    &args.signif,
+                )?
             );
             return Ok(());
         }
@@ -179,6 +184,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let layout = apply_axis_args(layout, &args.axis);
+        let layout = apply_signif_args(layout, &args.signif)?;
         let layout = if args.horizontal {
             layout
         } else {
@@ -332,14 +338,15 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         if args.base.emit_code {
             print!(
                 "{}",
-                crate::emit_code::assemble(
+                crate::emit_code::assemble_with_signif(
                     &["kuva::plot::BarPlot"],
                     "Bar",
                     &[crate::emit_code::emit_bar_plot(&plot)],
                     &args.base,
                     Some(&args.axis),
                     None,
-                )
+                    &args.signif,
+                )?
             );
             return Ok(());
         }
@@ -348,6 +355,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let layout = apply_axis_args(layout, &args.axis);
+        let layout = apply_signif_args(layout, &args.signif)?;
         let layout = if args.horizontal {
             layout
         } else {
@@ -424,14 +432,15 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     if args.base.emit_code {
         print!(
             "{}",
-            crate::emit_code::assemble(
+            crate::emit_code::assemble_with_signif(
                 &["kuva::plot::BarPlot"],
                 "Bar",
                 &[crate::emit_code::emit_bar_plot(&plot)],
                 &args.base,
                 Some(&args.axis),
                 None,
-            )
+                &args.signif,
+            )?
         );
         return Ok(());
     }
@@ -440,6 +449,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
+    let layout = apply_signif_args(layout, &args.signif)?;
     let layout = if args.horizontal {
         layout
     } else {

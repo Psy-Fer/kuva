@@ -1,10 +1,13 @@
 use crate::render::color::Color;
-use crate::render::layout::ComputedLayout;
+use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::render::{PathData, Primitive, Scene, TextAnchor};
 
 /// Annotation data types moved to `crate::plot::annotations` (per the plot -> render
 /// architecture rule); re-exported here so existing `render::annotations::*` paths work.
-pub use crate::plot::annotations::{Orientation, ReferenceLine, ShadedRegion, TextAnnotation};
+pub use crate::plot::annotations::{
+    BracketAnchor, BracketLabel, Orientation, ReferenceLine, ShadedRegion, SignificanceBracket,
+    TextAnnotation,
+};
 
 pub fn add_shaded_regions(regions: &[ShadedRegion], scene: &mut Scene, computed: &ComputedLayout) {
     let plot_left = computed.margin_left;
@@ -173,5 +176,121 @@ pub fn add_text_annotations(
             bold: false,
             color: None,
         });
+    }
+}
+
+/// Draw the layout's significance brackets: a three-segment bracket between
+/// two groups on the category axis with its label centred beyond it. Spans,
+/// orientation and auto-stacked positions come from `computed`, which also
+/// grew the value axis so the stack fits.
+pub fn add_brackets(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) {
+    for (i, b) in layout.brackets.iter().enumerate() {
+        let Some((lo, hi)) = computed.bracket_spans.get(i).copied().flatten() else {
+            continue;
+        };
+        let horizontal = computed.bracket_horizontal.get(i).copied().unwrap_or(false);
+        let pos = match b.position {
+            Some(p) => p,
+            None => {
+                let Some(level) = computed.bracket_levels.get(i).copied().flatten() else {
+                    continue;
+                };
+                if horizontal {
+                    computed.bracket_stack_x.position(level)
+                } else {
+                    computed.bracket_stack_y.position(level)
+                }
+            }
+        };
+
+        let font = b.font_size.unwrap_or(computed.body_size);
+        let font_px = font as f64;
+        let tick = (font_px * 0.45).max(3.0);
+        // No explicit colour: follow the theme's text colour for both the
+        // stroke and the label.
+        let stroke = b
+            .color
+            .as_ref()
+            .map(Color::from)
+            .unwrap_or_else(|| Color::from(&computed.theme.text_color));
+        let label = b.label();
+        // Asterisks have no descenders and sit high in the em box, so a star
+        // code hugs the bar; text with descenders needs clearance.
+        let gap = if b.label_is_stars() {
+            font_px * 0.12
+        } else {
+            font_px * 0.3
+        };
+        // Terminal output snaps text to rows and columns: keep the label a
+        // full row above the bar, or a clear column beside a horizontal
+        // bracket (a row is about two columns), so it never touches the
+        // bracket's own cells.
+        let cell_h = computed.bracket_cell_h;
+        let gap_v = cell_h.map_or(gap, |ch| gap.max(ch));
+        let gap_h = cell_h.map_or(gap + font_px * 0.1, |ch| (gap + font_px * 0.1).max(ch));
+
+        let (d, tx, ty, anchor) = if horizontal {
+            let y_lo = computed.map_y(lo);
+            let y_hi = computed.map_y(hi);
+            let px = computed.map_x(pos);
+            (
+                format!(
+                    "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2}",
+                    px - tick,
+                    y_lo,
+                    px,
+                    y_lo,
+                    px,
+                    y_hi,
+                    px - tick,
+                    y_hi
+                ),
+                px + gap_h,
+                (y_lo + y_hi) / 2.0 + font_px * 0.35,
+                TextAnchor::Start,
+            )
+        } else {
+            let x_lo = computed.map_x(lo);
+            let x_hi = computed.map_x(hi);
+            let py = computed.map_y(pos);
+            (
+                format!(
+                    "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2}",
+                    x_lo,
+                    py + tick,
+                    x_lo,
+                    py,
+                    x_hi,
+                    py,
+                    x_hi,
+                    py + tick
+                ),
+                (x_lo + x_hi) / 2.0,
+                py - gap_v,
+                TextAnchor::Middle,
+            )
+        };
+
+        scene.add(Primitive::Path(Box::new(PathData {
+            d,
+            fill: None,
+            stroke,
+            stroke_width: b.stroke_width * computed.axis_stroke_width,
+            opacity: None,
+            stroke_dasharray: None,
+        })));
+
+        if !label.is_empty() {
+            scene.add(Primitive::Text {
+                x: tx,
+                y: ty,
+                content: label,
+                size: font,
+                anchor,
+                rotate: None,
+                bold: false,
+                color: b.color.as_ref().map(Color::from),
+            });
+        }
     }
 }

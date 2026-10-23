@@ -7,7 +7,9 @@ use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
 
 use crate::data::{ColSpec, DataTable, InputArgs};
-use crate::layout_args::{apply_axis_args, apply_base_args, AxisArgs, BaseArgs};
+use crate::layout_args::{
+    apply_axis_args, apply_base_args, apply_signif_args, AxisArgs, BaseArgs, SignifArgs,
+};
 use crate::output::write_output;
 
 /// Box-and-whisker plot grouped by a column.
@@ -55,6 +57,8 @@ pub struct BoxArgs {
     pub base: BaseArgs,
     #[command(flatten)]
     pub axis: AxisArgs,
+    #[command(flatten)]
+    pub signif: SignifArgs,
 }
 
 pub fn run(args: BoxArgs) -> Result<(), String> {
@@ -99,14 +103,15 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
         if args.base.emit_code {
             print!(
                 "{}",
-                crate::emit_code::assemble(
+                crate::emit_code::assemble_with_signif(
                     &["kuva::plot::BoxPlot"],
                     "Box",
                     &[crate::emit_code::emit_boxplot(&plot)],
                     &args.base,
                     Some(&args.axis),
                     None,
-                )
+                    &args.signif,
+                )?
             );
             return Ok(());
         }
@@ -115,6 +120,7 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
         let layout = Layout::auto_from_plots(&plots);
         let layout = apply_base_args(layout, &args.base);
         let layout = apply_axis_args(layout, &args.axis);
+        let layout = apply_signif_args(layout, &args.signif)?;
         let scene = render_multiple(plots, layout);
         return write_output(scene, &args.base);
     }
@@ -163,14 +169,15 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
     if args.base.emit_code {
         print!(
             "{}",
-            crate::emit_code::assemble(
+            crate::emit_code::assemble_with_signif(
                 &["kuva::plot::BoxPlot"],
                 "Box",
                 &[crate::emit_code::emit_boxplot(&plot)],
                 &args.base,
                 Some(&args.axis),
                 None,
-            )
+                &args.signif,
+            )?
         );
         return Ok(());
     }
@@ -179,6 +186,7 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
     let layout = Layout::auto_from_plots(&plots);
     let layout = apply_base_args(layout, &args.base);
     let layout = apply_axis_args(layout, &args.axis);
+    let layout = apply_signif_args(layout, &args.signif)?;
     let scene = render_multiple(plots, layout);
     write_output(scene, &args.base)
 }

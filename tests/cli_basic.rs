@@ -2186,3 +2186,112 @@ fn test_upset_rejects_more_sets_than_the_mask_holds() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("<svg"));
 }
+
+// ── --signif ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn box_signif_brackets_render_and_reject_bad_specs() {
+    let input = "group\tvalue\nA\t1\nA\t2\nA\t3\nB\t4\nB\t5\nB\t6\nC\t2\nC\t3\nC\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.0004",
+            "--signif",
+            "#0,#2,n.s.",
+            "--signif-format",
+            "both",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">*** (p = 0.0004)</text>"), "{out}");
+    assert!(out.contains(">n.s.</text>"));
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("three comma-separated fields"), "{err}");
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.01",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // The format is validated even when every P is verbatim text.
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,n.s.",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // `nan` parses as f64 but is not a p-value: drawn verbatim.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,nan",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">nan</text>"), "{out}");
+
+    // Brackets follow --horizontal without any extra flag.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--horizontal",
+            "--signif",
+            "A,B,0.004",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">**</text>"), "{out}");
+}

@@ -289,6 +289,18 @@ check "box overlay-points" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-points \
         --title "Expression by Group" --x-label "Group" --y-label "Expression"
 
+check "box significance brackets" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression \
+        --signif Control,Drug_A,0.0003 --signif Drug_A,Drug_B,0.04 --signif '#0,#4,n.s.' \
+        --title "Expression by Group" --y-label "Expression"
+
+check "box significance brackets horizontal p-values" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --horizontal \
+        --signif Control,Drug_C,0.012 --signif-format p --x-label "Expression"
+
+check_error "box significance bad spec" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --signif Control,Drug_A
+
 check "box overlay-swarm" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm \
         --title "Expression by Group" --x-label "Group" --y-label "Expression"

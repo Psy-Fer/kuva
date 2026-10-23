@@ -1,4 +1,5 @@
 use clap::Args;
+use kuva::plot::annotations::{BracketAnchor, BracketLabel, SignificanceBracket};
 use kuva::render::datetime::DateTimeAxis;
 use kuva::render::layout::{AxisLabelOverlap, AxisLine, Layout, TickAlign, TickFormat, TickPos};
 use kuva::render::palette::Palette;
@@ -372,6 +373,82 @@ pub struct Y2AxisArgs {
 // ── Apply functions ───────────────────────────────────────────────────────────
 
 /// Apply base output/appearance args to a layout.
+/// Significance-bracket flags shared by the categorical subcommands
+/// (`bar`, `box`, `violin`, `strip`, `raincloud`).
+#[derive(Args, Debug, Clone, Default)]
+pub struct SignifArgs {
+    /// Significance bracket between two groups: `A,B,P`. A and B are group
+    /// labels as they appear in the data (or `#i` for the zero-based group
+    /// index), P is the p-value. A non-numeric P is drawn verbatim
+    /// (`WT,KO,n.s.`). Repeat the flag for several brackets; they stack
+    /// above the data and the value axis grows to fit. Brackets follow
+    /// `--horizontal` automatically.
+    #[arg(long = "signif", value_name = "A,B,P", action = clap::ArgAction::Append)]
+    pub signif: Vec<String>,
+
+    /// Label style for --signif brackets: `stars` (default; `*` to `****`,
+    /// `ns`), `p` (`p = 0.023`), or `both` (`** (p = 0.0031)`).
+    #[arg(long = "signif-format", value_name = "STYLE", default_value = "stars")]
+    pub signif_format: String,
+}
+
+/// Parse `--signif-format`.
+pub fn parse_signif_format(style: &str) -> Result<BracketLabel, String> {
+    match style {
+        "stars" => Ok(BracketLabel::Stars),
+        "p" => Ok(BracketLabel::PValue),
+        "both" => Ok(BracketLabel::Both),
+        other => Err(format!(
+            "unknown --signif-format '{other}': expected stars, p, or both"
+        )),
+    }
+}
+
+/// Parse one `--signif A,B,P` spec into a bracket. A numeric P in `0..=1`
+/// takes `format`; anything else (including `nan`) is drawn verbatim.
+/// Orientation is inferred from the layout at render time.
+pub fn parse_signif_spec(spec: &str, format: &BracketLabel) -> Result<SignificanceBracket, String> {
+    let parts: Vec<&str> = spec.splitn(3, ',').map(str::trim).collect();
+    let [a, b, p] = parts[..] else {
+        return Err(format!(
+            "--signif '{spec}': expected three comma-separated fields A,B,P"
+        ));
+    };
+    if a.is_empty() || b.is_empty() || p.is_empty() {
+        return Err(format!("--signif '{spec}': empty field"));
+    }
+    let anchor = |s: &str| -> Result<BracketAnchor, String> {
+        if let Some(idx) = s.strip_prefix('#') {
+            idx.parse::<usize>()
+                .map(BracketAnchor::Index)
+                .map_err(|_| format!("--signif '{spec}': '{s}' is not a group index"))
+        } else {
+            Ok(BracketAnchor::Label(s.to_string()))
+        }
+    };
+    let (a, b) = (anchor(a)?, anchor(b)?);
+    match p.parse::<f64>() {
+        Ok(pv) if pv.is_finite() && (0.0..=1.0).contains(&pv) => {
+            let mut bracket = SignificanceBracket::new(a, b, pv);
+            bracket.format = format.clone();
+            Ok(bracket)
+        }
+        Ok(pv) if pv.is_finite() => {
+            Err(format!("--signif '{spec}': p-value {pv} is outside 0..=1"))
+        }
+        _ => Ok(SignificanceBracket::text(a, b, p)),
+    }
+}
+
+/// Apply `--signif` / `--signif-format` to the layout.
+pub fn apply_signif_args(mut layout: Layout, args: &SignifArgs) -> Result<Layout, String> {
+    let format = parse_signif_format(&args.signif_format)?;
+    for spec in &args.signif {
+        layout = layout.with_bracket(parse_signif_spec(spec, &format)?);
+    }
+    Ok(layout)
+}
+
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if let Some(w) = args.width {
         layout = layout.with_width(w);

@@ -71,6 +71,7 @@ pub mod legend;
 
 // pub mod types;
 
+pub use annotations::{BracketAnchor, BracketLabel, SignificanceBracket};
 pub use band::BandPlot;
 pub use bar::BarPlot;
 pub use boxplot::{BoxGroup, BoxPlot};

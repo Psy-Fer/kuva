@@ -84,6 +84,7 @@ EXAMPLES=(
     waterfall
     all_plots_simple
     all_plots_complex
+    significance
 )
 
 # `typst-math` is opt-in and not part of `full`, but the committed math assets

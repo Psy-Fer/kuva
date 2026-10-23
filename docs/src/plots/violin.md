@@ -253,6 +253,8 @@ Kernel-density violin plot. Same input format as `box`.
 | `--overlay-points` | off | Overlay individual points as a jittered strip |
 | `--overlay-swarm` | off | Overlay individual points as a non-overlapping beeswarm |
 | `--horizontal` | off | Render groups on the Y-axis, values on the X-axis |
+| `--signif <A,B,P>` | — | Significance bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P is drawn verbatim. Repeatable; brackets stack above the data and the value axis grows to fit. See [Significance Brackets](../reference/significance.md) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 
 ```bash
 kuva violin samples.tsv --group-col group --value-col expression

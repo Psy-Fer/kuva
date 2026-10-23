@@ -81,3 +81,35 @@ fn emit_code_snippets_compile() {
         cases.pass(path);
     }
 }
+
+/// `--emit-code` validates `--signif` exactly like a real run: a malformed
+/// spec or unknown format fails instead of silently emitting no bracket.
+#[test]
+fn emit_code_rejects_bad_signif_specs() {
+    let exe = env!("CARGO_BIN_EXE_kuva");
+    let cases: [(&[&str], &str); 2] = [
+        (&["--signif", "a,b"], "three comma-separated fields"),
+        (
+            &["--signif", "#0,#1,0.1", "--signif-format", "fancy"],
+            "expected stars, p, or both",
+        ),
+    ];
+    for (extra, needle) in cases {
+        let output = Command::new(exe)
+            .args([
+                "box",
+                "examples/data/measurements.tsv",
+                "--group-col",
+                "group",
+                "--value-col",
+                "value",
+            ])
+            .args(extra)
+            .arg("--emit-code")
+            .output()
+            .expect("run kuva");
+        assert!(!output.status.success(), "{extra:?} should fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(needle), "{extra:?}: {stderr}");
+    }
+}

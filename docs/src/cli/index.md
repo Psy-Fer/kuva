@@ -306,6 +306,13 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--log-x` | Logarithmic X axis |
 | `--log-y` | Logarithmic Y axis |
 
+### Significance brackets *(bar, box, violin, strip, raincloud)*
+
+| Flag | Default | Description |
+|---|---|---|
+| `--signif <A,B,P>` | — | Bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P (`n.s.`) is drawn verbatim. Repeatable; brackets stack above the data and follow `--horizontal` ([Reference → Significance Brackets](../reference/significance.md)) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
+
 ### Date/time X axis *(scatter, line)*
 
 | Flag | Default | Description |

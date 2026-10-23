@@ -27,7 +27,10 @@ use kuva::plot::{
     BarPlot, ColorMap, DotPlot, EcdfPlot, MarkerShape, MosaicPlot, ParetoPlot, QQPlot, ScatterPlot,
 };
 
-use crate::layout_args::{AxisArgs, BaseArgs, LogArgs};
+use crate::layout_args::{
+    parse_signif_format, parse_signif_spec, AxisArgs, BaseArgs, LogArgs, SignifArgs,
+};
+use kuva::plot::annotations::{BracketAnchor, BracketLabel};
 
 // Tier 2 additions (line/histogram/violin/roc/survival) — kept as a separate
 // `use` block so concurrent edits to the Tier-1 import list above don't
@@ -319,6 +322,41 @@ pub fn emit_log_args(args: &LogArgs) -> Vec<String> {
     frags
 }
 
+/// Emit `.with_bracket(...)` fragments for `SignifArgs` — mirrors
+/// `apply_signif_args`, including its errors, so a bad spec fails
+/// `--emit-code` the same way it fails a real run.
+pub fn emit_signif_args(args: &SignifArgs) -> Result<Vec<String>, String> {
+    fn anchor_lit(a: &BracketAnchor) -> String {
+        match a {
+            BracketAnchor::Index(i) => format!("{i}usize"),
+            BracketAnchor::Label(l) => str_lit(l),
+            BracketAnchor::Value(v) => f64_lit(*v),
+        }
+    }
+    let format = parse_signif_format(&args.signif_format)?;
+    args.signif
+        .iter()
+        .map(|spec| {
+            let b = parse_signif_spec(spec, &format)?;
+            let (a, c) = (anchor_lit(&b.a), anchor_lit(&b.b));
+            let p = f64_lit(b.p_value.unwrap_or(1.0));
+            let expr = match &b.format {
+                BracketLabel::Text(t) => {
+                    format!("SignificanceBracket::text({a}, {c}, {})", str_lit(t))
+                }
+                BracketLabel::Stars => format!("SignificanceBracket::new({a}, {c}, {p})"),
+                BracketLabel::PValue => {
+                    format!("SignificanceBracket::new({a}, {c}, {p}).with_p_value_label()")
+                }
+                BracketLabel::Both => {
+                    format!("SignificanceBracket::new({a}, {c}, {p}).with_both_labels()")
+                }
+            };
+            Ok(format!(".with_bracket({expr})"))
+        })
+        .collect()
+}
+
 // ── Snippet assembly ──────────────────────────────────────────────────────────
 
 /// Assemble the full printable snippet: imports, plot construction, layout
@@ -332,12 +370,47 @@ pub fn assemble(
     axis: Option<&AxisArgs>,
     log: Option<&LogArgs>,
 ) -> String {
+    assemble_impl(plot_uses, variant, plot_exprs, base, axis, log, None)
+}
+
+/// [`assemble`] for the categorical subcommands that also take `--signif`:
+/// appends the `.with_bracket(...)` fragments (and their `use`) and fails on
+/// a bad spec exactly like the real run.
+pub fn assemble_with_signif(
+    plot_uses: &[&str],
+    variant: &str,
+    plot_exprs: &[String],
+    base: &BaseArgs,
+    axis: Option<&AxisArgs>,
+    log: Option<&LogArgs>,
+    signif: &SignifArgs,
+) -> Result<String, String> {
+    let frags = emit_signif_args(signif)?;
+    let extra = (!frags.is_empty()).then_some(("kuva::plot::SignificanceBracket", frags));
+    Ok(assemble_impl(
+        plot_uses, variant, plot_exprs, base, axis, log, extra,
+    ))
+}
+
+fn assemble_impl(
+    plot_uses: &[&str],
+    variant: &str,
+    plot_exprs: &[String],
+    base: &BaseArgs,
+    axis: Option<&AxisArgs>,
+    log: Option<&LogArgs>,
+    extra: Option<(&str, Vec<String>)>,
+) -> String {
+    let (extra_use, extra_frags) = extra.unzip();
     let mut out = String::new();
     out.push_str("use kuva::backend::svg::SvgBackend;\n");
     out.push_str("use kuva::render::render::render_multiple;\n");
     out.push_str("use kuva::render::layout::Layout;\n");
     out.push_str("use kuva::render::plots::Plot;\n");
     for u in plot_uses {
+        out.push_str(&format!("use {u};\n"));
+    }
+    if let Some(u) = extra_use {
         out.push_str(&format!("use {u};\n"));
     }
     out.push('\n');
@@ -363,6 +436,7 @@ pub fn assemble(
     if let Some(l) = log {
         frags.extend(emit_log_args(l));
     }
+    frags.extend(extra_frags.unwrap_or_default());
 
     out.push_str(&chain(
         "let layout = Layout::auto_from_plots(&plots)",

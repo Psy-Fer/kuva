@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Significance brackets** — `Layout::with_bracket(SignificanceBracket)` and the `with_significance(a, b, p)` shortcut draw a bracket between two groups on any categorical plot (bar, box, violin, strip, raincloud) with a star code (`*` to `****`, `ns`), a numeric `p = 0.023`, both, or verbatim text. Anchors are category labels, zero-based indices, or axis values; brackets without an explicit position stack so none overlap and the value axis grows just enough to fit them; horizontal plots are detected from the layout and log axes keep an even pitch; the default colour follows the theme. The p-value is supplied, not computed. CLI: repeatable `--signif A,B,P` (`#i` for an index, non-numeric P drawn verbatim) and `--signif-format stars|p|both` on `bar`, `box`, `violin`, `strip` and `raincloud`; `--emit-code` round-trips them. See *Reference → Significance Brackets*.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added
