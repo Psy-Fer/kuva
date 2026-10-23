@@ -38,6 +38,7 @@ mod pr;
 mod pyramid;
 mod qq;
 mod quiver;
+mod quiver3d;
 mod radar;
 mod raincloud;
 mod ridgeline;
@@ -168,6 +169,9 @@ enum Commands {
     Gantt(gantt::GanttArgs),
     /// Quiver plot — 2-D vector field rendered as arrows.
     Quiver(quiver::QuiverArgs),
+    /// 3D quiver plot — vector field rendered as arrows in an orthographic 3D box.
+    #[command(name = "quiver3d")]
+    Quiver3D(quiver3d::Quiver3DArgs),
     /// Twin-Y (dual-axis) plot — two series sharing an x-axis with independent y-scales.
     #[command(name = "twin-y")]
     TwinY(twin_y::TwinYArgs),
@@ -246,6 +250,7 @@ fn main() {
         Commands::Calendar(args) => calendar::run(args),
         Commands::Gantt(args) => gantt::run(args),
         Commands::Quiver(args) => quiver::run(args),
+        Commands::Quiver3D(args) => quiver3d::run(args),
         Commands::TwinY(args) => twin_y::run(args),
         Commands::Coverage(args) => coverage::run(args),
         #[cfg(feature = "doom")]

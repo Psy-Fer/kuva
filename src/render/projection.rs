@@ -3,7 +3,9 @@
 //! The projection pipeline:
 //! 1. Normalize data coordinates to [-0.5, 0.5]³ using data ranges
 //! 2. Rotate by combined matrix Rx(elevation) * Rz(azimuth)
-//! 3. Orthographic projection: `screen_x = -rotated[0], screen_y = -rotated[2]`
+//! 3. Orthographic projection: `screen_x = rotated[0], screen_y = -rotated[2]`
+//!    (a proper rotation: screen-right, screen-up and toward-viewer form a
+//!    right-handed frame, so a counter-clockwise field reads counter-clockwise)
 //! 4. Scale uniformly to fit the plot area
 //! 5. Translate to center in the pixel bounding box
 
@@ -65,8 +67,8 @@ impl Projection3D {
         let norm_z = Self::norm_params(z_range);
 
         // Project all 8 corners of the unit cube to find bounding box.
-        // screen_x = -rx to match the standard right-handed convention
-        // where +X data → right on screen at azimuth=-60°.
+        // screen_x = +rx keeps the screen frame right-handed; negating it
+        // (as this once did) mirrored every 3D figure.
         let mut sx_min = f64::INFINITY;
         let mut sx_max = f64::NEG_INFINITY;
         let mut sy_min = f64::INFINITY;
@@ -77,7 +79,7 @@ impl Projection3D {
                 for &nz in &[-0.5_f64, 0.5] {
                     let rx = rot[0][0] * nx + rot[0][1] * ny + rot[0][2] * nz;
                     let rz = rot[2][0] * nx + rot[2][1] * ny + rot[2][2] * nz;
-                    let sx = -rx; // negate for right-handed screen convention
+                    let sx = rx;
                     let sy = -rz; // negate for SVG y-down
                     sx_min = sx_min.min(sx);
                     sx_max = sx_max.max(sx);
@@ -138,7 +140,7 @@ impl Projection3D {
         let ry = self.rot[1][0] * nx + self.rot[1][1] * ny + self.rot[1][2] * nz;
         let rz = self.rot[2][0] * nx + self.rot[2][1] * ny + self.rot[2][2] * nz;
 
-        let sx = -rx * self.scale + self.offset_x; // negate for right-handed screen convention
+        let sx = rx * self.scale + self.offset_x;
         let sy = -rz * self.scale + self.offset_y; // negate for SVG y-down
         let depth = ry; // used for sorting (larger = further from viewer)
 
@@ -151,5 +153,82 @@ impl Projection3D {
         // The view direction in rotated space is [0, -1, 0] (viewer looks along -Y after rotation).
         // Transform back to data space: view_dir = R^T * [0, -1, 0]
         [-self.rot[1][0], -self.rot[1][1], -self.rot[1][2]]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Screen-space image of a data-space direction: `(right, up, toward)`.
+    /// `up` negates SVG's y-down and `toward` negates depth (larger = further).
+    fn screen_vec(p: &Projection3D, d: [f64; 3]) -> [f64; 3] {
+        let (ox, oy, od) = p.project(0.0, 0.0, 0.0);
+        let (x, y, dep) = p.project(d[0], d[1], d[2]);
+        [x - ox, -(y - oy), -(dep - od)]
+    }
+
+    fn triple(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
+        a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0])
+    }
+
+    /// The projection must be a proper rotation at every view angle: the
+    /// images of +x, +y, +z keep a positive triple product, so a right-handed
+    /// helix stays right-handed and a counter-clockwise field about +z reads
+    /// counter-clockwise from above. (It used to negate screen x, which
+    /// mirrored the scene in half of all views, the default one included.)
+    #[test]
+    fn projection_is_right_handed_at_every_view() {
+        for az in [-150.0, -120.0, -60.0, -30.0, 0.0, 45.0, 60.0, 120.0, 180.0] {
+            for el in [-30.0, 10.0, 30.0, 60.0, 89.0] {
+                let p = Projection3D::new(
+                    View3D {
+                        azimuth: az,
+                        elevation: el,
+                    },
+                    (-1.0, 1.0),
+                    (-1.0, 1.0),
+                    (-1.0, 1.0),
+                    100.0,
+                    100.0,
+                    100.0,
+                );
+                let ex = screen_vec(&p, [1.0, 0.0, 0.0]);
+                let ey = screen_vec(&p, [0.0, 1.0, 0.0]);
+                let ez = screen_vec(&p, [0.0, 0.0, 1.0]);
+                assert!(
+                    triple(ex, ey, ez) > 0.0,
+                    "left-handed screen frame at azimuth {az}, elevation {el}"
+                );
+            }
+        }
+    }
+
+    /// Viewed from straight above, +x points right and +y points up.
+    #[test]
+    fn top_down_view_has_x_right_and_y_up() {
+        let p = Projection3D::new(
+            View3D {
+                azimuth: 0.0,
+                elevation: 90.0,
+            },
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            (-1.0, 1.0),
+            100.0,
+            100.0,
+            100.0,
+        );
+        let ex = screen_vec(&p, [1.0, 0.0, 0.0]);
+        let ey = screen_vec(&p, [0.0, 1.0, 0.0]);
+        assert!(
+            ex[0] > 0.0 && ex[1].abs() < 1e-9,
+            "+x should point right: {ex:?}"
+        );
+        assert!(
+            ey[1] > 0.0 && ey[0].abs() < 1e-9,
+            "+y should point up: {ey:?}"
+        );
     }
 }

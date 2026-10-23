@@ -780,6 +780,33 @@ check "surface3d alternate view" \
         --z-color viridis --azimuth 45 --elevation 45 \
         --title "3D Surface Alt View"
 
+# ── quiver3d ──────────────────────────────────────────────────────────────────
+check "quiver3d basic" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --title "3D Quiver" --x-label "x" --y-label "y" --z-label "z"
+
+check "quiver3d colormap pivot middle" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --colormap viridis --colorbar-label "Speed" --pivot middle \
+        --title "3D Quiver Magnitude"
+
+check "quiver3d depth-shade alternate view" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --depth-shade --azimuth -120 --elevation 20 \
+        --title "3D Quiver Depth Shade"
+
+check "quiver3d fixed scale and head, tight bounds, no grid no box" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --arrow-scale 0.3 --head-length 10 --head-width 4 --shaft-width 2 \
+        --no-grid --no-box --tight-bounds \
+        --title "3D Quiver Styled"
+
+check "quiver3d named columns legend z-axis-left pivot tip" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --x-col x --y-col y --z-col z --u-col u --v-col v --w-col w \
+        --legend "flow" --z-axis-left --pivot tip --auto-scale 0.7 \
+        --title "3D Quiver Legend"
+
 # ── qq ───────────────────────────────────────────────────────────────────────
 check "qq normal basic" \
     "$BIN" qq "$DATA/samples.tsv" \

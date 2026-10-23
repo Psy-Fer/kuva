@@ -39,6 +39,7 @@ use crate::plot::pr::PrPlot;
 use crate::plot::pyramid::PopulationPyramid;
 use crate::plot::qq::QQPlot;
 use crate::plot::quiver::QuiverPlot;
+use crate::plot::quiver3d::Quiver3DPlot;
 use crate::plot::radar::RadarPlot;
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::ridgeline::RidgelinePlot;
@@ -130,6 +131,7 @@ pub enum Plot {
     Text(TextPlot),
     LegendPlot(LegendPlot),
     Quiver(QuiverPlot),
+    Quiver3D(Quiver3DPlot),
 }
 
 impl From<ScatterPlot> for Plot {
@@ -452,6 +454,11 @@ impl From<QuiverPlot> for Plot {
         Plot::Quiver(p)
     }
 }
+impl From<Quiver3DPlot> for Plot {
+    fn from(p: Quiver3DPlot) -> Self {
+        Plot::Quiver3D(p)
+    }
+}
 
 use crate::plot::colormap::ColorMap;
 use crate::plot::plot3d::DataRanges3D;
@@ -551,6 +558,7 @@ impl Plot {
             Plot::Ecdf(e) => e.color = color.into(),
             Plot::QQ(q) => q.color = color.into(),
             Plot::Quiver(q) => q.color = color.into(),
+            Plot::Quiver3D(q) => q.color = color.into(),
             _ => {} // multi-series plots (StackedArea, Streamgraph, etc.) skip palette auto-assign
         }
     }
@@ -1224,7 +1232,9 @@ impl Plot {
                 }
                 Some(((x_min, x_max), (y_min, y_max)))
             }
-            Plot::Scatter3D(_) | Plot::Surface3D(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
+            Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Quiver3D(_) => {
+                Some(((-1.0, 1.0), (-1.0, 1.0)))
+            }
             // Pixel-space plot — returns dummy bounds so Layout gets a valid range.
             Plot::Clustermap(_) => Some(((0.0, 1.0), (0.0, 1.0))),
             // Pixel-space composite plot; layout supplied internally via render_multiple.
@@ -1651,6 +1661,7 @@ impl Plot {
             Plot::Gantt(gp) => gp.tasks.len() * 5 + 20,
             Plot::Text(tp) => tp.body.lines().count() * 2 + 10,
             Plot::Quiver(q) => q.arrows.len() * 2 + 10,
+            Plot::Quiver3D(q) => q.arrows.len() + 70,
             _ => 100,
         }
     }
@@ -1793,6 +1804,11 @@ impl Plot {
                 )
             }
             Plot::Quiver(q) => {
+                let cmap = cmap_of(q.color_map.as_ref()?);
+                let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
+                colorbar_linear(&cmap, min, max, q.color_legend_label.clone())
+            }
+            Plot::Quiver3D(q) => {
                 let cmap = cmap_of(q.color_map.as_ref()?);
                 let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
                 colorbar_linear(&cmap, min, max, q.color_legend_label.clone())

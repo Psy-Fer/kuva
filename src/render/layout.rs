@@ -1344,6 +1344,7 @@ impl Layout {
             let (legend_3d, cmap_3d) = match plot {
                 Plot::Scatter3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
                 Plot::Surface3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
+                Plot::Quiver3D(qp) => (qp.legend_label.as_deref(), qp.color_map.is_some()),
                 _ => (None, false),
             };
             if let Some(label) = legend_3d {

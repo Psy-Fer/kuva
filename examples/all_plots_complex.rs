@@ -1,4 +1,4 @@
-//! Full-featured showcase of all 64 kuva plot types.
+//! Full-featured showcase of all 65 kuva plot types.
 //! Each cell uses a larger dataset and includes a title, axis labels,
 //! and a legend where applicable.
 //!
@@ -15,7 +15,7 @@ use kuva::plot::{
     GanttPlot, Heatmap, HexbinPlot, Histogram, Histogram2D, HorizonPlot, JointPlot, LegendEntry,
     LegendPlot, LegendShape, LinePlot, LollipopPlot, ManhattanPlot, MosaicPlot, NetworkPlot,
     ParallelPlot, ParetoPlot, PhyloTree, PieLabelPosition, PiePlot, PolarMode, PolarPlot,
-    PopulationPyramid, PrGroup, PrPlot, QQPlot, QuiverPlot, RadarPlot, RaincloudPlot,
+    PopulationPyramid, PrGroup, PrPlot, QQPlot, Quiver3DPlot, QuiverPlot, RadarPlot, RaincloudPlot,
     RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot, ScatterPlot, SeriesPlot,
     SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot, Surface3DPlot,
     SurvivalPlot, SyntenyPlot, TernaryPlot, TextPlot, TreemapNode, TreemapPlot, UpSetPlot,
@@ -1239,7 +1239,37 @@ fn main() {
             dasharray: None,
         });
 
-    // ── Assemble 11×6 Figure (row-major, 66 cells) ───────────────────────────
+    // ── Row 11: Quiver3D (tornado funnel, colored by speed) ────────────────
+    let quiver3d = {
+        let mut arrows = Vec::new();
+        for k in 0..8 {
+            let z = k as f64;
+            let r = 0.5 + 0.4 * z;
+            let per_ring = ((std::f64::consts::TAU * r / 0.9).round() as usize).max(4);
+            for i in 0..per_ring {
+                let theta = i as f64 / per_ring as f64 * std::f64::consts::TAU;
+                let speed = 1.3 - 0.05 * z;
+                arrows.push((
+                    r * theta.cos(),
+                    r * theta.sin(),
+                    z,
+                    -theta.sin() * speed,
+                    theta.cos() * speed,
+                    0.6,
+                ));
+            }
+        }
+        Quiver3DPlot::new()
+            .with_arrows(arrows)
+            .with_pivot(kuva::plot::QuiverPivot::Middle)
+            .with_auto_scale(0.7)
+            .with_magnitude_colormap(kuva::plot::ColorMap::Viridis, "Speed")
+            .with_x_label("x")
+            .with_y_label("y")
+            .with_z_label("height")
+    };
+
+    // ── Assemble 12×6 Figure (row-major, 67 cells; row 11 holds Quiver3D) ─────
 
     let hmap_row_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
     let hmap_col_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
@@ -1326,6 +1356,8 @@ fn main() {
         vec![Plot::Pareto(pareto)],
         vec![Plot::Band(ribbon_band), Plot::Line(ribbon_line)],
         vec![Plot::LegendPlot(legend)],
+        // Row 11: Quiver3D
+        vec![Plot::Quiver3D(quiver3d)],
     ];
 
     let layouts: Vec<Layout> = all_plots
@@ -1478,12 +1510,14 @@ fn main() {
                     .with_x_label("x")
                     .with_y_label("y"),
                 65 => base.with_title("Legend"),
+                // Row 11
+                66 => base.with_title("Quiver 3D"),
                 _ => base,
             }
         })
         .collect();
 
-    let fig = Figure::new(11, 6)
+    let fig = Figure::new(12, 6)
         .with_cell_size(600.0, 460.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

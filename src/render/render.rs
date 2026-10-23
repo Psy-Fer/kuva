@@ -340,6 +340,7 @@ use crate::plot::pie::PieLabelPosition;
 use crate::plot::polar::{PolarMode, PolarPlot};
 use crate::plot::pr::PrPlot;
 use crate::plot::pyramid::{PopulationPyramid, PyramidMode};
+use crate::plot::quiver3d::Quiver3DPlot;
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::ridgeline::RidgelinePlot;
 use crate::plot::roc::RocPlot;
@@ -4321,17 +4322,14 @@ fn draw_3d_box(
     // Find the front corner using only the rotation matrix (no full projection needed)
     let (fc_x, fc_y) = cfg.view.front_bottom_corner();
 
-    // Flip axis ranges so data-min is always at the open front corner
-    let x_range = if fc_x > 0.0 {
-        (x_max, x_min)
-    } else {
-        (x_min, x_max)
-    };
-    let y_range = if fc_y < 0.0 {
-        (y_max, y_min)
-    } else {
-        (y_min, y_max)
-    };
+    // Data-min always maps to the -0.5 face of the unit cube. This used to
+    // flip the x and/or y range per view to keep the data minimum at the
+    // open front corner, but a range flip is a reflection: combined with a
+    // mirrored screen frame it left half of all views (the default one
+    // included) left-handed. Which data corner sits at the open front is now
+    // decided by the view angles alone, as a rotation should.
+    let x_range = (x_min, x_max);
+    let y_range = (y_min, y_max);
 
     let proj = Projection3D::new(
         cfg.view,
@@ -4774,7 +4772,7 @@ fn draw_3d_box(
     proj
 }
 
-/// Union of 3D data ranges across every `Scatter3D`/`Surface3D` instance in
+/// Union of 3D data ranges across every `Scatter3D`/`Surface3D`/`Quiver3D` instance in
 /// `plots`, so multiple 3D plots combined in one `render_multiple` call are
 /// normalized to one shared coordinate box instead of each instance computing
 /// its own independent bounding box (which projects different instances'
@@ -4785,6 +4783,7 @@ fn merged_3d_ranges(plots: &[Plot]) -> Option<DataRanges3D> {
         .filter_map(|p| match p {
             Plot::Scatter3D(s) => s.data_ranges(),
             Plot::Surface3D(s) => s.data_ranges(),
+            Plot::Quiver3D(q) => q.data_ranges(),
             _ => None,
         })
         .reduce(|a, r| DataRanges3D {
@@ -4802,6 +4801,7 @@ fn first_3d_box_config(plots: &[Plot]) -> Option<Box3DConfig> {
     plots.iter().find_map(|p| match p {
         Plot::Scatter3D(s) => Some(s.box3d.clone()),
         Plot::Surface3D(s) => Some(s.box3d.clone()),
+        Plot::Quiver3D(q) => Some(q.box3d.clone()),
         _ => None,
     })
 }
@@ -13360,6 +13360,16 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::Text(_) => {}
+            Plot::Quiver3D(q) => {
+                if let Some(ref label) = q.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: q.color.clone(),
+                        shape: LegendShape::Line,
+                        dasharray: None,
+                    });
+                }
+            }
             Plot::LegendPlot(_) => {}
             _ => {}
         }
@@ -16414,7 +16424,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::Slope(_)
                 | Plot::Ecdf(_)
                 | Plot::QQ(_)
-                | Plot::Quiver(_) => {
+                | Plot::Quiver(_)
+                | Plot::Quiver3D(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -16536,6 +16547,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     | Plot::Ternary(_)
                     | Plot::Scatter3D(_)
                     | Plot::Surface3D(_)
+                    | Plot::Quiver3D(_)
                     | Plot::Clustermap(_)
                     | Plot::Joint(_)
                     | Plot::Venn(_)
@@ -16583,6 +16595,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::DicePlot(_)
                 | Plot::Scatter3D(_)
                 | Plot::Surface3D(_)
+                | Plot::Quiver3D(_)
                 | Plot::Clustermap(_)
                 | Plot::Joint(_)
                 | Plot::Venn(_)
@@ -16941,6 +16954,13 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             }
             Plot::Quiver(q) => {
                 add_quiver(q, &mut scene, &computed);
+            }
+            Plot::Quiver3D(q) => {
+                if let (Some(ranges), Some(cfg)) = (ranges_3d, box3d_cfg_3d.as_ref()) {
+                    let proj = proj_3d
+                        .get_or_insert_with(|| draw_3d_box(ranges, cfg, &mut scene, &computed));
+                    add_quiver3d(q, &mut scene, &computed, proj);
+                }
             }
         }
     }
@@ -25032,6 +25052,167 @@ pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Sc
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     scene
 }
+// ── Quiver3DPlot (3-D vector field) ───────────────────────────────────────────
+
+/// Outline of one arrow as a single closed polygon: a `shaft_hw` half-width
+/// shaft from `tail` to the head base, then a triangular head ending at `tip`,
+/// with the head pointing along the unit vector `(ux, uy)`.
+///
+/// One subpath (rather than a stroked shaft plus a filled head) so that a
+/// `fill-opacity` fades the whole arrow uniformly, and so the shaft and head
+/// can never disagree about where the head begins.
+fn arrow_polygon_path(
+    tail: (f64, f64),
+    tip: (f64, f64),
+    ux: f64,
+    uy: f64,
+    shaft_hw: f64,
+    head_len: f64,
+    head_hw: f64,
+) -> String {
+    let (px, py) = (-uy, ux);
+    let base = (tip.0 - ux * head_len, tip.1 - uy * head_len);
+    let head_hw = head_hw.max(shaft_hw);
+    format!(
+        "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
+        tail.0 + px * shaft_hw,
+        tail.1 + py * shaft_hw,
+        base.0 + px * shaft_hw,
+        base.1 + py * shaft_hw,
+        base.0 + px * head_hw,
+        base.1 + py * head_hw,
+        tip.0,
+        tip.1,
+        base.0 - px * head_hw,
+        base.1 - py * head_hw,
+        base.0 - px * shaft_hw,
+        base.1 - py * shaft_hw,
+        tail.0 - px * shaft_hw,
+        tail.1 - py * shaft_hw,
+    )
+}
+
+/// Renders one `Quiver3DPlot` instance's arrows into an already-drawn 3D box.
+/// `proj` is shared with every other 3D instance in the same call (see
+/// [`add_scatter3d`]).
+///
+/// Each arrow's tail and tip are projected, then the arrow is drawn as a flat
+/// screen-space glyph along the projected shaft. Arrows are painted back to
+/// front by the depth of their projected midpoint.
+fn add_quiver3d(
+    q: &Quiver3DPlot,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    proj: &Projection3D,
+) {
+    if q.arrows.is_empty() {
+        return;
+    }
+    let scale = q.effective_scale();
+    let (mag_min, mag_max) = q.magnitude_extent();
+    let (c_min, c_max) = q.color_range.unwrap_or((mag_min, mag_max));
+    let c_span = (c_max - c_min).max(f64::EPSILON);
+
+    struct ProjectedArrow {
+        tail: (f64, f64),
+        tip: (f64, f64),
+        depth: f64,
+        idx: usize,
+    }
+
+    let mut projected: Vec<ProjectedArrow> = q
+        .arrows
+        .iter()
+        .enumerate()
+        .map(|(idx, a)| {
+            let (t, p) = q.endpoints_with_scale(a, scale);
+            let (tx, ty, td) = proj.project(t[0], t[1], t[2]);
+            let (px, py, pd) = proj.project(p[0], p[1], p[2]);
+            ProjectedArrow {
+                tail: (tx, ty),
+                tip: (px, py),
+                depth: (td + pd) * 0.5,
+                idx,
+            }
+        })
+        .collect();
+
+    // Painter's algorithm: largest depth (furthest) first.
+    projected.sort_by(|a, b| {
+        b.depth
+            .partial_cmp(&a.depth)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let (depth_min, depth_max) = projected
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+            (lo.min(p.depth), hi.max(p.depth))
+        });
+    let depth_span = (depth_max - depth_min).max(1e-12);
+
+    let bw_cmap = computed.bw_mode.then(crate::render::bw::bw_colormap);
+    let shaft_hw = q.shaft_width * 0.5;
+
+    for pa in &projected {
+        let arrow = &q.arrows[pa.idx];
+        let dx = pa.tip.0 - pa.tail.0;
+        let dy = pa.tip.1 - pa.tail.1;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-6 {
+            // Zero-length or pointing straight at the viewer: nothing to draw.
+            continue;
+        }
+        let (ux, uy) = (dx / len, dy / len);
+
+        if computed.interactive {
+            let title = format!(
+                "x={:.2}, y={:.2}, z={:.2}, u={:.2}, v={:.2}, w={:.2}, |v|={:.2}",
+                arrow.x,
+                arrow.y,
+                arrow.z,
+                arrow.u,
+                arrow.v,
+                arrow.w,
+                arrow.magnitude()
+            );
+            scene.add(Primitive::GroupStart {
+                transform: None,
+                title: Some(title),
+                extra_attrs: Some(r#"class="tt""#.to_string()),
+            });
+        }
+
+        let color_str: String = if let Some(ref c) = arrow.color {
+            c.clone()
+        } else if let Some(ref cmap) = q.color_map {
+            let cmap = bw_cmap.as_ref().unwrap_or(cmap);
+            cmap.map(((arrow.magnitude() - c_min) / c_span).clamp(0.0, 1.0))
+        } else {
+            q.color.clone()
+        };
+        let color = Color::from(color_str.as_str());
+
+        let (head_len, head_hw) = q.resolve_head(len);
+        let opacity = q
+            .depth_shade
+            .then(|| 1.0 - (pa.depth - depth_min) / depth_span * 0.7);
+
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: arrow_polygon_path(pa.tail, pa.tip, ux, uy, shaft_hw, head_len, head_hw),
+            fill: Some(color.clone()),
+            stroke: color,
+            stroke_width: 0.0,
+            opacity,
+            stroke_dasharray: None,
+        })));
+
+        if computed.interactive {
+            scene.add(Primitive::GroupEnd);
+        }
+    }
+}
+
 // ── GanttPlot ─────────────────────────────────────────────────────────────────
 
 fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {

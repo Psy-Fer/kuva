@@ -53,6 +53,7 @@ EXAMPLES=(
     pyramid
     qq
     quiver
+    quiver3d
     radar
     raincloud
     ridgeline

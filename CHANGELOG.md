@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Quiver3DPlot`** — 3D vector field rendered as arrows inside the shared orthographic 3D box (`Plot::Quiver3D`). Each arrow is anchored at `(x, y, z)` with a vector `(u, v, w)`; `from_function()` samples a closure on a regular `nx × ny × nz` grid. Arrows reuse the `Scatter3D`/`Surface3D` camera, wireframe box, and depth sorting, so a `Quiver3DPlot` can share a figure with either and all three normalise to one coordinate box. Heads are flat triangles built in screen space along the projected shaft (capped at the shaft length, so a short arrow is never a floating triangle), and each arrow is one closed outline so `with_depth_shade()` fades shaft and head together. Auto-scaled arrow length targets one grid cell measured in the box's normalised coordinates (`n^(-1/k)` for `k` non-degenerate anchor axes, so planar fields use `√n` and anisotropic ranges keep every axis legible; coincident anchors fall back to the padded unit box) or explicit `with_scale`; three pivot modes via the shared `QuiverPivot`; magnitude-driven colormap with automatic colorbar (`with_magnitude_colormap(cmap, label)`); per-arrow color overrides. The box encloses every arrow by default and `with_tight_bounds()` sizes it from the anchors alone; arrows are never clipped. CLI: `kuva quiver3d` with `--x-col … --w-col`, `--colormap`, `--pivot`, `--depth-shade`, `--tight-bounds`, and the 3D view/box flags. See *Plots → 3D Quiver Plot*.
+
+### Fixed
+
+- **3D projection was mirrored.** `Projection3D` mapped rotated x to screen-left (`sx = -rx`), which makes the (right, up, toward-viewer) screen frame left-handed, and `draw_3d_box` then reflected the x and/or y data range per view to keep the data minimum at the open front corner — so every 3D figure was a mirror image in half of all views, the default one included: a right-handed helix rendered left-handed and a counter-clockwise field about +z read clockwise. Scatter3D and Surface3D hid this because nothing in a point cloud or a height field has a handedness. The projection is now a proper rotation (`sx = +rx`, pinned by a triple-product test across azimuths and elevations) and the range flips are gone; which data corner sits at the open front follows from the view angles alone. Rendered 3D figures are therefore the horizontal mirror of what they were: at the default view the x axis now runs along the front-left edge and the y axis recedes to the right, data minima at the far end of each — the conventional right-handed layout. Tick labels, grid, pane fills, depth sorting, and the automatic Z-axis side are unaffected. Doc assets for scatter3d, surface3d, the showcase, and the overview figures are regenerated.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

@@ -363,7 +363,7 @@ See [Reference → Date & Time Axes](../reference/datetime.md) for the underlyin
 
 ## Subcommands
 
-All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
+All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
 
 ### Distributions
 
@@ -460,6 +460,7 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 |---|---|
 | [scatter3d](../plots/scatter3d.md#cli) | 3D scatter plot with orthographic projection |
 | [surface3d](../plots/surface3d.md#cli) | 3D surface mesh with depth-sorted rendering |
+| [quiver3d](../plots/quiver3d.md#cli) | 3D vector field rendered as arrows in an orthographic box |
 
 ### Composite & Utility
 
