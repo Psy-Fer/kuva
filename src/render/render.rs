@@ -4321,17 +4321,14 @@ fn draw_3d_box(
     // Find the front corner using only the rotation matrix (no full projection needed)
     let (fc_x, fc_y) = cfg.view.front_bottom_corner();
 
-    // Flip axis ranges so data-min is always at the open front corner
-    let x_range = if fc_x > 0.0 {
-        (x_max, x_min)
-    } else {
-        (x_min, x_max)
-    };
-    let y_range = if fc_y < 0.0 {
-        (y_max, y_min)
-    } else {
-        (y_min, y_max)
-    };
+    // Data-min always maps to the -0.5 face of the unit cube. This used to
+    // flip the x and/or y range per view to keep the data minimum at the
+    // open front corner, but a range flip is a reflection: combined with a
+    // mirrored screen frame it left half of all views (the default one
+    // included) left-handed. Which data corner sits at the open front is now
+    // decided by the view angles alone, as a rotation should.
+    let x_range = (x_min, x_max);
+    let y_range = (y_min, y_max);
 
     let proj = Projection3D::new(
         cfg.view,

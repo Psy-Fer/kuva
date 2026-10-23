@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **3D projection was mirrored.** `Projection3D` mapped rotated x to screen-left (`sx = -rx`), which makes the (right, up, toward-viewer) screen frame left-handed, and `draw_3d_box` then reflected the x and/or y data range per view to keep the data minimum at the open front corner — so every 3D figure was a mirror image in half of all views, the default one included: a right-handed helix rendered left-handed and a counter-clockwise field about +z read clockwise. Scatter3D and Surface3D hid this because nothing in a point cloud or a height field has a handedness. The projection is now a proper rotation (`sx = +rx`, pinned by a triple-product test across azimuths and elevations) and the range flips are gone; which data corner sits at the open front follows from the view angles alone. Rendered 3D figures are therefore the horizontal mirror of what they were: at the default view the x axis now runs along the front-left edge and the y axis recedes to the right, data minima at the far end of each — the conventional right-handed layout. Tick labels, grid, pane fills, depth sorting, and the automatic Z-axis side are unaffected. Doc assets for scatter3d, surface3d, the showcase, and the overview figures are regenerated.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added
