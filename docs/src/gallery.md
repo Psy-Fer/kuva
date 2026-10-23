@@ -296,6 +296,12 @@ Click any image to go to the full documentation page.
 <div class="gallery-desc">Task bars with group phases, progress fills, milestone diamonds, and a now line.</div>
 </a></div>
 
+<div class="gallery-card"><a href="./plots/logo.html">
+<img src="./assets/logo/kozak_bits.svg" alt="Sequence Logo">
+<div class="gallery-caption">Sequence Logo</div>
+<div class="gallery-desc">Stacked-letter motif plot with Schneider information content and vector glyph outlines.</div>
+</a></div>
+
 <div class="gallery-card"><a href="./plots/roc.html">
 <img src="./assets/roc/multi_model.svg" alt="ROC Curve">
 <div class="gallery-caption">ROC Curve</div>

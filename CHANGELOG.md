@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Sequence logo plot (`SequenceLogo`, `kuva logo`)** — stacked-letter motif visualization behind the new `logo` feature flag (included in `full`). Letters render as vector glyph outlines lifted from a bundled DejaVu Sans Mono Bold via `ttf-parser`, stretched non-uniformly per position in the Schneider/Stephens convention. Builds from aligned FASTA (`from_fasta_str` / `from_sequences`, hand-rolled parser — no bio-crate dependency) or a pre-computed PWM/PPM matrix (`from_matrix`, WebLogo/MEME and JASPAR orientations autodetected). Y-axis in bits (Schneider small-sample correction on by default, negative IC clipped at 0, axis pinned to log₂ of the alphabet size), probability, or raw frequency. Seven color presets: chemistry-group (`classic`, `weblogo`, `clustal`) and per-residue (`muted` — the protein default, mid-saturation hue families per chemistry group with a lightness ramp within each — plus `shapely`, `taylor`), and `mono`; per-letter `--colors` overrides on top. The legend draws one row per *distinct* color labelled with the letters sharing it, and is shown automatically for protein/custom alphabets. Extras: `--reverse-complement` (alphabet-aware — RNA displays U), `--start` for genomic coordinates, opt-in consensus row with configurable threshold, `--respect-case` soft-masking, `--include-gaps`, a terminal mode that stacks colored letters cell-by-cell proportional to information content, a canvas that auto-widens for long motifs (~48 px per position) unless a width is set, and `--emit-code` support.
+- **Legend column reflow** — a flat legend with more entries than fit the canvas height now wraps into columns instead of truncating to `… (+N more)`. Entries fill column-major and the reserved right margin widens to match. Grouped legends are unchanged.
+
+### Fixed
+
+- **Raster backend: quadratic path segments were silently dropped.** `parse_svg_path` handled `m l h v c a z` but had no `q` arm, so any path containing a quadratic Bézier lost those segments in PNG/PDF output while straight-line paths rendered correctly. No shipped plot emitted quadratics, so the gap was latent until sequence logos began feeding TrueType glyph outlines (which are quadratic) through the path pipeline. Logo glyphs now degree-elevate every quadratic to its exact cubic equivalent before emission.
+- **Raster backend: multi-contour paths could not render holes.** Filled paths were rasterised one sub-path at a time, so an inner contour was painted as another solid polygon in the same color rather than cancelling the outer contour's winding — glyph counters (the bowl of a `D`, the hole in an `A`) filled shut. All contours of a path now go through a single nonzero-winding pass via `fill_contours`; single-contour callers are unaffected.
+- **Terminal backend: `Primitive::Text` ignored its explicit `color`,** always using the theme text color. It now honours a per-text color when one is set, falling back to the theme otherwise.
+
+---
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

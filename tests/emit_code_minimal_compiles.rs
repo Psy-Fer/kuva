@@ -79,7 +79,7 @@ kuva = {{ path = {}, default-features = false }}
         .expect("failed to write the temporary package manifest");
 
     let binary = env!("CARGO_BIN_EXE_kuva");
-    for (name, args) in representative::all_cases() {
+    for (name, args) in representative::minimal_feature_cases() {
         let output = Command::new(binary)
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .args(args)

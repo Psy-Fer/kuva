@@ -61,6 +61,7 @@ pub use crate::plot::{
     LinePlot,
     LineStyle,
     LollipopDomain,
+
     LollipopPlot,
     LollipopPoint,
     ManhattanPlot,
@@ -163,6 +164,11 @@ pub use crate::plot::{
     WaterfallKind,
     WaterfallPlot,
     ZReduce,
+};
+
+#[cfg(feature = "logo")]
+pub use crate::plot::{
+    Alphabet, AlphabetPalette, LogoUnits, MatrixOrientation, PalettePreset, SequenceLogo,
 };
 
 // ── Plot enum ────────────────────────────────────────────────────────────────

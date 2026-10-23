@@ -28,6 +28,8 @@ use kuva::plot::{
 };
 
 use crate::layout_args::{AxisArgs, BaseArgs, LogArgs};
+#[cfg(feature = "logo")]
+use kuva::plot::logo::{Alphabet, LogoUnits, PalettePreset, SequenceLogo};
 
 // Tier 2 additions (line/histogram/violin/roc/survival) — kept as a separate
 // `use` block so concurrent edits to the Tier-1 import list above don't
@@ -4835,4 +4837,136 @@ pub fn emit_scatter3d_plot(p: &Scatter3DPlot) -> String {
     }
     frags.extend(emit_box3d_frags(&p.box3d));
     chain("Scatter3DPlot::new()", frags)
+}
+
+// ── Sequence logo (feature `logo`) ───────────────────────────────────────────
+
+#[cfg(feature = "logo")]
+fn alphabet_ctor(alphabet: &Alphabet) -> String {
+    match alphabet {
+        Alphabet::Dna => "Alphabet::Dna".to_string(),
+        Alphabet::Rna => "Alphabet::Rna".to_string(),
+        Alphabet::Protein => "Alphabet::Protein".to_string(),
+        Alphabet::Custom(letters) => {
+            let letters = letters
+                .iter()
+                .map(|c| format!("{c:?}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Alphabet::Custom(vec![{letters}])")
+        }
+    }
+}
+
+#[cfg(feature = "logo")]
+fn palette_preset_ctor(preset: PalettePreset) -> &'static str {
+    match preset {
+        PalettePreset::Classic => "PalettePreset::Classic",
+        PalettePreset::WebLogo => "PalettePreset::WebLogo",
+        PalettePreset::Shapely => "PalettePreset::Shapely",
+        PalettePreset::Clustal => "PalettePreset::Clustal",
+        PalettePreset::Taylor => "PalettePreset::Taylor",
+        PalettePreset::Muted => "PalettePreset::Muted",
+        PalettePreset::Mono => "PalettePreset::Mono",
+    }
+}
+
+#[cfg(feature = "logo")]
+fn logo_units_ctor(units: LogoUnits) -> &'static str {
+    match units {
+        LogoUnits::Bits => "LogoUnits::Bits",
+        LogoUnits::Probability => "LogoUnits::Probability",
+        LogoUnits::Frequency => "LogoUnits::Frequency",
+    }
+}
+
+/// `preset` and `overrides` come from the CLI rather than the plot: the plot
+/// only stores the resolved per-letter palette, and emitting twenty `[u8; 3]`
+/// entries would bury the one `--palette` the user actually typed.
+///
+/// FASTA-built logos keep their sequences (`source_sequences`), so they are
+/// emitted through `from_sequences` and reproduce the small-sample correction
+/// and case/gap handling exactly; matrix-built logos emit the matrix.
+#[cfg(feature = "logo")]
+pub fn emit_sequence_logo(
+    p: &SequenceLogo,
+    preset: PalettePreset,
+    overrides: &[(char, [u8; 3])],
+) -> String {
+    let alphabet = alphabet_ctor(&p.alphabet);
+    let ctor = match &p.source_sequences {
+        Some(seqs) => {
+            let seqs = seqs
+                .iter()
+                .map(|s| str_lit(s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("SequenceLogo::from_sequences(vec![{seqs}], {alphabet}).unwrap()")
+        }
+        None => {
+            let rows = p
+                .matrix
+                .iter()
+                .map(|row| {
+                    let vals = row
+                        .iter()
+                        .map(|v| f64_lit(*v))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("vec![{vals}]")
+                })
+                .collect::<Vec<_>>()
+                .join(",\n            ");
+            format!("SequenceLogo::from_matrix(\n        vec![\n            {rows},\n        ],\n        {alphabet},\n    )")
+        }
+    };
+
+    let mut frags: Vec<String> = Vec::new();
+    if preset != PalettePreset::default_for(&p.alphabet) {
+        frags.push(format!(".with_preset({})", palette_preset_ctor(preset)));
+    }
+    if !overrides.is_empty() {
+        let entries = overrides
+            .iter()
+            .map(|(c, [r, g, b])| format!("({c:?}, [{r}, {g}, {b}])"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_colors([{entries}])"));
+    }
+    if p.units != LogoUnits::Bits {
+        frags.push(format!(".with_units({})", logo_units_ctor(p.units)));
+    }
+    if p.start != 1 {
+        frags.push(format!(".with_start({})", p.start));
+    }
+    if p.show_consensus {
+        frags.push(".with_consensus()".to_string());
+    }
+    if (p.consensus_threshold - 0.5).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_consensus_threshold({})",
+            f64_lit(p.consensus_threshold)
+        ));
+    }
+    if p.respect_case {
+        frags.push(".with_respect_case()".to_string());
+    }
+    if p.include_gaps {
+        frags.push(".with_include_gaps()".to_string());
+    }
+    if !p.apply_correction {
+        frags.push(".with_no_correction()".to_string());
+    }
+    if p.reverse_complement {
+        frags.push(".with_reverse_complement().unwrap()".to_string());
+    }
+    match p.show_legend {
+        Some(true) => frags.push(".with_legend()".to_string()),
+        Some(false) => frags.push(".with_no_legend()".to_string()),
+        None => {}
+    }
+    if let Some(ref title) = p.title {
+        frags.push(format!(".with_title({})", str_lit(title)));
+    }
+    chain(&ctor, frags)
 }

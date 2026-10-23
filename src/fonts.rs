@@ -13,6 +13,7 @@
 //! gzip -9 -k -f assets/fonts/DejaVuSans-Bold.ttf
 //! gzip -9 -k -f assets/fonts/DejaVuSans-Oblique.ttf
 //! gzip -9 -k -f assets/fonts/DejaVuSansMono.ttf
+//! gzip -9 -k -f assets/fonts/DejaVuSansMono-Bold.ttf
 //! ```
 
 use std::io::Read;
@@ -64,6 +65,24 @@ pub(crate) fn dejavu_sans_oblique() -> &'static [u8] {
 pub(crate) fn dejavu_sans_mono() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| inflate(DEJAVU_SANS_MONO_GZ, 380_000, "DejaVu Sans Mono"))
+}
+
+/// Gzip-compressed DejaVu Sans Mono Bold, embedded at compile time.
+///
+/// The sequence-logo renderer stretches each glyph to fill its column, which
+/// flattens any letter whose outline is a bare rectangle: DejaVu Sans Bold's
+/// capital `I` is a 4-point box, so a stretched `I` becomes an anonymous
+/// block. The Mono face gives `I` (and `J`, `l`, `1`) serifs, so they stay
+/// recognisable at any width, while the bold weight keeps the heavy
+/// letterforms the WebLogo convention expects.
+#[cfg(feature = "logo")]
+const LOGO_FONT_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono-Bold.ttf.gz");
+
+/// Returns the inflated TTF used for sequence-logo glyph outlines.
+#[cfg(feature = "logo")]
+pub(crate) fn logo_font() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| inflate(LOGO_FONT_GZ, 400_000, "DejaVu Sans Mono Bold"))
 }
 
 /// Gzip-compressed New Computer Modern Math (OFL/GUST), embedded at compile

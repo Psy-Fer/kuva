@@ -213,6 +213,22 @@ run quiver "$DATA/quiver.tsv" --pivot middle \
     --title "Vector Field" --x-label "x" --y-label "y" \
     --terminal $W $H
 
+# ── logo ──────────────────────────────────────────────────────────────────────
+header "logo dna"
+run logo "$DATA/logo.fasta" \
+    --title "Kozak Motif" \
+    --terminal $W $H
+
+header "logo dna probability"
+run logo "$DATA/logo.fasta" --units probability \
+    --title "Kozak Motif (probability)" \
+    --terminal $W $H
+
+header "logo protein"
+run logo "$DATA/logo_protein.fasta" --alphabet protein \
+    --title "Zinc Finger Domain" \
+    --terminal $W $H
+
 # ── text wrapping ─────────────────────────────────────────────────────────────
 header "wrap title"
 run scatter "$DATA/scatter.tsv" --x x --y y \

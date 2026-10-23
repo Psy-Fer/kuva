@@ -39,6 +39,7 @@ EXAMPLES=(
     legend_plot
     legends
     line
+    logo
     lollipop
     manhattan
     math

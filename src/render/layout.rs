@@ -441,6 +441,11 @@ pub struct Layout {
     /// Set by `auto_from_plots` when a `SurvivalPlot` has `risk_table` enabled; reserves
     /// extra `margin_bottom`. `None` = no table.
     pub risk_table_rows: Option<usize>,
+    /// Number of annotation rows a plot draws itself between the x tick labels and
+    /// the x-axis title (the sequence-logo consensus row). Set by `auto_from_plots`;
+    /// each row reserves one tick-size line of `margin_bottom`, so the title is
+    /// pushed down rather than overprinted. `0` = none.
+    pub below_ticks_rows: usize,
     /// Explicit major tick step for the x-axis.  Skips auto computation when set.
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis.  Skips auto computation when set.
@@ -613,6 +618,7 @@ impl Layout {
             force_margin_top: None,
             force_margin_bottom: None,
             risk_table_rows: None,
+            below_ticks_rows: 0,
             x_tick_step: None,
             y_tick_step: None,
             minor_ticks: None,
@@ -715,6 +721,18 @@ impl Layout {
             if let Plot::Density(dp) = plot {
                 if !dp.fit_y {
                     anchor_y_zero = true;
+                }
+            }
+
+            #[cfg(feature = "logo")]
+            if let Plot::SequenceLogo(sl) = plot {
+                let groups = sl.legend_groups();
+                if !groups.is_empty() {
+                    has_legend = true;
+                    legend_entry_count += groups.len();
+                    for (label, _) in &groups {
+                        max_label_len = max_label_len.max(label.len());
+                    }
                 }
             }
 
@@ -1631,6 +1649,26 @@ impl Layout {
                 layout.legend_entry_limit = 20;
             }
 
+            // A flat legend taller than the canvas reflows into columns
+            // (see add_legend_at); reserve right-margin width for them, or
+            // the extra columns render off the edge.
+            //
+            // Count entries via `collect_legend_entries` rather than the
+            // `legend_entry_count` tally above: that tally is only maintained
+            // for a couple of plot types (a scatter coloured by group never
+            // sets it), and an undercount reserves too little width, which
+            // clips the extra columns' labels.
+            let entry_count =
+                legend_entry_count.max(crate::render::render::collect_legend_entries(plots).len());
+            if entry_count > 0 {
+                let avail = layout.height.unwrap_or(510.0) - 60.0;
+                let rows = (avail / 18.0).floor().max(10.0) as usize;
+                let cols = entry_count.div_ceil(rows).max(1);
+                if cols > 1 {
+                    layout.legend_width *= cols as f64;
+                }
+            }
+
             // Position legend die face needs 3 cells wide — ensure legend_width fits.
             for plot in plots.iter() {
                 if let crate::render::plots::Plot::DicePlot(dp) = plot {
@@ -1688,6 +1726,69 @@ impl Layout {
         // UpSet plots manage their own axes; disable the standard grid.
         if plots.iter().any(|p| matches!(p, Plot::UpSet(_))) {
             layout.show_grid = false;
+        }
+
+        /// Minimum plot-area width per sequence-logo position before the canvas
+        /// auto-widens (see below).
+        #[cfg(feature = "logo")]
+        const LOGO_MIN_COL_PX: f64 = 48.0;
+
+        // Sequence logos want integer positions on the x-axis and no grid —
+        // gridlines fight with per-position letter columns, and fractional
+        // ticks like "2.5" are nonsense for base positions.  Pin the exact
+        // axis span so `auto_nice_range` doesn't pad the first / last column
+        // away from the y-axis.
+        #[cfg(feature = "logo")]
+        if let Some(sl) = plots.iter().find_map(|p| match p {
+            Plot::SequenceLogo(sl) => Some(sl),
+            _ => None,
+        }) {
+            layout.show_grid = false;
+            if sl.title.is_some() {
+                layout.title = sl.title.clone();
+            }
+            // The consensus row is drawn one line below the tick labels (see
+            // `logo_render::add_consensus_row`); reserve that line so the
+            // x-axis title moves down instead of being overprinted.
+            if sl.show_consensus {
+                layout.below_ticks_rows = 1;
+            }
+            let n = sl.n_positions();
+            if n > 0 {
+                let labels: Vec<String> =
+                    (0..n).map(|i| format!("{}", sl.start + i as i64)).collect();
+                layout = layout.with_x_categories(labels);
+                let (x_lo, x_hi) = sl.x_span();
+                layout.x_axis_min = Some(x_lo);
+                layout.x_axis_max = Some(x_hi);
+            }
+            // Long motifs widen the canvas so every position keeps a legible
+            // column (~48 px) instead of cramming 25+ letters into the 600 px
+            // default plot area. An explicit width wins; terminal output is
+            // sized by the character grid, not by pixels.
+            if layout.width.is_none() && layout.term_rows.is_none() {
+                let plot_w = n as f64 * LOGO_MIN_COL_PX;
+                if plot_w > 600.0 {
+                    // Margins are not computed yet: approximate the standard
+                    // left gutter and the right-hand legend reserve.
+                    let right = if sl.legend_visible() {
+                        layout.legend_width + 20.0
+                    } else {
+                        20.0
+                    };
+                    layout.width = Some(70.0 + plot_w + right);
+                }
+            }
+            // Pin the y-axis to the theoretical ceiling — log₂(alphabet size)
+            // in bits, 1.0 in probability.  Letting `auto_nice_range` round
+            // outward would top a protein logo at 5 bits when the maximum
+            // achievable information content is log₂(20) ≈ 4.32, understating
+            // how conserved a fully-conserved column actually is.  Frequency
+            // mode has no theoretical ceiling, so it keeps auto-ranging.
+            if !matches!(sl.units, crate::plot::logo::LogoUnits::Frequency) {
+                layout.y_axis_min = Some(0.0);
+                layout.y_axis_max = Some(sl.y_max());
+            }
         }
 
         // Population pyramid: absolute-value x-tick format
@@ -2922,6 +3023,10 @@ pub struct ComputedLayout {
     pub legend_bottom_extra: f64,
     /// Pixels reserved at the bottom for a survival "number at risk" table (0 = none).
     pub risk_table_extra: f64,
+    /// Pixels reserved between the x tick labels and the x-axis title for plot-drawn
+    /// annotation rows (`Layout::below_ticks_rows`; the sequence-logo consensus row).
+    /// 0 = none.
+    pub below_ticks_extra: f64,
     /// Pixels the x-axis label's baseline must be lifted so a typeset math
     /// fragment's descent clears the canvas bottom (0 = none).
     ///
@@ -3168,6 +3273,10 @@ impl ComputedLayout {
             // lower row's descenders clear the axis title.
             margin_bottom += line_height(tick_size, tick_style);
         }
+        // Plot-drawn rows below the x tick labels (sequence-logo consensus row):
+        // one tick-size line each, so the x-axis title moves down by that much.
+        let below_ticks_extra = layout.below_ticks_rows as f64 * line_height(tick_size, tick_style);
+        margin_bottom += below_ticks_extra;
         // Extra bottom margin for wrapped x-axis label.
         if let (Some(ref xlabel), Some(max_chars)) = (&layout.x_label, layout.x_label_wrap) {
             let x_label_lines = render_utils::wrap_text(xlabel, max_chars).len();
@@ -3732,6 +3841,7 @@ impl ComputedLayout {
             legend_wrap: layout.legend_wrap,
             legend_bottom_extra,
             risk_table_extra,
+            below_ticks_extra,
             x_label_math_extra,
             legend_col_count,
             legend_entry_limit: layout.legend_entry_limit,

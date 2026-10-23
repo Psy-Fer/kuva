@@ -363,7 +363,7 @@ See [Reference → Date & Time Axes](../reference/datetime.md) for the underlyin
 
 ## Subcommands
 
-All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
+All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
 
 ### Distributions
 
@@ -453,6 +453,7 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | [manhattan](../plots/manhattan.md#cli) | Manhattan plot for GWAS results |
 | [volcano](../plots/volcano.md#cli) | Volcano plot for differential expression |
 | [synteny](../plots/synteny.md#cli) | Genomic alignment ribbon plot |
+| [logo](../plots/logo.md#cli) | Sequence logo from a PWM or aligned FASTA set (`logo` feature) |
 
 ### 3D
 

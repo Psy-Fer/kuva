@@ -815,9 +815,15 @@ impl Canvas {
                 size,
                 anchor,
                 rotate,
+                color,
                 ..
             } => {
-                let rgb = self.text_color;
+                // Honour an explicit per-text color (e.g. sequence-logo
+                // letters); fall back to the theme text color.
+                let rgb = color
+                    .as_ref()
+                    .map(|c| css_to_rgb(&c.to_svg_string()))
+                    .unwrap_or(self.text_color);
                 let x_s = x + tx;
                 let y_s = y + ty;
                 // SVG text is positioned by baseline (bottom of glyphs). The

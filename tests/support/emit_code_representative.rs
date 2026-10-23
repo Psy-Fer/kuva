@@ -507,6 +507,38 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
             ],
         ),
         (
+            "logo",
+            vec![
+                "logo",
+                "examples/data/logo.fasta",
+                "--consensus",
+                "--start",
+                "1234567",
+            ],
+        ),
+        (
+            "logo_pwm",
+            vec![
+                "logo",
+                "examples/data/logo.pwm",
+                "--units",
+                "probability",
+                "--colors",
+                "A=#00CC00,T=#CC0000",
+            ],
+        ),
+        (
+            "logo_protein",
+            vec![
+                "logo",
+                "examples/data/logo_protein.fasta",
+                "--alphabet",
+                "protein",
+                "--palette",
+                "taylor",
+            ],
+        ),
+        (
             "heatmap",
             vec![
                 "heatmap",
@@ -744,14 +776,31 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
     ]
 }
 
-/// The small full-feature `trybuild` link sample: one simple plot (`pie`) and
-/// one 3D plot (`surface3d`). The all-command compile proof lives in
+/// Cases whose emitted code needs an optional feature (`logo`), so they are
+/// compile-checked under `full` (see `full_feature_cases`) rather than in the
+/// no-features package.
+fn needs_optional_feature(name: &str) -> bool {
+    name.starts_with("logo")
+}
+
+/// `all_cases` minus the feature-gated ones: what the no-features package in
+/// `emit_code_minimal_compiles.rs` can compile.
+pub fn minimal_feature_cases() -> Vec<(&'static str, Vec<&'static str>)> {
+    all_cases()
+        .into_iter()
+        .filter(|(name, _)| !needs_optional_feature(name))
+        .collect()
+}
+
+/// The small full-feature `trybuild` link sample: one simple plot (`pie`), one
+/// 3D plot (`surface3d`), and the feature-gated cases (`logo*`), which only
+/// compile with their feature on. The all-command compile proof lives in
 /// `emit_code_minimal_compiles.rs`; this is just a belt-and-suspenders check
 /// that emitted code still links under the full feature set.
 pub fn full_feature_cases() -> Vec<(&'static str, Vec<&'static str>)> {
     all_cases()
         .into_iter()
-        .filter(|(name, _)| matches!(*name, "pie" | "surface3d"))
+        .filter(|(name, _)| matches!(*name, "pie" | "surface3d") || needs_optional_feature(name))
         .collect()
 }
 

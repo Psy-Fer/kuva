@@ -9,9 +9,9 @@
 ![conda](https://anaconda.org/conda-forge/kuva/badges/version.svg)
 ![conda-downloads](https://anaconda.org/conda-forge/kuva/badges/downloads.svg)
 
-A scientific plotting library in Rust. 64 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
+A scientific plotting library in Rust. 65 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
-![All 64 plot types](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/overview/all_plots_complex.svg)
+![All 65 plot types](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/overview/all_plots_complex.svg)
 
 ![kuva terminal — Sankey diagram](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/terminal/sankey.gif)
 

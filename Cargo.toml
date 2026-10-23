@@ -53,7 +53,10 @@ png        = ["dep:fontdue", "dep:png", "dep:flate2"]
 pdf        = ["dep:krilla", "dep:krilla-svg", "dep:usvg", "dep:flate2"]
 embed_font = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full       = ["embed_font", "png", "pdf"]
+# Sequence logo plot. Needs the bundled font (embed_font → flate2)
+# and ttf-parser to lift glyph outlines into vector paths.
+logo       = ["dep:ttf-parser", "embed_font"]
+full       = ["embed_font", "png", "pdf", "logo"]
 parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
 # In-process math typesetter (the "typst tier"): each label containing `$...$`
 # is typeset by the Typst compiler (linked as a library, no external binary)
@@ -112,6 +115,7 @@ typst         = { version = "0.14", optional = true }
 typst-svg     = { version = "0.14", optional = true }
 typst-render  = { version = "0.14", optional = true }
 typst-library = { version = "0.14", optional = true }
+ttf-parser    = { version = "0.25", optional = true }
 
 [dev-dependencies]
 rand = "0.9.3"
@@ -175,3 +179,7 @@ name = "all_plots_simple"
 name = "all_plots_complex"
 # Writes PNG *and* PDF alongside the SVG, so it needs both backends, not just png.
 required-features = ["png", "pdf"]
+
+[[example]]
+name = "logo"
+required-features = ["logo"]

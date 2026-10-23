@@ -1355,6 +1355,68 @@ check "typst sqrt + sum" \
 check "typst quadratic in rotated y-label" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
         --y-label '$x = \frac{-b \pm \sqrt{b^2 - 4 a c}}{2 a}$'
+# ── logo ──────────────────────────────────────────────────────────────────────
+check "logo fasta" \
+    "$BIN" logo "$DATA/logo.fasta" \
+        --title "Sequence Logo — Kozak-like"
+
+check "logo fasta probability" \
+    "$BIN" logo "$DATA/logo.fasta" --units probability \
+        --title "Sequence Logo — Probability"
+
+check "logo fasta reverse-complement" \
+    "$BIN" logo "$DATA/logo.fasta" --reverse-complement \
+        --title "Sequence Logo — Reverse Complement"
+
+check "logo fasta consensus" \
+    "$BIN" logo "$DATA/logo.fasta" --consensus --consensus-threshold 0.6 \
+        --title "Sequence Logo — Consensus"
+
+check "logo fasta start offset" \
+    "$BIN" logo "$DATA/logo.fasta" --start 500 \
+        --title "Sequence Logo — Genomic Coordinates"
+
+check "logo fasta mono" \
+    "$BIN" logo "$DATA/logo.fasta" --palette mono \
+        --title "Sequence Logo — Mono"
+
+check "logo fasta include gaps" \
+    "$BIN" logo "$DATA/logo.fasta" --include-gaps \
+        --title "Sequence Logo — Gaps Included"
+
+check "logo fasta respect case" \
+    "$BIN" logo "$DATA/logo.fasta" --respect-case \
+        --title "Sequence Logo — Soft-masked Dropped"
+
+check "logo pwm" \
+    "$BIN" logo "$DATA/logo.pwm" \
+        --title "Sequence Logo — PWM Input"
+
+check "logo pwm no correction" \
+    "$BIN" logo "$DATA/logo.pwm" --no-correction \
+        --title "Sequence Logo — No Correction"
+
+check "logo colors override" \
+    "$BIN" logo "$DATA/logo.fasta" --colors "A=#008800,C=#000088,G=#886600,T=#880000" \
+        --title "Sequence Logo — Custom Colors"
+
+check "logo protein default muted palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein \
+        --title "Zinc Finger — Muted Default"
+
+check "logo protein taylor palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --palette taylor \
+        --title "Zinc Finger — Taylor Palette"
+
+check "logo protein shapely palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --palette shapely \
+        --title "Zinc Finger — Shapely Palette"
+
+check_error "logo unknown palette" \
+    "$BIN" logo "$DATA/logo.fasta" --palette notapreset
+
+check_error "logo reverse-complement on protein" \
+    "$BIN" logo "$DATA/logo.pwm" --alphabet protein --reverse-complement
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

@@ -2066,6 +2066,87 @@ fn test_roc_near_scores_auc_label() {
     assert!(stdout.contains("Model  (AUC = 1.000)</text>"));
 }
 
+// ── logo ─────────────────────────────────────────────────────────────────────
+
+/// FASTA through stdin (forced with --from) renders letter glyph paths.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_fasta_stdin() {
+    let fasta = ">s1\nACGT\n>s2\nACGT\n>s3\nACGA\n";
+    let (stdout, stderr, code) = run_with_stdin(&["logo", "--from", "fasta"], fasta);
+    assert_eq!(code, 0, "logo fasta exit code; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "should produce SVG");
+    // Letters render as vector paths, not text glyphs.
+    assert!(stdout.contains("<path"), "expected glyph outline paths");
+    // Classic palette: conserved A column is green.
+    assert!(
+        stdout.contains("#009600") || stdout.contains("rgb(0,150,0)"),
+        "expected classic-palette green for A"
+    );
+}
+
+/// PWM file input with WebLogo-style letter headers.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_pwm_file() {
+    let (stdout, stderr, code) = run_with_file(&["logo", &data("logo.pwm")]);
+    assert_eq!(code, 0, "logo pwm exit code; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"));
+    assert!(stdout.contains("<path"));
+}
+
+/// --palette selects a logo preset; mono renders black letters.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_palette_mono() {
+    let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--palette", "mono"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("#000000"),
+        "mono palette should render black"
+    );
+}
+
+/// An unknown --palette errors with the available preset names.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_palette_unknown_errors() {
+    let (_, stderr, code) =
+        run_with_file(&["logo", &data("logo.fasta"), "--palette", "notapreset"]);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("classic"), "error should list presets");
+}
+
+/// --reverse-complement on a protein alphabet is an error.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_reverse_complement_protein_errors() {
+    let (_, _, code) = run_with_file(&[
+        "logo",
+        &data("logo.pwm"),
+        "--alphabet",
+        "protein",
+        "--reverse-complement",
+    ]);
+    assert_ne!(code, 0, "RC on protein should fail");
+}
+
+/// --start shifts the displayed x-axis labels.
+#[cfg(feature = "logo")]
+#[test]
+fn test_logo_start_offset() {
+    let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--start", "500"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains(">500<"),
+        "first position label should be 500"
+    );
+    assert!(
+        stdout.contains(">509<"),
+        "last position label should be 509 (10 positions from 500)"
+    );
+}
+
 // ── misc ─────────────────────────────────────────────────────────────────────
 
 #[test]

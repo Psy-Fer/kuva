@@ -88,6 +88,7 @@
 - [Synteny Plot](./plots/synteny.md)
 - [Brick Plot](./plots/brick.md)
 - [Brick Pop Plot](./plots/brick_pop.md)
+- [Sequence Logo](./plots/logo.md)
 
 # 3D
 

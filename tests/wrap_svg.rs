@@ -420,9 +420,11 @@ fn outside_bottom_legend_no_wrap_renders_entries() {
 }
 
 #[test]
-fn legend_height_cap_shows_overflow_line() {
-    // Build a legend with 80 short-label entries — far more than fit on a default canvas.
-    // The renderer should cap visible entries and append "… (+N more)".
+fn long_flat_legend_reflows_into_columns() {
+    // Build a legend with 80 short-label entries — far more than fit in one
+    // column on a default canvas. The renderer reflows them into columns
+    // rather than truncating: silently dropping entries makes a legend with
+    // distinct categories actively misleading.
     let plots = scatter_plots();
     let entries: Vec<LegendEntry> = (1..=80)
         .map(|i| LegendEntry {
@@ -434,52 +436,66 @@ fn legend_height_cap_shows_overflow_line() {
         .collect();
     let layout = Layout::auto_from_plots(&plots).with_legend_entries(entries);
     let out = svg(plots, layout);
-    common::write_test_output("test_outputs/legend_height_cap.svg", &out).unwrap();
+    common::write_test_output("test_outputs/legend_reflow_columns.svg", &out).unwrap();
 
-    // The overflow line must be present.
+    // No entries are dropped, so there is no overflow line.
     assert!(
-        out.contains("more)"),
-        "legend height cap: overflow line missing"
+        !out.contains("more)"),
+        "legend should reflow into columns, not truncate"
     );
 
-    // The 80th entry must NOT be rendered (it was truncated).
-    assert!(
-        !out.contains(">Group 80<"),
-        "legend height cap: last entry should be truncated"
-    );
+    // First, last, and a middle entry are all rendered.
+    for i in [1, 40, 80] {
+        assert!(
+            out.contains(&format!(">Group {i}<")),
+            "legend reflow: entry {i} missing"
+        );
+    }
+}
 
-    // The first entry must still appear.
-    assert!(
-        out.contains(">Group 1<"),
-        "legend height cap: first entry missing"
-    );
+/// Reflowed columns must fit on the canvas.
+///
+/// Reserving width from a per-plot-type entry tally undercounts (a scatter
+/// coloured by group never maintained it), which left the outer columns'
+/// labels running past the right edge — swatches visible, text clipped away.
+#[test]
+fn reflowed_legend_columns_fit_on_canvas() {
+    let mut plots = Vec::new();
+    for g in 0..28 {
+        let scatter = ScatterPlot::new()
+            .with_data(vec![(g as f64, g as f64)])
+            .with_legend(format!("group_{g:02}"));
+        plots.push(Plot::Scatter(scatter));
+    }
+    let layout = Layout::auto_from_plots(&plots).with_height(380.0);
+    let out = svg(plots, layout);
+    common::write_test_output("test_outputs/legend_reflow_fits.svg", &out).unwrap();
 
-    // The overflow text must not be clipped by the right canvas edge.
-    // Parse the canvas width from the SVG root element.
-    let canvas_width: f64 = {
+    let width: f64 = {
         let start = out.find("width=\"").unwrap() + 7;
         let end = start + out[start..].find('"').unwrap();
         out[start..end].parse().unwrap()
     };
-    // Find the overflow text element and its x position.
-    let marker = out.find(">… (+").expect("overflow text element present");
-    let overflow_text: String = out[marker + 1..]
-        .split('<')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    let overflow_x: f64 = out[..marker]
-        .rfind("x=\"")
-        .and_then(|pos| out[pos + 3..].split('"').next())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    // Legend width is sized from real DejaVu advances (mean ≈ 0.6 em ≈ 7.2px at the
-    // default body size); use that as an upper-bound estimate of the actual overflow
-    // string's width rather than the old fixed 7.5/char heuristic.
-    let est_width = overflow_text.chars().count() as f64 * 7.2;
-    assert!(
-        overflow_x + est_width <= canvas_width + 1.0,
-        "overflow text {overflow_text:?} at x={overflow_x} (est width {est_width:.1}px) \
-         would extend beyond canvas width {canvas_width}"
-    );
+
+    // Every entry is present...
+    for g in 0..28 {
+        assert!(
+            out.contains(&format!(">group_{g:02}<")),
+            "legend entry group_{g:02} missing"
+        );
+    }
+    // ...and every legend text baseline sits inside the canvas.
+    for cap in out.split("<text").skip(1) {
+        let head = &cap[..cap.find('>').unwrap_or(cap.len())];
+        let body = &cap[head.len()..];
+        if !body.starts_with(">group_") || !head.contains("x=\"") {
+            continue;
+        }
+        let xs = head.split("x=\"").nth(1).unwrap();
+        let x: f64 = xs[..xs.find('"').unwrap()].parse().unwrap();
+        assert!(
+            x > 0.0 && x < width,
+            "legend label x={x} runs off the canvas (width {width})"
+        );
+    }
 }

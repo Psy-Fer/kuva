@@ -5,6 +5,8 @@ use crate::plot::boxplot::BoxPlot;
 use crate::plot::brick::BrickPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::line::LinePlot;
+#[cfg(feature = "logo")]
+use crate::plot::logo::SequenceLogo;
 use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::violin::ViolinPlot;
 
@@ -130,6 +132,8 @@ pub enum Plot {
     Text(TextPlot),
     LegendPlot(LegendPlot),
     Quiver(QuiverPlot),
+    #[cfg(feature = "logo")]
+    SequenceLogo(SequenceLogo),
 }
 
 impl From<ScatterPlot> for Plot {
@@ -453,6 +457,13 @@ impl From<QuiverPlot> for Plot {
     }
 }
 
+#[cfg(feature = "logo")]
+impl From<SequenceLogo> for Plot {
+    fn from(p: SequenceLogo) -> Self {
+        Plot::SequenceLogo(p)
+    }
+}
+
 use crate::plot::colormap::ColorMap;
 use crate::plot::plot3d::DataRanges3D;
 
@@ -551,6 +562,9 @@ impl Plot {
             Plot::Ecdf(e) => e.color = color.into(),
             Plot::QQ(q) => q.color = color.into(),
             Plot::Quiver(q) => q.color = color.into(),
+            // SequenceLogo colors per-letter via AlphabetPalette — no single primary color.
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(_) => {}
             _ => {} // multi-series plots (StackedArea, Streamgraph, etc.) skip palette auto-assign
         }
     }
@@ -1528,6 +1542,13 @@ impl Plot {
                     .unwrap_or(0.0);
                 Some(((x_min, x_max), (y_min, y_max)))
             }
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(sl) => {
+                if sl.n_positions() == 0 {
+                    return None;
+                }
+                Some((sl.x_span(), (0.0, sl.y_max())))
+            }
         }
     }
 
@@ -1651,6 +1672,8 @@ impl Plot {
             Plot::Gantt(gp) => gp.tasks.len() * 5 + 20,
             Plot::Text(tp) => tp.body.lines().count() * 2 + 10,
             Plot::Quiver(q) => q.arrows.len() * 2 + 10,
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(sl) => sl.n_positions() * sl.letters.len() * 12 + 40,
             _ => 100,
         }
     }
@@ -1797,6 +1820,9 @@ impl Plot {
                 let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
                 colorbar_linear(&cmap, min, max, q.color_legend_label.clone())
             }
+            // SequenceLogo uses a discrete letter legend, never a continuous colorbar.
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(_) => None,
             // Hexbin draws its own colorbar inside add_hexbin (values are only known
             // after binning).  Return None here so the generic colorbar loop in
             // render_multiple does not attempt to draw a second, placeholder bar.

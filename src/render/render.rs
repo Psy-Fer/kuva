@@ -9200,6 +9200,15 @@ fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, 
         legend_width
     };
 
+    // Guard: a reflowed legend must never run off the right edge. If the
+    // reserved margin turned out too narrow, slide the whole legend left
+    // rather than clipping its outer columns.
+    let legend_x = if legend_x + box_width > scene.width {
+        (scene.width - box_width - legend_padding).max(0.0)
+    } else {
+        legend_x
+    };
+
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
@@ -9571,33 +9580,41 @@ fn add_legend_with_offset(
     let avail_height_entries = (computed.height - legend_y - legend_padding * 2.0).max(line_height);
     let max_entries_display = ((avail_height_entries / line_height).floor() as usize).max(10);
 
-    // Pre-compute overflow for flat entries so box width can be widened to fit "… (+N more)".
-    let flat_overflow = if legend.groups.is_none() {
+    // A flat entry list taller than the canvas reflows into columns rather
+    // than being truncated — dropping entries silently makes a legend worse
+    // than useless when every swatch is a distinct category.
+    let (flat_cols, flat_rows_per_col) = if legend.groups.is_none() {
         let n = legend.entries.len();
         if n > max_entries_display {
-            n - max_entries_display.saturating_sub(1)
+            let cols = n.div_ceil(max_entries_display);
+            (cols, n.div_ceil(cols))
         } else {
-            0
+            (1, n)
         }
     } else {
-        0
+        (1, 0)
     };
-    let box_width = if flat_overflow > 0 {
-        let overflow_text = format!("… (+{flat_overflow} more)");
-        let min_w = measure_text_width(&overflow_text, 12.0, FontStyle::Regular)
-            + computed.legend_text_x
-            + legend_padding;
-        legend_width.max(min_w)
+
+    // Width of one column: swatch offset + widest label (measured from real
+    // DejaVu advances, like `legend_width` itself) + padding.
+    let flat_col_width = {
+        let widest = legend
+            .entries
+            .iter()
+            .map(|e| measure_text_width(&e.label, computed.body_size as f64, FontStyle::Regular))
+            .fold(0.0_f64, f64::max);
+        computed.legend_text_x + widest + legend_padding
+    };
+
+    let box_width = if flat_cols > 1 {
+        legend_width.max(flat_col_width * flat_cols as f64)
     } else {
         legend_width
     };
 
-    // If entries are capped, shrink the bounding box height to match what's actually rendered.
-    let legend_height = if flat_overflow > 0 && computed.legend_height_override.is_none() {
-        // Hug the content the same way the non-overflow path does: the box ends
-        // `legend_padding` below the last row's swatch, not a full line-height below.
-        (title_rows + max_entries_display) as f64 * line_height + legend_padding * 2.0
-            - (line_height - computed.legend_swatch_size)
+    // Shrink the bounding box to the tallest column actually rendered.
+    let legend_height = if flat_cols > 1 && computed.legend_height_override.is_none() {
+        (title_rows + flat_rows_per_col) as f64 * line_height + legend_padding * 2.0
     } else {
         legend_height
     };
@@ -9649,40 +9666,41 @@ fn add_legend_with_offset(
     }
 
     // Render a single legend entry with optional label wrapping.
-    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, bw_idx: usize| {
-        if computed.interactive {
-            let grp_attr = format!(
-                r#"class="legend-entry" data-group="{lbl}""#,
-                lbl = render_utils::escape_attr(&entry.label)
-            );
-            scene.add(Primitive::GroupStart {
-                transform: None,
-                title: None,
-                extra_attrs: Some(grp_attr),
-            });
-        }
-        let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
-        let mut first = entry.clone();
-        first.label = lines[0].clone();
-        render_legend_entry(&first, scene, legend_x, *cur_y, computed, bw_idx);
-        *cur_y += line_height;
-        for line in &lines[1..] {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: *cur_y + text_baseline_offset,
-                content: line.clone(),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    let render_entry =
+        |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, entry_x: f64, bw_idx: usize| {
+            if computed.interactive {
+                let grp_attr = format!(
+                    r#"class="legend-entry" data-group="{lbl}""#,
+                    lbl = render_utils::escape_attr(&entry.label)
+                );
+                scene.add(Primitive::GroupStart {
+                    transform: None,
+                    title: None,
+                    extra_attrs: Some(grp_attr),
+                });
+            }
+            let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
+            let mut first = entry.clone();
+            first.label = lines[0].clone();
+            render_legend_entry(&first, scene, entry_x, *cur_y, computed, bw_idx);
             *cur_y += line_height;
-        }
-        if computed.interactive {
-            scene.add(Primitive::GroupEnd);
-        }
-    };
+            for line in &lines[1..] {
+                scene.add(Primitive::Text {
+                    x: entry_x + computed.legend_text_x,
+                    y: *cur_y + text_baseline_offset,
+                    content: line.clone(),
+                    anchor: TextAnchor::Start,
+                    size: computed.body_size,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+                *cur_y += line_height;
+            }
+            if computed.interactive {
+                scene.add(Primitive::GroupEnd);
+            }
+        };
 
     // max_entries_display was already computed above after legend_y was resolved.
 
@@ -9708,31 +9726,28 @@ fn add_legend_with_offset(
                 cur_y += line_height;
             }
             for entry in &group.entries {
-                render_entry(entry, scene, &mut cur_y, bw_counter);
+                render_entry(entry, scene, &mut cur_y, legend_x, bw_counter);
                 bw_counter += 1;
             }
         }
-    } else {
-        let overflow = flat_overflow;
-        let entries_to_show = if overflow > 0 {
-            max_entries_display.saturating_sub(1)
-        } else {
-            legend.entries.len()
-        };
-        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
-            render_entry(entry, scene, &mut cur_y, i);
+    } else if flat_cols > 1 {
+        // Column-major fill: entries read top-to-bottom, then wrap right.
+        let start_y = cur_y;
+        for (i, entry) in legend.entries.iter().enumerate() {
+            let col = i / flat_rows_per_col;
+            let row = i % flat_rows_per_col;
+            let mut y = start_y + row as f64 * line_height;
+            render_entry(
+                entry,
+                scene,
+                &mut y,
+                legend_x + col as f64 * flat_col_width,
+                i,
+            );
         }
-        if overflow > 0 {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: cur_y + text_baseline_offset,
-                content: format!("… (+{overflow} more)"),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    } else {
+        for (i, entry) in legend.entries.iter().enumerate() {
+            render_entry(entry, scene, &mut cur_y, legend_x, i);
         }
     }
 }
@@ -13361,6 +13376,20 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
             }
             Plot::Text(_) => {}
             Plot::LegendPlot(_) => {}
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(sl) => {
+                // One row per distinct color, labelled with the letters
+                // sharing it — chemistry-group palettes map many letters
+                // onto one swatch.
+                for (label, rgb) in sl.legend_groups() {
+                    entries.push(LegendEntry {
+                        label,
+                        color: format!("rgb({},{},{})", rgb[0], rgb[1], rgb[2]),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -16942,6 +16971,10 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Quiver(q) => {
                 add_quiver(q, &mut scene, &computed);
             }
+            #[cfg(feature = "logo")]
+            Plot::SequenceLogo(sl) => {
+                crate::render::logo_render::add_sequence_logo(sl, &mut scene, &computed, &layout);
+            }
         }
     }
 
@@ -16984,6 +17017,16 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         if let Plot::Gantt(gp) = plot {
             add_gantt_labels(gp, &mut scene, &computed);
+        }
+    }
+
+    // Sequence-logo consensus row sits below the x tick labels — emit after ClipEnd.
+    #[cfg(feature = "logo")]
+    for plot in plots.iter() {
+        if let Plot::SequenceLogo(sl) = plot {
+            if sl.show_consensus {
+                crate::render::logo_render::add_consensus_row(sl, &mut scene, &computed);
+            }
         }
     }
 
