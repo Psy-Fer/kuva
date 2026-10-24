@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Axis breaks** — `Layout::with_y_break(lo, hi)` / `with_x_break(lo, hi)` (and `with_*_break_config(AxisBreak)`) skip a stretch of a linear axis so one dominant group no longer squashes the rest: values up to `lo` and from `hi` on are drawn to scale either side of a short gap, the axis line is split with slanted break marks, ticks are generated per segment, and anything crossing the gap is hidden. Each segment gets a pixel share that follows the data spans clamped to 30–70% (or `with_share(f)`); the gap width and marks are configurable. Every renderer goes through `map_x` / `map_y`, so bars, boxes, lines and points all break correctly; log, categorical and equal-aspect axes ignore the break, as do twin-y and candlestick plots (with a CLI warning). `Layout::with_background` sets the canvas colour on the layout so the gap cover matches; `--background` now goes through it. CLI: `--y-break LO,HI[,SHARE]` and `--x-break` on every subcommand with axis flags; `--emit-code` round-trips them. See *Reference → Axis Breaks*.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

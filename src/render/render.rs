@@ -1,8 +1,8 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
 use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
-    muted_subtitle_color, start_tick_font, XLabelPlacer,
+    add_axes_and_grid, add_axis_break_cover, add_labels_and_title, add_x2_axis, add_y2_axis,
+    end_tick_font, muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
@@ -632,6 +632,15 @@ impl Scene {
 fn apply_theme(scene: &mut Scene, theme: &Theme) {
     scene.background_color = Some(theme.background.clone());
     scene.text_color = Some(theme.text_color.clone());
+}
+
+/// `Layout::background` wins over the theme's background; `"none"` or
+/// `"transparent"` leaves the canvas unfilled.
+fn apply_layout_background(scene: &mut Scene, layout: &Layout) {
+    if let Some(bg) = &layout.background {
+        let transparent = bg.eq_ignore_ascii_case("none") || bg.eq_ignore_ascii_case("transparent");
+        scene.background_color = (!transparent).then(|| bg.clone());
+    }
 }
 
 /// Build an SVG path string from a sequence of (x, y) screen-coordinate points.
@@ -5198,12 +5207,14 @@ pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_forest(forest, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -5389,12 +5400,14 @@ pub fn render_lollipop(lp: &crate::plot::lollipop::LollipopPlot, layout: &Layout
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_lollipop(lp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -5700,6 +5713,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -5707,6 +5721,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     add_survival_risk_table(sp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -10397,12 +10412,14 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_volcano(vp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -10455,6 +10472,7 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -10462,6 +10480,7 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     add_manhattan_chr_labels(mp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -10472,6 +10491,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10481,6 +10501,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10491,6 +10512,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10500,6 +10522,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10510,6 +10533,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10519,6 +10543,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10529,6 +10554,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10538,6 +10564,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10548,6 +10575,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10557,6 +10585,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10567,6 +10596,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10576,6 +10606,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10586,6 +10617,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10595,6 +10627,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10651,6 +10684,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10660,6 +10694,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -10670,6 +10705,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10679,6 +10715,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene
 }
@@ -11427,12 +11464,14 @@ pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_waterfall(waterfall, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -11442,12 +11481,14 @@ pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_strip(strip, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 
@@ -15334,6 +15375,7 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -15700,6 +15742,7 @@ pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -16434,7 +16477,23 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
 
     // Reserve only the notation tiers the labels actually occupy, rather than
     // the worst case `Layout::auto_from_plots` had to assume.
+    // Candlestick maps prices onto its own price/volume panel rather than
+    // through `map_y`, so a y break cannot apply to it.
+    if plots.iter().any(|p| matches!(p, Plot::Candlestick(_))) {
+        layout.y_break = None;
+    }
     let mut computed = resolve_brick_notation_tiers(&plots, &mut layout);
+    for (axis, requested, kept) in [
+        ("x", layout.x_break.is_some(), computed.x_break.is_some()),
+        ("y", layout.y_break.is_some(), computed.y_break.is_some()),
+    ] {
+        if requested && !kept {
+            eprintln!(
+                "warning: {axis}-axis break ignored: it must satisfy lo < hi strictly inside the \
+                 axis range on a linear axis (not log, categorical, equal-aspect, twin-y or candlestick)"
+            );
+        }
+    }
 
     // Pie canvas-widening: when a Pie with outside labels is present, ensure the
     // canvas is wide enough to fit both the leader-line labels AND any legend in the
@@ -16518,6 +16577,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     // Propagate interactivity into the scene so the SVG backend can inject
     // CSS / JS / UI.  For pixel-space plots (no axis) axis_meta is left None.
@@ -16553,7 +16613,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     | Plot::LegendPlot(_)
             )
         });
-        if !skip_axes_for_meta {
+        // Hover read-outs assume a linear range, which a broken axis is not.
+        if !skip_axes_for_meta && computed.x_break.is_none() && computed.y_break.is_none() {
             scene.axis_meta = Some(AxisMeta {
                 x_min: computed.x_range.0,
                 x_max: computed.x_range.1,
@@ -16949,6 +17010,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     if !skip_axes {
+        // The gap cover belongs to the axes: pixel-space plots have none.
+        add_axis_break_cover(&mut scene, &computed);
         scene.elements.push(Primitive::ClipEnd);
     }
 
@@ -17158,6 +17221,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_y2_axis(&mut scene, &computed, &layout);
@@ -17282,6 +17346,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene.elements.push(Primitive::ClipEnd);
 
@@ -17786,6 +17851,7 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -18002,6 +18068,7 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -25024,12 +25091,14 @@ pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Sc
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_quiver(q, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
     scene
 }
 // ── GanttPlot ─────────────────────────────────────────────────────────────────

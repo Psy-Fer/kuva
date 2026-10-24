@@ -1,3 +1,4 @@
+use crate::plot::axis_break::AxisBreak;
 use crate::render::color::Color;
 use crate::render::datetime::DateTimeAxis;
 use crate::render::layout::{
@@ -362,16 +363,67 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         layout.log_y,
         computed.y_ticks,
     );
+    // A broken axis gets its own ticks per segment (so a short segment is
+    // not left with a single tick), or just drops the ticks inside the gap
+    // when the ticks came from an explicit step, a calendar or a log rule.
+    let (mut x_ticks, x_spacing, x_broken) = break_ticks(
+        x_ticks,
+        x_spacing,
+        computed.x_break,
+        computed.x_range,
+        computed.x_tick_step.is_none()
+            && computed.x_bin_width.is_none()
+            && layout.x_datetime.is_none()
+            && !layout.log_x,
+        computed.x_ticks,
+    );
+    let (mut y_ticks, y_spacing, y_broken) = break_ticks(
+        y_ticks,
+        y_spacing,
+        computed.y_break,
+        computed.y_range,
+        computed.y_tick_step.is_none() && layout.y_datetime.is_none() && !layout.log_y,
+        computed.y_ticks,
+    );
+    // A tick label right at a gap edge would sit under the break mark.
+    let edge_px = computed.tick_size as f64 * 0.6;
+    if let Some(b) = computed.x_break_px {
+        x_ticks.retain(|t| {
+            let px = map_x(*t);
+            (px - b.lo_px).abs() > edge_px && (px - b.hi_px).abs() > edge_px
+        });
+    }
+    if let Some(b) = computed.y_break_px {
+        y_ticks.retain(|t| {
+            let py = map_y(*t);
+            (py - b.lo_px).abs() > edge_px && (py - b.hi_px).abs() > edge_px
+        });
+    }
 
     // Generate minors as if one more major existed just beyond each end so the
     // bands past the outer majors get filled, then drop any that fall outside the
     // axis range. The filtered lists feed both the gridlines and the tick marks.
-    let x_minor = computed
-        .minor_ticks
-        .map(|n| compute_minor_ticks(&x_ticks, &x_spacing, computed.x_range, n));
-    let y_minor = computed
-        .minor_ticks
-        .map(|n| compute_minor_ticks(&y_ticks, &y_spacing, computed.y_range, n));
+    // On a broken axis each segment extrapolates with its own step.
+    let x_minor = computed.minor_ticks.map(|n| {
+        minor_ticks_for(
+            &x_ticks,
+            &x_spacing,
+            x_broken.as_ref(),
+            computed.x_break,
+            computed.x_range,
+            n,
+        )
+    });
+    let y_minor = computed.minor_ticks.map(|n| {
+        minor_ticks_for(
+            &y_ticks,
+            &y_spacing,
+            y_broken.as_ref(),
+            computed.y_break,
+            computed.y_range,
+            n,
+        )
+    });
 
     // Draw minor gridlines (before major so major renders on top)
     if computed.show_minor_grid && layout.x_categories.is_none() {
@@ -459,27 +511,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     }
 
     // Draw axes on top of grid lines so grid never bleeds over the axis borders.
-    // X axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.height - computed.margin_bottom,
-        x2: computed.width - computed.margin_right,
-        y2: computed.height - computed.margin_bottom,
-        stroke: Color::from(&theme.axis_color),
-        stroke_width: computed.axis_line_width,
-        stroke_dasharray: None,
-    });
-
-    // Y axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.margin_top,
-        x2: computed.margin_left,
-        y2: computed.height - computed.margin_bottom,
-        stroke: Color::from(&theme.axis_color),
-        stroke_width: computed.axis_line_width,
-        stroke_dasharray: None,
-    });
+    // A broken axis is drawn in two segments with slanted marks at the gap.
+    add_x_axis_line(scene, computed, computed.height - computed.margin_bottom);
+    add_y_axis_line(scene, computed, computed.margin_left);
 
     // Draw tick marks and labels
     start_tick_font(scene, computed);
@@ -738,28 +772,213 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
     if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
         // Top axis
-        scene.add(Primitive::Line {
-            x1: computed.margin_left,
-            y1: computed.margin_top,
-            x2: computed.width - computed.margin_right,
-            y2: computed.margin_top,
-            stroke: Color::from(&theme.axis_color),
-            stroke_width: computed.axis_line_width,
-            stroke_dasharray: None,
-        });
+        add_x_axis_line(scene, computed, computed.margin_top);
 
         // Right axis (drawn here only if y2 axis is NOT present)
         if layout.y2_range.is_none() {
-            scene.add(Primitive::Line {
-                x1: computed.width - computed.margin_right,
-                y1: computed.margin_top,
-                x2: computed.width - computed.margin_right,
-                y2: computed.height - computed.margin_bottom,
-                stroke: Color::from(&theme.axis_color),
-                stroke_width: computed.axis_line_width,
-                stroke_dasharray: None,
-            });
+            add_y_axis_line(scene, computed, computed.width - computed.margin_right);
         }
+    }
+}
+
+/// Per-segment tick data for a broken axis with automatic ticks, kept so
+/// minor ticks can extrapolate each segment with its own step.
+struct BrokenTicks {
+    lower: Vec<f64>,
+    lower_step: f64,
+    upper: Vec<f64>,
+    upper_step: f64,
+}
+
+/// Ticks for a possibly broken axis. With `auto` ticks each segment gets its
+/// own clean step, budgeted by its pixel share (at least two ticks each);
+/// otherwise the given ticks are kept minus those inside the gap.
+fn break_ticks<'a>(
+    ticks: Vec<f64>,
+    spacing: TickSpacing<'a>,
+    brk: Option<AxisBreak>,
+    range: (f64, f64),
+    auto: bool,
+    target: usize,
+) -> (Vec<f64>, TickSpacing<'a>, Option<BrokenTicks>) {
+    let Some(b) = brk else {
+        return (ticks, spacing, None);
+    };
+    if !auto {
+        return (
+            ticks.into_iter().filter(|t| !b.contains(*t)).collect(),
+            spacing,
+            None,
+        );
+    }
+    let before = b.share_before(range);
+    let budget = |frac: f64| ((target as f64 * frac).round() as usize).max(2);
+    let (n_lo, n_hi) = (budget(before), budget(1.0 - before));
+    let lower = render_utils::generate_ticks(range.0, b.lo, n_lo);
+    let upper = render_utils::generate_ticks(b.hi, range.1, n_hi);
+    let lower_step = arithmetic_step(&lower, || {
+        render_utils::compute_tick_step(range.0, b.lo, n_lo)
+    });
+    let upper_step = arithmetic_step(&upper, || {
+        render_utils::compute_tick_step(b.hi, range.1, n_hi)
+    });
+    let mut all = lower.clone();
+    all.extend(upper.iter().copied());
+    all.retain(|t| !b.contains(*t));
+    (
+        all,
+        TickSpacing::Arithmetic(lower_step),
+        Some(BrokenTicks {
+            lower,
+            lower_step,
+            upper,
+            upper_step,
+        }),
+    )
+}
+
+/// Minor ticks for an axis that may be broken: per segment with that
+/// segment's own step when the majors were generated per segment, otherwise
+/// over the whole range minus the gap.
+fn minor_ticks_for(
+    ticks: &[f64],
+    spacing: &TickSpacing,
+    broken: Option<&BrokenTicks>,
+    brk: Option<AxisBreak>,
+    range: (f64, f64),
+    n: u32,
+) -> Vec<f64> {
+    match (broken, brk) {
+        (Some(bt), Some(b)) => {
+            let mut m = compute_minor_ticks(
+                &bt.lower,
+                &TickSpacing::Arithmetic(bt.lower_step),
+                (range.0, b.lo),
+                n,
+            );
+            m.extend(compute_minor_ticks(
+                &bt.upper,
+                &TickSpacing::Arithmetic(bt.upper_step),
+                (b.hi, range.1),
+                n,
+            ));
+            m
+        }
+        (None, Some(b)) => {
+            let mut m = compute_minor_ticks(ticks, spacing, range, n);
+            m.retain(|t| !b.contains(*t));
+            m
+        }
+        (_, None) => compute_minor_ticks(ticks, spacing, range, n),
+    }
+}
+
+fn axis_segment(scene: &mut Scene, computed: &ComputedLayout, x1: f64, y1: f64, x2: f64, y2: f64) {
+    scene.add(Primitive::Line {
+        x1,
+        y1,
+        x2,
+        y2,
+        stroke: Color::from(&computed.theme.axis_color),
+        stroke_width: computed.axis_line_width,
+        stroke_dasharray: None,
+    });
+}
+
+/// Slanted break mark across an axis line at one gap edge: a short `/`
+/// centred on the line, the usual broken-axis glyph.
+fn break_mark(scene: &mut Scene, computed: &ComputedLayout, x: f64, y: f64, vertical_axis: bool) {
+    let m = computed.tick_mark_major.max(4.0);
+    let (x1, y1, x2, y2) = if vertical_axis {
+        (x - m, y + m * 0.5, x + m, y - m * 0.5)
+    } else {
+        (x - m * 0.5, y + m, x + m * 0.5, y - m)
+    };
+    scene.add(Primitive::Line {
+        x1,
+        y1,
+        x2,
+        y2,
+        stroke: Color::from(&computed.theme.axis_color),
+        stroke_width: computed.axis_line_width,
+        stroke_dasharray: None,
+    });
+}
+
+/// Horizontal axis line at pixel `y`, split around an x break.
+fn add_x_axis_line(scene: &mut Scene, computed: &ComputedLayout, y: f64) {
+    let (left, right) = (computed.margin_left, computed.width - computed.margin_right);
+    match computed.x_break_px {
+        Some(b) => {
+            axis_segment(scene, computed, left, y, b.lo_px, y);
+            axis_segment(scene, computed, b.hi_px, y, right, y);
+            if computed.x_break.is_some_and(|xb| xb.marks) {
+                break_mark(scene, computed, b.lo_px, y, false);
+                break_mark(scene, computed, b.hi_px, y, false);
+            }
+        }
+        None => axis_segment(scene, computed, left, y, right, y),
+    }
+}
+
+/// Vertical axis line at pixel `x`, split around a y break.
+fn add_y_axis_line(scene: &mut Scene, computed: &ComputedLayout, x: f64) {
+    let (top, bottom) = (
+        computed.margin_top,
+        computed.height - computed.margin_bottom,
+    );
+    match computed.y_break_px {
+        Some(b) => {
+            axis_segment(scene, computed, x, bottom, x, b.lo_px);
+            axis_segment(scene, computed, x, b.hi_px, x, top);
+            if computed.y_break.is_some_and(|yb| yb.marks) {
+                break_mark(scene, computed, x, b.lo_px, true);
+                break_mark(scene, computed, x, b.hi_px, true);
+            }
+        }
+        None => axis_segment(scene, computed, x, top, x, bottom),
+    }
+}
+
+/// Hide whatever crosses an axis gap: a band in the canvas background colour
+/// over the plot area between the gap edges, drawn after the data and
+/// annotations. On a transparent canvas (`background_color == None`) there
+/// is nothing to paint with, so the gap is left unmasked.
+pub fn add_axis_break_cover(scene: &mut Scene, computed: &ComputedLayout) {
+    if computed.x_break_px.is_none() && computed.y_break_px.is_none() {
+        return;
+    }
+    let Some(fill) = scene.background_color.clone() else {
+        return;
+    };
+    let (left, right) = (computed.margin_left, computed.width - computed.margin_right);
+    let (top, bottom) = (
+        computed.margin_top,
+        computed.height - computed.margin_bottom,
+    );
+    if let Some(b) = computed.y_break_px {
+        scene.add(Primitive::Rect {
+            x: left,
+            y: b.hi_px,
+            width: right - left,
+            height: b.lo_px - b.hi_px,
+            fill: Color::from(&fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+    if let Some(b) = computed.x_break_px {
+        scene.add(Primitive::Rect {
+            x: b.lo_px,
+            y: top,
+            width: b.hi_px - b.lo_px,
+            height: bottom - top,
+            fill: Color::from(&fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
     }
 }
 

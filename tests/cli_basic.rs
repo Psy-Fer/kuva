@@ -2186,3 +2186,49 @@ fn test_upset_rejects_more_sets_than_the_mask_holds() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("<svg"));
 }
+
+// ── --x-break / --y-break ─────────────────────────────────────────────────────
+
+#[test]
+fn axis_break_flags_render_and_validate() {
+    let input = "tissue\ttpm\nLiver\t8.2\nKidney\t6.9\nHeart\t5.1\nBrain\t7.4\nTestis\t940\n";
+    let base = ["bar", "--label-col", "tissue", "--value-col", "tpm"];
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880"]);
+    let (out, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">900</text>") && out.contains(">10</text>"),
+        "{out}"
+    );
+    assert!(!out.contains(">500</text>"));
+
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880,0.5"]);
+    let (_, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+
+    for (spec, needle) in [
+        ("12", "expected LO,HI"),
+        ("880,12", "LO must be less than HI"),
+        ("12,880,2", "SHARE must be between"),
+        ("a,b", "is not a number"),
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--y-break", spec]);
+        let (_, err, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{spec} should fail");
+        assert!(err.contains(needle), "{spec}: {err}");
+    }
+
+    let line_input = "day\tscore\n0\t1\n5\t3\n10\t6\n100\t9\n105\t7\n110\t6\n";
+    let (out, err, code) = run_with_stdin(
+        &["line", "--x", "day", "--y", "score", "--x-break", "12,98"],
+        line_input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">100</text>") && !out.contains(">50</text>"),
+        "{out}"
+    );
+}

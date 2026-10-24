@@ -1,4 +1,5 @@
 use clap::Args;
+use kuva::plot::axis_break::AxisBreak;
 use kuva::render::datetime::DateTimeAxis;
 use kuva::render::layout::{AxisLabelOverlap, AxisLine, Layout, TickAlign, TickFormat, TickPos};
 use kuva::render::palette::Palette;
@@ -233,6 +234,19 @@ pub struct AxisArgs {
     /// On a Manhattan plot this controls chromosome label placement.
     #[arg(long, value_name = "STRATEGY")]
     pub x_label_overlap: Option<String>,
+
+    /// Break the X axis: skip the values between LO and HI and draw a short
+    /// gap with slanted marks on the axis line (`--x-break 10,990`). An
+    /// optional third number is the fraction of the axis given to the
+    /// segment before the break (`--x-break 10,990,0.5`; default follows the
+    /// data, clamped to 0.3..0.7). Linear numeric axes only; ignored on log
+    /// or category axes.
+    #[arg(long, value_name = "LO,HI[,SHARE]", value_parser = parse_break_pair, allow_hyphen_values = true)]
+    pub x_break: Option<(f64, f64, Option<f64>)>,
+
+    /// Break the Y axis between LO and HI (`--y-break 12,940`); see --x-break.
+    #[arg(long, value_name = "LO,HI[,SHARE]", value_parser = parse_break_pair, allow_hyphen_values = true)]
+    pub y_break: Option<(f64, f64, Option<f64>)>,
 }
 
 #[derive(Args, Debug)]
@@ -371,8 +385,49 @@ pub struct Y2AxisArgs {
 
 // ── Apply functions ───────────────────────────────────────────────────────────
 
+/// Parse `LO,HI[,SHARE]` for `--x-break` / `--y-break`: two finite numbers
+/// with LO < HI, and an optional fraction of the axis for the segment before
+/// the break.
+pub fn parse_break_pair(s: &str) -> Result<(f64, f64, Option<f64>), String> {
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    let (a, b, share) = match parts[..] {
+        [a, b] => (a, b, None),
+        [a, b, c] => (a, b, Some(c)),
+        _ => {
+            return Err(format!(
+                "'{s}': expected LO,HI or LO,HI,SHARE (comma-separated numbers)"
+            ))
+        }
+    };
+    let num = |label: &str, v: &str| -> Result<f64, String> {
+        let x: f64 = v
+            .parse()
+            .map_err(|_| format!("'{s}': {label} '{v}' is not a number"))?;
+        if !x.is_finite() {
+            return Err(format!("'{s}': {label} must be finite"));
+        }
+        Ok(x)
+    };
+    let (lo, hi) = (num("LO", a)?, num("HI", b)?);
+    if lo >= hi {
+        return Err(format!("'{s}': LO must be less than HI"));
+    }
+    let share = share.map(|c| num("SHARE", c)).transpose()?;
+    if let Some(f) = share {
+        if !(0.05..=0.95).contains(&f) {
+            return Err(format!("'{s}': SHARE must be between 0.05 and 0.95"));
+        }
+    }
+    Ok((lo, hi, share))
+}
+
 /// Apply base output/appearance args to a layout.
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
+    // Set on the layout (not on the finished scene) so anything drawn in the
+    // background colour during rendering, such as an axis-break cover, matches.
+    if let Some(ref bg) = args.background {
+        layout = layout.with_background(bg.clone());
+    }
     if let Some(w) = args.width {
         layout = layout.with_width(w);
     }
@@ -525,6 +580,20 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
         if let Some(strategy) = parse_label_overlap(s) {
             layout = layout.with_x_label_overlap(strategy);
         }
+    }
+    if let Some((lo, hi, share)) = args.x_break {
+        let mut brk = AxisBreak::new(lo, hi);
+        if let Some(f) = share {
+            brk = brk.with_share(f);
+        }
+        layout = layout.with_x_break_config(brk);
+    }
+    if let Some((lo, hi, share)) = args.y_break {
+        let mut brk = AxisBreak::new(lo, hi);
+        if let Some(f) = share {
+            brk = brk.with_share(f);
+        }
+        layout = layout.with_y_break_config(brk);
     }
     layout
 }

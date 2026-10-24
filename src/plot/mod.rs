@@ -1,4 +1,5 @@
 pub mod annotations;
+pub mod axis_break;
 pub mod band;
 pub mod bar;
 pub mod boxplot;
@@ -71,6 +72,7 @@ pub mod legend;
 
 // pub mod types;
 
+pub use axis_break::AxisBreak;
 pub use band::BandPlot;
 pub use bar::BarPlot;
 pub use boxplot::{BoxGroup, BoxPlot};

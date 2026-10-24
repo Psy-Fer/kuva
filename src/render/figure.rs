@@ -1001,6 +1001,9 @@ fn clone_layout(l: &Layout) -> Layout {
     new.x_axis_max = l.x_axis_max;
     new.y_axis_min = l.y_axis_min;
     new.y_axis_max = l.y_axis_max;
+    new.x_break = l.x_break;
+    new.y_break = l.y_break;
+    new.background = l.background.clone();
     new.y2_axis_min = l.y2_axis_min;
     new.y2_axis_max = l.y2_axis_max;
     new.force_margin_left = l.force_margin_left;

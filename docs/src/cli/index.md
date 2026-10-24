@@ -298,6 +298,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--y-label <TEXT>` | — | Y-axis label |
 | `--ticks <N>` | `5` | Hint for number of tick marks |
 | `--no-grid` | off | Disable background grid |
+| `--y-break <LO,HI[,SHARE]>` | — | Skip the values between LO and HI on the Y axis: a short gap with slanted marks, each segment to its own scale. SHARE is the fraction of the axis for the segment below the break (default follows the data, clamped to 0.3–0.7). Linear numeric axes only ([Reference → Axis Breaks](../reference/axis_break.md)) |
+| `--x-break <LO,HI[,SHARE]>` | — | Same for the X axis |
 
 ### Log scale *(scatter, line, histogram, density, hist2d)*
 

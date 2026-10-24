@@ -109,6 +109,7 @@
 
 - [Figure (Multi-Plot)](./reference/figure.md)
 - [Layout & Axes](./reference/layout.md)
+- [Axis Breaks](./reference/axis_break.md)
 - [Legends](./reference/legends.md)
 - [Themes](./reference/themes.md)
 - [Color Palettes](./reference/palettes.md)
