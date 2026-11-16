@@ -533,7 +533,9 @@ impl QuiverPlot {
                 let target = shaft_px * self.head_ratio;
                 let lo = self.head_min_px.min(shaft_px);
                 let hi = self.head_max_px.min(shaft_px);
-                target.clamp(lo, hi)
+                // max-then-min, not `clamp`: `f64::clamp` panics (in release too)
+                // when head_min_px > head_max_px; this resolves to the max instead.
+                target.max(lo).min(hi)
             }
         };
         let half_w = match self.head_width {

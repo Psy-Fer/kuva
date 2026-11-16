@@ -299,3 +299,16 @@ fn test_quiver_color_fallback_priority() {
     assert!(has_tomato, "per-arrow tomato should be in SVG");
     assert!(has_steelblue, "plot-level steelblue should be in SVG");
 }
+
+#[test]
+fn test_quiver_inverted_head_min_max_does_not_panic() {
+    // `f64::clamp` panics when min > max, even in release builds; an inverted
+    // pair must resolve (to the max) rather than abort the render.
+    let svg = render(
+        rotational_grid()
+            .with_head_min_px(30.0)
+            .with_head_max_px(5.0),
+        "Inverted head bounds",
+    );
+    assert!(svg.contains("<svg"));
+}

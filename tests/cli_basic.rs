@@ -2186,3 +2186,94 @@ fn test_upset_rejects_more_sets_than_the_mask_holds() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("<svg"));
 }
+
+// ── quiver3d ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_quiver3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--title",
+        "3D Quiver",
+        "--x-label",
+        "x",
+        "--y-label",
+        "y",
+        "--z-label",
+        "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    assert!(stdout.contains("3D Quiver"), "title should be rendered");
+    // 64 arrows in the sample data, one closed seven-point <path> glyph each
+    // (the box's back-pane fills are four-point paths and are excluded).
+    let arrow_paths = stdout
+        .split("<path")
+        .skip(1)
+        .filter(|c| {
+            c.split("d=\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .is_some_and(|d| d.matches(" L ").count() == 6)
+        })
+        .count();
+    assert_eq!(arrow_paths, 64, "one path per arrow");
+    assert!(
+        stdout.contains("<line"),
+        "SVG should contain line elements (box edges)"
+    );
+}
+
+#[test]
+fn test_quiver3d_named_columns_colormap_and_colorbar() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--x-col",
+        "x",
+        "--y-col",
+        "y",
+        "--z-col",
+        "z",
+        "--u-col",
+        "u",
+        "--v-col",
+        "v",
+        "--w-col",
+        "w",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+        "--pivot",
+        "middle",
+        "--depth-shade",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("Speed"),
+        "colorbar label should be rendered"
+    );
+    assert!(
+        stdout.contains("fill-opacity"),
+        "--depth-shade should emit per-arrow opacity"
+    );
+}
+
+#[test]
+fn test_quiver3d_rejects_arrow_scale_with_auto_scale() {
+    let (_stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--arrow-scale",
+        "0.5",
+        "--auto-scale",
+        "0.8",
+    ]);
+    assert_ne!(code, 0, "conflicting scale flags should be rejected");
+    assert!(
+        stderr.contains("cannot be used with") || stderr.contains("conflicts"),
+        "stderr should explain the conflict: {stderr}"
+    );
+}
