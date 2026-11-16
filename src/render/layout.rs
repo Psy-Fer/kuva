@@ -3980,6 +3980,92 @@ impl ComputedLayout {
         self.height - self.margin_top - self.margin_bottom
     }
 
+    /// Map a data-space polyline to screen space, splitting every segment that
+    /// crosses an axis break at the break's `lo` and `hi` edges.
+    ///
+    /// The piecewise `map_x`/`map_y` give each side of a break its own scale, so a
+    /// straight screen-space line between two mapped endpoints has the wrong slope
+    /// on both sides of the gap. Inserting the exact crossing points makes each
+    /// visible piece follow its own segment's scale and meet the gap at the right
+    /// place; the sub-segment inside the gap is hidden by the break cover.
+    /// Without a break this is a plain per-point map.
+    pub fn map_polyline(&self, pts: impl IntoIterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+        self.map_polyline_runs(pts).into_iter().flatten().collect()
+    }
+
+    /// Like [`map_polyline`](Self::map_polyline), but drops the pieces that lie
+    /// inside a break, returning one screen-space run per visible stretch.
+    ///
+    /// Stroking each run on its own ends the line squarely at the gap edges; a
+    /// single stroked polyline would turn a corner at each edge, and the stroke
+    /// join pokes a thin spike past the break cover. Without a break this is a
+    /// single run holding the plain per-point map.
+    pub fn map_polyline_runs(
+        &self,
+        pts: impl IntoIterator<Item = (f64, f64)>,
+    ) -> Vec<Vec<(f64, f64)>> {
+        let pts: Vec<(f64, f64)> = pts.into_iter().collect();
+        if self.x_break_px.is_none() && self.y_break_px.is_none() {
+            return vec![pts
+                .into_iter()
+                .map(|(x, y)| (self.map_x(x), self.map_y(y)))
+                .collect()];
+        }
+        // Data-space points with the break crossings inserted.
+        let mut out = Vec::with_capacity(pts.len() + 4);
+        let mut ts: Vec<f64> = Vec::with_capacity(4);
+        for (i, &(x, y)) in pts.iter().enumerate() {
+            if i > 0 {
+                let (x0, y0) = pts[i - 1];
+                ts.clear();
+                // Parameter t in (0, 1) where the segment crosses `edge` on one axis.
+                let mut crossings = |a: f64, b: f64, brk: Option<BreakPx>| {
+                    if let Some(b_) = brk {
+                        for edge in [b_.lo, b_.hi] {
+                            if (a - edge) * (b - edge) < 0.0 {
+                                ts.push((edge - a) / (b - a));
+                            }
+                        }
+                    }
+                };
+                crossings(x0, x, self.x_break_px);
+                crossings(y0, y, self.y_break_px);
+                ts.sort_by(f64::total_cmp);
+                for &t in &ts {
+                    out.push((x0 + (x - x0) * t, y0 + (y - y0) * t));
+                }
+            }
+            out.push((x, y));
+        }
+        let inside = |v: f64, brk: Option<BreakPx>| brk.is_some_and(|b| v > b.lo && v < b.hi);
+        let in_gap = |(x, y): (f64, f64)| inside(x, self.x_break_px) || inside(y, self.y_break_px);
+        let map = |(x, y): (f64, f64)| (self.map_x(x), self.map_y(y));
+        if out.len() == 1 {
+            return vec![vec![map(out[0])]];
+        }
+        let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for w in out.windows(2) {
+            let (q, p) = (w[0], w[1]);
+            // Every piece between consecutive points lies wholly on one side of
+            // each break edge, so its midpoint says whether it is in the gap.
+            if in_gap(((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0)) {
+                if !run.is_empty() {
+                    runs.push(std::mem::take(&mut run));
+                }
+                continue;
+            }
+            if run.is_empty() {
+                run.push(map(q));
+            }
+            run.push(map(p));
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+        runs
+    }
+
     #[inline(always)]
     pub fn map_x(&self, x: f64) -> f64 {
         if self.log_x {

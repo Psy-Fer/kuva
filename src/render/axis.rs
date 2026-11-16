@@ -1288,7 +1288,7 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         // the height it reserved.
         let title_block_h = computed.title_lines as f64 * line_height(ts, FontStyle::Regular);
         let start_y = computed.title_y + title_block_h / 2.0 + ascent(sts, FontStyle::Regular);
-        let color = muted_subtitle_color(scene);
+        let color = muted_subtitle_color(scene, &computed.theme.background);
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
                 x: cx,
@@ -1305,25 +1305,23 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
 }
 
 /// The subtitle colour: the effective title colour (the scene's text colour, or
-/// black) blended `SUBTITLE_MUTE` of the way toward the background (the scene's
-/// background, or white), so it reads as a muted version of the title in both
+/// black) blended `SUBTITLE_MUTE` of the way toward the theme background, so it reads as a muted version of the title in both
 /// light and dark themes rather than a fixed grey.
 ///
 /// Muting needs both colours as solid RGB. If either is a CSS colour kuva can't
 /// resolve (e.g. an `hsl()`/functional-notation theme), fall back to the title's
 /// own colour un-muted — correct hue and readable, just not dimmed — rather than
 /// fabricating a wrong grey.
-pub(crate) fn muted_subtitle_color(scene: &Scene) -> Color {
+///
+/// It deliberately ignores `scene.background_color`: a `Layout::with_background`
+/// override (including `"none"`, which clears it) must not change the subtitle colour.
+pub(crate) fn muted_subtitle_color(scene: &Scene, theme_background: &str) -> Color {
     let title_color = scene
         .text_color
         .as_deref()
         .map(Color::from)
         .unwrap_or(Color::Rgb(0, 0, 0));
-    let background = scene
-        .background_color
-        .as_deref()
-        .map(Color::from)
-        .unwrap_or(Color::Rgb(255, 255, 255));
+    let background = Color::from(theme_background);
     match (&title_color, &background) {
         (Color::Rgb(tr, tg, tb), Color::Rgb(br, bg, bb)) => {
             let mix = |from: u8, to: u8| {

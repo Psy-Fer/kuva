@@ -399,3 +399,94 @@ fn minor_ticks_follow_each_segments_step() {
         "uneven minor pitch above the gap: {gaps:?}"
     );
 }
+
+#[test]
+fn polyline_crossing_a_break_is_split_at_both_edges() {
+    // A segment from (0, 5) to (10, 905) crosses lo = 12 and hi = 880. Drawn
+    // straight between its mapped endpoints, each visible piece would have the
+    // wrong slope; the split inserts the exact data crossings instead.
+    let layout = Layout::auto_from_plots(&bars()).with_y_break(12.0, 880.0);
+    let c = ComputedLayout::from_layout(&layout);
+    let b = c.y_break_px.expect("break accepted");
+    let pts = c.map_polyline([(0.0, 5.0), (10.0, 905.0)]);
+    assert_eq!(pts.len(), 4, "{pts:?}");
+    let t_lo = (12.0 - 5.0) / 900.0;
+    let t_hi = (880.0 - 5.0) / 900.0;
+    assert!(close(pts[1].0, c.map_x(10.0 * t_lo)) && close(pts[1].1, b.lo_px));
+    assert!(close(pts[2].0, c.map_x(10.0 * t_hi)) && close(pts[2].1, b.hi_px));
+    // A segment that stays on one side is left alone, and so is everything
+    // when there is no break.
+    assert_eq!(c.map_polyline([(0.0, 1.0), (10.0, 9.0)]).len(), 2);
+    let plain = ComputedLayout::from_layout(&Layout::auto_from_plots(&bars()));
+    assert_eq!(plain.map_polyline([(0.0, 5.0), (10.0, 905.0)]).len(), 2);
+}
+
+#[test]
+fn polyline_runs_stop_at_the_gap_edges() {
+    let layout = Layout::auto_from_plots(&bars()).with_y_break(12.0, 880.0);
+    let c = ComputedLayout::from_layout(&layout);
+    let b = c.y_break_px.expect("break accepted");
+    // One crossing segment becomes two runs, each ending on a gap edge.
+    let runs = c.map_polyline_runs([(0.0, 5.0), (10.0, 905.0)]);
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert_eq!((runs[0].len(), runs[1].len()), (2, 2));
+    assert!(close(runs[0][1].1, b.lo_px) && close(runs[1][0].1, b.hi_px));
+    // A vertex inside the gap is dropped; both neighbours still reach the edges.
+    let runs = c.map_polyline_runs([(0.0, 5.0), (5.0, 400.0), (10.0, 6.0)]);
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert!(close(runs[0][1].1, b.lo_px) && close(runs[1][0].1, b.lo_px));
+    // No break, or no crossing: a single run.
+    assert_eq!(c.map_polyline_runs([(0.0, 1.0), (10.0, 9.0)]).len(), 1);
+    let plain = ComputedLayout::from_layout(&Layout::auto_from_plots(&bars()));
+    assert_eq!(
+        plain.map_polyline_runs([(0.0, 5.0), (10.0, 905.0)]).len(),
+        1
+    );
+}
+
+#[test]
+fn line_plot_is_stroked_as_one_path_per_side_of_the_break() {
+    let line = LinePlot::new()
+        .with_data(vec![(0.0, 5.0), (10.0, 905.0)])
+        .with_color("#123456");
+    let plots = vec![Plot::Line(line)];
+    let layout = Layout::auto_from_plots(&plots).with_y_break(12.0, 880.0);
+    let svg = render(plots, layout);
+    // The SVG backend writes a polyline as `<path d="M x y L x y ...">`. Two
+    // separate pieces, so neither turns a corner (and spikes a stroke join)
+    // at the gap.
+    let pieces: Vec<&str> = svg
+        .split("<path d=\"")
+        .skip(1)
+        .map(|t| &t[..t.find('>').unwrap()])
+        .filter(|t| t.contains("stroke=\"#123456\""))
+        .collect();
+    assert_eq!(pieces.len(), 2, "{svg}");
+    for p in pieces {
+        assert_eq!(p.matches(['M', 'L']).count(), 2, "{p}");
+    }
+}
+
+#[test]
+fn points_inside_the_gap_are_marked_with_a_cross() {
+    let scatter = ScatterPlot::new()
+        .with_data(vec![(1.0, 2.0), (2.0, 50.0), (3.0, 95.0)])
+        .with_color("#123456");
+    let plots = vec![Plot::Scatter(scatter)];
+    let layout = Layout::auto_from_plots(&plots).with_y_break(10.0, 90.0);
+    let svg = render(plots, layout);
+    // Two strokes of one cross, in the series colour, after the cover.
+    let crosses = svg
+        .split("<line")
+        .skip(1)
+        .filter(|t| t[..t.find('>').unwrap()].contains("stroke=\"#123456\""))
+        .count();
+    assert_eq!(crosses, 2, "{svg}");
+    // Nothing is marked without an in-gap value.
+    let ok = ScatterPlot::new()
+        .with_data(vec![(1.0, 2.0), (3.0, 95.0)])
+        .with_color("#123456");
+    let plots = vec![Plot::Scatter(ok)];
+    let layout = Layout::auto_from_plots(&plots).with_y_break(10.0, 90.0);
+    assert!(!render(plots, layout).contains("stroke=\"#123456\""));
+}

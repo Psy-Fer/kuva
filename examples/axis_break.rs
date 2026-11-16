@@ -15,6 +15,7 @@ use kuva::plot::{BarPlot, BoxPlot, LinePlot, ScatterPlot};
 use kuva::render::layout::{AxisLine, Layout};
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
+use kuva::render::theme::Theme;
 use std::fs;
 
 const OUT: &str = "docs/src/assets/axis_break";
@@ -103,6 +104,79 @@ fn main() {
         .with_y_label("Reads (thousands)")
         .with_y_break(7.0, 580.0);
     write("box_group", plots, layout);
+
+    // ── Data inside the gap: marked with a cross ────────────────────────────
+    let control: Vec<(f64, f64)> = (0..=12)
+        .map(|i| (i as f64, 3.0 + (i as f64 * 0.8).sin() * 1.2))
+        .collect();
+    // Two treated readings land between the break edges (25 and 90).
+    let treated: Vec<(f64, f64)> = vec![
+        (0.0, 4.0),
+        (1.0, 6.0),
+        (2.0, 9.0),
+        (3.0, 15.0),
+        (4.0, 40.0),
+        (5.0, 104.0),
+        (6.0, 112.0),
+        (7.0, 118.0),
+        (8.0, 60.0),
+        (9.0, 115.0),
+        (10.0, 121.0),
+        (11.0, 117.0),
+        (12.0, 124.0),
+    ];
+    let plots = vec![
+        Plot::Line(
+            LinePlot::new()
+                .with_data(control)
+                .with_color("#4C72B0")
+                .with_legend("Control"),
+        ),
+        Plot::Line(
+            LinePlot::new()
+                .with_data(treated)
+                .with_color("#DD8452")
+                .with_legend("Treated"),
+        ),
+    ];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Values inside the gap are marked with a cross")
+        .with_x_label("Hour")
+        .with_y_label("Signal")
+        .with_y_break(25.0, 90.0);
+    write("points_in_gap", plots, layout);
+
+    // ── Custom background: the gap band follows it ──────────────────────────
+    let bar = BarPlot::new()
+        .with_bar("Liver", 8.2)
+        .with_bar("Kidney", 6.9)
+        .with_bar("Heart", 5.1)
+        .with_bar("Brain", 7.4)
+        .with_bar("Testis", 940.0)
+        .with_color("#4C72B0");
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("with_background(\"#f3eee2\")")
+        .with_y_label("TPM")
+        .with_background("#f3eee2")
+        .with_y_break(12.0, 880.0);
+    write("background_custom", plots, layout);
+
+    // ── Dark theme ──────────────────────────────────────────────────────────
+    let bar = BarPlot::new()
+        .with_bar("Liver", 8.2)
+        .with_bar("Kidney", 6.9)
+        .with_bar("Heart", 5.1)
+        .with_bar("Brain", 7.4)
+        .with_bar("Testis", 940.0)
+        .with_color("#8FB8DE");
+    let plots = vec![Plot::Bar(bar)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Theme::dark()")
+        .with_y_label("TPM")
+        .with_theme(Theme::dark())
+        .with_y_break(12.0, 880.0);
+    write("background_dark", plots, layout);
 
     println!("Axis break SVGs written to {OUT}/");
 }

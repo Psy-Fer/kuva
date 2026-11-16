@@ -1,6 +1,6 @@
 # Axis Breaks
 
-An axis break skips a stretch of a numeric axis so a few far-off values — one dominant tissue, a late time window, a handful of outliers — no longer squash everything else into a sliver. Values up to `lo` and from `hi` on are drawn to scale on either side of a short gap; the stretch between them is simply not shown.
+An axis break skips a stretch of a numeric axis so a few far-off values (one dominant tissue, a late time window, a handful of outliers) no longer squash everything else into a sliver. Values up to `lo` and from `hi` on are drawn to scale on either side of a short gap; the stretch between them is simply not shown.
 
 Breaks are a `Layout` feature. Every plot type maps its data through the same axis transform, so bars, boxes, violins, lines, points and error bars all break the same way.
 
@@ -40,13 +40,13 @@ What you get:
 - **Two segments, each to its own scale.** The segment below the break gets a share of the axis that follows the data spans, clamped to 30–70%, so a 12-unit segment next to a 120-unit one is still readable.
 - **A gap with break marks.** The axis line stops at `lo`, resumes at `hi`, and carries a slanted mark at each edge. With `AxisLine::Box` the opposite side is split too.
 - **Ticks per segment.** Each side gets its own clean tick step, sized by its share of the axis; nothing is labelled inside the gap.
-- **A clean gap.** A background-coloured band hides whatever crosses it — a tall bar, a line, a reference line — so the break reads as a break.
+- **A clean gap.** A background-coloured band hides whatever crosses it (a tall bar, a line, a reference line), so the break reads as a break. A line that crosses the gap stops at one edge and resumes at the other, so each visible piece keeps its true slope on its own side.
 
 ---
 
 ## X-axis breaks
 
-`with_x_break(lo, hi)` does the same along x. Lines are drawn straight through the gap and clipped by the band.
+`with_x_break(lo, hi)` does the same along x. A line that spans the gap stops at `lo` and picks up again at `hi`.
 
 ```rust,no_run
 # use kuva::render::layout::Layout;
@@ -101,10 +101,59 @@ A break that cannot apply is dropped silently rather than producing a broken fig
 
 A y break is also ignored on twin-y plots (the secondary axis shares the plot height on a plain scale, so a primary gap would slice its series) and on candlestick plots (prices are mapped onto their own price/volume panel). The CLI prints a warning whenever a requested break is ignored. Hover read-outs in interactive SVG are disabled on a broken axis, since they assume a linear range.
 
-Two more things to know:
+---
 
-- **Data inside the gap is hidden.** A value between `lo` and `hi` is drawn compressed into the gap and covered by the band, so it looks like a bar sliced at the edge or a missing point. Choose `lo` and `hi` so that no data falls between them.
-- **The cover uses the canvas background.** Set the background on the layout (`with_background`, or `--background` on the CLI) rather than on the finished scene so the band matches; with `with_background("none")` (a transparent canvas) the gap is left unmasked.
+## Data inside the gap
+
+A scatter point or line vertex whose value lies strictly between `lo` and `hi` cannot be drawn to scale. Rather than hiding it, kuva draws a small cross in the series colour inside the gap at its position, and prints a warning with the count. Lines run up to the gap edge on each side of such a vertex. A bar whose top falls inside the gap is drawn sliced at the edge.
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# let plots = vec![];
+// Two "Treated" readings (40 and 60) fall between 25 and 90.
+let layout = Layout::auto_from_plots(&plots)
+    .with_y_label("Signal")
+    .with_y_break(25.0, 90.0);
+```
+
+<img src="../assets/axis_break/points_in_gap.svg" alt="Two line series with a broken y axis; two values inside the gap are drawn as small crosses in the gap" width="560">
+
+The cross is a flag, not a fix: choose `lo` and `hi` so that no data falls between them.
+
+---
+
+## Backgrounds and themes
+
+The band that hides the gap is painted in the layout's background colour, so it blends in with a custom background or a theme.
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::theme::Theme;
+# let plots = vec![];
+let warm = Layout::auto_from_plots(&plots)
+    .with_background("#f3eee2")
+    .with_y_break(12.0, 880.0);
+
+let dark = Layout::auto_from_plots(&plots)
+    .with_theme(Theme::dark())
+    .with_y_break(12.0, 880.0);
+```
+
+<img src="../assets/axis_break/background_custom.svg" alt="Bar chart with a broken y axis on a warm off-white background; the gap matches the background" width="560">
+
+<img src="../assets/axis_break/background_dark.svg" alt="Bar chart with a broken y axis in the dark theme; the gap matches the dark background" width="560">
+
+On the CLI, `--background` and `--theme` do the same:
+
+```bash
+kuva bar tpm.tsv --label-col tissue --value-col tpm --y-break 12,880 --background "#f3eee2"
+kuva bar tpm.tsv --label-col tissue --value-col tpm --y-break 12,880 --theme dark
+```
+
+Two caveats:
+
+- **Set the background on the layout**, not on the finished scene, so the band matches. With `with_background("none")` (a transparent canvas) the gap is left unmasked, and anything crossing it, such as a tall bar, shows through.
+- **In a `Figure`, the band matches the panel's layout background, not the figure's.** Each panel's scene background is not composited into the figure, so if a panel sets its own `with_background` that differs from the figure background, the gap band shows in the panel colour. Leave panel backgrounds unset, or set them to the figure's.
 
 ---
 
