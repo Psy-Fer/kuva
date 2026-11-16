@@ -2295,3 +2295,140 @@ fn box_signif_brackets_render_and_reject_bad_specs() {
     assert_eq!(code, 0, "{err}");
     assert!(out.contains(">**</text>"), "{out}");
 }
+
+// ── --x-break / --y-break ─────────────────────────────────────────────────────
+
+#[test]
+fn axis_break_flags_render_and_validate() {
+    let input = "tissue\ttpm\nLiver\t8.2\nKidney\t6.9\nHeart\t5.1\nBrain\t7.4\nTestis\t940\n";
+    let base = ["bar", "--label-col", "tissue", "--value-col", "tpm"];
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880"]);
+    let (out, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">900</text>") && out.contains(">10</text>"),
+        "{out}"
+    );
+    assert!(!out.contains(">500</text>"));
+
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880,0.5"]);
+    let (_, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+
+    for (spec, needle) in [
+        ("12", "expected LO,HI"),
+        ("880,12", "LO must be less than HI"),
+        ("12,880,2", "SHARE must be between"),
+        ("a,b", "is not a number"),
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--y-break", spec]);
+        let (_, err, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{spec} should fail");
+        assert!(err.contains(needle), "{spec}: {err}");
+    }
+
+    let line_input = "day\tscore\n0\t1\n5\t3\n10\t6\n100\t9\n105\t7\n110\t6\n";
+    let (out, err, code) = run_with_stdin(
+        &["line", "--x", "day", "--y", "score", "--x-break", "12,98"],
+        line_input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">100</text>") && !out.contains(">50</text>"),
+        "{out}"
+    );
+}
+
+// ── quiver3d ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_quiver3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--title",
+        "3D Quiver",
+        "--x-label",
+        "x",
+        "--y-label",
+        "y",
+        "--z-label",
+        "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    assert!(stdout.contains("3D Quiver"), "title should be rendered");
+    // 64 arrows in the sample data, one closed seven-point <path> glyph each
+    // (the box's back-pane fills are four-point paths and are excluded).
+    let arrow_paths = stdout
+        .split("<path")
+        .skip(1)
+        .filter(|c| {
+            c.split("d=\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .is_some_and(|d| d.matches(" L ").count() == 6)
+        })
+        .count();
+    assert_eq!(arrow_paths, 64, "one path per arrow");
+    assert!(
+        stdout.contains("<line"),
+        "SVG should contain line elements (box edges)"
+    );
+}
+
+#[test]
+fn test_quiver3d_named_columns_colormap_and_colorbar() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--x-col",
+        "x",
+        "--y-col",
+        "y",
+        "--z-col",
+        "z",
+        "--u-col",
+        "u",
+        "--v-col",
+        "v",
+        "--w-col",
+        "w",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+        "--pivot",
+        "middle",
+        "--depth-shade",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("Speed"),
+        "colorbar label should be rendered"
+    );
+    assert!(
+        stdout.contains("fill-opacity"),
+        "--depth-shade should emit per-arrow opacity"
+    );
+}
+
+#[test]
+fn test_quiver3d_rejects_arrow_scale_with_auto_scale() {
+    let (_stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--arrow-scale",
+        "0.5",
+        "--auto-scale",
+        "0.8",
+    ]);
+    assert_ne!(code, 0, "conflicting scale flags should be rejected");
+    assert!(
+        stderr.contains("cannot be used with") || stderr.contains("conflicts"),
+        "stderr should explain the conflict: {stderr}"
+    );
+}

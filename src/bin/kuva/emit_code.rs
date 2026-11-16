@@ -43,7 +43,7 @@ use kuva::plot::{
 // Uncategorized-triage additions (pr/horizon/quiver) — own `use` block, same
 // reasoning as the Tier 2 block above.
 use kuva::plot::pr::{PrGroup, PrPlot};
-use kuva::plot::{HorizonPlot, HorizonSeries, QuiverArrow, QuiverPivot, QuiverPlot};
+use kuva::plot::{HorizonPlot, HorizonSeries, Quiver3DPlot, QuiverArrow, QuiverPivot, QuiverPlot};
 
 // Tier 3 additions (heatmap, and later matrix/graph/hierarchical plot types)
 // — own `use` block, same reasoning as above.
@@ -182,6 +182,9 @@ fn tick_format_ctor(s: &str) -> Option<String> {
 /// `SvgBackend`, and those flags only affect the CLI's own output dispatch.
 pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     let mut frags = Vec::new();
+    if let Some(ref bg) = args.background {
+        frags.push(format!(".with_background({})", str_lit(bg)));
+    }
     if let Some(w) = args.width {
         frags.push(format!(".with_width({})", f64_lit(w)));
     }
@@ -305,6 +308,19 @@ pub fn emit_axis_args(args: &AxisArgs) -> Vec<String> {
     if let Some(ref s) = args.x_label_overlap {
         if let Some(ctor) = label_overlap_ctor(s) {
             frags.push(format!(".with_x_label_overlap({ctor})"));
+        }
+    }
+    for (axis, brk) in [("x", args.x_break), ("y", args.y_break)] {
+        if let Some((lo, hi, share)) = brk {
+            frags.push(match share {
+                None => format!(".with_{axis}_break({}, {})", f64_lit(lo), f64_lit(hi)),
+                Some(f) => format!(
+                    ".with_{axis}_break_config(kuva::plot::AxisBreak::new({}, {}).with_share({}))",
+                    f64_lit(lo),
+                    f64_lit(hi),
+                    f64_lit(f)
+                ),
+            });
         }
     }
     frags
@@ -444,18 +460,7 @@ fn assemble_impl(
     ));
     out.push_str(";\n\n");
 
-    if let Some(ref bg) = base.background {
-        out.push_str("let mut scene = render_multiple(plots, layout);\n");
-        out.push_str(&format!(
-            "scene.background_color = Some({}.to_string());\n",
-            str_lit(bg)
-        ));
-        out.push_str("let svg = SvgBackend::new().render_scene(&scene);\n");
-    } else {
-        out.push_str(
-            "let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n",
-        );
-    }
+    out.push_str("let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n");
     out.push_str("std::fs::write(\"output.svg\", svg).unwrap();\n");
     out
 }
@@ -3721,6 +3726,91 @@ pub fn emit_quiver_plot(p: &QuiverPlot) -> String {
         frags.push(format!(".with_pivot({})", quiver_pivot_ctor(&p.pivot)));
     }
     chain("QuiverPlot::new()", frags)
+}
+
+/// Serialize a `Quiver3DPlot`'s *final* resolved state. Like `emit_quiver_plot`,
+/// per-arrow colors are never set by the CLI, so `.with_arrows()` suffices;
+/// the shared `Box3DConfig` goes through `emit_box3d_frags`.
+pub fn emit_quiver3d_plot(p: &Quiver3DPlot) -> String {
+    let mut frags: Vec<String> = Vec::new();
+    if !p.arrows.is_empty() {
+        let tuples = p
+            .arrows
+            .iter()
+            .map(|a| {
+                format!(
+                    "({}, {}, {}, {}, {}, {})",
+                    f64_lit(a.x),
+                    f64_lit(a.y),
+                    f64_lit(a.z),
+                    f64_lit(a.u),
+                    f64_lit(a.v),
+                    f64_lit(a.w)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_arrows(vec![{tuples}])"));
+    }
+    if p.color != "steelblue" {
+        frags.push(format!(".with_color({})", str_lit(&p.color)));
+    }
+    if let Some(s) = p.scale {
+        frags.push(format!(".with_scale({})", f64_lit(s)));
+    } else if (p.auto_scale_fraction - 0.9).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_auto_scale({})",
+            f64_lit(p.auto_scale_fraction)
+        ));
+    }
+    if (p.shaft_width - 1.2).abs() > f64::EPSILON {
+        frags.push(format!(".with_shaft_width({})", f64_lit(p.shaft_width)));
+    }
+    match (p.head_length, p.head_width) {
+        (Some(l), Some(w)) => frags.push(format!(".with_head({}, {})", f64_lit(l), f64_lit(w))),
+        (Some(l), None) => frags.push(format!(".with_head_length({})", f64_lit(l))),
+        (None, Some(w)) => frags.push(format!(".with_head_width({})", f64_lit(w))),
+        (None, None) => {}
+    }
+    if (p.head_ratio - 0.28).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_ratio({})", f64_lit(p.head_ratio)));
+    }
+    if (p.head_aspect - 0.45).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_aspect({})", f64_lit(p.head_aspect)));
+    }
+    if (p.head_min_px - 4.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_min_px({})", f64_lit(p.head_min_px)));
+    }
+    if (p.head_max_px - 14.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_max_px({})", f64_lit(p.head_max_px)));
+    }
+    if let Some(ref cmap) = p.color_map {
+        frags.push(format!(".with_color_map({})", color_map_ctor(cmap)));
+    }
+    if let Some((lo, hi)) = p.color_range {
+        frags.push(format!(
+            ".with_color_range({}, {})",
+            f64_lit(lo),
+            f64_lit(hi)
+        ));
+    }
+    if let Some(ref label) = p.color_legend_label {
+        frags.push(format!(".with_color_legend_label({})", str_lit(label)));
+    }
+    if let Some(ref label) = p.legend_label {
+        frags.push(format!(".with_legend({})", str_lit(label)));
+    }
+    if !matches!(p.pivot, QuiverPivot::Tail) {
+        frags.push(format!(".with_pivot({})", quiver_pivot_ctor(&p.pivot)));
+    }
+    if p.depth_shade {
+        frags.push(".with_depth_shade()".to_string());
+    }
+    if p.tight_bounds {
+        frags.push(".with_tight_bounds()".to_string());
+    }
+    frags.extend(emit_box3d_frags(&p.box3d));
+    chain("Quiver3DPlot::new()", frags)
 }
 
 // ── Tier 3 emitters ───────────────────────────────────────────────────────────

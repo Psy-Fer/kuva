@@ -298,6 +298,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--y-label <TEXT>` | — | Y-axis label |
 | `--ticks <N>` | `5` | Hint for number of tick marks |
 | `--no-grid` | off | Disable background grid |
+| `--y-break <LO,HI[,SHARE]>` | — | Skip the values between LO and HI on the Y axis: a short gap with slanted marks, each segment to its own scale. SHARE is the fraction of the axis for the segment below the break (default follows the data, clamped to 0.3–0.7). Linear numeric axes only ([Reference → Axis Breaks](../reference/axis_break.md)) |
+| `--x-break <LO,HI[,SHARE]>` | — | Same for the X axis |
 
 ### Log scale *(scatter, line, histogram, density, hist2d)*
 
@@ -370,7 +372,7 @@ See [Reference → Date & Time Axes](../reference/datetime.md) for the underlyin
 
 ## Subcommands
 
-All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
+All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
 
 ### Distributions
 
@@ -467,6 +469,7 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 |---|---|
 | [scatter3d](../plots/scatter3d.md#cli) | 3D scatter plot with orthographic projection |
 | [surface3d](../plots/surface3d.md#cli) | 3D surface mesh with depth-sorted rendering |
+| [quiver3d](../plots/quiver3d.md#cli) | 3D vector field rendered as arrows in an orthographic box |
 
 ### Composite & Utility
 

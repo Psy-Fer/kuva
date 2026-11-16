@@ -93,6 +93,7 @@
 
 - [3D Scatter Plot](./plots/scatter3d.md)
 - [3D Surface Plot](./plots/surface3d.md)
+- [3D Quiver Plot](./plots/quiver3d.md)
 
 # Composite & Utility
 
@@ -109,6 +110,7 @@
 
 - [Figure (Multi-Plot)](./reference/figure.md)
 - [Layout & Axes](./reference/layout.md)
+- [Axis Breaks](./reference/axis_break.md)
 - [Legends](./reference/legends.md)
 - [Themes](./reference/themes.md)
 - [Color Palettes](./reference/palettes.md)

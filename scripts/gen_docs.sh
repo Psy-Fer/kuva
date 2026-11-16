@@ -53,6 +53,7 @@ EXAMPLES=(
     pyramid
     qq
     quiver
+    quiver3d
     radar
     raincloud
     ridgeline
@@ -84,6 +85,7 @@ EXAMPLES=(
     waterfall
     all_plots_simple
     all_plots_complex
+    axis_break
     significance
 )
 

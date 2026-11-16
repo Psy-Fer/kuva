@@ -1,4 +1,5 @@
 use crate::plot::annotations::{stack_levels, BracketAnchor, SignificanceBracket};
+use crate::plot::axis_break::AxisBreak;
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition};
 use crate::plot::pareto::ParetoBar;
@@ -332,6 +333,15 @@ pub struct Layout {
     pub stats_box: bool,
     pub log_x: bool,
     pub log_y: bool,
+    /// Gap in the x axis that skips a stretch of values (see [`AxisBreak`]).
+    pub x_break: Option<AxisBreak>,
+    /// Gap in the y axis that skips a stretch of values (see [`AxisBreak`]).
+    pub y_break: Option<AxisBreak>,
+    /// Canvas background colour (CSS). `None` uses the theme's background.
+    /// Set it here rather than on the finished `Scene` so that anything drawn
+    /// in the background colour during rendering (the axis-break cover)
+    /// matches.
+    pub background: Option<String>,
     pub annotations: Vec<TextAnnotation>,
     pub reference_lines: Vec<ReferenceLine>,
     pub shaded_regions: Vec<ShadedRegion>,
@@ -564,6 +574,9 @@ impl Layout {
             stats_box: true,
             log_x: false,
             log_y: false,
+            x_break: None,
+            y_break: None,
+            background: None,
             annotations: Vec::new(),
             reference_lines: Vec::new(),
             shaded_regions: Vec::new(),
@@ -1350,6 +1363,7 @@ impl Layout {
             let (legend_3d, cmap_3d) = match plot {
                 Plot::Scatter3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
                 Plot::Surface3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
+                Plot::Quiver3D(qp) => (qp.legend_label.as_deref(), qp.color_map.is_some()),
                 _ => (None, false),
             };
             if let Some(label) = legend_3d {
@@ -2293,6 +2307,50 @@ impl Layout {
         self
     }
 
+    /// Break the y axis between `lo` and `hi`: values up to `lo` and from
+    /// `hi` on are drawn to scale either side of a short gap, and the stretch
+    /// between them is skipped. Use it when one group dwarfs the rest.
+    ///
+    /// Linear numeric axes only; ignored on log or categorical axes, with
+    /// `equal_aspect`, or when the break is not strictly inside the axis range.
+    ///
+    /// ```
+    /// use kuva::render::layout::Layout;
+    /// let layout = Layout::new((0.0, 4.0), (0.0, 1000.0)).with_y_break(12.0, 940.0);
+    /// assert_eq!(layout.y_break.unwrap().lo, 12.0);
+    /// ```
+    pub fn with_y_break(self, lo: f64, hi: f64) -> Self {
+        self.with_y_break_config(AxisBreak::new(lo, hi))
+    }
+
+    /// Break the y axis with a fully configured [`AxisBreak`] (gap width,
+    /// marks).
+    pub fn with_y_break_config(mut self, brk: AxisBreak) -> Self {
+        self.y_break = Some(brk);
+        self
+    }
+
+    /// Canvas background colour (any CSS colour string; `"none"` or
+    /// `"transparent"` for an unfilled canvas). Overrides the theme's
+    /// background; prefer this over setting `Scene::background_color` after
+    /// rendering so anything drawn in the background colour, such as the
+    /// axis-break cover, matches.
+    pub fn with_background(mut self, color: impl Into<String>) -> Self {
+        self.background = Some(color.into());
+        self
+    }
+
+    /// Break the x axis between `lo` and `hi`; see [`Self::with_y_break`].
+    pub fn with_x_break(self, lo: f64, hi: f64) -> Self {
+        self.with_x_break_config(AxisBreak::new(lo, hi))
+    }
+
+    /// Break the x axis with a fully configured [`AxisBreak`].
+    pub fn with_x_break_config(mut self, brk: AxisBreak) -> Self {
+        self.x_break = Some(brk);
+        self
+    }
+
     pub fn with_annotation(mut self, annotation: TextAnnotation) -> Self {
         self.annotations.push(annotation);
         self
@@ -2858,6 +2916,14 @@ pub struct ComputedLayout {
     pub bracket_stack_x: BracketStack,
     /// Auto-stack geometry for vertical brackets (value axis = y).
     pub bracket_stack_y: BracketStack,
+    /// Validated x-axis break (`None` when absent or not applicable).
+    pub x_break: Option<AxisBreak>,
+    /// Validated y-axis break (`None` when absent or not applicable).
+    pub y_break: Option<AxisBreak>,
+    /// Pixel geometry of the x break, set by `recompute_transforms`.
+    pub x_break_px: Option<BreakPx>,
+    /// Pixel geometry of the y break, set by `recompute_transforms`.
+    pub y_break_px: Option<BreakPx>,
     /// Pixel width of the widest y-axis tick label, computed from actual tick strings.
     /// Used in `axis.rs` to position the Y axis label flush with the tick labels.
     pub y_tick_label_px: f64,
@@ -3260,6 +3326,20 @@ fn resolve_brackets(
     out.x_max = x_max;
     out.y_max = y_max;
     out
+}
+
+/// Pixel geometry of an axis break: the data edges of the gap and where they
+/// land on the canvas. Values inside the gap are interpolated across it so a
+/// line through the break stays continuous (the cover hides that stretch).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BreakPx {
+    pub lo: f64,
+    pub hi: f64,
+    pub lo_px: f64,
+    pub hi_px: f64,
+    /// Pixels per data unit after the break (the segment before it uses the
+    /// layout's regular `x_scale` / `y_scale`).
+    pub scale_after: f64,
 }
 
 fn resolve_axis_range(
@@ -3918,6 +3998,28 @@ impl ComputedLayout {
             layout.term_rows.map(|r| height / r as f64),
         );
         let (x_max, y_max) = (brackets.x_max, brackets.y_max);
+        // Axis breaks apply to linear, numeric axes without equal-aspect and
+        // must lie strictly inside the resolved range; anything else is
+        // ignored so a stale break never produces a broken figure.
+        let x_break = layout.x_break.filter(|b| {
+            b.is_valid()
+                && !layout.log_x
+                && !layout.equal_aspect
+                && layout.x_categories.is_none()
+                && b.lo > x_min
+                && b.hi < x_max
+        });
+        let y_break = layout.y_break.filter(|b| {
+            b.is_valid()
+                && !layout.log_y
+                && !layout.equal_aspect
+                && layout.y_categories.is_none()
+                // The secondary axis shares the plot height on a plain scale,
+                // so a primary break would slice its series.
+                && layout.y2_range.is_none()
+                && b.lo > y_min
+                && b.hi < y_max
+        });
 
         let y2_range = layout.y2_range.map(|range| {
             resolve_axis_range(
@@ -3985,6 +4087,10 @@ impl ComputedLayout {
             bracket_cell_h: layout.term_rows.map(|r| height / r as f64),
             bracket_stack_x: brackets.stack_x,
             bracket_stack_y: brackets.stack_y,
+            x_break,
+            y_break,
+            x_break_px: None,
+            y_break_px: None,
             y_tick_label_px,
             log_x: layout.log_x,
             log_y: layout.log_y,
@@ -4086,6 +4192,9 @@ impl ComputedLayout {
     pub fn recompute_transforms(&mut self) {
         let pw = self.plot_width();
         let ph = self.plot_height();
+        // Only the break arms below set these.
+        self.x_break_px = None;
+        self.y_break_px = None;
         if self.log_x {
             let log_min = self.x_range.0.max(1e-10).log10();
             let log_max = self.x_range.1.max(1e-10).log10();
@@ -4096,6 +4205,25 @@ impl ComputedLayout {
                 0.0
             };
             self.x_offset = self.margin_left - log_min * self.x_scale;
+        } else if let Some(b) = self.x_break {
+            // Piecewise: the skipped stretch gives its pixels to the gap and
+            // each segment gets a share of what is left, so a short segment
+            // next to a long one stays readable.
+            let gap_px = b.gap * pw;
+            let avail = (pw - gap_px).max(0.0);
+            let before = (b.lo - self.x_range.0).max(f64::EPSILON);
+            let after = (self.x_range.1 - b.hi).max(f64::EPSILON);
+            let px_before = avail * b.share_before(self.x_range);
+            self.x_scale = px_before / before;
+            self.x_offset = self.margin_left - self.x_range.0 * self.x_scale;
+            let lo_px = self.margin_left + px_before;
+            self.x_break_px = Some(BreakPx {
+                lo: b.lo,
+                hi: b.hi,
+                lo_px,
+                hi_px: lo_px + gap_px,
+                scale_after: (avail - px_before) / after,
+            });
         } else {
             let span = self.x_range.1 - self.x_range.0;
             self.x_scale = if span.abs() > f64::EPSILON {
@@ -4115,6 +4243,22 @@ impl ComputedLayout {
                 0.0
             };
             self.y_offset = self.height - self.margin_bottom + log_min * self.y_scale;
+        } else if let Some(b) = self.y_break {
+            let gap_px = b.gap * ph;
+            let avail = (ph - gap_px).max(0.0);
+            let before = (b.lo - self.y_range.0).max(f64::EPSILON);
+            let after = (self.y_range.1 - b.hi).max(f64::EPSILON);
+            let px_before = avail * b.share_before(self.y_range);
+            self.y_scale = px_before / before;
+            self.y_offset = self.height - self.margin_bottom + self.y_range.0 * self.y_scale;
+            let lo_px = self.height - self.margin_bottom - px_before;
+            self.y_break_px = Some(BreakPx {
+                lo: b.lo,
+                hi: b.hi,
+                lo_px,
+                hi_px: lo_px - gap_px,
+                scale_after: (avail - px_before) / after,
+            });
         } else {
             let span = self.y_range.1 - self.y_range.0;
             self.y_scale = if span.abs() > f64::EPSILON {
@@ -4160,10 +4304,104 @@ impl ComputedLayout {
         self.height - self.margin_top - self.margin_bottom
     }
 
+    /// Map a data-space polyline to screen space, splitting every segment that
+    /// crosses an axis break at the break's `lo` and `hi` edges.
+    ///
+    /// The piecewise `map_x`/`map_y` give each side of a break its own scale, so a
+    /// straight screen-space line between two mapped endpoints has the wrong slope
+    /// on both sides of the gap. Inserting the exact crossing points makes each
+    /// visible piece follow its own segment's scale and meet the gap at the right
+    /// place; the sub-segment inside the gap is hidden by the break cover.
+    /// Without a break this is a plain per-point map.
+    pub fn map_polyline(&self, pts: impl IntoIterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+        self.map_polyline_runs(pts).into_iter().flatten().collect()
+    }
+
+    /// Like [`map_polyline`](Self::map_polyline), but drops the pieces that lie
+    /// inside a break, returning one screen-space run per visible stretch.
+    ///
+    /// Stroking each run on its own ends the line squarely at the gap edges; a
+    /// single stroked polyline would turn a corner at each edge, and the stroke
+    /// join pokes a thin spike past the break cover. Without a break this is a
+    /// single run holding the plain per-point map.
+    pub fn map_polyline_runs(
+        &self,
+        pts: impl IntoIterator<Item = (f64, f64)>,
+    ) -> Vec<Vec<(f64, f64)>> {
+        let pts: Vec<(f64, f64)> = pts.into_iter().collect();
+        if self.x_break_px.is_none() && self.y_break_px.is_none() {
+            return vec![pts
+                .into_iter()
+                .map(|(x, y)| (self.map_x(x), self.map_y(y)))
+                .collect()];
+        }
+        // Data-space points with the break crossings inserted.
+        let mut out = Vec::with_capacity(pts.len() + 4);
+        let mut ts: Vec<f64> = Vec::with_capacity(4);
+        for (i, &(x, y)) in pts.iter().enumerate() {
+            if i > 0 {
+                let (x0, y0) = pts[i - 1];
+                ts.clear();
+                // Parameter t in (0, 1) where the segment crosses `edge` on one axis.
+                let mut crossings = |a: f64, b: f64, brk: Option<BreakPx>| {
+                    if let Some(b_) = brk {
+                        for edge in [b_.lo, b_.hi] {
+                            if (a - edge) * (b - edge) < 0.0 {
+                                ts.push((edge - a) / (b - a));
+                            }
+                        }
+                    }
+                };
+                crossings(x0, x, self.x_break_px);
+                crossings(y0, y, self.y_break_px);
+                ts.sort_by(f64::total_cmp);
+                for &t in &ts {
+                    out.push((x0 + (x - x0) * t, y0 + (y - y0) * t));
+                }
+            }
+            out.push((x, y));
+        }
+        let inside = |v: f64, brk: Option<BreakPx>| brk.is_some_and(|b| v > b.lo && v < b.hi);
+        let in_gap = |(x, y): (f64, f64)| inside(x, self.x_break_px) || inside(y, self.y_break_px);
+        let map = |(x, y): (f64, f64)| (self.map_x(x), self.map_y(y));
+        if out.len() == 1 {
+            return vec![vec![map(out[0])]];
+        }
+        let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for w in out.windows(2) {
+            let (q, p) = (w[0], w[1]);
+            // Every piece between consecutive points lies wholly on one side of
+            // each break edge, so its midpoint says whether it is in the gap.
+            if in_gap(((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0)) {
+                if !run.is_empty() {
+                    runs.push(std::mem::take(&mut run));
+                }
+                continue;
+            }
+            if run.is_empty() {
+                run.push(map(q));
+            }
+            run.push(map(p));
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+        runs
+    }
+
     #[inline(always)]
     pub fn map_x(&self, x: f64) -> f64 {
         if self.log_x {
             self.x_offset + x.max(1e-10).log10() * self.x_scale
+        } else if let Some(b) = self.x_break_px {
+            if x <= b.lo {
+                self.x_offset + x * self.x_scale
+            } else if x >= b.hi {
+                b.hi_px + (x - b.hi) * b.scale_after
+            } else {
+                b.lo_px + (b.hi_px - b.lo_px) * (x - b.lo) / (b.hi - b.lo)
+            }
         } else {
             self.x_offset + x * self.x_scale
         }
@@ -4173,6 +4411,14 @@ impl ComputedLayout {
     pub fn map_y(&self, y: f64) -> f64 {
         if self.log_y {
             self.y_offset - y.max(1e-10).log10() * self.y_scale
+        } else if let Some(b) = self.y_break_px {
+            if y <= b.lo {
+                self.y_offset - y * self.y_scale
+            } else if y >= b.hi {
+                b.hi_px - (y - b.hi) * b.scale_after
+            } else {
+                b.lo_px + (b.hi_px - b.lo_px) * (y - b.lo) / (b.hi - b.lo)
+            }
         } else {
             self.y_offset - y * self.y_scale
         }
@@ -4219,6 +4465,8 @@ impl ComputedLayout {
             c.y_range = y2;
         }
         c.log_y = self.log_y2;
+        c.y_break = None;
+        c.y_break_px = None;
         c.y_tick_format = self.y2_tick_format.clone();
         c.recompute_transforms();
         c

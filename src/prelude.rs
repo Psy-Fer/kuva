@@ -93,6 +93,8 @@ pub use crate::plot::{
     QQGroup,
     QQMode,
     QQPlot,
+    Quiver3DArrow,
+    Quiver3DPlot,
     QuiverArrow,
     QuiverPivot,
     QuiverPlot,
@@ -169,6 +171,7 @@ pub use crate::plot::{
 pub use crate::render::plots::Plot;
 
 // ── Layout & rendering ───────────────────────────────────────────────────────
+pub use crate::plot::axis_break::AxisBreak;
 pub use crate::render::layout::{AxisLine, Layout, TickAlign, TickFormat, TickPos};
 pub use crate::render::render::{
     collect_legend_entries, render_bump, render_forest, render_funnel, render_gantt,
