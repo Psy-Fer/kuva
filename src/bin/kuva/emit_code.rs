@@ -179,6 +179,9 @@ fn tick_format_ctor(s: &str) -> Option<String> {
 /// `SvgBackend`, and those flags only affect the CLI's own output dispatch.
 pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     let mut frags = Vec::new();
+    if let Some(ref bg) = args.background {
+        frags.push(format!(".with_background({})", str_lit(bg)));
+    }
     if let Some(w) = args.width {
         frags.push(format!(".with_width({})", f64_lit(w)));
     }
@@ -304,6 +307,19 @@ pub fn emit_axis_args(args: &AxisArgs) -> Vec<String> {
             frags.push(format!(".with_x_label_overlap({ctor})"));
         }
     }
+    for (axis, brk) in [("x", args.x_break), ("y", args.y_break)] {
+        if let Some((lo, hi, share)) = brk {
+            frags.push(match share {
+                None => format!(".with_{axis}_break({}, {})", f64_lit(lo), f64_lit(hi)),
+                Some(f) => format!(
+                    ".with_{axis}_break_config(kuva::plot::AxisBreak::new({}, {}).with_share({}))",
+                    f64_lit(lo),
+                    f64_lit(hi),
+                    f64_lit(f)
+                ),
+            });
+        }
+    }
     frags
 }
 
@@ -370,18 +386,7 @@ pub fn assemble(
     ));
     out.push_str(";\n\n");
 
-    if let Some(ref bg) = base.background {
-        out.push_str("let mut scene = render_multiple(plots, layout);\n");
-        out.push_str(&format!(
-            "scene.background_color = Some({}.to_string());\n",
-            str_lit(bg)
-        ));
-        out.push_str("let svg = SvgBackend::new().render_scene(&scene);\n");
-    } else {
-        out.push_str(
-            "let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n",
-        );
-    }
+    out.push_str("let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n");
     out.push_str("std::fs::write(\"output.svg\", svg).unwrap();\n");
     out
 }

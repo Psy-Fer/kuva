@@ -191,6 +191,9 @@ check "parallel missing values (drop)" \
     "$BIN" parallel "$DATA/missing.tsv" --value-cols x y
 
 # ── line ──────────────────────────────────────────────────────────────────────
+check "line x-axis break" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --x-break 2,8
+
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
         --title "Growth Curves" --subtitle "coloured by group" --x-label "Time" --y-label "Value"
@@ -219,6 +222,17 @@ check_error "line multi-y color-by conflict" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --color-by group
 
 # ── bar ───────────────────────────────────────────────────────────────────────
+check "bar y-axis break" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60 --title "Broken Y axis" --y-label "Percentage"
+
+check "bar y-axis break explicit share" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60,0.5 --axis-line box
+
+check_error "bar y-axis break reversed" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage --y-break 60,20
+
 check "bar basic" \
     "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
         --title "Category Counts" --x-label "Category" --y-label "Count"
