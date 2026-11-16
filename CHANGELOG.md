@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **3D figures render differently at the same `azimuth`/`elevation`.** Following the projection fix below, every Scatter3D and Surface3D figure changes orientation: at the default view (azimuth -60°, elevation 30°) the data corner nearest the viewer is now (x max, y min), with x increasing toward the viewer along the front-left edge and y increasing away from the viewer along the front-right edge. For views that were previously mirrored, no choice of angles reproduces the old image. Re-check any 3D figure whose view angles were tuned by hand.
+
 ### Fixed
 
-- **3D projection was mirrored.** `Projection3D` mapped rotated x to screen-left (`sx = -rx`), which makes the (right, up, toward-viewer) screen frame left-handed, and `draw_3d_box` then reflected the x and/or y data range per view to keep the data minimum at the open front corner — so every 3D figure was a mirror image in half of all views, the default one included: a right-handed helix rendered left-handed and a counter-clockwise field about +z read clockwise. Scatter3D and Surface3D hid this because nothing in a point cloud or a height field has a handedness. The projection is now a proper rotation (`sx = +rx`, pinned by a triple-product test across azimuths and elevations) and the range flips are gone; which data corner sits at the open front follows from the view angles alone. Rendered 3D figures are therefore the horizontal mirror of what they were: at the default view the x axis now runs along the front-left edge and the y axis recedes to the right, data minima at the far end of each — the conventional right-handed layout. Tick labels, grid, pane fills, depth sorting, and the automatic Z-axis side are unaffected. Doc assets for scatter3d, surface3d, the showcase, and the overview figures are regenerated.
+- **3D projection was mirrored in half of all views, including the default.** `Projection3D` mapped rotated x to screen-left (`sx = -rx`), a reflection, and `draw_3d_box` then flipped the x and/or y data range depending on the view to keep the data minimum at the open front corner. Views with zero or two flips came out mirrored: a right-handed helix rendered left-handed and a counter-clockwise field about +z read clockwise. Scatter3D and Surface3D hid this because a point cloud or a height field has no visible handedness. The projection is now a proper rotation (`sx = +rx`, pinned by a triple-product test across azimuths and elevations plus a top-down check), and the range flips are gone, so which data corner sits at the open front follows from the view angles alone. Tick labels, grid, pane fills, depth sorting and the automatic Z-axis side all derive from the projection and follow along. Doc assets for scatter3d, surface3d, the showcase and the overview figures are regenerated.
 
 ## [0.6.0] — 2026-10-15
 
