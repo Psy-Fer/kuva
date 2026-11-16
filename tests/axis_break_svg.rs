@@ -106,13 +106,15 @@ fn ticks_cover_both_segments_and_skip_the_gap() {
         Layout::auto_from_plots(&bars()).with_y_break(12.0, 880.0),
     );
     common::write_test_output("test_outputs/axis_break_bar.svg", &svg).unwrap();
-    for label in ["0", "5", "10", "900", "950", "1000"] {
+    // Each auto-ranged end is rounded with its own segment's step, so the
+    // top stops at 960 (step 20) rather than the whole axis's 1000.
+    for label in ["0", "5", "10", "900", "920", "940", "960"] {
         assert!(
             svg.contains(&format!(">{label}</text>")),
             "missing tick {label}"
         );
     }
-    for label in ["250", "500", "750"] {
+    for label in ["250", "500", "750", "1000"] {
         assert!(
             !svg.contains(&format!(">{label}</text>")),
             "tick {label} inside the gap"
@@ -489,4 +491,34 @@ fn points_inside_the_gap_are_marked_with_a_cross() {
     let plots = vec![Plot::Scatter(ok)];
     let layout = Layout::auto_from_plots(&plots).with_y_break(10.0, 90.0);
     assert!(!render(plots, layout).contains("stroke=\"#123456\""));
+}
+
+#[test]
+fn broken_axis_ends_are_rounded_per_segment() {
+    // The low group's whisker fence dips just below zero. Rounded with the
+    // whole axis's step of 100 the min would be -100, squashing data in 1..8
+    // into the top of the lower segment.
+    let boxes = || {
+        vec![Plot::Box(
+            kuva::plot::BoxPlot::new()
+                .with_group("A", vec![1.0, 2.0, 3.0, 4.0, 5.0])
+                .with_group("B", vec![560.0, 580.0, 600.0, 620.0, 640.0]),
+        )]
+    };
+    let plain = ComputedLayout::from_layout(&Layout::auto_from_plots(&boxes()));
+    let broken =
+        ComputedLayout::from_layout(&Layout::auto_from_plots(&boxes()).with_y_break(10.0, 500.0));
+    assert_eq!(plain.y_range.0, -100.0);
+    assert!(
+        broken.y_range.0 > -20.0 && broken.y_range.0 < 0.0,
+        "{:?}",
+        broken.y_range
+    );
+    // An explicit min is left alone.
+    let pinned = ComputedLayout::from_layout(
+        &Layout::auto_from_plots(&boxes())
+            .with_y_axis_min(-100.0)
+            .with_y_break(10.0, 500.0),
+    );
+    assert_eq!(pinned.y_range.0, -100.0);
 }

@@ -1,5 +1,7 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
-use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
+use crate::render::annotations::{
+    add_brackets, add_reference_lines, add_shaded_regions, add_text_annotations,
+};
 use crate::render::axis::{
     add_axes_and_grid, add_axis_break_cover, add_labels_and_title, add_x2_axis, add_y2_axis,
     end_tick_font, muted_subtitle_color, start_tick_font, XLabelPlacer,
@@ -5276,6 +5278,7 @@ pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -5469,6 +5472,7 @@ pub fn render_lollipop(lp: &crate::plot::lollipop::LollipopPlot, layout: &Layout
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -5783,6 +5787,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -10481,6 +10486,7 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -10542,6 +10548,7 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -10563,6 +10570,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10584,6 +10592,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10605,6 +10614,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10626,6 +10636,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10647,6 +10658,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10668,6 +10680,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10689,6 +10702,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10756,6 +10770,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10777,6 +10792,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -11533,6 +11549,7 @@ pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -11550,6 +11567,7 @@ pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -15455,6 +15473,7 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -15822,6 +15841,7 @@ pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -17097,6 +17117,12 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         scene.elements.push(Primitive::ClipEnd);
     }
 
+    // Bracket labels sit beyond the data (above it, or beside a horizontal
+    // bracket), so like the Manhattan chromosome labels they are drawn after
+    // the clip: a label wider than the axis headroom runs into the margin
+    // instead of being cut off.
+    add_brackets(&layout, &mut scene, &computed);
+
     // Manhattan chromosome labels must be drawn after ClipEnd (they sit below the clip rect)
     for plot in plots.iter() {
         if let Plot::Manhattan(m) = plot {
@@ -17431,6 +17457,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
     add_axis_break_cover(&mut scene, &computed);
 
     scene.elements.push(Primitive::ClipEnd);
+    add_brackets(&layout, &mut scene, &computed);
 
     let mut all_plots_for_legend: Vec<Plot> = primary;
     all_plots_for_legend.extend(secondary);
@@ -17942,6 +17969,7 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -18159,6 +18187,7 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -25181,6 +25210,7 @@ pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Sc
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
     add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 // ── Quiver3DPlot (3-D vector field) ───────────────────────────────────────────

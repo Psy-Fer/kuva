@@ -1,5 +1,5 @@
 use crate::plot::legend::{LegendEntry, LegendGroup};
-use crate::render::layout::{Layout, DEFAULT_FONT_FAMILY};
+use crate::render::layout::{ComputedLayout, Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
 use crate::render::render::{
     collect_legend_entries, render_legend_at, render_multiple, render_twin_y, Primitive, Scene,
@@ -758,6 +758,28 @@ impl Figure {
         master.background_color = Some(figure_theme.background.clone());
         master.text_color = Some(figure_theme.text_color.clone());
 
+        // Significance brackets grow a panel's value axis while its layout is
+        // computed, after the shared range was settled, so a panel with
+        // brackets would no longer line up with the panels it shares an axis
+        // with. Resolve every panel at its cell size and pin each shared group
+        // to the largest grown max.
+        let cell_size = |i: usize| {
+            let rect = cell_rect(&structure[i], cols);
+            let w = (rect.1..=rect.3).map(|c| per_col_widths[c]).sum::<f64>()
+                + (rect.3 - rect.1) as f64 * spacing;
+            let h = (rect.0..=rect.2).map(|r| per_row_heights[r]).sum::<f64>()
+                + (rect.2 - rect.0) as f64 * spacing;
+            (w, h)
+        };
+        align_bracket_growth(
+            &structure,
+            &shared_y,
+            &shared_x,
+            &mut layouts,
+            cols,
+            &cell_size,
+        );
+
         // Pad plots with empty vecs so indexing is safe
         while plots.len() < structure.len() {
             plots.push(Vec::new());
@@ -930,6 +952,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.height = l.height;
     new.data_x_range = l.data_x_range;
     new.data_y_range = l.data_y_range;
+    new.anchor_y_zero = l.anchor_y_zero;
     new.ticks = l.ticks;
     new.show_grid = l.show_grid;
     new.axis_line = l.axis_line;
@@ -1003,6 +1026,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.y_axis_max = l.y_axis_max;
     new.x_break = l.x_break;
     new.y_break = l.y_break;
+    new.brackets = l.brackets.clone();
     new.background = l.background.clone();
     new.y2_axis_min = l.y2_axis_min;
     new.y2_axis_max = l.y2_axis_max;
@@ -1014,6 +1038,7 @@ fn clone_layout(l: &Layout) -> Layout {
     new.x_datetime = l.x_datetime.clone();
     new.y_datetime = l.y_datetime.clone();
     new.x_tick_rotate = l.x_tick_rotate;
+    new.x_label_overlap = l.x_label_overlap.clone();
     new.clamp_axis = l.clamp_axis;
     new.clamp_y_axis = l.clamp_y_axis;
     new.x_bin_width = l.x_bin_width;
@@ -1194,6 +1219,77 @@ fn apply_shared_axes(
                         layouts[idx].suppress_x_ticks = true;
                         layouts[idx].x_label = None;
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Pin every shared-axis group that contains auto-stacked significance
+/// brackets to the largest value-axis max its panels resolve to at their cell
+/// sizes. Panels that set their own axis max keep it.
+fn align_bracket_growth(
+    structure: &[Vec<usize>],
+    shared_y_rules: &[SharedAxis],
+    shared_x_rules: &[SharedAxis],
+    layouts: &mut [Layout],
+    cols: usize,
+    cell_size: &dyn Fn(usize) -> (f64, f64),
+) {
+    // Does `l` auto-stack brackets along its y (value) axis, or its x axis?
+    // Orientation follows `ComputedLayout`: categories on y alone, or a
+    // bracket's own `horizontal`, put the stack on x.
+    let stacks_on = |l: &Layout, on_y: bool| {
+        let inferred = l.y_categories.is_some() && l.x_categories.is_none();
+        l.brackets
+            .iter()
+            .any(|b| b.position.is_none() && (b.horizontal || inferred) != on_y)
+    };
+    if !layouts
+        .iter()
+        .any(|l| stacks_on(l, true) || stacks_on(l, false))
+    {
+        return;
+    }
+    let resolved = |l: &Layout, i: usize| {
+        let mut l = clone_layout(l);
+        let (w, h) = cell_size(i);
+        l.width = Some(w);
+        l.height = Some(h);
+        ComputedLayout::from_layout(&l)
+    };
+    for (rules, is_y) in [(shared_y_rules, true), (shared_x_rules, false)] {
+        for rule in rules {
+            let groups: Vec<usize> = if is_y {
+                matching_groups_for_shared_y(structure, rule, cols)
+            } else {
+                matching_groups_for_shared_x(structure, rule, cols)
+            }
+            .into_iter()
+            .filter(|&i| i < layouts.len())
+            .collect();
+            if groups.len() < 2 || !groups.iter().any(|&i| stacks_on(&layouts[i], is_y)) {
+                continue;
+            }
+            let max = groups
+                .iter()
+                .map(|&i| {
+                    let c = resolved(&layouts[i], i);
+                    if is_y {
+                        c.y_range.1
+                    } else {
+                        c.x_range.1
+                    }
+                })
+                .fold(f64::NEG_INFINITY, f64::max);
+            for &i in &groups {
+                let pin = if is_y {
+                    &mut layouts[i].y_axis_max
+                } else {
+                    &mut layouts[i].x_axis_max
+                };
+                if pin.is_none() {
+                    *pin = Some(max);
                 }
             }
         }

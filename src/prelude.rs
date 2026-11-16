@@ -191,7 +191,9 @@ pub use crate::render::palette::Palette;
 pub use crate::render::theme::Theme;
 
 // ── Annotations ──────────────────────────────────────────────────────────────
-pub use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
+pub use crate::render::annotations::{
+    BracketAnchor, BracketLabel, ReferenceLine, ShadedRegion, SignificanceBracket, TextAnnotation,
+};
 
 // ── Date / time axes ─────────────────────────────────────────────────────────
 pub use crate::render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};

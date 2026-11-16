@@ -276,6 +276,8 @@ Raincloud plot — combines a half-violin KDE cloud, box-and-whisker, and jitter
 | `--no-rain` | off | Hide the jittered raw points |
 | `--flip` | off | Mirror cloud to the opposite side |
 | `--horizontal` | off | Render groups on the Y-axis, values on the X-axis |
+| `--signif <A,B,P>` | — | Significance bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P is drawn verbatim. Repeatable; brackets stack above the data and the value axis grows to fit. See [Significance Brackets](../reference/significance.md) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 | `--legend <LABEL>` | — | Add legend entries (one per group) |
 
 ```bash

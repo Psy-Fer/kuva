@@ -372,6 +372,8 @@ Strip / jitter plot — individual points along a categorical axis.
 | `--swarm` | off | Beeswarm (non-overlapping) layout |
 | `--center` | off | All points at group center (no spread) |
 | `--horizontal` | off | Flip axes: categories on Y, values on X |
+| `--signif <A,B,P>` | — | Significance bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P is drawn verbatim. Repeatable; brackets stack above the data and the value axis grows to fit. See [Significance Brackets](../reference/significance.md) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 | `--opacity <0..1>` | opaque | Marker fill opacity; below 1 reveals density where points overlap (use for large N) |
 | `--legend` | off | Color groups by palette and show a legend |
 

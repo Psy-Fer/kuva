@@ -52,6 +52,23 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
             ],
         ),
         (
+            "box_signif",
+            vec![
+                "box",
+                "examples/data/measurements.tsv",
+                "--group-col",
+                "group",
+                "--value-col",
+                "value",
+                "--signif",
+                "#0,#1,0.0004",
+                "--signif",
+                "#0,#2,n.s.",
+                "--signif-format",
+                "both",
+            ],
+        ),
+        (
             "bar_break",
             vec![
                 "bar",
