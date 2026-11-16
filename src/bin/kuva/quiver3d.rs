@@ -42,24 +42,24 @@ pub struct Quiver3DArgs {
     pub color: Option<String>,
 
     /// Scale multiplier applied to `(u, v, w)` before projection (disables auto-scaling).
-    #[arg(long)]
+    #[arg(long, value_parser = parse_finite, allow_hyphen_values = true)]
     pub arrow_scale: Option<f64>,
 
     /// Fraction of a grid cell spanned by the longest arrow when auto-scaling.
     /// Default `0.9`. Mutually exclusive with `--arrow-scale`.
-    #[arg(long, conflicts_with = "arrow_scale")]
+    #[arg(long, conflicts_with = "arrow_scale", value_parser = parse_finite)]
     pub auto_scale: Option<f64>,
 
     /// Shaft width in pixels.
-    #[arg(long)]
+    #[arg(long, value_parser = parse_non_negative)]
     pub shaft_width: Option<f64>,
 
     /// Arrow head length in pixels (default: proportional to the projected shaft).
-    #[arg(long)]
+    #[arg(long, value_parser = parse_finite)]
     pub head_length: Option<f64>,
 
     /// Arrow head half-width in pixels.
-    #[arg(long)]
+    #[arg(long, value_parser = parse_finite)]
     pub head_width: Option<f64>,
 
     /// Colormap name — arrows are colored by magnitude: viridis, inferno, grayscale.
@@ -87,11 +87,11 @@ pub struct Quiver3DArgs {
     pub tight_bounds: bool,
 
     /// Azimuth viewing angle in degrees.
-    #[arg(long, default_value_t = -60.0, allow_hyphen_values = true)]
+    #[arg(long, default_value_t = -60.0, allow_hyphen_values = true, value_parser = parse_finite)]
     pub azimuth: f64,
 
     /// Elevation viewing angle in degrees.
-    #[arg(long, default_value_t = 30.0, allow_hyphen_values = true)]
+    #[arg(long, default_value_t = 30.0, allow_hyphen_values = true, value_parser = parse_finite)]
     pub elevation: f64,
 
     /// X-axis label.
@@ -127,6 +127,26 @@ pub struct Quiver3DArgs {
 
     #[command(flatten)]
     pub base: BaseArgs,
+}
+
+/// Reject `nan`/`inf`: the builders only `debug_assert!` finiteness, so a
+/// release build would otherwise draw NaN coordinates.
+fn parse_finite(s: &str) -> Result<f64, String> {
+    let v: f64 = s.parse().map_err(|_| format!("'{s}' is not a number"))?;
+    if v.is_finite() {
+        Ok(v)
+    } else {
+        Err(format!("must be a finite number, got '{s}'"))
+    }
+}
+
+fn parse_non_negative(s: &str) -> Result<f64, String> {
+    let v = parse_finite(s)?;
+    if v >= 0.0 {
+        Ok(v)
+    } else {
+        Err(format!("must be zero or positive, got '{s}'"))
+    }
 }
 
 pub fn run(args: Quiver3DArgs) -> Result<(), String> {

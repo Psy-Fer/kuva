@@ -1,6 +1,6 @@
 # 3D Quiver Plot
 
-A 3D quiver plot visualises a vector field in three dimensions. Each arrow is anchored at data coordinates `(x, y, z)` and points along a vector `(u, v, w)`. Arrows are projected with the same orthographic camera as the [3D Scatter Plot](./scatter3d.md), drawn inside the same open-box wireframe, and painted back to front so nearer arrows cover farther ones. Use it for flow fields, force fields, gradients of a 3D scalar, magnetic or wind vectors — any data where every point in space has a direction and a magnitude.
+A 3D quiver plot visualises a vector field in three dimensions. Each arrow is anchored at data coordinates `(x, y, z)` and points along a vector `(u, v, w)`. Arrows are projected with the same orthographic camera as the [3D Scatter Plot](./scatter3d.md), drawn inside the same open-box wireframe, and painted back to front so nearer arrows cover farther ones. Use it for flow fields, force fields, gradients of a 3D scalar, magnetic or wind vectors: any data where every point in space has a direction and a magnitude.
 
 **Import path:** `kuva::plot::quiver3d::Quiver3DPlot`
 
@@ -95,8 +95,8 @@ let plot = Quiver3DPlot::from_function(
 
 By default the scale multiplier is **auto-computed** so the longest arrow is roughly one grid cell long. The cell is measured in the box's own normalised coordinates, where every axis spans one unit whatever its data range, so a field sampled on `x, y ∈ [0, 100]` and `z ∈ [0, 1]` still gets legible arrows along all three axes. For `n` arrows spread over `k` non-degenerate anchor axes the cell is `n^(-1/k)` box units: `√n` for a planar field, `∛n` for a volume. This keeps dense fields from overlapping no matter what units `(u, v, w)` are in.
 
-- `.with_scale(s)` — pin the multiplier. Arrow length in data coords is `(u, v, w) * s`.
-- `.with_auto_scale(fraction)` — keep auto-scaling on, but change the target fraction of a cell (default `0.9`). Values above `1.0` let neighbouring arrows overlap.
+- `.with_scale(s)`: pin the multiplier. Arrow length in data coords is `(u, v, w) * s`.
+- `.with_auto_scale(fraction)`: keep auto-scaling on, but change the target fraction of a cell (default `0.9`). Values above `1.0` let neighbouring arrows overlap.
 
 When every anchor coincides (a single arrow, or several vectors drawn from one origin) there is no spacing to measure, so the longest arrow is scaled to `fraction` of the padded unit box instead of being drawn at its raw length.
 
@@ -118,9 +118,9 @@ let plot = Quiver3DPlot::new()
 
 ## Bounds and overlap
 
-By default the coordinate box encloses every arrow, tail to tip, so nothing is drawn outside it — the same default as the 2-D quiver. `.with_tight_bounds()` sizes the box from the **anchors only** instead: the sampled region then fills the box and the outer layer of arrows extends past its faces, which reads naturally for dense fields but can run into the axis tick labels on coarse ones. Arrows are never clipped in either mode; choose `QuiverPivot::Middle` to split any overhang evenly across opposite faces.
+By default the coordinate box encloses every arrow, tail to tip, so nothing is drawn outside it (the same default as the 2-D quiver). `.with_tight_bounds()` sizes the box from the **anchors only** instead: the sampled region then fills the box and the outer layer of arrows extends past its faces, which reads naturally for dense fields but can run into the axis tick labels on coarse ones. Arrows are never clipped in either mode; choose `QuiverPivot::Middle` to split any overhang evenly across opposite faces.
 
-Arrows are ordered by the depth of their projected midpoint and drawn back to front (the painter's algorithm, as for the 3D scatter plot). Two arrows that genuinely cross each other in 3D may therefore overlap in the wrong order — a vector backend has no per-pixel depth test.
+Arrows are ordered by the depth of their projected midpoint and drawn back to front (the painter's algorithm, as for the 3D scatter plot). Two arrows that genuinely cross each other in 3D may therefore overlap in the wrong order, since a vector backend has no per-pixel depth test.
 
 ---
 
@@ -128,9 +128,9 @@ Arrows are ordered by the depth of their projected midpoint and drawn back to fr
 
 Arrow heads are flat triangles built in screen space along the projected shaft, so every arrow looks like an arrow from any view angle, and a head is never longer than the shaft it sits on.
 
-- `.with_shaft_width(px)` — shaft width (default `1.2`).
-- `.with_head_ratio(r)` — head length as a fraction of the projected shaft (default `0.28`), clamped to `[4, 14]` pixels.
-- `.with_head(length_px, half_width_px)` — pin the head to fixed pixel dimensions; `with_head_length` and `with_head_width` pin one dimension each.
+- `.with_shaft_width(px)`: shaft width (default `1.2`).
+- `.with_head_ratio(r)`: head length as a fraction of the projected shaft (default `0.28`), clamped to `[4, 14]` pixels.
+- `.with_head(length_px, half_width_px)`: pin the head to fixed pixel dimensions; `with_head_length` and `with_head_width` pin one dimension each.
 
 ---
 
@@ -169,7 +169,7 @@ Arrow heads are flat triangles built in screen space along the projected shaft, 
 | `.with_z_axis_right(bool)` | auto | Force Z axis to right (`true`) or left (`false`) |
 | `.with_z_axis_auto()` | — | Restore automatic Z-axis placement |
 
-A `Quiver3DPlot` can share a figure with `Scatter3DPlot` and `Surface3DPlot`: all 3D plots in one `render_multiple` call are normalised to one coordinate box, drawn once. Depth ordering is resolved within each plot, not across plots — later plots in the list paint over earlier ones — so an arrow can cover a nearer point from another series.
+A `Quiver3DPlot` can share a figure with `Scatter3DPlot` and `Surface3DPlot`: all 3D plots in one `render_multiple` call are normalised to one coordinate box, drawn once. Depth ordering is resolved within each plot, not across plots (later plots in the list paint over earlier ones), so an arrow can cover a nearer point from another series.
 
 ---
 
@@ -227,4 +227,4 @@ kuva quiver3d field.tsv \
 
 ---
 
-*See also: [Shared flags](../cli/index.md#shared-flags) — output, appearance.*
+*See also: [Shared flags](../cli/index.md#shared-flags) for output and appearance.*

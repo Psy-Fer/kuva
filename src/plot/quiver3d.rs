@@ -582,7 +582,10 @@ impl Quiver3DPlot {
             return Some(Self::pad(anchors));
         }
         let scale = self.effective_scale();
-        let mut r = anchors;
+        // Start from the padded anchor box: `effective_scale` sizes arrows
+        // against it, so a flat field (w ≈ 0) must keep its ±0.5 axis here
+        // too, or the tips shrink that axis to ~1e-7 and arrows go floor to ceiling.
+        let mut r = Self::pad(anchors);
         for a in &self.arrows {
             let (tail, tip) = self.endpoints_with_scale(a, scale);
             for p in [tail, tip] {
@@ -844,6 +847,34 @@ mod tests {
         let t = q.with_tight_bounds().data_ranges().unwrap();
         assert_eq!(t.x, (0.0, 4.0), "tight bounds stop at the anchors");
         assert!(Quiver3DPlot::new().data_ranges().is_none());
+    }
+
+    #[test]
+    fn nearly_planar_field_keeps_a_unit_flat_axis() {
+        // A 5x5 vortex at z = 0 with a tiny w: auto-scale measures against the
+        // padded +/-0.5 z axis, so the box must keep it rather than shrink to
+        // the ~1e-7 span of the arrow tips (which drew floor-to-ceiling arrows).
+        let mut q = Quiver3DPlot::new();
+        for i in 0..5 {
+            for j in 0..5 {
+                let (x, y) = (i as f64 - 2.0, j as f64 - 2.0);
+                q = q.with_arrow(x, y, 0.0, -y, x, 1e-6);
+            }
+        }
+        let r = q.data_ranges().unwrap();
+        assert!(
+            r.z.0 <= -0.5 && r.z.1 >= 0.5,
+            "flat z axis collapsed to {:?}",
+            r.z
+        );
+        // Same for a single, nearly flat arrow.
+        let one = Quiver3DPlot::new().with_arrow(0.0, 0.0, 0.0, 1.0, 0.0, 0.001);
+        let r = one.data_ranges().unwrap();
+        assert!(
+            r.z.1 - r.z.0 >= 1.0,
+            "single-arrow z axis collapsed to {:?}",
+            r.z
+        );
     }
 
     #[test]
