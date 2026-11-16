@@ -237,10 +237,10 @@ fn test_quiver_head_length_override_grows_heads() {
     );
     // Stronger: compare actual path coordinate magnitudes. Large heads
     // produce longer chord distances between tip and base corners.
-    // Quick check: the big-heads SVG should be longer than default because
-    // coordinate strings have more digits.
+    // Compare content, not byte length: equal-length outputs are a coincidence
+    // once coordinates are printed at a fixed 2dp (no more float-noise digits).
     assert!(
-        big_heads_svg.len() != default_heads_svg.len(),
+        big_heads_svg != default_heads_svg,
         "big heads should change SVG output vs default proportional sizing"
     );
 }

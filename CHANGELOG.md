@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **3D projection was mirrored in half of all views, including the default.** `Projection3D` mapped rotated x to screen-left (`sx = -rx`), a reflection, and `draw_3d_box` then flipped the x and/or y data range depending on the view to keep the data minimum at the open front corner. Views with zero or two flips came out mirrored: a right-handed helix rendered left-handed and a counter-clockwise field about +z read clockwise. Scatter3D and Surface3D hid this because a point cloud or a height field has no visible handedness. The projection is now a proper rotation (`sx = +rx`, pinned by a triple-product test across azimuths and elevations plus a top-down check), and the range flips are gone, so which data corner sits at the open front follows from the view angles alone. Tick labels, grid, pane fills, depth sorting and the automatic Z-axis side all derive from the projection and follow along. Doc assets for scatter3d, surface3d, the showcase and the overview figures are regenerated.
+- **SVG coordinates printed with float noise**: values were rounded to two decimals with `(v * 100).round() * 0.01`, and because 0.01 has no exact binary representation, many came out as `61.300000000000004` or `3.2600000000000002`, which the SVG writer printed in full. Rounding now divides by 100, so every coordinate is at most two decimals. Rendering is unchanged; files are smaller (about 15% on large brick plots).
 
 ## [0.6.0] — 2026-10-15
 

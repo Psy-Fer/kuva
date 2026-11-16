@@ -31,7 +31,8 @@ fn next_clip_id() -> String {
 /// Round to 2 decimal places for compact SVG output.
 #[inline(always)]
 fn round2(v: f64) -> f64 {
-    (v * 100.0).round() * 0.01
+    // `/ 100.0`, not `* 0.01`: see `write_float` in backend/svg.rs.
+    (v * 100.0).round() / 100.0
 }
 
 /// Returns a tooltip string for data element `i` if tooltips are enabled.
