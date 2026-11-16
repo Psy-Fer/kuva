@@ -117,6 +117,7 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
                     Some(&args.axis),
                     None,
                     &args.signif,
+                    &crate::emit_code::signif_groups(Plot::Violin(plot)),
                 )?
             );
             return Ok(());
@@ -187,6 +188,7 @@ pub fn run(args: ViolinArgs) -> Result<(), String> {
                 Some(&args.axis),
                 None,
                 &args.signif,
+                &crate::emit_code::signif_groups(Plot::Violin(plot)),
             )?
         );
         return Ok(());

@@ -341,7 +341,7 @@ pub fn emit_log_args(args: &LogArgs) -> Vec<String> {
 /// Emit `.with_bracket(...)` fragments for `SignifArgs` — mirrors
 /// `apply_signif_args`, including its errors, so a bad spec fails
 /// `--emit-code` the same way it fails a real run.
-pub fn emit_signif_args(args: &SignifArgs) -> Result<Vec<String>, String> {
+pub fn emit_signif_args(args: &SignifArgs, groups: &[String]) -> Result<Vec<String>, String> {
     fn anchor_lit(a: &BracketAnchor) -> String {
         match a {
             BracketAnchor::Index(i) => format!("{i}usize"),
@@ -353,7 +353,7 @@ pub fn emit_signif_args(args: &SignifArgs) -> Result<Vec<String>, String> {
     args.signif
         .iter()
         .map(|spec| {
-            let b = parse_signif_spec(spec, &format)?;
+            let b = parse_signif_spec(spec, &format, groups)?;
             let (a, c) = (anchor_lit(&b.a), anchor_lit(&b.b));
             let p = f64_lit(b.p_value.unwrap_or(1.0));
             let expr = match &b.format {
@@ -389,9 +389,20 @@ pub fn assemble(
     assemble_impl(plot_uses, variant, plot_exprs, base, axis, log, None)
 }
 
+/// Group labels of a categorical plot, as `apply_signif_args` sees them, so
+/// `--emit-code` splits `--signif` specs the same way a real run does.
+pub fn signif_groups(plot: kuva::render::plots::Plot) -> Vec<String> {
+    let layout = kuva::render::layout::Layout::auto_from_plots(&[plot]);
+    layout
+        .x_categories
+        .or(layout.y_categories)
+        .unwrap_or_default()
+}
+
 /// [`assemble`] for the categorical subcommands that also take `--signif`:
 /// appends the `.with_bracket(...)` fragments (and their `use`) and fails on
 /// a bad spec exactly like the real run.
+#[allow(clippy::too_many_arguments)]
 pub fn assemble_with_signif(
     plot_uses: &[&str],
     variant: &str,
@@ -400,8 +411,9 @@ pub fn assemble_with_signif(
     axis: Option<&AxisArgs>,
     log: Option<&LogArgs>,
     signif: &SignifArgs,
+    groups: &[String],
 ) -> Result<String, String> {
-    let frags = emit_signif_args(signif)?;
+    let frags = emit_signif_args(signif, groups)?;
     let extra = (!frags.is_empty()).then_some(("kuva::plot::SignificanceBracket", frags));
     Ok(assemble_impl(
         plot_uses, variant, plot_exprs, base, axis, log, extra,

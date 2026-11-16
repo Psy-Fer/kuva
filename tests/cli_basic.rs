@@ -2296,6 +2296,51 @@ fn box_signif_brackets_render_and_reject_bad_specs() {
     assert!(out.contains(">**</text>"), "{out}");
 }
 
+#[test]
+fn signif_labels_may_contain_commas_and_unknown_groups_warn() {
+    let input = "group\tvalue\nDay 1, fed\t1\nDay 1, fed\t2\nDay 1, fasted\t5\nDay 1, fasted\t6\nCtrl\t3\nCtrl\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Day 1, fed,Day 1, fasted,0.004",
+            "--signif",
+            "Ctrl,Day 1, fed,n.s., adj.",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">**</text>"), "{out}");
+    // Verbatim P keeps its own comma.
+    assert!(out.contains(">n.s., adj.</text>"), "{out}");
+    assert!(!err.contains("warning"), "{err}");
+
+    // A typo is skipped with a warning naming the groups.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Ctrl,Day1,0.01",
+            "--signif",
+            "#0,#7,0.01",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(err.contains("no group named 'Day1'"), "{err}");
+    assert!(err.contains("index #7 is out of range (3 groups)"), "{err}");
+    assert!(err.contains("Day 1, fed"), "{err}");
+    assert!(!out.contains(">*</text>"), "{out}");
+}
+
 // ── --x-break / --y-break ─────────────────────────────────────────────────────
 
 #[test]

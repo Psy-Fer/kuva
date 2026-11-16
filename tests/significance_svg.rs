@@ -135,8 +135,9 @@ fn value_axis_grows_to_fit_the_stack_but_not_a_pinned_bracket() {
     assert_eq!(pinned.y_range.1, plain.y_range.1);
     assert_eq!(stacked.y_range.0, plain.y_range.0, "min is untouched");
     // The top bracket and its label fit inside the grown axis.
-    let top = stacked.bracket_stack_y.position(2);
-    assert!(top < stacked.y_range.1);
+    let st = stacked.bracket_stack_y;
+    let top = stacked.map_y(st.base) - st.offset_px(2);
+    assert!(top > stacked.margin_top, "{top} vs {}", stacked.margin_top);
 }
 
 #[test]
@@ -376,4 +377,119 @@ fn horizontal_label_never_crosses_the_next_level() {
         x + 0.45 * font * long.chars().count() as f64 <= next_bar_x,
         "label from {x} crosses the next bar at {next_bar_x}"
     );
+}
+
+/// The y of each bracket's bar (the horizontal middle segment), sorted
+/// bottom-up on screen (largest y first).
+fn bar_ys(svg: &str) -> Vec<f64> {
+    let mut ys: Vec<f64> = bracket_paths(svg).iter().map(|p| p[1].1).collect();
+    ys.sort_by(|a, b| b.total_cmp(a));
+    ys
+}
+
+fn three_brackets(layout: Layout) -> Layout {
+    layout
+        .with_significance("A", "B", 0.04)
+        .with_significance("A", "C", 0.004)
+        .with_significance("A", "D", 0.0004)
+}
+
+#[test]
+fn pinned_axis_max_squeezes_the_stack_inside_the_plot() {
+    let plots = || vec![Plot::Box(boxes())];
+    let layout = three_brackets(Layout::auto_from_plots(&plots())).with_y_axis_max(12.0);
+    let c = ComputedLayout::from_layout(&layout);
+    assert_eq!(c.y_range.1, 12.0);
+    assert!(!c.bracket_overflow);
+    let svg = render(plots(), layout);
+    let ys = bar_ys(&svg);
+    assert_eq!(ys.len(), 3);
+    // Every bar, and the top label, stays inside the plot area.
+    assert!(ys.iter().all(|&y| y > c.margin_top), "{ys:?}");
+    assert!(common::text_y(&svg, "***") > c.margin_top - 1.0);
+    // Still evenly spaced.
+    assert!(((ys[0] - ys[1]) - (ys[1] - ys[2])).abs() < 0.05, "{ys:?}");
+
+    // A max that leaves no room at all is flagged rather than silently
+    // drawing off the plot.
+    let tight = three_brackets(Layout::auto_from_plots(&plots())).with_y_axis_max(8.0);
+    assert!(ComputedLayout::from_layout(&tight).bracket_overflow);
+}
+
+#[test]
+fn brackets_on_a_broken_axis_keep_an_even_pixel_pitch() {
+    let tall = || {
+        BoxPlot::new()
+            .with_group("A", vec![1.0, 2.0, 3.0, 4.0, 5.0])
+            .with_group("B", vec![4.0, 5.0, 6.0, 7.0, 8.0])
+            .with_group("C", vec![2.0, 3.0, 4.0, 5.0, 6.0])
+            .with_group("D", vec![560.0, 580.0, 600.0, 620.0, 640.0])
+    };
+    let plain = three_brackets(Layout::auto_from_plots(&[Plot::Box(tall())]));
+    let broken =
+        three_brackets(Layout::auto_from_plots(&[Plot::Box(tall())])).with_y_break(10.0, 500.0);
+    let cp = ComputedLayout::from_layout(&plain);
+    let cb = ComputedLayout::from_layout(&broken);
+    assert!(cb.y_break.is_some(), "break applies");
+    let ys_p = bar_ys(&render(vec![Plot::Box(tall())], plain));
+    let svg = render(vec![Plot::Box(tall())], broken);
+    common::write_test_output("test_outputs/significance_axis_break.svg", &svg).unwrap();
+    let ys_b = bar_ys(&svg);
+    // Same pixel pitch with and without the break, and the stack fits.
+    let pitch = |ys: &[f64]| ys[0] - ys[1];
+    assert!(
+        (pitch(&ys_b) - pitch(&ys_p)).abs() < 0.05,
+        "{ys_b:?} vs {ys_p:?}"
+    );
+    assert!((pitch(&ys_b) - cb.bracket_stack_y.pitch_px).abs() < 0.05);
+    assert!(ys_b.iter().all(|&y| y > cb.margin_top), "{ys_b:?}");
+    // The first bracket sits half a pitch above the top of the data, which
+    // is above the break.
+    assert!(cb.bracket_stack_y.base > 500.0);
+    let top_px = cb.map_y(cb.bracket_stack_y.base);
+    assert!((top_px - ys_b[0] - cb.bracket_stack_y.pitch_px / 2.0).abs() < 0.05);
+    assert_eq!(cp.bracket_stack_y.pitch_px, cb.bracket_stack_y.pitch_px);
+}
+
+#[test]
+fn brackets_survive_a_figure_and_shared_axes_stay_aligned() {
+    use kuva::render::figure::Figure;
+    let plots = vec![vec![Plot::Box(boxes())], vec![Plot::Box(boxes())]];
+    let layouts = vec![
+        three_brackets(Layout::auto_from_plots(&plots[0])),
+        Layout::auto_from_plots(&plots[1]),
+    ];
+    let scene = Figure::new(1, 2)
+        .with_plots(plots)
+        .with_layouts(layouts)
+        .with_shared_y_all()
+        .render();
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/significance_figure_shared_y.svg", &svg).unwrap();
+    assert_eq!(bracket_paths(&svg).len(), 3, "brackets drawn in the panel");
+    // Identical data in both panels, and every group has the same IQR: with
+    // a shared y range all eight box rects have one height. If the bracket
+    // panel grew its own axis, its four boxes would come out shorter.
+    let heights: Vec<&str> = svg
+        .split("<rect")
+        .skip(1)
+        .filter_map(|t| {
+            let h = t[..t.find('>').unwrap()].split(" height=\"").nth(1)?;
+            Some(&h[..h.find('"').unwrap()])
+        })
+        .collect();
+    let max_same = heights
+        .iter()
+        .map(|h| heights.iter().filter(|g| *g == h).count())
+        .max()
+        .unwrap();
+    assert_eq!(max_same, 8, "{heights:?}");
+}
+
+#[test]
+fn out_of_range_index_draws_nothing() {
+    let plots = vec![Plot::Box(boxes())];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_bracket(SignificanceBracket::new(0usize, 9usize, 0.01));
+    assert!(bracket_paths(&render(plots, layout)).is_empty());
 }

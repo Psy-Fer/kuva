@@ -1,8 +1,10 @@
 # Significance Brackets
 
-A significance bracket spans two groups on a categorical axis and carries the result of a statistical comparison above it — `***`, `p = 0.003`, or any text you choose. It is the figure idiom of `stat_compare_means` and `statannotations`.
+A significance bracket spans two groups on a categorical axis and carries the result of a statistical comparison above it: `***`, `p = 0.003`, or any text you choose. It is the figure idiom of `stat_compare_means` and `statannotations`.
 
 Brackets are a `Layout` feature, not a plot-type feature. They work on every plot whose groups sit on a category axis: bar, box, violin, strip and raincloud. kuva draws the bracket; the p-value comes from a test you ran elsewhere.
+
+A bracket joins two whole categories, from the centre of one to the centre of the other. On a grouped (dodged) bar chart that means it spans category groups, not individual bars inside a group. To reach a single dodged bar, anchor on a raw axis value instead: categories sit at 1, 2, 3, …, so `0.8` is left of centre in the first group.
 
 **Import path:** `kuva::plot::SignificanceBracket` (also `kuva::plot::annotations::SignificanceBracket` and the prelude)
 
@@ -97,7 +99,11 @@ let layout = Layout::auto_from_plots(&plots)
 
 ## Positioning
 
-A bracket with no explicit position is auto-stacked above the data maximum the plot reports — the tallest bar or error bar, or for box plots the upper whisker fence, which can sit a little above the drawn whisker when the largest value falls short of it. The pitch between levels is 7% of the axis or 2.2 times the label font, whichever is larger, so labels never run into the bar above them on a short canvas or at a large font size; the axis grows just enough to fit the top label (for horizontal brackets, the widest label). For horizontal brackets the pitch also clears the widest label, since those labels run sideways across the next level. In terminal output (`--terminal`) labels sit a full row above their bar and levels are at least three rows apart. `.with_position(y)` pins a bracket at a value in data units; a pinned bracket takes no part in stacking and never grows the axis. An explicit `with_y_axis_max` (or `with_x_axis_max` for horizontal plots) is always respected, so brackets that do not fit run into the margin rather than overriding your range.
+A bracket with no explicit position is auto-stacked above the data maximum the plot reports: the tallest bar or error bar, or for box plots the upper whisker fence, which can sit a little above the drawn whisker when the largest value falls short of it. The pitch between levels is 7% of the axis or 2.2 times the label font, whichever is larger, so labels never run into the bar above them on a short canvas or at a large font size; the axis grows just enough to fit the top label (for horizontal brackets, the widest label). For horizontal brackets the pitch also clears the widest label, since those labels run sideways across the next level. In terminal output (`--terminal`) labels sit a full row above their bar and levels are at least three rows apart.
+
+`.with_position(y)` pins a bracket at a value in data units; a pinned bracket takes no part in stacking and never grows the axis.
+
+An explicit `with_y_axis_max` (or `with_x_axis_max` for horizontal plots) is always respected. Instead of growing the axis, kuva squeezes the levels closer together to fit the room under your max, down to the point where a label would touch the bar above it. If even that does not fit, the top brackets run past the plot area and a warning is printed; raise the max or drop it.
 
 <img src="../assets/significance/pinned.svg" alt="Bracket pinned at an explicit height" width="560">
 
@@ -109,9 +115,19 @@ Orientation is inferred from the layout: a plot whose groups run along the y axi
 
 ### Log axes
 
-On a log value axis the stack is spaced in log units, so consecutive levels keep an even pixel pitch.
+On a log value axis the levels keep the same even pixel pitch as on a linear one.
 
 <img src="../assets/significance/log_axis.svg" alt="Log-scale box plot with stacked brackets" width="560">
+
+### Axis breaks
+
+Brackets work on a broken value axis ([Axis Breaks](./axis_break.md)). The stack is spaced in pixels from the top of the data, so the levels stay evenly spaced and the axis grows by the right amount even though the segment above the break has its own scale. Brackets are drawn over the gap band, never hidden by it.
+
+<img src="../assets/significance/axis_break.svg" alt="Box plot with one group far above the others, a broken y axis and three stacked brackets" width="560">
+
+### In a `Figure`
+
+Brackets set on a panel's layout are kept when it is placed in a `Figure`. When panels share an axis (`with_shared_y_all`, `with_shared_x`, …) and one of them grows its axis to fit a stack, every panel in the shared group takes the same grown range, so they stay aligned.
 
 ---
 
@@ -121,7 +137,7 @@ On a log value axis the stack is spaced in log units, so consecutive levels keep
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--signif <A,B,P>` | — | Bracket between groups A and B with p-value P. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P (including `nan`) is drawn verbatim. Repeatable |
+| `--signif <A,B,P>` | — | Bracket between groups A and B with p-value P. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P (including `nan`) is drawn verbatim. Labels may contain commas when they match the data's group names. Repeatable |
 | `--signif-format <STYLE>` | `stars` | `stars`, `p`, or `both` |
 
 ```bash
@@ -132,7 +148,12 @@ kuva box samples.tsv --group-col group --value-col expression --horizontal \
     --signif Control,Drug_C,0.012 --signif-format p
 ```
 
-Brackets follow `--horizontal` automatically. `--emit-code` emits the matching `with_bracket(...)` calls and rejects a bad spec the same way a real run does.
+Brackets follow `--horizontal` automatically. A group name or index that is not in the data prints a warning listing the groups, and that bracket is skipped. `--emit-code` emits the matching `with_bracket(...)` calls and rejects a bad spec the same way a real run does.
+
+```bash
+# Group names with commas: the split is chosen so both names match the data.
+kuva box diet.tsv --group-col diet --value-col weight --signif 'Day 1, fed,Day 1, fasted,0.004'
+```
 
 ---
 
@@ -161,4 +182,4 @@ Brackets follow `--horizontal` automatically. `--emit-code` emits the matching `
 
 ### `BracketAnchor`
 
-`From` is implemented for `&str` / `String` (category label), `usize` (zero-based index) and `f64` (axis value), so the anchor arguments above accept any of them directly. An unknown label draws no bracket.
+`From` is implemented for `&str` / `String` (category label), `usize` (zero-based index) and `f64` (axis value), so the anchor arguments above accept any of them directly. An unknown label, or an index past the last group, draws no bracket.

@@ -422,7 +422,6 @@ pub fn parse_break_pair(s: &str) -> Result<(f64, f64, Option<f64>), String> {
     Ok((lo, hi, share))
 }
 
-/// Apply base output/appearance args to a layout.
 /// Significance-bracket flags shared by the categorical subcommands
 /// (`bar`, `box`, `violin`, `strip`, `raincloud`).
 #[derive(Args, Debug, Clone, Default)]
@@ -430,7 +429,8 @@ pub struct SignifArgs {
     /// Significance bracket between two groups: `A,B,P`. A and B are group
     /// labels as they appear in the data (or `#i` for the zero-based group
     /// index), P is the p-value. A non-numeric P is drawn verbatim
-    /// (`WT,KO,n.s.`). Repeat the flag for several brackets; they stack
+    /// (`WT,KO,n.s.`). Labels that contain commas work as long as they
+    /// match the data's group names (`"Day 1, fed","Day 1, fasted",0.01`). Repeat the flag for several brackets; they stack
     /// above the data and the value axis grows to fit. Brackets follow
     /// `--horizontal` automatically.
     #[arg(long = "signif", value_name = "A,B,P", action = clap::ArgAction::Append)]
@@ -457,13 +457,40 @@ pub fn parse_signif_format(style: &str) -> Result<BracketLabel, String> {
 /// Parse one `--signif A,B,P` spec into a bracket. A numeric P in `0..=1`
 /// takes `format`; anything else (including `nan`) is drawn verbatim.
 /// Orientation is inferred from the layout at render time.
-pub fn parse_signif_spec(spec: &str, format: &BracketLabel) -> Result<SignificanceBracket, String> {
-    let parts: Vec<&str> = spec.splitn(3, ',').map(str::trim).collect();
-    let [a, b, p] = parts[..] else {
+///
+/// `groups` are the plot's group labels. The spec is split on commas, and
+/// when there are more than three fields the split is chosen so that A and B
+/// both name a group (or are `#i` indices), which lets labels contain
+/// commas. Without a match it falls back to `A,B,P` with P taking the rest.
+pub fn parse_signif_spec(
+    spec: &str,
+    format: &BracketLabel,
+    groups: &[String],
+) -> Result<SignificanceBracket, String> {
+    let fields: Vec<&str> = spec.split(',').collect();
+    if fields.len() < 3 {
         return Err(format!(
             "--signif '{spec}': expected three comma-separated fields A,B,P"
         ));
+    }
+    let known = |s: &str| {
+        let s = s.trim();
+        s.strip_prefix('#').map_or_else(
+            || groups.iter().any(|g| g == s),
+            |i| i.parse::<usize>().is_ok_and(|i| i < groups.len()),
+        )
     };
+    // First split (shortest A, then shortest B) whose A and B both resolve;
+    // otherwise the plain three-way split.
+    let n = fields.len();
+    let (i, j) = (1..n - 1)
+        .flat_map(|i| (i + 1..n).map(move |j| (i, j)))
+        .find(|&(i, j)| known(&fields[..i].join(",")) && known(&fields[i..j].join(",")))
+        .unwrap_or((1, 2));
+    let a = fields[..i].join(",");
+    let b = fields[i..j].join(",");
+    let p = fields[j..].join(",");
+    let (a, b, p) = (a.trim(), b.trim(), p.trim());
     if a.is_empty() || b.is_empty() || p.is_empty() {
         return Err(format!("--signif '{spec}': empty field"));
     }
@@ -476,6 +503,21 @@ pub fn parse_signif_spec(spec: &str, format: &BracketLabel) -> Result<Significan
             Ok(BracketAnchor::Label(s.to_string()))
         }
     };
+    // An unknown group is not an error (the bracket is just not drawn), but
+    // it is almost always a typo, so say so.
+    for s in [a, b] {
+        if !known(s) && !groups.is_empty() {
+            let what = if s.starts_with('#') {
+                format!("index {s} is out of range ({} groups)", groups.len())
+            } else {
+                format!("no group named '{s}'")
+            };
+            eprintln!(
+                "warning: --signif '{spec}': {what}; the bracket is skipped (groups: {})",
+                groups.join(", ")
+            );
+        }
+    }
     let (a, b) = (anchor(a)?, anchor(b)?);
     match p.parse::<f64>() {
         Ok(pv) if pv.is_finite() && (0.0..=1.0).contains(&pv) => {
@@ -490,15 +532,22 @@ pub fn parse_signif_spec(spec: &str, format: &BracketLabel) -> Result<Significan
     }
 }
 
-/// Apply `--signif` / `--signif-format` to the layout.
+/// Apply `--signif` / `--signif-format` to the layout. Call it after the
+/// layout knows its categories, so labels can be checked against them.
 pub fn apply_signif_args(mut layout: Layout, args: &SignifArgs) -> Result<Layout, String> {
     let format = parse_signif_format(&args.signif_format)?;
+    let groups = layout
+        .x_categories
+        .clone()
+        .or_else(|| layout.y_categories.clone())
+        .unwrap_or_default();
     for spec in &args.signif {
-        layout = layout.with_bracket(parse_signif_spec(spec, &format)?);
+        layout = layout.with_bracket(parse_signif_spec(spec, &format, &groups)?);
     }
     Ok(layout)
 }
 
+/// Apply base output/appearance args to a layout.
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     // Set on the layout (not on the finished scene) so anything drawn in the
     // background colour during rendering, such as an axis-break cover, matches.

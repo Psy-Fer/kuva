@@ -2916,6 +2916,9 @@ pub struct ComputedLayout {
     pub bracket_stack_x: BracketStack,
     /// Auto-stack geometry for vertical brackets (value axis = y).
     pub bracket_stack_y: BracketStack,
+    /// An explicit axis max leaves too little room for the auto-stacked
+    /// brackets, even at the tightest pitch; the top ones run off the plot.
+    pub bracket_overflow: bool,
     /// Validated x-axis break (`None` when absent or not applicable).
     pub x_break: Option<AxisBreak>,
     /// Validated y-axis break (`None` when absent or not applicable).
@@ -3066,47 +3069,41 @@ pub struct ComputedLayout {
     pub label_background: bool,
 }
 
-/// Resolves one axis's final `(min, max)` from its padded `range`, its raw
-/// `data_range` (used by the modes that need the unpadded extent), and the
-/// axis-mode flags, in precedence order: log > categorical > clamp >
-/// exact-bin-width > nice-rounded default.
-///
-/// Categorical axes are checked before `clamp`/`bin_width` because their
-/// extent (exactly `[0.5, n+0.5]`) is already correct by construction and
-/// must never be nice-rounded outward — even when `clamp_axis`/`clamp_y_axis`
-/// happens to also be set (e.g. a normalized histogram sharing a panel with
-/// a horizontal bar chart sets `clamp_y_axis`, which must not override the
-/// bar chart's own categorical y-axis).
 /// Geometry of the auto-stacked significance brackets on one value axis.
-/// Level `k` sits at `base + step * (k + 0.5)` in data units — in log10 space
-/// when `log` is set, so brackets keep an even pixel pitch on a log axis.
+///
+/// `base` is the data value the stack starts from (the top of the data);
+/// level `k` sits `pitch_px * (k + 0.5)` pixels beyond it. The pitch is kept
+/// in pixels rather than data units so the levels stay evenly spaced on any
+/// axis: linear, log, or broken, where a data-space step would change size
+/// across the gap.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BracketStack {
     pub base: f64,
-    pub step: f64,
-    pub log: bool,
+    pub pitch_px: f64,
 }
 
 impl BracketStack {
-    /// Data-space position of stacking level `level`.
-    pub fn position(&self, level: usize) -> f64 {
-        let v = self.base + self.step * (level as f64 + 0.5);
-        if self.log {
-            10f64.powf(v)
-        } else {
-            v
-        }
+    /// Pixel offset of stacking level `level` beyond `base`.
+    pub fn offset_px(&self, level: usize) -> f64 {
+        self.pitch_px * (level as f64 + 0.5)
     }
 }
 
 /// Where a bracket anchor lands on its category axis, in data units.
-/// Categories sit at `i + 1`; an unknown label resolves to `None`.
+/// Categories sit at `i + 1`; an unknown label, or an index past the last
+/// category, resolves to `None`.
 pub fn resolve_bracket_anchor(
     anchor: &BracketAnchor,
     categories: Option<&[String]>,
 ) -> Option<f64> {
     match anchor {
-        BracketAnchor::Index(i) => Some(*i as f64 + 1.0),
+        BracketAnchor::Index(i) => {
+            if categories.is_some_and(|c| *i >= c.len()) {
+                None
+            } else {
+                Some(*i as f64 + 1.0)
+            }
+        }
         BracketAnchor::Value(v) => Some(*v),
         BracketAnchor::Label(l) => categories?
             .iter()
@@ -3124,6 +3121,66 @@ struct ResolvedBrackets {
     stack_y: BracketStack,
     x_max: f64,
     y_max: f64,
+    /// A pinned axis max left too little room for the stack.
+    overflow: bool,
+}
+
+/// Re-round the auto-ranged ends of a broken axis with each segment's own
+/// tick step (the same step `break_ticks` in `axis.rs` uses for that
+/// segment), so a short segment is not padded out by the coarse step of the
+/// whole axis. `padded` is the layout's padded data range; `auto` says which
+/// ends may move. An end only ever moves inward, and never across the gap.
+fn refine_broken_range(
+    resolved: (f64, f64),
+    padded: (f64, f64),
+    brk: Option<AxisBreak>,
+    ticks: usize,
+    auto: (bool, bool),
+) -> (f64, f64) {
+    let Some(b) = brk else {
+        return resolved;
+    };
+    let (mut lo, mut hi) = resolved;
+    let before = b.share_before(resolved);
+    let budget = |frac: f64| ((ticks as f64 * frac).round() as usize).max(2);
+    if auto.0 && padded.0 < b.lo {
+        let step = render_utils::compute_tick_step(padded.0, b.lo, budget(before));
+        let v = (padded.0 / step).floor() * step;
+        if step > 0.0 && v.is_finite() && v > lo && v < b.lo {
+            lo = v;
+        }
+    }
+    if auto.1 && padded.1 > b.hi {
+        let step = render_utils::compute_tick_step(b.hi, padded.1, budget(1.0 - before));
+        let v = (padded.1 / step).ceil() * step;
+        if step > 0.0 && v.is_finite() && v < hi && v > b.hi {
+            hi = v;
+        }
+    }
+    (lo, hi)
+}
+
+/// Pixel distance from the start of an axis spanning `(lo, max)` to `v`, for
+/// a `plot_px`-long axis that is linear, log10, or broken by `brk`. Mirrors
+/// `ComputedLayout::recompute_transforms`.
+fn axis_px(v: f64, lo: f64, max: f64, log: bool, brk: Option<AxisBreak>, plot_px: f64) -> f64 {
+    if log {
+        let (l, h) = (lo.max(1e-10).log10(), max.max(1e-10).log10());
+        return (v.max(1e-10).log10() - l) / (h - l).max(f64::EPSILON) * plot_px;
+    }
+    if let Some(b) = brk {
+        let gap_px = b.gap * plot_px;
+        let avail = (plot_px - gap_px).max(0.0);
+        let px_before = avail * b.share_before((lo, max));
+        return if v <= b.lo {
+            (v - lo) * px_before / (b.lo - lo).max(f64::EPSILON)
+        } else if v >= b.hi {
+            px_before + gap_px + (v - b.hi) * (avail - px_before) / (max - b.hi).max(f64::EPSILON)
+        } else {
+            px_before + gap_px * (v - b.lo) / (b.hi - b.lo)
+        };
+    }
+    (v - lo) / (max - lo).max(f64::EPSILON) * plot_px
 }
 
 /// Stack geometry for one value axis, and the axis max after making room.
@@ -3134,53 +3191,81 @@ struct ResolvedBrackets {
 /// base is the data maximum the plot reports, so the first bracket clears
 /// every box, bar and whisker.
 ///
-/// The pitch is a pixel quantity, so it is solved against the *final* scale:
-/// growing the axis shrinks the pixels per data unit, and a pitch fixed in
-/// data units beforehand would shrink with it. With the stack needing `H`
-/// pixels above the base on a `P`-pixel axis, the span that fits it exactly
-/// is `(base - lo) / (1 - H / P)`; the axis takes that or its current span,
-/// whichever is larger — unless `pinned`, where an explicit override wins.
+/// The stack needs `H = pitch * (n - 0.5) + head` pixels above the base. The
+/// axis grows to the smallest max that leaves that much room (never more
+/// than 90% of the axis, so the data is not squashed into nothing). Growing
+/// an axis shrinks its pixels per data unit, so the room is measured on the
+/// final mapping, including the piecewise scale of an axis break. When the
+/// max is `pinned` by an explicit override it is left alone and the pitch
+/// shrinks to fit the room there is, down to `min_pitch_px`; a stack that
+/// still does not fit is reported in the returned flag.
 #[allow(clippy::too_many_arguments)]
 fn stack_axis(
     data_range: Option<(f64, f64)>,
     range: (f64, f64),
     log: bool,
+    brk: Option<AxisBreak>,
     pinned: bool,
     n_levels: Option<usize>,
     plot_px: f64,
     pitch_px: f64,
+    min_pitch_px: f64,
     head_px: f64,
-) -> (BracketStack, f64) {
+) -> (BracketStack, f64, bool) {
     let (lo, hi) = range;
-    let to = |v: f64| if log { v.max(1e-10).log10() } else { v };
-    let from = |v: f64| if log { 10f64.powf(v) } else { v };
-    let data_top = data_range.map(|r| r.1).unwrap_or(hi).min(hi);
-    let (lo_s, hi_s) = (to(lo), to(hi));
-    let base = to(data_top);
+    let base = data_range.map(|r| r.1).unwrap_or(hi).min(hi);
     let plot_px = plot_px.max(1.0);
-    let span = (hi_s - lo_s).max(f64::EPSILON);
+    let room = |max: f64| plot_px - axis_px(base, lo, max, log, brk, plot_px);
+    let stack = |n: usize, pitch: f64| pitch * (n as f64 - 0.5) + head_px;
 
     let Some(n) = n_levels else {
+        return (BracketStack { base, pitch_px }, hi, false);
+    };
+    if pinned {
+        // Squeeze the levels into the room under the pinned max.
+        let fit = (room(hi) - head_px) / (n as f64 - 0.5);
+        let pitch = pitch_px.min(fit).max(min_pitch_px);
+        let overflow = stack(n, pitch) > room(hi) + 0.5;
         return (
             BracketStack {
                 base,
-                step: pitch_px * span / plot_px,
-                log,
+                pitch_px: pitch,
             },
             hi,
+            overflow,
         );
+    }
+    let need = stack(n, pitch_px).min(plot_px * 0.9);
+    if room(hi) >= need {
+        return (BracketStack { base, pitch_px }, hi, false);
+    }
+    // Room grows monotonically with the max: bisect for the smallest max
+    // that fits, within a bound that keeps a pathological stack finite.
+    let span = if log {
+        (hi / lo.max(1e-10)).max(10.0)
+    } else {
+        (hi - lo).max(f64::EPSILON)
     };
-    let stack_px = pitch_px * (n as f64 - 0.5) + head_px;
-    // A stack taller than 90% of the axis cannot be fitted by growing the
-    // range without squashing the data into nothing; cap the growth there.
-    let frac = (stack_px / plot_px).min(0.9);
-    let needed_span = (base - lo_s).max(f64::EPSILON) / (1.0 - frac);
-    let final_span = if pinned { span } else { span.max(needed_span) };
-    let step = pitch_px * final_span / plot_px;
-    (
-        BracketStack { base, step, log },
-        from(lo_s + final_span).max(hi),
-    )
+    let mut top = if log {
+        hi * span.powi(10)
+    } else {
+        hi + span * 100.0
+    };
+    let need = need.min(room(top));
+    let mut bottom = hi;
+    for _ in 0..80 {
+        let mid = if log {
+            (bottom * top).sqrt()
+        } else {
+            (bottom + top) / 2.0
+        };
+        if room(mid) >= need {
+            top = mid;
+        } else {
+            bottom = mid;
+        }
+    }
+    (BracketStack { base, pitch_px }, top, false)
 }
 
 /// Resolve every bracket's orientation and span, assign stacking levels per
@@ -3191,6 +3276,7 @@ fn resolve_brackets(
     layout: &Layout,
     x: (f64, f64),
     y: (f64, f64),
+    breaks: (Option<AxisBreak>, Option<AxisBreak>),
     plot_px: (f64, f64),
     body_px: f64,
     cell_h: Option<f64>,
@@ -3204,6 +3290,7 @@ fn resolve_brackets(
         stack_y: BracketStack::default(),
         x_max: x.1,
         y_max: y.1,
+        overflow: false,
     };
     if n == 0 {
         return out;
@@ -3296,26 +3383,35 @@ fn resolve_brackets(
         pitch_h = pitch_h.max(head_h + cw);
     }
 
-    let (stack_y, y_max) = stack_axis(
+    // Under a pinned max the pitch may shrink, but never so far that a
+    // label runs into the bar above it.
+    let min_v = (pitch_v * 0.65).max(cell_h.map_or(0.0, |ch| 2.0 * ch));
+    let min_h = head_h;
+    let (stack_y, y_max, over_y) = stack_axis(
         layout.data_y_range,
         y,
         layout.log_y,
+        breaks.1,
         layout.y_axis_max.is_some(),
         count(&v_levels),
         plot_px.1,
         (plot_px.1 * 0.07).max(pitch_v),
+        min_v,
         head_v,
     );
-    let (stack_x, x_max) = stack_axis(
+    let (stack_x, x_max, over_x) = stack_axis(
         layout.data_x_range,
         x,
         layout.log_x,
+        breaks.0,
         layout.x_axis_max.is_some(),
         count(&h_levels),
         plot_px.0,
         (plot_px.0 * 0.07).max(pitch_h),
+        min_h,
         head_h,
     );
+    out.overflow = over_x || over_y;
     out.levels = v_levels
         .iter()
         .zip(&h_levels)
@@ -3342,6 +3438,17 @@ pub struct BreakPx {
     pub scale_after: f64,
 }
 
+/// Resolves one axis's final `(min, max)` from its padded `range`, its raw
+/// `data_range` (used by the modes that need the unpadded extent), and the
+/// axis-mode flags, in precedence order: log > categorical > clamp >
+/// exact-bin-width > nice-rounded default.
+///
+/// Categorical axes are checked before `clamp`/`bin_width` because their
+/// extent (exactly `[0.5, n+0.5]`) is already correct by construction and
+/// must never be nice-rounded outward — even when `clamp_axis`/`clamp_y_axis`
+/// happens to also be set (e.g. a normalized histogram sharing a panel with
+/// a horizontal bar chart sets `clamp_y_axis`, which must not override the
+/// bar chart's own categorical y-axis).
 fn resolve_axis_range(
     range: (f64, f64),
     data_range: Option<(f64, f64)>,
@@ -3982,24 +4089,9 @@ impl ComputedLayout {
         let y_min = layout.y_axis_min.unwrap_or(y_min);
         let y_max = layout.y_axis_max.unwrap_or(y_max);
 
-        // Significance brackets: resolve each bracket's span on its category
-        // axis, stack the auto-positioned ones so none overlap, and grow the
-        // value axis so the stack and its labels fit inside the plot area. An
-        // explicit axis-max override is left alone — the user asked for it.
-        let brackets = resolve_brackets(
-            layout,
-            (x_min, x_max),
-            (y_min, y_max),
-            (
-                width - margin_left - margin_right,
-                height - margin_top - margin_bottom,
-            ),
-            layout.body_size as f64 * s,
-            layout.term_rows.map(|r| height / r as f64),
-        );
-        let (x_max, y_max) = (brackets.x_max, brackets.y_max);
         // Axis breaks apply to linear, numeric axes without equal-aspect and
-        // must lie strictly inside the resolved range; anything else is
+        // must lie strictly inside the resolved range (before any growth for
+        // significance brackets, which only ever extends it); anything else is
         // ignored so a stale break never produces a broken figure.
         let x_break = layout.x_break.filter(|b| {
             b.is_valid()
@@ -4021,6 +4113,50 @@ impl ComputedLayout {
                 && b.hi < y_max
         });
 
+        // On a broken axis the outer ends were nice-rounded with the step of
+        // the whole axis, which can pad a short segment far past its data
+        // (a min of -100 under data in 1..8) and squash it. Round each
+        // auto-ranged end with its own segment's tick step instead.
+        let clamp_y = layout.clamp_axis || layout.clamp_y_axis;
+        let (x_min, x_max) = refine_broken_range(
+            (x_min, x_max),
+            layout.x_range,
+            x_break,
+            x_ticks,
+            (
+                layout.x_axis_min.is_none() && !layout.clamp_axis,
+                layout.x_axis_max.is_none() && !layout.clamp_axis,
+            ),
+        );
+        let (y_min, y_max) = refine_broken_range(
+            (y_min, y_max),
+            layout.y_range,
+            y_break,
+            y_ticks,
+            (
+                layout.y_axis_min.is_none() && !clamp_y,
+                layout.y_axis_max.is_none() && !clamp_y,
+            ),
+        );
+
+        // Significance brackets: resolve each bracket's span on its category
+        // axis, stack the auto-positioned ones so none overlap, and grow the
+        // value axis so the stack and its labels fit inside the plot area. An
+        // explicit axis-max override is left alone (the user asked for it) and
+        // the stack is squeezed into the room below it instead.
+        let brackets = resolve_brackets(
+            layout,
+            (x_min, x_max),
+            (y_min, y_max),
+            (x_break, y_break),
+            (
+                width - margin_left - margin_right,
+                height - margin_top - margin_bottom,
+            ),
+            layout.body_size as f64 * s,
+            layout.term_rows.map(|r| height / r as f64),
+        );
+        let (x_max, y_max) = (brackets.x_max, brackets.y_max);
         let y2_range = layout.y2_range.map(|range| {
             resolve_axis_range(
                 range,
@@ -4087,6 +4223,7 @@ impl ComputedLayout {
             bracket_cell_h: layout.term_rows.map(|r| height / r as f64),
             bracket_stack_x: brackets.stack_x,
             bracket_stack_y: brackets.stack_y,
+            bracket_overflow: brackets.overflow,
             x_break,
             y_break,
             x_break_px: None,

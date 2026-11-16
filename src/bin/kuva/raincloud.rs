@@ -136,6 +136,7 @@ pub fn run(args: RaincloudArgs) -> Result<(), String> {
                 Some(&args.axis),
                 None,
                 &args.signif,
+                &crate::emit_code::signif_groups(Plot::Raincloud(plot)),
             )?
         );
         return Ok(());

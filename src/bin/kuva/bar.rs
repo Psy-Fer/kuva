@@ -175,6 +175,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
                     Some(&args.axis),
                     None,
                     &args.signif,
+                    &crate::emit_code::signif_groups(Plot::Bar(plot)),
                 )?
             );
             return Ok(());
@@ -346,6 +347,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
                     Some(&args.axis),
                     None,
                     &args.signif,
+                    &crate::emit_code::signif_groups(Plot::Bar(plot)),
                 )?
             );
             return Ok(());
@@ -440,6 +442,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
                 Some(&args.axis),
                 None,
                 &args.signif,
+                &crate::emit_code::signif_groups(Plot::Bar(plot)),
             )?
         );
         return Ok(());

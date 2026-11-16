@@ -111,6 +111,7 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
                     Some(&args.axis),
                     None,
                     &args.signif,
+                    &crate::emit_code::signif_groups(Plot::Box(plot)),
                 )?
             );
             return Ok(());
@@ -177,6 +178,7 @@ pub fn run(args: BoxArgs) -> Result<(), String> {
                 Some(&args.axis),
                 None,
                 &args.signif,
+                &crate::emit_code::signif_groups(Plot::Box(plot)),
             )?
         );
         return Ok(());

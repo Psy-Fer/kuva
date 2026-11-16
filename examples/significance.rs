@@ -128,5 +128,23 @@ fn main() {
         .with_bracket(SignificanceBracket::new("WT", "KO", 0.00002).with_position(3.0));
     write("pinned", plots, layout);
 
+    // ── Broken value axis ───────────────────────────────────────────────────
+    // The stack is spaced in pixels above the data, so it stays even across
+    // the break.
+    let boxes = BoxPlot::new()
+        .with_group("Input", vec![3.1, 3.6, 4.0, 4.4, 4.9, 5.2])
+        .with_group("Mock", vec![2.8, 3.2, 3.7, 4.1, 4.5, 4.8])
+        .with_group("IP", vec![610.0, 640.0, 655.0, 670.0, 690.0, 720.0])
+        .with_group_colors(["#4C72B0", "#8C8C8C", "#DD8452"]);
+    let plots = vec![Plot::Box(boxes)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Broken y axis")
+        .with_y_label("Reads (thousands)")
+        .with_y_break(7.0, 580.0)
+        .with_significance("Input", "Mock", 0.6)
+        .with_significance("Mock", "IP", 0.0002)
+        .with_significance("Input", "IP", 0.00004);
+    write("axis_break", plots, layout);
+
     println!("Significance SVGs written to {OUT}/");
 }

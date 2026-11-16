@@ -184,21 +184,33 @@ pub fn add_text_annotations(
 /// orientation and auto-stacked positions come from `computed`, which also
 /// grew the value axis so the stack fits.
 pub fn add_brackets(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) {
+    if computed.bracket_overflow {
+        eprintln!(
+            "warning: the axis max leaves too little room for the significance brackets; \
+             the top ones are drawn outside the plot (raise or drop the axis max)"
+        );
+    }
     for (i, b) in layout.brackets.iter().enumerate() {
         let Some((lo, hi)) = computed.bracket_spans.get(i).copied().flatten() else {
             continue;
         };
         let horizontal = computed.bracket_horizontal.get(i).copied().unwrap_or(false);
-        let pos = match b.position {
-            Some(p) => p,
+        // Where the bracket bar sits on the value axis, in pixels.
+        let pos_px = match b.position {
+            Some(p) if horizontal => computed.map_x(p),
+            Some(p) => computed.map_y(p),
             None => {
                 let Some(level) = computed.bracket_levels.get(i).copied().flatten() else {
                     continue;
                 };
+                // Stack in pixels from the top of the data, so the pitch
+                // holds on log and broken axes alike.
                 if horizontal {
-                    computed.bracket_stack_x.position(level)
+                    let st = computed.bracket_stack_x;
+                    computed.map_x(st.base) + st.offset_px(level)
                 } else {
-                    computed.bracket_stack_y.position(level)
+                    let st = computed.bracket_stack_y;
+                    computed.map_y(st.base) - st.offset_px(level)
                 }
             }
         };
@@ -232,7 +244,7 @@ pub fn add_brackets(layout: &Layout, scene: &mut Scene, computed: &ComputedLayou
         let (d, tx, ty, anchor) = if horizontal {
             let y_lo = computed.map_y(lo);
             let y_hi = computed.map_y(hi);
-            let px = computed.map_x(pos);
+            let px = pos_px;
             (
                 format!(
                     "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2}",
@@ -252,7 +264,7 @@ pub fn add_brackets(layout: &Layout, scene: &mut Scene, computed: &ComputedLayou
         } else {
             let x_lo = computed.map_x(lo);
             let x_hi = computed.map_x(hi);
-            let py = computed.map_y(pos);
+            let py = pos_px;
             (
                 format!(
                     "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2}",

@@ -120,6 +120,7 @@ pub fn run(args: StripArgs) -> Result<(), String> {
                     Some(&args.axis),
                     None,
                     &args.signif,
+                    &crate::emit_code::signif_groups(Plot::Strip(plot)),
                 )?
             );
             return Ok(());
@@ -194,6 +195,7 @@ pub fn run(args: StripArgs) -> Result<(), String> {
                 Some(&args.axis),
                 None,
                 &args.signif,
+                &crate::emit_code::signif_groups(Plot::Strip(plot)),
             )?
         );
         return Ok(());
