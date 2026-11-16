@@ -93,6 +93,8 @@ pub use crate::plot::{
     QQGroup,
     QQMode,
     QQPlot,
+    Quiver3DArrow,
+    Quiver3DPlot,
     QuiverArrow,
     QuiverPivot,
     QuiverPlot,

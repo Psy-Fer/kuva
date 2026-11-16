@@ -8,7 +8,9 @@ use crate::render::render::{Primitive, Scene, TextAnchor};
 /// If whole number, strip the decimal e.g. "3" instead of "3.0".
 #[inline]
 fn write_float(buf: &mut String, v: f64) {
-    let v = (v * 100.0).round() * 0.01;
+    // Divide, don't multiply by 0.01: 0.01 is inexact in binary, so `6130.0 * 0.01`
+    // is 61.300000000000004 and ryu prints all 17 digits (~15% of a big brick SVG).
+    let v = (v * 100.0).round() / 100.0;
     if v.fract() == 0.0 && v.abs() < 1e15 {
         let _ = write!(buf, "{}", v as i64);
     } else {
@@ -835,5 +837,34 @@ fn rich_text_with_math(
             }
         }
         cursor += w;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_float;
+
+    /// `x * 0.01` leaves float noise that ryu prints in full (`61.300000000000004`);
+    /// every value must come out as at most two decimals.
+    #[test]
+    fn write_float_never_emits_float_noise() {
+        for (v, want) in [
+            (61.3, "61.3"),
+            (3.26, "3.26"),
+            (449.59, "449.59"),
+            (0.29, "0.29"),
+            (-12.345, "-12.35"),
+            (100.0, "100"),
+        ] {
+            let mut s = String::new();
+            write_float(&mut s, v);
+            assert_eq!(s, want, "write_float({v})");
+        }
+        for i in -200_000..200_000 {
+            let mut s = String::new();
+            write_float(&mut s, i as f64 * 0.013);
+            let decimals = s.split('.').nth(1).map_or(0, str::len);
+            assert!(decimals <= 2, "write_float({}) = {s}", i as f64 * 0.013);
+        }
     }
 }

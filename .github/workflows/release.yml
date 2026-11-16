@@ -38,24 +38,59 @@ jobs:
 
   upload-assets:
     needs: create-release
-    name: ${{ matrix.target }}
+    name: ${{ matrix.target }}${{ matrix.variant.suffix }}
     runs-on: ${{ matrix.os }}
     strategy:
       # Don't let one failing target cancel the others — a partial set of
       # binaries is still useful, and lets us see which target actually broke.
       fail-fast: false
       matrix:
+        # Two builds per target.
+        #
+        # The default-named asset is the lean one: every feature that a
+        # downloaded binary has no way to opt into later, minus the one that
+        # dominates the download size. `emit_code` (`--emit-code` on every
+        # subcommand) and `parquet` (`.parquet` input) are both out of `full`
+        # but cost ~0.1 MB and ~2.3 MB respectively, so they belong here.
+        #
+        # `typst-math` typesets `$...$` labels with the Typst compiler linked
+        # in as a library. That is a ~200-crate tree and adds ~12 MB of .text
+        # plus ~7.7 MB of .rodata: it takes the archive from ~8 MB to ~20 MB
+        # on its own. LTO and codegen-units=1 were measured and recover none
+        # of it, so the only lever is shipping it separately. People who want
+        # typeset math take the `-typst` asset; everyone else gets a download
+        # a third of the size with the Unicode lowering tier still in place.
+        #
+        # `doom` is intentionally excluded from both — it downloads assets at
+        # build time. `typst` (the .typ markup backend) is excluded because it
+        # is library-only: the CLI's output dispatch accepts .svg/.png/.pdf
+        # and never emits .typ, so enabling it in a binary changes nothing.
+        variant:
+          - suffix: ""
+            features: cli,full,emit_code,parquet
+          - suffix: "-typst"
+            features: cli,full,emit_code,parquet,typst-math
+        target:
+          - x86_64-unknown-linux-gnu
+          # Static musl build: runs on any Linux distro without a glibc match.
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          # Both macOS targets build on the Apple-Silicon runner: it cross-compiles
+          # to x86_64 natively (no extra tooling). The Intel macos-13 runner is
+          # scarce/deprecated and can queue indefinitely on personal accounts.
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+        # Runner per target. Each entry matches on `target` alone, so it adds
+        # `os` to *both* of that target's variant combinations rather than
+        # creating new ones.
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          # Static musl build: runs on any Linux distro without a glibc match.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          # Both macOS targets build on the Apple-Silicon runner: it cross-compiles
-          # to x86_64 natively (no extra tooling). The Intel macos-13 runner is
-          # scarce/deprecated and can queue indefinitely on personal accounts.
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: aarch64-apple-darwin
@@ -70,21 +105,19 @@ jobs:
       # Cross-compiles where needed (musl tooling, `cross` for aarch64-linux),
       # builds a release binary, packs it into an archive named below, writes a
       # SHA-256 checksum, and uploads everything to the Release for this tag
-      # (creating the Release if it does not exist yet).
+      # (creating the Release if it does not exist yet). Uploads use
+      # `gh release upload --clobber`, so re-running over an existing tag
+      # replaces same-named assets in place.
       - name: Build and upload kuva binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: kuva
-          # Full-featured CLI: SVG + PNG + PDF backends, plus `typst-math` for
-          # typeset `$...$` labels. `typst-math` is opt-in and deliberately out
-          # of `full` (it is a ~200-crate tree), but a downloaded binary has no
-          # way to opt in later, so the pre-built CLI enables it explicitly.
-          # `doom` is intentionally excluded — it downloads assets at build time.
-          features: cli,full,typst-math
+          features: ${{ matrix.variant.features }}
           target: ${{ matrix.target }}
-          # Asset name, e.g. kuva-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
-          # (.zip on Windows).
-          archive: kuva-$tag-$target
+          # Asset name, e.g. kuva-v0.2.0-x86_64-unknown-linux-gnu.tar.gz for
+          # the lean build and kuva-v0.2.0-x86_64-unknown-linux-gnu-typst.tar.gz
+          # for the math one (.zip on Windows).
+          archive: kuva-$tag-$target${{ matrix.variant.suffix }}
           checksum: sha256
           # On manual runs there is no tag ref; tell the action which tag to use.
           # On tag pushes this is empty and the action falls back to github.ref.
