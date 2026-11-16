@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **SVG coordinates printed with float noise**: values were rounded to two decimals with `(v * 100).round() * 0.01`, and because 0.01 has no exact binary representation, many came out as `61.300000000000004` or `3.2600000000000002`, which the SVG writer printed in full. Rounding now divides by 100, so every coordinate is at most two decimals. Rendering is unchanged; files are smaller (about 15% on large brick plots).
+
 ## [0.6.0] — 2026-10-15
 
 ### Added
