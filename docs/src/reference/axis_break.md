@@ -48,6 +48,12 @@ What you get:
 
 `with_x_break(lo, hi)` does the same along x. A line that spans the gap stops at `lo` and picks up again at `hi`.
 
+Here a response is measured daily for 10 days, then again for 10 days after a 90-day washout. On a plain axis the empty stretch takes up most of the width, the two measurement windows are squeezed to the edges, and a straight line is drawn across 90 days with no data in them:
+
+<img src="../assets/axis_break/line_time_gap_nobreak.svg" alt="Line plot of the same data without a break; the two short measurement windows are squeezed to the edges by a long empty stretch" width="560">
+
+Breaking the x axis between day 12 and day 98 gives each window most of the width and drops the misleading line across the washout:
+
 ```rust,no_run
 # use kuva::render::layout::Layout;
 # let plots = vec![];

@@ -62,6 +62,16 @@ fn main() {
         .collect();
     let mut pts = early;
     pts.extend(late);
+    // The same data without a break, to show what the break buys.
+    let plots = vec![Plot::Line(
+        LinePlot::new().with_data(pts.clone()).with_color("#C44E52"),
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Without a break: the 90-day washout dominates")
+        .with_x_label("Day")
+        .with_y_label("Score");
+    write("line_time_gap_nobreak", plots, layout);
+
     let line = LinePlot::new().with_data(pts).with_color("#C44E52");
     let plots = vec![Plot::Line(line)];
     let layout = Layout::auto_from_plots(&plots)
