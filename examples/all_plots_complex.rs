@@ -1,14 +1,15 @@
-//! Full-featured showcase of all 65 kuva plot types.
+//! Full-featured showcase of all 66 kuva plot types.
 //! Each cell uses a larger dataset and includes a title, axis labels,
 //! and a legend where applicable.
 //!
 //! Run with:
-//!   cargo run --example all_plots_complex
+//!   cargo run --example all_plots_complex --features full
 //!
 //! Output: docs/src/assets/overview/all_plots_complex.svg
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::brick::BrickTemplate;
+use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::{
     BandPlot, BarPlot, BoxPlot, BrickPlot, BumpPlot, CalendarPlot, CandlestickPlot, ChordPlot,
     Clustermap, ContourPlot, DensityPlot, DicePlot, DotPlot, EcdfPlot, ForestPlot, FunnelPlot,
@@ -1269,7 +1270,13 @@ fn main() {
             .with_z_label("height")
     };
 
-    // ── Assemble 12×6 Figure (row-major, 67 cells; row 11 holds Quiver3D) ─────
+    // ── Row 11: Sequence logo (Kozak motif, consensus row, genomic start) ──
+    let logo = SequenceLogo::from_fasta_str(include_str!("data/logo.fasta"), Alphabet::Dna)
+        .unwrap()
+        .with_start(1_234_561)
+        .with_consensus();
+
+    // ── Assemble 12×6 Figure (row-major, 68 cells; row 11: Quiver3D, Logo) ────
 
     let hmap_row_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
     let hmap_col_labels: Vec<String> = genes.iter().map(|s| s.to_string()).collect();
@@ -1356,8 +1363,9 @@ fn main() {
         vec![Plot::Pareto(pareto)],
         vec![Plot::Band(ribbon_band), Plot::Line(ribbon_line)],
         vec![Plot::LegendPlot(legend)],
-        // Row 11: Quiver3D
+        // Row 11: Quiver3D, SequenceLogo
         vec![Plot::Quiver3D(quiver3d)],
+        vec![Plot::SequenceLogo(logo)],
     ];
 
     let layouts: Vec<Layout> = all_plots
@@ -1512,6 +1520,10 @@ fn main() {
                 65 => base.with_title("Legend"),
                 // Row 11
                 66 => base.with_title("Quiver 3D"),
+                67 => base
+                    .with_title("Sequence Logo")
+                    .with_x_label("Position")
+                    .with_y_label("Bits"),
                 _ => base,
             }
         })

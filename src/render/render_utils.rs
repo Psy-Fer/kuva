@@ -1472,6 +1472,54 @@ pub fn linkage_to_nodes(
     (nodes, root)
 }
 
+// ── Legend columns ───────────────────────────────────────────────────────────
+
+/// Split a flat legend into columns, filled top to bottom and then left to right.
+///
+/// `lines[i]` is the number of text lines entry `i` occupies (a wrapped label
+/// takes more than one). A column holds at most `budget` lines; an entry taller
+/// than the budget gets a column to itself. When more than one column is needed
+/// the columns are balanced: the per-column cap is lowered to the smallest value
+/// that still needs no extra column, so the last column is not left nearly empty.
+///
+/// Returns one entry-index range per column. A list that fits returns a single
+/// range, so callers can treat `len() > 1` as "reflowed". Shared by the margin
+/// reservation (`ComputedLayout::from_layout`) and the legend renderer so the two
+/// always agree on the column count.
+pub(crate) fn legend_columns(lines: &[usize], budget: usize) -> Vec<std::ops::Range<usize>> {
+    fn greedy(lines: &[usize], cap: usize) -> Vec<std::ops::Range<usize>> {
+        let mut cols = Vec::new();
+        let (mut start, mut used) = (0, 0);
+        for (i, &l) in lines.iter().enumerate() {
+            if used > 0 && used + l > cap {
+                cols.push(start..i);
+                start = i;
+                used = 0;
+            }
+            used += l;
+        }
+        cols.push(start..lines.len());
+        cols
+    }
+    let budget = budget.max(1);
+    let base = greedy(lines, budget);
+    if base.len() <= 1 {
+        return base;
+    }
+    let k = base.len();
+    let total: usize = lines.iter().sum();
+    let tallest = lines.iter().copied().max().unwrap_or(1);
+    let mut cap = total.div_ceil(k).max(tallest);
+    while cap < budget {
+        let cols = greedy(lines, cap);
+        if cols.len() <= k {
+            return cols;
+        }
+        cap += 1;
+    }
+    base
+}
+
 // ── Text utilities ───────────────────────────────────────────────────────────
 
 /// Wrap `text` if `max_chars` is `Some`, otherwise return the text as a single-element vec.

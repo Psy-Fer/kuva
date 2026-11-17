@@ -537,6 +537,38 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
             ],
         ),
         (
+            "logo",
+            vec![
+                "logo",
+                "examples/data/logo.fasta",
+                "--consensus",
+                "--start",
+                "1234567",
+            ],
+        ),
+        (
+            "logo_pwm",
+            vec![
+                "logo",
+                "examples/data/logo.pwm",
+                "--units",
+                "probability",
+                "--colors",
+                "A=#00CC00,T=#CC0000",
+            ],
+        ),
+        (
+            "logo_protein",
+            vec![
+                "logo",
+                "examples/data/logo_protein.fasta",
+                "--alphabet",
+                "protein",
+                "--palette",
+                "taylor",
+            ],
+        ),
+        (
             "quiver3d",
             vec![
                 "quiver3d",

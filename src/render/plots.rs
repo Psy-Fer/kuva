@@ -5,6 +5,7 @@ use crate::plot::boxplot::BoxPlot;
 use crate::plot::brick::BrickPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::line::LinePlot;
+use crate::plot::logo::SequenceLogo;
 use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::violin::ViolinPlot;
 
@@ -131,6 +132,7 @@ pub enum Plot {
     Text(TextPlot),
     LegendPlot(LegendPlot),
     Quiver(QuiverPlot),
+    SequenceLogo(SequenceLogo),
     Quiver3D(Quiver3DPlot),
 }
 
@@ -460,6 +462,12 @@ impl From<Quiver3DPlot> for Plot {
     }
 }
 
+impl From<SequenceLogo> for Plot {
+    fn from(p: SequenceLogo) -> Self {
+        Plot::SequenceLogo(p)
+    }
+}
+
 use crate::plot::colormap::ColorMap;
 use crate::plot::plot3d::DataRanges3D;
 
@@ -558,6 +566,8 @@ impl Plot {
             Plot::Ecdf(e) => e.color = color.into(),
             Plot::QQ(q) => q.color = color.into(),
             Plot::Quiver(q) => q.color = color.into(),
+            // SequenceLogo colors per-letter via AlphabetPalette — no single primary color.
+            Plot::SequenceLogo(_) => {}
             Plot::Quiver3D(q) => q.color = color.into(),
             _ => {} // multi-series plots (StackedArea, Streamgraph, etc.) skip palette auto-assign
         }
@@ -1538,6 +1548,12 @@ impl Plot {
                     .unwrap_or(0.0);
                 Some(((x_min, x_max), (y_min, y_max)))
             }
+            Plot::SequenceLogo(sl) => {
+                if sl.n_positions() == 0 {
+                    return None;
+                }
+                Some((sl.x_span(), (0.0, sl.y_max())))
+            }
         }
     }
 
@@ -1661,6 +1677,7 @@ impl Plot {
             Plot::Gantt(gp) => gp.tasks.len() * 5 + 20,
             Plot::Text(tp) => tp.body.lines().count() * 2 + 10,
             Plot::Quiver(q) => q.arrows.len() * 2 + 10,
+            Plot::SequenceLogo(sl) => sl.n_positions() * sl.letters.len() * 12 + 40,
             Plot::Quiver3D(q) => q.arrows.len() + 70,
             _ => 100,
         }
@@ -1808,6 +1825,8 @@ impl Plot {
                 let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
                 colorbar_linear(&cmap, min, max, q.color_legend_label.clone())
             }
+            // SequenceLogo uses a discrete letter legend, never a continuous colorbar.
+            Plot::SequenceLogo(_) => None,
             Plot::Quiver3D(q) => {
                 let cmap = cmap_of(q.color_map.as_ref()?);
                 let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());

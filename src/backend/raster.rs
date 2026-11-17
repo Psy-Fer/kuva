@@ -669,40 +669,65 @@ impl Canvas {
     // even-odd fill.
 
     fn fill_polygon(&mut self, pts: &[(f32, f32)], c: Rgba, clip: Clip) {
-        for (span_start, span_end, py) in Self::polygon_spans(pts, clip) {
+        self.fill_contours(&[pts], c, clip);
+    }
+
+    /// Fill a set of closed contours as a single shape under one nonzero-winding
+    /// pass.
+    ///
+    /// Filling contours one at a time cannot produce holes: an inner contour
+    /// filled on its own is just another solid polygon in the same color, so
+    /// glyph counters (the bowl of a D, the hole in an A) paint shut. Feeding
+    /// every contour into one edge table lets an oppositely-wound inner contour
+    /// cancel the outer one's winding and leave a hole.
+    ///
+    /// A single contour behaves exactly as before.
+    fn fill_contours(&mut self, contours: &[&[(f32, f32)]], c: Rgba, clip: Clip) {
+        for (span_start, span_end, py) in Self::polygon_spans(contours, clip) {
             self.fill_span_aa(span_start, span_end, py, c, clip);
         }
     }
 
-    /// Like [`Canvas::fill_polygon`], but rasterizes a BW-mode hatch pattern
+    /// Like [`Canvas::fill_contours`], but rasterizes a BW-mode hatch pattern
     /// instead of a flat color. `tx, ty, s` invert the screen-space transform
     /// per-pixel so the pattern samples in the same local coordinate space an
     /// SVG `patternUnits="userSpaceOnUse"` tile would use.
-    fn fill_polygon_patterned(
+    fn fill_contours_patterned(
         &mut self,
-        pts: &[(f32, f32)],
+        contours: &[&[(f32, f32)]],
         tx: f32,
         ty: f32,
         s: f32,
         pattern: FillPattern,
         clip: Clip,
     ) {
-        for (span_start, span_end, py) in Self::polygon_spans(pts, clip) {
+        for (span_start, span_end, py) in Self::polygon_spans(contours, clip) {
             self.fill_span_aa_patterned(span_start, span_end, py, tx, ty, s, pattern, clip);
         }
     }
 
     /// AET scanline fill (nonzero winding rule): computes the filled
-    /// `(span_start, span_end, row)` spans of `pts` without touching pixels,
-    /// so callers can fill them with either a flat color or a pattern.
-    fn polygon_spans(pts: &[(f32, f32)], clip: Clip) -> Vec<(f32, f32, i32)> {
+    /// `(span_start, span_end, row)` spans of every contour in `contours`
+    /// without touching pixels, so callers can fill them with either a flat
+    /// color or a pattern. All contours share one edge table (see
+    /// [`Canvas::fill_contours`]).
+    fn polygon_spans(contours: &[&[(f32, f32)]], clip: Clip) -> Vec<(f32, f32, i32)> {
         let mut spans = Vec::new();
-        if pts.len() < 3 {
+        if contours.iter().all(|pts| pts.len() < 3) {
             return spans;
         }
 
-        let y_lo = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
-        let y_hi = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+        let mut y_lo = f32::INFINITY;
+        let mut y_hi = f32::NEG_INFINITY;
+        for pts in contours {
+            for p in pts.iter() {
+                y_lo = y_lo.min(p.1);
+                y_hi = y_hi.max(p.1);
+            }
+        }
+        if !y_lo.is_finite() || !y_hi.is_finite() {
+            return spans;
+        }
         let scan_y0 = (y_lo.floor() as i32).max(clip.y0);
         let scan_y1 = (y_hi.ceil() as i32).min(clip.y1 - 1);
         if scan_y0 > scan_y1 {
@@ -719,43 +744,49 @@ impl Canvas {
 
         let height = (scan_y1 - scan_y0 + 1) as usize;
         let mut et: Vec<Vec<AetEdge>> = (0..height).map(|_| Vec::new()).collect();
-        let n = pts.len();
 
-        for i in 0..n {
-            let (ax, ay) = pts[i];
-            let (bx, by) = pts[(i + 1) % n];
-            if (ay - by).abs() < 1e-6 {
+        for pts in contours {
+            if pts.len() < 3 {
                 continue;
             }
-            // Canonical orientation: ay_c < by_c (going down in screen y).
-            // Downward edges contribute +1 winding; upward (flipped) contribute -1.
-            let (ax_c, ay_c, bx_c, by_c, winding) = if ay < by {
-                (ax, ay, bx, by, 1i32)
-            } else {
-                (bx, by, ax, ay, -1i32)
-            };
+            let n = pts.len();
+            for i in 0..n {
+                let (ax, ay) = pts[i];
+                // Each contour closes on itself — never bridge to the next one.
+                let (bx, by) = pts[(i + 1) % n];
+                if (ay - by).abs() < 1e-6 {
+                    continue;
+                }
+                // Canonical orientation: ay_c < by_c (going down in screen y).
+                // Downward edges contribute +1 winding; upward (flipped) contribute -1.
+                let (ax_c, ay_c, bx_c, by_c, winding) = if ay < by {
+                    (ax, ay, bx, by, 1i32)
+                } else {
+                    (bx, by, ax, ay, -1i32)
+                };
 
-            // Active for scanlines where ay_c <= py+0.5 < by_c.
-            let py_start = (ay_c - 0.5).ceil() as i32;
-            let py_end = (by_c - 0.5).ceil() as i32;
-            if py_start >= py_end {
-                continue;
+                // Active for scanlines where ay_c <= py+0.5 < by_c.
+                let py_start = (ay_c - 0.5).ceil() as i32;
+                let py_end = (by_c - 0.5).ceil() as i32;
+                if py_start >= py_end {
+                    continue;
+                }
+
+                let inv_slope = (bx_c - ax_c) / (by_c - ay_c);
+                let eff_start = py_start.max(scan_y0);
+                let eff_end = py_end.min(scan_y1 + 1);
+                if eff_start >= eff_end {
+                    continue;
+                }
+
+                let x_eff = ax_c + (eff_start as f32 + 0.5 - ay_c) * inv_slope;
+                et[(eff_start - scan_y0) as usize].push(AetEdge {
+                    y_max: eff_end,
+                    x: x_eff,
+                    inv_slope,
+                    winding,
+                });
             }
-
-            let inv_slope = (bx_c - ax_c) / (by_c - ay_c);
-            let eff_start = py_start.max(scan_y0);
-            let eff_end = py_end.min(scan_y1 + 1);
-            if eff_start >= eff_end {
-                continue;
-            }
-
-            let x_eff = ax_c + (eff_start as f32 + 0.5 - ay_c) * inv_slope;
-            et[(eff_start - scan_y0) as usize].push(AetEdge {
-                y_max: eff_end,
-                x: x_eff,
-                inv_slope,
-                winding,
-            });
         }
 
         let mut aet: Vec<AetEdge> = Vec::with_capacity(8);
@@ -2103,24 +2134,17 @@ impl RasterBackend {
                     };
 
                     if let Some(ref fc) = pd.fill {
+                        // All contours must go through one winding pass, or
+                        // inner contours paint their holes shut.
+                        let owned: Vec<Vec<(f32, f32)>> = subs.iter().map(transform_pts).collect();
+                        let refs: Vec<&[(f32, f32)]> = owned.iter().map(|v| v.as_slice()).collect();
                         if let Some(mut rgba) = kcolor_to_rgba(fc) {
                             if let Some(op) = pd.opacity {
                                 rgba = rgba.with_alpha((op.clamp(0.0, 1.0) * 255.0) as u8);
                             }
-                            for sub in &subs {
-                                canvas.fill_polygon(&transform_pts(sub), rgba, clip);
-                            }
+                            canvas.fill_contours(&refs, rgba, clip);
                         } else if let Some(pattern) = pattern_from_fill(fc) {
-                            for sub in &subs {
-                                canvas.fill_polygon_patterned(
-                                    &transform_pts(sub),
-                                    tx,
-                                    ty,
-                                    s,
-                                    pattern,
-                                    clip,
-                                );
-                            }
+                            canvas.fill_contours_patterned(&refs, tx, ty, s, pattern, clip);
                         }
                     }
 

@@ -9559,6 +9559,42 @@ fn add_legend_with_offset(
             - (line_height - computed.legend_swatch_size);
     let legend_height = computed.legend_height_override.unwrap_or(computed_height);
 
+    // A flat legend with more lines than one column holds reflows into columns
+    // instead of running off the canvas. `from_layout` chose the line budget and
+    // reserved the width for this many columns, so both sides agree. Sized here,
+    // before positioning, so every anchor (centred, right- and bottom-aligned)
+    // places the whole reflowed box.
+    let flat_lines: Vec<usize> = if legend.groups.is_none() {
+        legend
+            .entries
+            .iter()
+            .map(|e| wrap_lines(&e.label))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let flat_cols = if legend.groups.is_none() {
+        render_utils::legend_columns(&flat_lines, computed.legend_line_budget)
+    } else {
+        Vec::new()
+    };
+    let reflowed = flat_cols.len() > 1;
+    let col_width = computed.legend_col_width;
+    let (legend_width, legend_height) = if reflowed {
+        let tallest = flat_cols
+            .iter()
+            .map(|r| flat_lines[r.clone()].iter().sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        let h = computed.legend_height_override.unwrap_or(
+            (tallest + title_rows) as f64 * line_height + legend_padding * 2.0
+                - (line_height - computed.legend_swatch_size),
+        );
+        (legend_width.max(col_width * flat_cols.len() as f64), h)
+    } else {
+        (legend_width, legend_height)
+    };
+
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
     let plot_top = computed.margin_top;
@@ -9648,46 +9684,29 @@ fn add_legend_with_offset(
     };
     let legend_y = legend_y + y_offset;
 
-    // Cap entries to fit within the canvas height (minimum 10 shown before capping).
-    let avail_height_entries = (computed.height - legend_y - legend_padding * 2.0).max(line_height);
-    let max_entries_display = ((avail_height_entries / line_height).floor() as usize).max(10);
-
-    // Pre-compute overflow for flat entries so box width can be widened to fit "… (+N more)".
-    let flat_overflow = if legend.groups.is_none() {
-        let n = legend.entries.len();
-        if n > max_entries_display {
-            n - max_entries_display.saturating_sub(1)
+    // Safety net for a reflowed legend: if the reserved margin still came up short
+    // (e.g. a layout built without `auto_from_plots`), slide the box left so its
+    // outer columns stay on the canvas. Explicit placements are left alone.
+    let legend_x = if reflowed
+        && !matches!(
+            computed.legend_position,
+            LegendPosition::Custom(..) | LegendPosition::DataCoords(..)
+        ) {
+        let box_right = legend_x - legend_padding + 5.0 + legend_width;
+        if box_right > computed.width {
+            (legend_x - (box_right - computed.width)).max(legend_padding)
         } else {
-            0
+            legend_x
         }
     } else {
-        0
-    };
-    let box_width = if flat_overflow > 0 {
-        let overflow_text = format!("… (+{flat_overflow} more)");
-        let min_w = measure_text_width(&overflow_text, 12.0, FontStyle::Regular)
-            + computed.legend_text_x
-            + legend_padding;
-        legend_width.max(min_w)
-    } else {
-        legend_width
-    };
-
-    // If entries are capped, shrink the bounding box height to match what's actually rendered.
-    let legend_height = if flat_overflow > 0 && computed.legend_height_override.is_none() {
-        // Hug the content the same way the non-overflow path does: the box ends
-        // `legend_padding` below the last row's swatch, not a full line-height below.
-        (title_rows + max_entries_display) as f64 * line_height + legend_padding * 2.0
-            - (line_height - computed.legend_swatch_size)
-    } else {
-        legend_height
+        legend_x
     };
 
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: Color::from(&theme.legend_bg),
             stroke: None,
@@ -9697,7 +9716,7 @@ fn add_legend_with_offset(
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: "none".into(),
             stroke: Some(Color::from(&theme.legend_border)),
@@ -9730,42 +9749,41 @@ fn add_legend_with_offset(
     }
 
     // Render a single legend entry with optional label wrapping.
-    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, bw_idx: usize| {
-        if computed.interactive {
-            let grp_attr = format!(
-                r#"class="legend-entry" data-group="{lbl}""#,
-                lbl = render_utils::escape_attr(&entry.label)
-            );
-            scene.add(Primitive::GroupStart {
-                transform: None,
-                title: None,
-                extra_attrs: Some(grp_attr),
-            });
-        }
-        let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
-        let mut first = entry.clone();
-        first.label = lines[0].clone();
-        render_legend_entry(&first, scene, legend_x, *cur_y, computed, bw_idx);
-        *cur_y += line_height;
-        for line in &lines[1..] {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: *cur_y + text_baseline_offset,
-                content: line.clone(),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    let render_entry =
+        |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, entry_x: f64, bw_idx: usize| {
+            if computed.interactive {
+                let grp_attr = format!(
+                    r#"class="legend-entry" data-group="{lbl}""#,
+                    lbl = render_utils::escape_attr(&entry.label)
+                );
+                scene.add(Primitive::GroupStart {
+                    transform: None,
+                    title: None,
+                    extra_attrs: Some(grp_attr),
+                });
+            }
+            let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
+            let mut first = entry.clone();
+            first.label = lines[0].clone();
+            render_legend_entry(&first, scene, entry_x, *cur_y, computed, bw_idx);
             *cur_y += line_height;
-        }
-        if computed.interactive {
-            scene.add(Primitive::GroupEnd);
-        }
-    };
-
-    // max_entries_display was already computed above after legend_y was resolved.
+            for line in &lines[1..] {
+                scene.add(Primitive::Text {
+                    x: entry_x + computed.legend_text_x,
+                    y: *cur_y + text_baseline_offset,
+                    content: line.clone(),
+                    anchor: TextAnchor::Start,
+                    size: computed.body_size,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+                *cur_y += line_height;
+            }
+            if computed.interactive {
+                scene.add(Primitive::GroupEnd);
+            }
+        };
 
     if let Some(ref groups) = legend.groups {
         let mut bw_counter = 0usize;
@@ -9789,31 +9807,23 @@ fn add_legend_with_offset(
                 cur_y += line_height;
             }
             for entry in &group.entries {
-                render_entry(entry, scene, &mut cur_y, bw_counter);
+                render_entry(entry, scene, &mut cur_y, legend_x, bw_counter);
                 bw_counter += 1;
             }
         }
-    } else {
-        let overflow = flat_overflow;
-        let entries_to_show = if overflow > 0 {
-            max_entries_display.saturating_sub(1)
-        } else {
-            legend.entries.len()
-        };
-        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
-            render_entry(entry, scene, &mut cur_y, i);
+    } else if reflowed {
+        // Column-major: each column starts below the title and reads top to bottom.
+        let start_y = cur_y;
+        for (c, range) in flat_cols.iter().enumerate() {
+            let mut y = start_y;
+            let x = legend_x + c as f64 * col_width;
+            for i in range.clone() {
+                render_entry(&legend.entries[i], scene, &mut y, x, i);
+            }
         }
-        if overflow > 0 {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: cur_y + text_baseline_offset,
-                content: format!("… (+{overflow} more)"),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    } else {
+        for (i, entry) in legend.entries.iter().enumerate() {
+            render_entry(entry, scene, &mut cur_y, legend_x, i);
         }
     }
 }
@@ -13491,6 +13501,19 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::LegendPlot(_) => {}
+            Plot::SequenceLogo(sl) => {
+                // One row per distinct color, labelled with the letters
+                // sharing it — chemistry-group palettes map many letters
+                // onto one swatch.
+                for (label, rgb) in sl.legend_groups() {
+                    entries.push(LegendEntry {
+                        label,
+                        color: format!("rgb({},{},{})", rgb[0], rgb[1], rgb[2]),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -16523,6 +16546,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
+    // Sequence logos size their canvas here (and may wrap onto rows).
+    let layout = {
+        let mut layout = layout;
+        if let Some(scene) = crate::render::logo_render::prepare_logo(&plots, &mut layout) {
+            return scene;
+        }
+        layout
+    };
     // Auto-assign palette colors to single-color plot types
     let mut plots = plots;
     let mut layout = layout;
@@ -17097,6 +17128,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Quiver(q) => {
                 add_quiver(q, &mut scene, &computed);
             }
+            Plot::SequenceLogo(sl) => {
+                crate::render::logo_render::add_sequence_logo(sl, &mut scene, &computed, &layout);
+            }
             Plot::Quiver3D(q) => {
                 if let (Some(ranges), Some(cfg)) = (ranges_3d, box3d_cfg_3d.as_ref()) {
                     let proj = proj_3d
@@ -17155,6 +17189,15 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         if let Plot::Gantt(gp) = plot {
             add_gantt_labels(gp, &mut scene, &computed);
+        }
+    }
+
+    // Sequence-logo consensus row sits below the x tick labels — emit after ClipEnd.
+    for plot in plots.iter() {
+        if let Plot::SequenceLogo(sl) = plot {
+            if sl.show_consensus {
+                crate::render::logo_render::add_consensus_row(sl, &mut scene, &computed);
+            }
         }
     }
 

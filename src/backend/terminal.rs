@@ -109,7 +109,18 @@ struct Canvas {
 
     /// Colour used for Text primitives, derived from scene.text_color.
     text_color: Rgb,
+
+    /// One flag per open group: whether it carries [`TERM_TEXT_COLOR_ATTR`].
+    /// Text inside such a group keeps its own colour; all other text uses
+    /// `text_color`, because many plots draw text in a fixed colour (black value
+    /// labels inside cells) that would vanish on a dark terminal.
+    text_color_groups: Vec<bool>,
 }
+
+/// `GroupStart::extra_attrs` marker that lets the terminal backend draw the
+/// group's `Text` primitives in their own `color` instead of the theme text
+/// colour. Used for sequence-logo letters, whose colour is the data.
+pub(crate) const TERM_TEXT_COLOR_ATTR: &str = "data-kuva-term-text-color=\"1\"";
 
 impl Canvas {
     fn new(cols: usize, rows: usize, scene_width: f64, scene_height: f64, text_color: Rgb) -> Self {
@@ -129,6 +140,7 @@ impl Canvas {
             char_grid: vec![vec![None; cols]; rows],
             transform_stack: vec![(0.0, 0.0)],
             text_color,
+            text_color_groups: Vec::new(),
         }
     }
 
@@ -815,9 +827,17 @@ impl Canvas {
                 size,
                 anchor,
                 rotate,
+                color,
                 ..
             } => {
-                let rgb = self.text_color;
+                // Only text inside a TERM_TEXT_COLOR_ATTR group (sequence-logo
+                // letters) keeps its own colour; everything else uses the theme.
+                let rgb = match color {
+                    Some(c) if self.text_color_groups.iter().any(|&on| on) => {
+                        css_to_rgb(&c.to_svg_string())
+                    }
+                    _ => self.text_color,
+                };
                 let x_s = x + tx;
                 let y_s = y + ty;
                 // SVG text is positioned by baseline (bottom of glyphs). The
@@ -943,18 +963,25 @@ impl Canvas {
 
             Primitive::ClipStart { .. } | Primitive::ClipEnd => {}
 
-            Primitive::GroupStart { transform, .. } => {
+            Primitive::GroupStart {
+                transform,
+                extra_attrs,
+                ..
+            } => {
                 let offset = transform
                     .as_ref()
                     .map(|t| parse_translate(t))
                     .unwrap_or((0.0, 0.0));
                 self.transform_stack.push(offset);
+                self.text_color_groups
+                    .push(extra_attrs.as_deref() == Some(TERM_TEXT_COLOR_ATTR));
             }
 
             Primitive::GroupEnd => {
                 if self.transform_stack.len() > 1 {
                     self.transform_stack.pop();
                 }
+                self.text_color_groups.pop();
             }
 
             Primitive::CircleBatch {
@@ -1490,5 +1517,56 @@ fn named_color(s: &str) -> Rgb {
         "slategray" | "slategrey" => (112, 128, 144),
         "darkslategray" | "darkslategrey" => (47, 79, 79),
         _ => (150, 150, 150),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::color::Color;
+    use crate::render::render::{Scene, TextAnchor};
+
+    fn text(x: f64, content: &str, color: &str) -> Primitive {
+        Primitive::Text {
+            x,
+            y: 20.0,
+            content: content.into(),
+            size: 10,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+            color: Some(Color::from(color)),
+        }
+    }
+
+    /// An explicit `Text.color` is honoured only inside a group marked with
+    /// `TERM_TEXT_COLOR_ATTR` (logo letters). Elsewhere the theme colour wins, so
+    /// fixed black cell labels stay readable on a dark terminal.
+    #[test]
+    fn text_color_only_inside_marked_group() {
+        let mut scene = Scene::new(200.0, 40.0);
+        scene.text_color = Some("#e0e0e0".into());
+        scene.add(text(10.0, "P", "black"));
+        scene.add(Primitive::GroupStart {
+            transform: None,
+            title: None,
+            extra_attrs: Some(TERM_TEXT_COLOR_ATTR.to_string()),
+        });
+        scene.add(text(100.0, "Q", "rgb(0,0,200)"));
+        scene.add(Primitive::GroupEnd);
+        scene.add(text(150.0, "R", "black"));
+        let out = TerminalBackend::new(20, 4).render_scene(&scene);
+        assert!(
+            out.contains("\x1b[38;2;224;224;224mP"),
+            "unmarked text uses the theme: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[38;2;0;0;200mQ"),
+            "marked text keeps its colour: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[38;2;224;224;224mR"),
+            "marker is scoped to its group: {out:?}"
+        );
     }
 }

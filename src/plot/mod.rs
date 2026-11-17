@@ -27,6 +27,7 @@ pub mod horizon;
 pub mod jointplot;
 pub mod legend_plot;
 pub mod line;
+pub mod logo;
 pub mod lollipop;
 pub mod manhattan;
 pub mod mosaic;
@@ -102,6 +103,10 @@ pub use horizon::{HorizonPlot, HorizonSeries};
 pub use jointplot::{JointGroup, JointPlot, MarginalType};
 pub use legend_plot::LegendPlot;
 pub use line::{LinePlot, LineStyle};
+pub use logo::{
+    detect_orientation as detect_logo_orientation, parse_fasta, Alphabet, AlphabetPalette,
+    LogoUnits, MatrixOrientation, PalettePreset, SequenceLogo, GAP_LETTER,
+};
 pub use lollipop::{LollipopDomain, LollipopPlot, LollipopPoint};
 pub use manhattan::{ChromSpan, GenomeBuild, ManhattanPlot, ManhattanPoint};
 pub use mosaic::{MosaicCell, MosaicPlot};
