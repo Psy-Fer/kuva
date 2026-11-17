@@ -1821,7 +1821,7 @@ impl Layout {
         // count, not 1.0, so clamping is unnecessary there).
         let any_hist = plots.iter().any(|p| matches!(p, Plot::Histogram(_)));
         let all_normalized = plots.iter().all(|p| match p {
-            Plot::Histogram(h) => h.normalize,
+            Plot::Histogram(h) => h.normalize && !h.density,
             _ => true, // non-histogram plots don't vote
         });
         if any_hist && all_normalized {

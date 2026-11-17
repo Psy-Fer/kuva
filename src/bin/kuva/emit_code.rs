@@ -2027,7 +2027,9 @@ pub fn emit_histogram_plot(p: &Histogram) -> String {
     if p.color != "black" {
         frags.push(format!(".with_color({})", str_lit(&p.color)));
     }
-    if p.normalize {
+    if p.density {
+        frags.push(".with_density()".to_string());
+    } else if p.normalize {
         frags.push(".with_normalize()".to_string());
     }
     if let Some(ref label) = p.legend_label {

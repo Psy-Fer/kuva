@@ -714,16 +714,14 @@ impl Plot {
             }
             Plot::Histogram(h) => {
                 // Precomputed path: derive bounds from edges and counts directly
-                if let Some((edges, counts)) = &h.precomputed {
-                    if edges.len() < 2 || counts.is_empty() {
-                        return None;
-                    }
+                if let Some((edges, _)) = &h.precomputed {
+                    let heights = h.precomputed_heights()?;
                     let x_min = edges[0];
-                    let x_max = *edges.last().unwrap();
-                    let max_y = if h.normalize {
+                    let x_max = edges[heights.len()];
+                    let max_y = if h.normalize && !h.density {
                         1.0
                     } else {
-                        counts.iter().cloned().fold(0.0_f64, f64::max)
+                        heights.iter().cloned().fold(0.0_f64, f64::max)
                     };
                     return Some(((x_min, x_max), (0.0, max_y)));
                 }
@@ -746,8 +744,7 @@ impl Plot {
                     let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
                     let kde = render_utils::simple_kde(&h.data, bw, h.kde_samples);
                     let peak_density = kde.iter().map(|(_, y)| *y).fold(0.0_f64, f64::max);
-                    let kde_peak_height =
-                        peak_density * density_norm * n * binned.bin_width * binned.norm;
+                    let kde_peak_height = peak_density * density_norm * h.kde_height_scale(&binned);
                     max_y = max_y.max(kde_peak_height);
                 }
 

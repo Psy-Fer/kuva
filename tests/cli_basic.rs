@@ -2652,3 +2652,34 @@ fn unknown_palette_flag_warns_and_points_at_palettes() {
         "{err}"
     );
 }
+
+// ── histogram --density (#133) ─────────────────────────────────────────────
+
+#[test]
+fn histogram_density_scales_to_unit_area() {
+    // 4 samples over [0, 4] in 4 bins of width 1: each bar is 1 / (4 * 1) = 0.25.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "histogram",
+            "--bins",
+            "4",
+            "--density",
+            "--no-header",
+            "--y-tick-format",
+            "fixed:2",
+        ],
+        "0.5\n1.5\n2.5\n3.5\n",
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">0.25<"), "density tick at 0.25:\n{out}");
+}
+
+#[test]
+fn histogram_density_conflicts_with_normalize() {
+    let (_, err, code) = run_with_stdin(&["histogram", "--density", "--normalize"], "1\n2\n");
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("--normalize") && err.contains("--density"),
+        "{err}"
+    );
+}

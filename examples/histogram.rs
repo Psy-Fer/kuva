@@ -10,7 +10,7 @@
 //! SVGs are written to `docs/src/assets/histogram/`.
 
 use kuva::backend::svg::SvgBackend;
-use kuva::plot::Histogram;
+use kuva::plot::{DensityPlot, Histogram};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
@@ -25,6 +25,7 @@ fn main() {
     basic();
     bins();
     normalized();
+    density();
     overlapping();
     step_outlines();
     cumulative();
@@ -115,6 +116,39 @@ fn normalized() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/normalized.svg"), svg).unwrap();
+}
+
+/// Probability density: bars have total area 1, so the model's PDF can be
+/// drawn on the same axis with no rescaling.
+fn density() {
+    let data = normal_samples(0.0, 1.0, 1000, 42);
+
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(30)
+        .with_range((-3.0, 3.0))
+        .with_color("#4682b4b3")
+        .with_density()
+        .with_legend("samples");
+
+    // Standard normal PDF on the same x-range.
+    let xs: Vec<f64> = (0..=200).map(|i| -3.0 + 6.0 * i as f64 / 200.0).collect();
+    let pdf: Vec<f64> = xs
+        .iter()
+        .map(|x| (-x * x / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt())
+        .collect();
+    let curve = DensityPlot::from_curve(xs, pdf)
+        .with_color("firebrick")
+        .with_legend("N(0, 1) pdf");
+
+    let plots = vec![Plot::Histogram(hist), Plot::Density(curve)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Probability Density")
+        .with_x_label("Value")
+        .with_y_label("Density");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/density.svg"), svg).unwrap();
 }
 
 /// Two overlapping distributions using semi-transparent fill colors.

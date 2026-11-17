@@ -658,3 +658,196 @@ fn test_histogram_bin_method_svg() {
         "Freedman-Diaconis should override with_bins(3); got {bar_count} bars"
     );
 }
+
+// ── Probability density (#133) ─────────────────────────────────────────────
+
+/// `n` deterministic standard-normal samples (Box-Muller over a fixed LCG),
+/// so the test needs no RNG dependency and is reproducible.
+fn normal_samples(n: usize) -> Vec<f64> {
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut uniform = move || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+    };
+    (0..n)
+        .map(|_| {
+            let (u1, u2) = (uniform(), uniform());
+            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        })
+        .collect()
+}
+
+#[test]
+fn test_histogram_density_against_theoretical_pdf() {
+    // The #133 use case: a density histogram of samples overlaid with the
+    // model's PDF, on one axis with no manual rescaling.
+    let data = normal_samples(2000);
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_range((-4.0, 4.0))
+        .with_bins(32)
+        .with_color("#4682b4aa")
+        .with_density()
+        .with_legend("samples (density)");
+    let xs: Vec<f64> = (0..=200).map(|i| -4.0 + 8.0 * i as f64 / 200.0).collect();
+    let pdf: Vec<f64> = xs
+        .iter()
+        .map(|x| (-x * x / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt())
+        .collect();
+    let peak_pdf = pdf.iter().cloned().fold(0.0, f64::max);
+    let curve = DensityPlot::from_curve(xs, pdf)
+        .with_color("firebrick")
+        .with_legend("N(0, 1) pdf");
+
+    let plots = vec![Plot::Histogram(hist), Plot::Density(curve)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_title("Density histogram vs. standard normal PDF")
+        .with_x_label("x")
+        .with_y_label("Density");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_density_vs_pdf.svg", svg.clone()).unwrap();
+
+    assert!(svg.contains("<svg"));
+    // The y-axis is in density units (peak ~0.4), not counts, and is not
+    // clamped to 1 the way a peak-normalized histogram is.
+    assert!(peak_pdf < 0.5);
+    assert!(
+        svg.contains(">0.4<") || svg.contains(">0.40<"),
+        "density-scale ticks"
+    );
+    assert!(!svg.contains(">100<"), "no count-scale ticks");
+}
+
+#[test]
+fn test_histogram_density_kde_is_the_density_itself() {
+    // In density mode the KDE overlay is drawn unscaled (the pdf estimate),
+    // so it matches a curve built from the same building blocks with no
+    // `n * bin_width` factor.
+    let data = vec![
+        1.1, 2.3, 2.7, 3.2, 3.8, 3.9, 4.0, 1.5, 2.1, 3.5, 2.9, 3.1, 2.4, 3.6, 2.2,
+    ];
+    let bandwidth = silverman_bandwidth(&data);
+    let n = data.len() as f64;
+    let density_norm = 1.0 / (n * bandwidth * (2.0 * std::f64::consts::PI).sqrt());
+    let kde = simple_kde(&data, bandwidth, 200);
+    let xs: Vec<f64> = kde.iter().map(|(x, _)| *x).collect();
+    let ys: Vec<f64> = kde.iter().map(|(_, d)| d * density_norm).collect();
+
+    let hist = Histogram::new()
+        .with_data(data)
+        .with_bins(8)
+        .with_range((0.0, 5.0))
+        .with_color("steelblue")
+        .with_density()
+        .with_kde(true)
+        .with_kde_bandwidth(bandwidth);
+    let manual = DensityPlot::from_curve(xs, ys)
+        .with_color("purple")
+        .with_stroke_width(2.0);
+
+    let plots = vec![Plot::Histogram(hist), Plot::Density(manual)];
+    let layout = Layout::auto_from_plots(&plots).with_y_label("Density");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/hist_density_kde.svg", svg.clone()).unwrap();
+
+    let ds: Vec<String> = svg
+        .match_indices("<path")
+        .map(|(i, _)| {
+            let tag = &svg[i..i + svg[i..].find('>').unwrap()];
+            let start = tag.find("d=\"").unwrap() + 3;
+            tag[start..start + tag[start..].find('"').unwrap()]
+                .trim()
+                .to_string()
+        })
+        .collect();
+    assert!(ds.len() >= 2);
+    assert_eq!(
+        ds[0], ds[1],
+        "density-mode KDE must be the unscaled density estimate"
+    );
+}
+
+#[test]
+fn test_histogram_density_modes_svg() {
+    // Visual check of the combinations: overlaid groups (each area 1),
+    // stacked (stack area 1), cumulative (ECDF to 1), precomputed unequal widths.
+    let a = normal_samples(400);
+    let b: Vec<f64> = normal_samples(1200).iter().map(|v| v * 0.6 + 1.5).collect();
+    let render = |plots: Vec<Plot>, title: &str, file: &str| {
+        let layout = Layout::auto_from_plots(&plots)
+            .with_title(title)
+            .with_y_label("Density");
+        let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+        common::write_test_output(file, svg.clone()).unwrap();
+        svg
+    };
+
+    let overlay = vec![
+        Plot::Histogram(
+            Histogram::new()
+                .with_data(a.clone())
+                .with_range((-4.0, 4.0))
+                .with_bins(32)
+                .with_color("#1f77b4b3")
+                .with_density()
+                .with_legend("n = 400"),
+        ),
+        Plot::Histogram(
+            Histogram::new()
+                .with_data(b.clone())
+                .with_range((-4.0, 4.0))
+                .with_bins(32)
+                .with_color("#ff7f0eb3")
+                .with_density()
+                .with_legend("n = 1200"),
+        ),
+    ];
+    let svg = render(
+        overlay,
+        "Overlaid densities (each area 1)",
+        "test_outputs/hist_density_overlay.svg",
+    );
+    assert!(svg.contains("<svg"));
+
+    let stacked = Histogram::new()
+        .with_data(a.clone())
+        .with_range((-4.0, 4.0))
+        .with_bins(32)
+        .with_color("#1f77b4")
+        .with_group(b.clone(), "#ff7f0e", None)
+        .with_stacked(true)
+        .with_density();
+    render(
+        vec![Plot::Histogram(stacked)],
+        "Stacked density (stack area 1)",
+        "test_outputs/hist_density_stacked.svg",
+    );
+
+    let cumulative = Histogram::new()
+        .with_data(a)
+        .with_range((-4.0, 4.0))
+        .with_bins(32)
+        .with_color("steelblue")
+        .with_cumulative(true)
+        .with_density();
+    let svg = render(
+        vec![Plot::Histogram(cumulative)],
+        "Cumulative density (ECDF)",
+        "test_outputs/hist_density_cumulative.svg",
+    );
+    assert!(
+        svg.contains(">1<") || svg.contains(">1.0<"),
+        "ECDF reaches 1"
+    );
+
+    let precomputed = Histogram::from_bins(vec![0.0, 1.0, 3.0, 4.0], vec![2.0, 4.0, 2.0])
+        .with_color("seagreen")
+        .with_density();
+    render(
+        vec![Plot::Histogram(precomputed)],
+        "Precomputed, unequal widths",
+        "test_outputs/hist_density_precomputed.svg",
+    );
+}

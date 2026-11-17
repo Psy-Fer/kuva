@@ -182,6 +182,17 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
             ],
         ),
         (
+            "histogram_density",
+            vec![
+                "histogram",
+                "examples/data/histogram.tsv",
+                "--value-col",
+                "value",
+                "--density",
+                "--cumulative",
+            ],
+        ),
+        (
             "violin",
             vec![
                 "violin",

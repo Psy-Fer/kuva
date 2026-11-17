@@ -83,7 +83,7 @@ let hist = Histogram::new()
 
 ## Normalized histogram
 
-`.with_normalize()` rescales bar heights so the tallest bar equals `1.0`. This is peak-normalization — useful for comparing the shape of distributions with different sample sizes. The y-axis shows relative frequency, not counts or probability density.
+`.with_normalize()` rescales bar heights so the tallest bar equals `1.0`. This is peak-normalization, useful for comparing the shape of distributions with different sample sizes. The y-axis shows relative frequency, not counts or probability density (for that, see [Probability density](#probability-density) below).
 
 ```rust,no_run
 use kuva::plot::Histogram;
@@ -110,6 +110,55 @@ let layout = Layout::auto_from_plots(&plots)
 ```
 
 <img src="../assets/histogram/normalized.svg" alt="Normalized histogram" width="560">
+
+---
+
+## Probability density
+
+`.with_density()` scales each bar to `count / (total * bin_width)`, so the bars have a total area of 1 (matplotlib's `density=True`). The y-axis is then a probability density, and a model's probability density function can be drawn on the same axis with no rescaling:
+
+```rust,no_run
+use kuva::plot::{DensityPlot, Histogram};
+use kuva::backend::svg::SvgBackend;
+use kuva::render::render::render_multiple;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let hist = Histogram::new()
+    .with_data(samples)
+    .with_bins(30)
+    .with_range((-3.0, 3.0))
+    .with_color("#4682b4b3")
+    .with_density()
+    .with_legend("samples");
+
+// The model's PDF, sampled on the same range.
+let xs: Vec<f64> = (0..=200).map(|i| -3.0 + 6.0 * i as f64 / 200.0).collect();
+let pdf: Vec<f64> = xs
+    .iter()
+    .map(|x| (-x * x / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt())
+    .collect();
+let curve = DensityPlot::from_curve(xs, pdf)
+    .with_color("firebrick")
+    .with_legend("N(0, 1) pdf");
+
+let plots = vec![Plot::Histogram(hist), Plot::Density(curve)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_title("Probability Density")
+    .with_x_label("Value")
+    .with_y_label("Density");
+```
+
+<img src="../assets/histogram/density.svg" alt="Density histogram of 1000 normal samples with the standard normal PDF overlaid" width="560">
+
+`total` is the number of samples inside the range (the sum of weights when `.with_weights()` is set). How density combines with the other modes:
+
+- **Several series**: overlaid histograms and overlaid groups each have area 1, so samples of different sizes compare directly. With `.with_stacked(true)` the whole stack has area 1 and each layer shows its share.
+- **Cumulative**: `.with_cumulative(true)` gives the empirical CDF, rising to 1 at the last bin.
+- **KDE overlay**: `.with_kde(true)` draws the kernel density estimate itself, on the same scale as the bars.
+- **Precomputed bins**: `Histogram::from_bins` divides each bin by its own width, so unequal widths are handled.
+
+`.with_density()` and `.with_normalize()` are alternatives; whichever is called last wins.
 
 ---
 
@@ -258,6 +307,7 @@ let hist = Histogram::new()
 | `.with_range((min, max))` | **Required.** Sets bin edges and the layout axis extent |
 | `.with_color(s)` | Bar fill color; use 8-digit hex (`#RRGGBBAA`) for alpha transparency |
 | `.with_normalize()` | Scale heights so peak bar = 1.0 (relative frequency) |
+| `.with_density()` | Scale heights to a probability density (bar area = 1) |
 | `.with_legend(s)` | Attach a legend label to this series |
 | `.with_step(bool)` | Draw an outline-only staircase instead of filled bars |
 | `.with_cumulative(bool)` | Accumulate counts left-to-right (final bar = total) |
@@ -283,7 +333,8 @@ Frequency histogram from one or more numeric columns.
 | `--color <CSS>` | `steelblue` | Bar fill color (single-column mode) |
 | `--bins <N>` | `10` | Number of bins (ignored when `--bin-method` is set) |
 | `--bin-method <RULE>` | — | Auto bin count: `sturges`, `scott`, or `fd`; overrides `--bins` |
-| `--normalize` | off | Normalize to probability density (area = 1) |
+| `--normalize` | off | Scale so the tallest bar is 1 (relative frequency) |
+| `--density` | off | Scale to a probability density (bar area = 1); each `--y` column is its own density, a `--stacked` stack shares one, and `--cumulative` gives the empirical CDF |
 | `--step` | off | Outline-only staircases instead of filled bars |
 | `--cumulative` | off | Accumulate counts left-to-right |
 | `--stacked` | off | Stack the `--y` columns instead of overlaying them |
@@ -293,7 +344,7 @@ Frequency histogram from one or more numeric columns.
 ```bash
 kuva histogram histogram.tsv --value-col value --bins 30
 
-kuva histogram histogram.tsv --bins 20 --normalize \
+kuva histogram histogram.tsv --bins 20 --density \
     --title "Expression distribution" --y-label "Density"
 
 # automatic bin count (Freedman-Diaconis) and a cumulative view

@@ -2016,24 +2016,42 @@ fn add_pareto(pp: &ParetoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+/// A density value for a tooltip: four significant figures, so both 0.0123
+/// and 12.3 read cleanly.
+fn fmt_density(v: f64) -> String {
+    if v == 0.0 || !v.is_finite() {
+        return format!("{v}");
+    }
+    let decimals = (3 - v.abs().log10().floor() as i32).clamp(0, 12) as usize;
+    format!("{v:.decimals$}")
+}
+
 fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     // Precomputed path
     if let Some((edges, counts)) = &hist.precomputed {
-        let max_count = counts.iter().cloned().fold(0.0_f64, f64::max).max(1.0);
-        let norm = if hist.normalize { 1.0 / max_count } else { 1.0 };
-        for (i, count) in counts.iter().enumerate() {
-            if i + 1 >= edges.len() {
-                break;
-            }
-            if *count == 0.0 {
+        let Some(heights) = hist.precomputed_heights() else {
+            return;
+        };
+        for (i, (&count, &height)) in counts.iter().zip(&heights).enumerate() {
+            if count == 0.0 {
                 continue;
             }
             let x0 = computed.map_x(edges[i]);
             let x1 = computed.map_x(edges[i + 1]);
             let y0 = computed.map_y(0.0);
-            let y1 = computed.map_y(count * norm);
+            let y1 = computed.map_y(height);
             let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-                format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i + 1], count)
+                if hist.density {
+                    format!(
+                        "[{:.2}, {:.2}): {:.2} (density {})",
+                        edges[i],
+                        edges[i + 1],
+                        count,
+                        fmt_density(height)
+                    )
+                } else {
+                    format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i + 1], count)
+                }
             });
             if let Some(ref t) = tip {
                 scene.add(Primitive::GroupStart {
@@ -2138,7 +2156,11 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
                 let yt = computed.map_y((base + count) * norm);
 
                 let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-                    format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                    if binned.density {
+                        format!("[{:.2}, {:.2}): {}", x, x + bin_width, fmt_density(count))
+                    } else {
+                        format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                    }
                 });
                 if let Some(ref t) = tip {
                     scene.add(Primitive::GroupStart {
@@ -2180,13 +2202,14 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
             .unwrap_or_else(|| render_utils::silverman_bandwidth(&hist.data));
         let n = hist.data.len() as f64;
         let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
+        let kde_scale = hist.kde_height_scale(&binned);
         let kde = render_utils::simple_kde(&hist.data, bw, hist.kde_samples);
         if !kde.is_empty() {
             let kde_color = hist.kde_color.as_deref().unwrap_or("firebrick");
             let mut path = String::with_capacity(kde.len() * 16);
             let mut rb = ryu::Buffer::new();
             for (i, &(x, d)) in kde.iter().enumerate() {
-                let height = d * density_norm * n * bin_width * norm;
+                let height = d * density_norm * kde_scale;
                 let px = computed.map_x(x);
                 let py = computed.map_y(height);
                 path.push(if i == 0 { 'M' } else { 'L' });

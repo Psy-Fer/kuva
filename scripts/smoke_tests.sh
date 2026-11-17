@@ -279,7 +279,18 @@ check "histogram bins" \
 
 check "histogram normalize" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --normalize \
+        --title "Value Distribution" --x-label "Value" --y-label "Relative frequency"
+
+check "histogram density" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --density \
         --title "Value Distribution" --x-label "Value" --y-label "Density"
+
+check "histogram density stacked" \
+    "$BIN" histogram "$DATA/measurements.tsv" --y time,value --density --stacked --legend \
+        --title "Stacked Density" --y-label "Density"
+
+check_error "histogram density with normalize" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --density --normalize
 
 check "histogram bin-aligned 6 bins" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bins 6 \
