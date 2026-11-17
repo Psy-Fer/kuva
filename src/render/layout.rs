@@ -1,3 +1,5 @@
+use crate::plot::annotations::{stack_levels, BracketAnchor, SignificanceBracket};
+use crate::plot::axis_break::AxisBreak;
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
 use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition};
 use crate::plot::pareto::ParetoBar;
@@ -331,9 +333,22 @@ pub struct Layout {
     pub stats_box: bool,
     pub log_x: bool,
     pub log_y: bool,
+    /// Gap in the x axis that skips a stretch of values (see [`AxisBreak`]).
+    pub x_break: Option<AxisBreak>,
+    /// Gap in the y axis that skips a stretch of values (see [`AxisBreak`]).
+    pub y_break: Option<AxisBreak>,
+    /// Canvas background colour (CSS). `None` uses the theme's background.
+    /// Set it here rather than on the finished `Scene` so that anything drawn
+    /// in the background colour during rendering (the axis-break cover)
+    /// matches.
+    pub background: Option<String>,
     pub annotations: Vec<TextAnnotation>,
     pub reference_lines: Vec<ReferenceLine>,
     pub shaded_regions: Vec<ShadedRegion>,
+    /// Significance brackets between categorical groups (see
+    /// [`SignificanceBracket`]). Auto-positioned brackets stack above the
+    /// data and grow the value axis to fit.
+    pub brackets: Vec<SignificanceBracket>,
     pub suppress_x_ticks: bool,
     pub suppress_y_ticks: bool,
     pub font_family: Option<String>,
@@ -564,9 +579,13 @@ impl Layout {
             stats_box: true,
             log_x: false,
             log_y: false,
+            x_break: None,
+            y_break: None,
+            background: None,
             annotations: Vec::new(),
             reference_lines: Vec::new(),
             shaded_regions: Vec::new(),
+            brackets: Vec::new(),
             suppress_x_ticks: false,
             suppress_y_ticks: false,
             font_family: None,
@@ -1362,6 +1381,7 @@ impl Layout {
             let (legend_3d, cmap_3d) = match plot {
                 Plot::Scatter3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
                 Plot::Surface3D(sp) => (sp.legend_label.as_deref(), sp.z_colormap.is_some()),
+                Plot::Quiver3D(qp) => (qp.legend_label.as_deref(), qp.color_map.is_some()),
                 _ => (None, false),
             };
             if let Some(label) = legend_3d {
@@ -2388,6 +2408,50 @@ impl Layout {
         self
     }
 
+    /// Break the y axis between `lo` and `hi`: values up to `lo` and from
+    /// `hi` on are drawn to scale either side of a short gap, and the stretch
+    /// between them is skipped. Use it when one group dwarfs the rest.
+    ///
+    /// Linear numeric axes only; ignored on log or categorical axes, with
+    /// `equal_aspect`, or when the break is not strictly inside the axis range.
+    ///
+    /// ```
+    /// use kuva::render::layout::Layout;
+    /// let layout = Layout::new((0.0, 4.0), (0.0, 1000.0)).with_y_break(12.0, 940.0);
+    /// assert_eq!(layout.y_break.unwrap().lo, 12.0);
+    /// ```
+    pub fn with_y_break(self, lo: f64, hi: f64) -> Self {
+        self.with_y_break_config(AxisBreak::new(lo, hi))
+    }
+
+    /// Break the y axis with a fully configured [`AxisBreak`] (gap width,
+    /// marks).
+    pub fn with_y_break_config(mut self, brk: AxisBreak) -> Self {
+        self.y_break = Some(brk);
+        self
+    }
+
+    /// Canvas background colour (any CSS colour string; `"none"` or
+    /// `"transparent"` for an unfilled canvas). Overrides the theme's
+    /// background; prefer this over setting `Scene::background_color` after
+    /// rendering so anything drawn in the background colour, such as the
+    /// axis-break cover, matches.
+    pub fn with_background(mut self, color: impl Into<String>) -> Self {
+        self.background = Some(color.into());
+        self
+    }
+
+    /// Break the x axis between `lo` and `hi`; see [`Self::with_y_break`].
+    pub fn with_x_break(self, lo: f64, hi: f64) -> Self {
+        self.with_x_break_config(AxisBreak::new(lo, hi))
+    }
+
+    /// Break the x axis with a fully configured [`AxisBreak`].
+    pub fn with_x_break_config(mut self, brk: AxisBreak) -> Self {
+        self.x_break = Some(brk);
+        self
+    }
+
     pub fn with_annotation(mut self, annotation: TextAnnotation) -> Self {
         self.annotations.push(annotation);
         self
@@ -2401,6 +2465,33 @@ impl Layout {
     pub fn with_shaded_region(mut self, region: ShadedRegion) -> Self {
         self.shaded_regions.push(region);
         self
+    }
+
+    /// Add a significance bracket between two categorical groups. See
+    /// [`SignificanceBracket`] for anchors, label formats and positioning.
+    pub fn with_bracket(mut self, bracket: SignificanceBracket) -> Self {
+        self.brackets.push(bracket);
+        self
+    }
+
+    /// Shortcut for a star-labelled bracket between groups `a` and `b` with
+    /// p-value `p`, auto-stacked above the data. Anchors may be category
+    /// labels (`&str`), zero-based indices (`usize`) or axis values (`f64`).
+    ///
+    /// ```
+    /// use kuva::render::layout::Layout;
+    /// let layout = Layout::new((0.5, 2.5), (0.0, 1.0))
+    ///     .with_x_categories(vec!["ctrl".into(), "drug".into()])
+    ///     .with_significance("ctrl", "drug", 0.004);
+    /// assert_eq!(layout.brackets[0].label(), "**");
+    /// ```
+    pub fn with_significance(
+        self,
+        a: impl Into<BracketAnchor>,
+        b: impl Into<BracketAnchor>,
+        p: f64,
+    ) -> Self {
+        self.with_bracket(SignificanceBracket::new(a, b, p))
     }
 
     pub fn with_font_family<S: Into<String>>(mut self, family: S) -> Self {
@@ -2908,6 +2999,35 @@ pub struct ComputedLayout {
     pub legend_width: f64,
     /// Optional explicit legend height override from `Layout::with_legend_height`.
     pub legend_height_override: Option<f64>,
+    /// Stacking level of each `Layout::brackets` entry (same order); `None`
+    /// for brackets pinned with an explicit position or with an anchor that
+    /// did not resolve.
+    pub bracket_levels: Vec<Option<usize>>,
+    /// Resolved `(lo, hi)` span of each bracket on its category axis, in data
+    /// units; `None` when an anchor did not resolve (nothing is drawn).
+    pub bracket_spans: Vec<Option<(f64, f64)>>,
+    /// Effective orientation of each bracket: `true` when its categories run
+    /// along y (inferred from the layout, or forced by `with_horizontal`).
+    pub bracket_horizontal: Vec<bool>,
+    /// Height of one terminal row in scene pixels when rendering to the
+    /// terminal (`Layout::term_rows`), so bracket labels can clear the bar by
+    /// a whole row; `None` for pixel backends.
+    pub bracket_cell_h: Option<f64>,
+    /// Auto-stack geometry for horizontal brackets (value axis = x).
+    pub bracket_stack_x: BracketStack,
+    /// Auto-stack geometry for vertical brackets (value axis = y).
+    pub bracket_stack_y: BracketStack,
+    /// An explicit axis max leaves too little room for the auto-stacked
+    /// brackets, even at the tightest pitch; the top ones run off the plot.
+    pub bracket_overflow: bool,
+    /// Validated x-axis break (`None` when absent or not applicable).
+    pub x_break: Option<AxisBreak>,
+    /// Validated y-axis break (`None` when absent or not applicable).
+    pub y_break: Option<AxisBreak>,
+    /// Pixel geometry of the x break, set by `recompute_transforms`.
+    pub x_break_px: Option<BreakPx>,
+    /// Pixel geometry of the y break, set by `recompute_transforms`.
+    pub y_break_px: Option<BreakPx>,
     /// Pixel width of the widest y-axis tick label, computed from actual tick strings.
     /// Used in `axis.rs` to position the Y axis label flush with the tick labels.
     pub y_tick_label_px: f64,
@@ -3052,6 +3172,375 @@ pub struct ComputedLayout {
     /// Resolved from `Layout::label_background`, defaulting to `Layout::bw_mode`
     /// when unset.
     pub label_background: bool,
+}
+
+/// Geometry of the auto-stacked significance brackets on one value axis.
+///
+/// `base` is the data value the stack starts from (the top of the data);
+/// level `k` sits `pitch_px * (k + 0.5)` pixels beyond it. The pitch is kept
+/// in pixels rather than data units so the levels stay evenly spaced on any
+/// axis: linear, log, or broken, where a data-space step would change size
+/// across the gap.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BracketStack {
+    pub base: f64,
+    pub pitch_px: f64,
+}
+
+impl BracketStack {
+    /// Pixel offset of stacking level `level` beyond `base`.
+    pub fn offset_px(&self, level: usize) -> f64 {
+        self.pitch_px * (level as f64 + 0.5)
+    }
+}
+
+/// Where a bracket anchor lands on its category axis, in data units.
+/// Categories sit at `i + 1`; an unknown label, or an index past the last
+/// category, resolves to `None`.
+pub fn resolve_bracket_anchor(
+    anchor: &BracketAnchor,
+    categories: Option<&[String]>,
+) -> Option<f64> {
+    match anchor {
+        BracketAnchor::Index(i) => {
+            if categories.is_some_and(|c| *i >= c.len()) {
+                None
+            } else {
+                Some(*i as f64 + 1.0)
+            }
+        }
+        BracketAnchor::Value(v) => Some(*v),
+        BracketAnchor::Label(l) => categories?
+            .iter()
+            .position(|c| c == l)
+            .map(|i| i as f64 + 1.0),
+    }
+}
+
+/// Everything `from_layout` resolves about the layout's brackets.
+struct ResolvedBrackets {
+    levels: Vec<Option<usize>>,
+    spans: Vec<Option<(f64, f64)>>,
+    horizontal: Vec<bool>,
+    stack_x: BracketStack,
+    stack_y: BracketStack,
+    x_max: f64,
+    y_max: f64,
+    /// A pinned axis max left too little room for the stack.
+    overflow: bool,
+}
+
+/// Re-round the auto-ranged ends of a broken axis with each segment's own
+/// tick step (the same step `break_ticks` in `axis.rs` uses for that
+/// segment), so a short segment is not padded out by the coarse step of the
+/// whole axis. `padded` is the layout's padded data range; `auto` says which
+/// ends may move. An end only ever moves inward, and never across the gap.
+fn refine_broken_range(
+    resolved: (f64, f64),
+    padded: (f64, f64),
+    brk: Option<AxisBreak>,
+    ticks: usize,
+    auto: (bool, bool),
+) -> (f64, f64) {
+    let Some(b) = brk else {
+        return resolved;
+    };
+    let (mut lo, mut hi) = resolved;
+    let before = b.share_before(resolved);
+    let budget = |frac: f64| ((ticks as f64 * frac).round() as usize).max(2);
+    if auto.0 && padded.0 < b.lo {
+        let step = render_utils::compute_tick_step(padded.0, b.lo, budget(before));
+        let v = (padded.0 / step).floor() * step;
+        if step > 0.0 && v.is_finite() && v > lo && v < b.lo {
+            lo = v;
+        }
+    }
+    if auto.1 && padded.1 > b.hi {
+        let step = render_utils::compute_tick_step(b.hi, padded.1, budget(1.0 - before));
+        let v = (padded.1 / step).ceil() * step;
+        if step > 0.0 && v.is_finite() && v < hi && v > b.hi {
+            hi = v;
+        }
+    }
+    (lo, hi)
+}
+
+/// Pixel distance from the start of an axis spanning `(lo, max)` to `v`, for
+/// a `plot_px`-long axis that is linear, log10, or broken by `brk`. Mirrors
+/// `ComputedLayout::recompute_transforms`.
+fn axis_px(v: f64, lo: f64, max: f64, log: bool, brk: Option<AxisBreak>, plot_px: f64) -> f64 {
+    if log {
+        let (l, h) = (lo.max(1e-10).log10(), max.max(1e-10).log10());
+        return (v.max(1e-10).log10() - l) / (h - l).max(f64::EPSILON) * plot_px;
+    }
+    if let Some(b) = brk {
+        let gap_px = b.gap * plot_px;
+        let avail = (plot_px - gap_px).max(0.0);
+        let px_before = avail * b.share_before((lo, max));
+        return if v <= b.lo {
+            (v - lo) * px_before / (b.lo - lo).max(f64::EPSILON)
+        } else if v >= b.hi {
+            px_before + gap_px + (v - b.hi) * (avail - px_before) / (max - b.hi).max(f64::EPSILON)
+        } else {
+            px_before + gap_px * (v - b.lo) / (b.hi - b.lo)
+        };
+    }
+    (v - lo) / (max - lo).max(f64::EPSILON) * plot_px
+}
+
+/// Stack geometry for one value axis, and the axis max after making room.
+///
+/// `plot_px` is the axis length in pixels, `pitch_px` the level pitch and
+/// `head_px` the room the top label needs beyond the top bar; `n_levels` is
+/// the number of occupied levels (`None` when nothing auto-stacks here). The
+/// base is the data maximum the plot reports, so the first bracket clears
+/// every box, bar and whisker.
+///
+/// The stack needs `H = pitch * (n - 0.5) + head` pixels above the base. The
+/// axis grows to the smallest max that leaves that much room (never more
+/// than 90% of the axis, so the data is not squashed into nothing). Growing
+/// an axis shrinks its pixels per data unit, so the room is measured on the
+/// final mapping, including the piecewise scale of an axis break. When the
+/// max is `pinned` by an explicit override it is left alone and the pitch
+/// shrinks to fit the room there is, down to `min_pitch_px`; a stack that
+/// still does not fit is reported in the returned flag.
+#[allow(clippy::too_many_arguments)]
+fn stack_axis(
+    data_range: Option<(f64, f64)>,
+    range: (f64, f64),
+    log: bool,
+    brk: Option<AxisBreak>,
+    pinned: bool,
+    n_levels: Option<usize>,
+    plot_px: f64,
+    pitch_px: f64,
+    min_pitch_px: f64,
+    head_px: f64,
+) -> (BracketStack, f64, bool) {
+    let (lo, hi) = range;
+    let base = data_range.map(|r| r.1).unwrap_or(hi).min(hi);
+    let plot_px = plot_px.max(1.0);
+    let room = |max: f64| plot_px - axis_px(base, lo, max, log, brk, plot_px);
+    let stack = |n: usize, pitch: f64| pitch * (n as f64 - 0.5) + head_px;
+
+    let Some(n) = n_levels else {
+        return (BracketStack { base, pitch_px }, hi, false);
+    };
+    if pinned {
+        // Squeeze the levels into the room under the pinned max.
+        let fit = (room(hi) - head_px) / (n as f64 - 0.5);
+        let pitch = pitch_px.min(fit).max(min_pitch_px);
+        let overflow = stack(n, pitch) > room(hi) + 0.5;
+        return (
+            BracketStack {
+                base,
+                pitch_px: pitch,
+            },
+            hi,
+            overflow,
+        );
+    }
+    let need = stack(n, pitch_px).min(plot_px * 0.9);
+    if room(hi) >= need {
+        return (BracketStack { base, pitch_px }, hi, false);
+    }
+    // Room grows monotonically with the max: bisect for the smallest max
+    // that fits, within a bound that keeps a pathological stack finite.
+    let span = if log {
+        (hi / lo.max(1e-10)).max(10.0)
+    } else {
+        (hi - lo).max(f64::EPSILON)
+    };
+    let mut top = if log {
+        hi * span.powi(10)
+    } else {
+        hi + span * 100.0
+    };
+    let need = need.min(room(top));
+    let mut bottom = hi;
+    for _ in 0..80 {
+        let mid = if log {
+            (bottom * top).sqrt()
+        } else {
+            (bottom + top) / 2.0
+        };
+        if room(mid) >= need {
+            top = mid;
+        } else {
+            bottom = mid;
+        }
+    }
+    (BracketStack { base, pitch_px }, top, false)
+}
+
+/// Resolve every bracket's orientation and span, assign stacking levels per
+/// orientation, and grow whichever value axes need it. `plot_px` is the plot
+/// area `(width, height)` in pixels, `body_px` the default label size, and
+/// `cell_h` the height of one terminal row when rendering to the terminal.
+fn resolve_brackets(
+    layout: &Layout,
+    x: (f64, f64),
+    y: (f64, f64),
+    breaks: (Option<AxisBreak>, Option<AxisBreak>),
+    plot_px: (f64, f64),
+    body_px: f64,
+    cell_h: Option<f64>,
+) -> ResolvedBrackets {
+    let n = layout.brackets.len();
+    let mut out = ResolvedBrackets {
+        levels: Vec::new(),
+        spans: Vec::new(),
+        horizontal: Vec::new(),
+        stack_x: BracketStack::default(),
+        stack_y: BracketStack::default(),
+        x_max: x.1,
+        y_max: y.1,
+        overflow: false,
+    };
+    if n == 0 {
+        return out;
+    }
+    // A plot whose categories sit on y (and not x) is horizontal; a bracket
+    // can also force it.
+    let inferred = layout.y_categories.is_some() && layout.x_categories.is_none();
+    out.horizontal = layout
+        .brackets
+        .iter()
+        .map(|b| b.horizontal || inferred)
+        .collect();
+    out.spans = layout
+        .brackets
+        .iter()
+        .zip(&out.horizontal)
+        .map(|(b, &h)| {
+            let cats = if h {
+                layout.y_categories.as_deref()
+            } else {
+                layout.x_categories.as_deref()
+            };
+            let a = resolve_bracket_anchor(&b.a, cats)?;
+            let c = resolve_bracket_anchor(&b.b, cats)?;
+            Some((a.min(c), a.max(c)))
+        })
+        .collect();
+
+    // Only brackets without an explicit position take part in stacking.
+    let stackable = |want_h: bool| -> Vec<Option<(f64, f64)>> {
+        layout
+            .brackets
+            .iter()
+            .zip(&out.horizontal)
+            .zip(&out.spans)
+            .map(|((b, &h), span)| {
+                if h == want_h && b.position.is_none() {
+                    *span
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+    let v_levels = stack_levels(&stackable(false));
+    let h_levels = stack_levels(&stackable(true));
+    let count = |levels: &[Option<usize>]| levels.iter().flatten().max().map(|m| m + 1);
+
+    // Pitch and headroom follow the labels' pixel size, so a short canvas or
+    // a large font never puts a label on the bar above it; 7% of the axis is
+    // the floor so sparse stacks keep a readable gap.
+    let font_px = |b: &SignificanceBracket| b.font_size.map(|f| f as f64).unwrap_or(body_px);
+    let label_px = |want_h: bool, measure: &dyn Fn(&SignificanceBracket, f64) -> f64| {
+        let mut pitch: f64 = 0.0;
+        let mut head: f64 = 0.0;
+        for (b, &h) in layout.brackets.iter().zip(&out.horizontal) {
+            if h != want_h || b.position.is_some() {
+                continue;
+            }
+            let f = font_px(b);
+            let extent = measure(b, f);
+            // A horizontal label runs sideways across the next level, so
+            // that pitch must clear the whole label plus a gap on each side.
+            pitch = pitch
+                .max(f * 2.2)
+                .max(if want_h { extent + f } else { 0.0 });
+            head = head.max(extent + f * 0.5);
+        }
+        (pitch, head)
+    };
+    let text_w = |b: &SignificanceBracket, f: f64| {
+        crate::render::text_metrics::measure_text_width(
+            &b.label(),
+            f,
+            crate::render::text_metrics::FontStyle::Regular,
+        )
+    };
+    let text_h = |_b: &SignificanceBracket, f: f64| f * 1.1;
+
+    let (mut pitch_v, mut head_v) = label_px(false, &text_h);
+    let (mut pitch_h, mut head_h) = label_px(true, &text_w);
+    // Terminal: a row is the smallest step a label can take. Keep a bar, its
+    // label and a blank row per level, and one column beside a horizontal
+    // bracket (a cell is about half as wide as it is tall).
+    if let Some(ch) = cell_h {
+        let cw = ch * 0.5;
+        pitch_v = pitch_v.max(3.0 * ch);
+        head_v = head_v.max(2.0 * ch);
+        head_h += cw;
+        pitch_h = pitch_h.max(head_h + cw);
+    }
+
+    // Under a pinned max the pitch may shrink, but never so far that a
+    // label runs into the bar above it.
+    let min_v = (pitch_v * 0.65).max(cell_h.map_or(0.0, |ch| 2.0 * ch));
+    let min_h = head_h;
+    let (stack_y, y_max, over_y) = stack_axis(
+        layout.data_y_range,
+        y,
+        layout.log_y,
+        breaks.1,
+        layout.y_axis_max.is_some(),
+        count(&v_levels),
+        plot_px.1,
+        (plot_px.1 * 0.07).max(pitch_v),
+        min_v,
+        head_v,
+    );
+    let (stack_x, x_max, over_x) = stack_axis(
+        layout.data_x_range,
+        x,
+        layout.log_x,
+        breaks.0,
+        layout.x_axis_max.is_some(),
+        count(&h_levels),
+        plot_px.0,
+        (plot_px.0 * 0.07).max(pitch_h),
+        min_h,
+        head_h,
+    );
+    out.overflow = over_x || over_y;
+    out.levels = v_levels
+        .iter()
+        .zip(&h_levels)
+        .map(|(v, h)| v.or(*h))
+        .collect();
+    out.stack_x = stack_x;
+    out.stack_y = stack_y;
+    out.x_max = x_max;
+    out.y_max = y_max;
+    out
+}
+
+/// Pixel geometry of an axis break: the data edges of the gap and where they
+/// land on the canvas. Values inside the gap are interpolated across it so a
+/// line through the break stays continuous (the cover hides that stretch).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BreakPx {
+    pub lo: f64,
+    pub hi: f64,
+    pub lo_px: f64,
+    pub hi_px: f64,
+    /// Pixels per data unit after the break (the segment before it uses the
+    /// layout's regular `x_scale` / `y_scale`).
+    pub scale_after: f64,
 }
 
 /// Resolves one axis's final `(min, max)` from its padded `range`, its raw
@@ -3709,6 +4198,74 @@ impl ComputedLayout {
         let y_min = layout.y_axis_min.unwrap_or(y_min);
         let y_max = layout.y_axis_max.unwrap_or(y_max);
 
+        // Axis breaks apply to linear, numeric axes without equal-aspect and
+        // must lie strictly inside the resolved range (before any growth for
+        // significance brackets, which only ever extends it); anything else is
+        // ignored so a stale break never produces a broken figure.
+        let x_break = layout.x_break.filter(|b| {
+            b.is_valid()
+                && !layout.log_x
+                && !layout.equal_aspect
+                && layout.x_categories.is_none()
+                && b.lo > x_min
+                && b.hi < x_max
+        });
+        let y_break = layout.y_break.filter(|b| {
+            b.is_valid()
+                && !layout.log_y
+                && !layout.equal_aspect
+                && layout.y_categories.is_none()
+                // The secondary axis shares the plot height on a plain scale,
+                // so a primary break would slice its series.
+                && layout.y2_range.is_none()
+                && b.lo > y_min
+                && b.hi < y_max
+        });
+
+        // On a broken axis the outer ends were nice-rounded with the step of
+        // the whole axis, which can pad a short segment far past its data
+        // (a min of -100 under data in 1..8) and squash it. Round each
+        // auto-ranged end with its own segment's tick step instead.
+        let clamp_y = layout.clamp_axis || layout.clamp_y_axis;
+        let (x_min, x_max) = refine_broken_range(
+            (x_min, x_max),
+            layout.x_range,
+            x_break,
+            x_ticks,
+            (
+                layout.x_axis_min.is_none() && !layout.clamp_axis,
+                layout.x_axis_max.is_none() && !layout.clamp_axis,
+            ),
+        );
+        let (y_min, y_max) = refine_broken_range(
+            (y_min, y_max),
+            layout.y_range,
+            y_break,
+            y_ticks,
+            (
+                layout.y_axis_min.is_none() && !clamp_y,
+                layout.y_axis_max.is_none() && !clamp_y,
+            ),
+        );
+
+        // Significance brackets: resolve each bracket's span on its category
+        // axis, stack the auto-positioned ones so none overlap, and grow the
+        // value axis so the stack and its labels fit inside the plot area. An
+        // explicit axis-max override is left alone (the user asked for it) and
+        // the stack is squeezed into the room below it instead.
+        let brackets = resolve_brackets(
+            layout,
+            (x_min, x_max),
+            (y_min, y_max),
+            (x_break, y_break),
+            (
+                width - margin_left - margin_right,
+                height - margin_top - margin_bottom,
+            ),
+            layout.body_size as f64 * s,
+            layout.term_rows.map(|r| height / r as f64),
+        );
+        let (x_max, y_max) = (brackets.x_max, brackets.y_max);
         let y2_range = layout.y2_range.map(|range| {
             resolve_axis_range(
                 range,
@@ -3769,6 +4326,17 @@ impl ComputedLayout {
             stats_position: layout.stats_position,
             legend_width: effective_legend_width,
             legend_height_override: layout.legend_height.map(|h| h * s),
+            bracket_levels: brackets.levels,
+            bracket_spans: brackets.spans,
+            bracket_horizontal: brackets.horizontal,
+            bracket_cell_h: layout.term_rows.map(|r| height / r as f64),
+            bracket_stack_x: brackets.stack_x,
+            bracket_stack_y: brackets.stack_y,
+            bracket_overflow: brackets.overflow,
+            x_break,
+            y_break,
+            x_break_px: None,
+            y_break_px: None,
             y_tick_label_px,
             log_x: layout.log_x,
             log_y: layout.log_y,
@@ -3871,6 +4439,9 @@ impl ComputedLayout {
     pub fn recompute_transforms(&mut self) {
         let pw = self.plot_width();
         let ph = self.plot_height();
+        // Only the break arms below set these.
+        self.x_break_px = None;
+        self.y_break_px = None;
         if self.log_x {
             let log_min = self.x_range.0.max(1e-10).log10();
             let log_max = self.x_range.1.max(1e-10).log10();
@@ -3881,6 +4452,25 @@ impl ComputedLayout {
                 0.0
             };
             self.x_offset = self.margin_left - log_min * self.x_scale;
+        } else if let Some(b) = self.x_break {
+            // Piecewise: the skipped stretch gives its pixels to the gap and
+            // each segment gets a share of what is left, so a short segment
+            // next to a long one stays readable.
+            let gap_px = b.gap * pw;
+            let avail = (pw - gap_px).max(0.0);
+            let before = (b.lo - self.x_range.0).max(f64::EPSILON);
+            let after = (self.x_range.1 - b.hi).max(f64::EPSILON);
+            let px_before = avail * b.share_before(self.x_range);
+            self.x_scale = px_before / before;
+            self.x_offset = self.margin_left - self.x_range.0 * self.x_scale;
+            let lo_px = self.margin_left + px_before;
+            self.x_break_px = Some(BreakPx {
+                lo: b.lo,
+                hi: b.hi,
+                lo_px,
+                hi_px: lo_px + gap_px,
+                scale_after: (avail - px_before) / after,
+            });
         } else {
             let span = self.x_range.1 - self.x_range.0;
             self.x_scale = if span.abs() > f64::EPSILON {
@@ -3900,6 +4490,22 @@ impl ComputedLayout {
                 0.0
             };
             self.y_offset = self.height - self.margin_bottom + log_min * self.y_scale;
+        } else if let Some(b) = self.y_break {
+            let gap_px = b.gap * ph;
+            let avail = (ph - gap_px).max(0.0);
+            let before = (b.lo - self.y_range.0).max(f64::EPSILON);
+            let after = (self.y_range.1 - b.hi).max(f64::EPSILON);
+            let px_before = avail * b.share_before(self.y_range);
+            self.y_scale = px_before / before;
+            self.y_offset = self.height - self.margin_bottom + self.y_range.0 * self.y_scale;
+            let lo_px = self.height - self.margin_bottom - px_before;
+            self.y_break_px = Some(BreakPx {
+                lo: b.lo,
+                hi: b.hi,
+                lo_px,
+                hi_px: lo_px - gap_px,
+                scale_after: (avail - px_before) / after,
+            });
         } else {
             let span = self.y_range.1 - self.y_range.0;
             self.y_scale = if span.abs() > f64::EPSILON {
@@ -3945,10 +4551,104 @@ impl ComputedLayout {
         self.height - self.margin_top - self.margin_bottom
     }
 
+    /// Map a data-space polyline to screen space, splitting every segment that
+    /// crosses an axis break at the break's `lo` and `hi` edges.
+    ///
+    /// The piecewise `map_x`/`map_y` give each side of a break its own scale, so a
+    /// straight screen-space line between two mapped endpoints has the wrong slope
+    /// on both sides of the gap. Inserting the exact crossing points makes each
+    /// visible piece follow its own segment's scale and meet the gap at the right
+    /// place; the sub-segment inside the gap is hidden by the break cover.
+    /// Without a break this is a plain per-point map.
+    pub fn map_polyline(&self, pts: impl IntoIterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+        self.map_polyline_runs(pts).into_iter().flatten().collect()
+    }
+
+    /// Like [`map_polyline`](Self::map_polyline), but drops the pieces that lie
+    /// inside a break, returning one screen-space run per visible stretch.
+    ///
+    /// Stroking each run on its own ends the line squarely at the gap edges; a
+    /// single stroked polyline would turn a corner at each edge, and the stroke
+    /// join pokes a thin spike past the break cover. Without a break this is a
+    /// single run holding the plain per-point map.
+    pub fn map_polyline_runs(
+        &self,
+        pts: impl IntoIterator<Item = (f64, f64)>,
+    ) -> Vec<Vec<(f64, f64)>> {
+        let pts: Vec<(f64, f64)> = pts.into_iter().collect();
+        if self.x_break_px.is_none() && self.y_break_px.is_none() {
+            return vec![pts
+                .into_iter()
+                .map(|(x, y)| (self.map_x(x), self.map_y(y)))
+                .collect()];
+        }
+        // Data-space points with the break crossings inserted.
+        let mut out = Vec::with_capacity(pts.len() + 4);
+        let mut ts: Vec<f64> = Vec::with_capacity(4);
+        for (i, &(x, y)) in pts.iter().enumerate() {
+            if i > 0 {
+                let (x0, y0) = pts[i - 1];
+                ts.clear();
+                // Parameter t in (0, 1) where the segment crosses `edge` on one axis.
+                let mut crossings = |a: f64, b: f64, brk: Option<BreakPx>| {
+                    if let Some(b_) = brk {
+                        for edge in [b_.lo, b_.hi] {
+                            if (a - edge) * (b - edge) < 0.0 {
+                                ts.push((edge - a) / (b - a));
+                            }
+                        }
+                    }
+                };
+                crossings(x0, x, self.x_break_px);
+                crossings(y0, y, self.y_break_px);
+                ts.sort_by(f64::total_cmp);
+                for &t in &ts {
+                    out.push((x0 + (x - x0) * t, y0 + (y - y0) * t));
+                }
+            }
+            out.push((x, y));
+        }
+        let inside = |v: f64, brk: Option<BreakPx>| brk.is_some_and(|b| v > b.lo && v < b.hi);
+        let in_gap = |(x, y): (f64, f64)| inside(x, self.x_break_px) || inside(y, self.y_break_px);
+        let map = |(x, y): (f64, f64)| (self.map_x(x), self.map_y(y));
+        if out.len() == 1 {
+            return vec![vec![map(out[0])]];
+        }
+        let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for w in out.windows(2) {
+            let (q, p) = (w[0], w[1]);
+            // Every piece between consecutive points lies wholly on one side of
+            // each break edge, so its midpoint says whether it is in the gap.
+            if in_gap(((p.0 + q.0) / 2.0, (p.1 + q.1) / 2.0)) {
+                if !run.is_empty() {
+                    runs.push(std::mem::take(&mut run));
+                }
+                continue;
+            }
+            if run.is_empty() {
+                run.push(map(q));
+            }
+            run.push(map(p));
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+        runs
+    }
+
     #[inline(always)]
     pub fn map_x(&self, x: f64) -> f64 {
         if self.log_x {
             self.x_offset + x.max(1e-10).log10() * self.x_scale
+        } else if let Some(b) = self.x_break_px {
+            if x <= b.lo {
+                self.x_offset + x * self.x_scale
+            } else if x >= b.hi {
+                b.hi_px + (x - b.hi) * b.scale_after
+            } else {
+                b.lo_px + (b.hi_px - b.lo_px) * (x - b.lo) / (b.hi - b.lo)
+            }
         } else {
             self.x_offset + x * self.x_scale
         }
@@ -3958,6 +4658,14 @@ impl ComputedLayout {
     pub fn map_y(&self, y: f64) -> f64 {
         if self.log_y {
             self.y_offset - y.max(1e-10).log10() * self.y_scale
+        } else if let Some(b) = self.y_break_px {
+            if y <= b.lo {
+                self.y_offset - y * self.y_scale
+            } else if y >= b.hi {
+                b.hi_px - (y - b.hi) * b.scale_after
+            } else {
+                b.lo_px + (b.hi_px - b.lo_px) * (y - b.lo) / (b.hi - b.lo)
+            }
         } else {
             self.y_offset - y * self.y_scale
         }
@@ -4004,6 +4712,8 @@ impl ComputedLayout {
             c.y_range = y2;
         }
         c.log_y = self.log_y2;
+        c.y_break = None;
+        c.y_break_px = None;
         c.y_tick_format = self.y2_tick_format.clone();
         c.recompute_transforms();
         c

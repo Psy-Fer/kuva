@@ -16,9 +16,13 @@ how you build kuva:
 
   `typst-math` is opt-in and is **not** part of `full`: it pulls a large
   dependency tree (the Typst compiler) and needs Rust 1.89 or newer, so you
-  enable it explicitly with `--features typst-math`. The pre-built CLI
-  binaries from the releases page do ship with it, since a downloaded binary
-  has no way to opt in afterwards.
+  enable it explicitly with `--features typst-math`. It is also what separates
+  the two pre-built CLI downloads on the releases page, because linking the
+  Typst compiler roughly triples the archive size:
+  `kuva-<version>-<target>` ships the lookup tier only, and
+  `kuva-<version>-<target>-typst` adds this tier. Take the `-typst` download
+  if you want typeset math, since a downloaded binary has no way to opt in
+  afterwards.
 
 The same `$...$` source drives both tiers, so code never changes; only the
 fidelity of the output does.

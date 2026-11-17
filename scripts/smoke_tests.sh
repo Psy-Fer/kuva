@@ -191,6 +191,9 @@ check "parallel missing values (drop)" \
     "$BIN" parallel "$DATA/missing.tsv" --value-cols x y
 
 # ── line ──────────────────────────────────────────────────────────────────────
+check "line x-axis break" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --x-break 2,8
+
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
         --title "Growth Curves" --subtitle "coloured by group" --x-label "Time" --y-label "Value"
@@ -219,6 +222,17 @@ check_error "line multi-y color-by conflict" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --color-by group
 
 # ── bar ───────────────────────────────────────────────────────────────────────
+check "bar y-axis break" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60 --title "Broken Y axis" --y-label "Percentage"
+
+check "bar y-axis break explicit share" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60,0.5 --axis-line box
+
+check_error "bar y-axis break reversed" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage --y-break 60,20
+
 check "bar basic" \
     "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
         --title "Category Counts" --x-label "Category" --y-label "Count"
@@ -288,6 +302,18 @@ check "box basic" \
 check "box overlay-points" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-points \
         --title "Expression by Group" --x-label "Group" --y-label "Expression"
+
+check "box significance brackets" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression \
+        --signif Control,Drug_A,0.0003 --signif Drug_A,Drug_B,0.04 --signif '#0,#4,n.s.' \
+        --title "Expression by Group" --y-label "Expression"
+
+check "box significance brackets horizontal p-values" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --horizontal \
+        --signif Control,Drug_C,0.012 --signif-format p --x-label "Expression"
+
+check_error "box significance bad spec" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --signif Control,Drug_A
 
 check "box overlay-swarm" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm \
@@ -779,6 +805,33 @@ check "surface3d alternate view" \
     "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
         --z-color viridis --azimuth 45 --elevation 45 \
         --title "3D Surface Alt View"
+
+# ── quiver3d ──────────────────────────────────────────────────────────────────
+check "quiver3d basic" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --title "3D Quiver" --x-label "x" --y-label "y" --z-label "z"
+
+check "quiver3d colormap pivot middle" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --colormap viridis --colorbar-label "Speed" --pivot middle \
+        --title "3D Quiver Magnitude"
+
+check "quiver3d depth-shade alternate view" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --depth-shade --azimuth -120 --elevation 20 \
+        --title "3D Quiver Depth Shade"
+
+check "quiver3d fixed scale and head, tight bounds, no grid no box" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --arrow-scale 0.3 --head-length 10 --head-width 4 --shaft-width 2 \
+        --no-grid --no-box --tight-bounds \
+        --title "3D Quiver Styled"
+
+check "quiver3d named columns legend z-axis-left pivot tip" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --x-col x --y-col y --z-col z --u-col u --v-col v --w-col w \
+        --legend "flow" --z-axis-left --pivot tip --auto-scale 0.7 \
+        --title "3D Quiver Legend"
 
 # ── qq ───────────────────────────────────────────────────────────────────────
 check "qq normal basic" \

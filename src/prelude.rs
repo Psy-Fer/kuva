@@ -94,6 +94,8 @@ pub use crate::plot::{
     QQGroup,
     QQMode,
     QQPlot,
+    Quiver3DArrow,
+    Quiver3DPlot,
     QuiverArrow,
     QuiverPivot,
     QuiverPlot,
@@ -175,6 +177,7 @@ pub use crate::plot::{
 pub use crate::render::plots::Plot;
 
 // ── Layout & rendering ───────────────────────────────────────────────────────
+pub use crate::plot::axis_break::AxisBreak;
 pub use crate::render::layout::{AxisLine, Layout, TickAlign, TickFormat, TickPos};
 pub use crate::render::render::{
     collect_legend_entries, render_bump, render_forest, render_funnel, render_gantt,
@@ -194,7 +197,9 @@ pub use crate::render::palette::Palette;
 pub use crate::render::theme::Theme;
 
 // ── Annotations ──────────────────────────────────────────────────────────────
-pub use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
+pub use crate::render::annotations::{
+    BracketAnchor, BracketLabel, ReferenceLine, ShadedRegion, SignificanceBracket, TextAnnotation,
+};
 
 // ── Date / time axes ─────────────────────────────────────────────────────────
 pub use crate::render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};

@@ -2267,3 +2267,294 @@ fn test_upset_rejects_more_sets_than_the_mask_holds() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("<svg"));
 }
+
+// ── --signif ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn box_signif_brackets_render_and_reject_bad_specs() {
+    let input = "group\tvalue\nA\t1\nA\t2\nA\t3\nB\t4\nB\t5\nB\t6\nC\t2\nC\t3\nC\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.0004",
+            "--signif",
+            "#0,#2,n.s.",
+            "--signif-format",
+            "both",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">*** (p = 0.0004)</text>"), "{out}");
+    assert!(out.contains(">n.s.</text>"));
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("three comma-separated fields"), "{err}");
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.01",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // The format is validated even when every P is verbatim text.
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,n.s.",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // `nan` parses as f64 but is not a p-value: drawn verbatim.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,nan",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">nan</text>"), "{out}");
+
+    // Brackets follow --horizontal without any extra flag.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--horizontal",
+            "--signif",
+            "A,B,0.004",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">**</text>"), "{out}");
+}
+
+#[test]
+fn signif_labels_may_contain_commas_and_unknown_groups_warn() {
+    let input = "group\tvalue\nDay 1, fed\t1\nDay 1, fed\t2\nDay 1, fasted\t5\nDay 1, fasted\t6\nCtrl\t3\nCtrl\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Day 1, fed,Day 1, fasted,0.004",
+            "--signif",
+            "Ctrl,Day 1, fed,n.s., adj.",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">**</text>"), "{out}");
+    // Verbatim P keeps its own comma.
+    assert!(out.contains(">n.s., adj.</text>"), "{out}");
+    assert!(!err.contains("warning"), "{err}");
+
+    // A typo is skipped with a warning naming the groups.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Ctrl,Day1,0.01",
+            "--signif",
+            "#0,#7,0.01",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(err.contains("no group named 'Day1'"), "{err}");
+    assert!(err.contains("index #7 is out of range (3 groups)"), "{err}");
+    assert!(err.contains("Day 1, fed"), "{err}");
+    assert!(!out.contains(">*</text>"), "{out}");
+}
+
+// ── --x-break / --y-break ─────────────────────────────────────────────────────
+
+#[test]
+fn axis_break_flags_render_and_validate() {
+    let input = "tissue\ttpm\nLiver\t8.2\nKidney\t6.9\nHeart\t5.1\nBrain\t7.4\nTestis\t940\n";
+    let base = ["bar", "--label-col", "tissue", "--value-col", "tpm"];
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880"]);
+    let (out, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">900</text>") && out.contains(">10</text>"),
+        "{out}"
+    );
+    assert!(!out.contains(">500</text>"));
+
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880,0.5"]);
+    let (_, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+
+    for (spec, needle) in [
+        ("12", "expected LO,HI"),
+        ("880,12", "LO must be less than HI"),
+        ("12,880,2", "SHARE must be between"),
+        ("a,b", "is not a number"),
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--y-break", spec]);
+        let (_, err, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{spec} should fail");
+        assert!(err.contains(needle), "{spec}: {err}");
+    }
+
+    let line_input = "day\tscore\n0\t1\n5\t3\n10\t6\n100\t9\n105\t7\n110\t6\n";
+    let (out, err, code) = run_with_stdin(
+        &["line", "--x", "day", "--y", "score", "--x-break", "12,98"],
+        line_input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">100</text>") && !out.contains(">50</text>"),
+        "{out}"
+    );
+}
+
+// ── quiver3d ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_quiver3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--title",
+        "3D Quiver",
+        "--x-label",
+        "x",
+        "--y-label",
+        "y",
+        "--z-label",
+        "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    assert!(stdout.contains("3D Quiver"), "title should be rendered");
+    // 64 arrows in the sample data, one closed seven-point <path> glyph each
+    // (the box's back-pane fills are four-point paths and are excluded).
+    let arrow_paths = stdout
+        .split("<path")
+        .skip(1)
+        .filter(|c| {
+            c.split("d=\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .is_some_and(|d| d.matches(" L ").count() == 6)
+        })
+        .count();
+    assert_eq!(arrow_paths, 64, "one path per arrow");
+    assert!(
+        stdout.contains("<line"),
+        "SVG should contain line elements (box edges)"
+    );
+}
+
+#[test]
+fn test_quiver3d_named_columns_colormap_and_colorbar() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--x-col",
+        "x",
+        "--y-col",
+        "y",
+        "--z-col",
+        "z",
+        "--u-col",
+        "u",
+        "--v-col",
+        "v",
+        "--w-col",
+        "w",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+        "--pivot",
+        "middle",
+        "--depth-shade",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("Speed"),
+        "colorbar label should be rendered"
+    );
+    assert!(
+        stdout.contains("fill-opacity"),
+        "--depth-shade should emit per-arrow opacity"
+    );
+}
+
+#[test]
+fn test_quiver3d_rejects_arrow_scale_with_auto_scale() {
+    let (_stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--arrow-scale",
+        "0.5",
+        "--auto-scale",
+        "0.8",
+    ]);
+    assert_ne!(code, 0, "conflicting scale flags should be rejected");
+    assert!(
+        stderr.contains("cannot be used with") || stderr.contains("conflicts"),
+        "stderr should explain the conflict: {stderr}"
+    );
+}

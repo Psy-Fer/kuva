@@ -125,7 +125,7 @@ All plot types in kuva support BW mode — pixel-space/composite plots (Chord, S
 A few characteristics are accepted trade-offs rather than bugs, tracked for a future pass:
 
 - **Sankey / Synteny node borders.** Ribbons intentionally share their source node's/sequence's pattern, so a node's rectangle boundary can be hard to see where a ribbon touches it with an identical pattern. Both get a thin outline in BW mode to mitigate this, but it isn't a complete fix — only about half the nominal stroke width survives, since the pattern-overlay rect drawn on top eclipses the inner half of the stroke.
-- **Hexbin / DotPlot / Quiver at the low end of the grayscale range.** `ColorMap::Grayscale` runs white-to-black, so a data point near the low end renders very close to white — genuinely hard to see against a white page for plots whose fill primitive has no default outline (unlike Heatmap/Clustermap/Contour, where adjacent cells already have a border).
+- **Hexbin / DotPlot / Quiver / Quiver3D at the low end of the grayscale range.** `ColorMap::Grayscale` runs white-to-black, so a data point near the low end renders very close to white — genuinely hard to see against a white page for plots whose fill primitive has no default outline (unlike Heatmap/Clustermap/Contour, where adjacent cells already have a border).
 - **`Horizontal` pattern at small cell sizes** (e.g. Waffle's default cell size) can look nearly solid rather than textured — the tile period (6-8px) is comparable to the cell size itself, so thinning the stroke further doesn't help.
 
 ---

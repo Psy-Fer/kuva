@@ -252,6 +252,8 @@ Bar chart from label/value pairs.
 | `--bar-width <F>` | `0.8` | Bar width as a fraction of the slot |
 | `--color-by <COL>` | — | Group rows by this column and color each series by palette, producing a grouped bar chart with an automatic legend |
 | `--horizontal` | off | Render categories on the Y-axis, values on the X-axis |
+| `--signif <A,B,P>` | — | Significance bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P is drawn verbatim. Repeatable; brackets stack above the data and the value axis grows to fit. See [Significance Brackets](../reference/significance.md) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 
 #### Grouped bar chart (`--color-by`)
 

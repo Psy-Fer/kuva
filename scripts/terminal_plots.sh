@@ -229,6 +229,12 @@ run logo "$DATA/logo_protein.fasta" --alphabet protein \
     --title "Zinc Finger Domain" \
     --terminal $W $H
 
+# ── quiver3d ──────────────────────────────────────────────────────────────────
+header "quiver3d"
+run quiver3d "$DATA/quiver3d.tsv" --pivot middle \
+    --title "3D Vector Field" --x-label "x" --y-label "y" --z-label "z" \
+    --terminal $W $H
+
 # ── text wrapping ─────────────────────────────────────────────────────────────
 header "wrap title"
 run scatter "$DATA/scatter.tsv" --x x --y y \

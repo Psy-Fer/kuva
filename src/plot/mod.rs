@@ -1,4 +1,5 @@
 pub mod annotations;
+pub mod axis_break;
 pub mod band;
 pub mod bar;
 pub mod boxplot;
@@ -42,6 +43,7 @@ pub mod pr;
 pub mod pyramid;
 pub mod qq;
 pub mod quiver;
+pub mod quiver3d;
 pub mod radar;
 pub mod raincloud;
 pub mod ridgeline;
@@ -73,6 +75,8 @@ pub mod legend;
 
 // pub mod types;
 
+pub use annotations::{BracketAnchor, BracketLabel, SignificanceBracket};
+pub use axis_break::AxisBreak;
 pub use band::BandPlot;
 pub use bar::BarPlot;
 pub use boxplot::{BoxGroup, BoxPlot};
@@ -119,6 +123,7 @@ pub use pr::{PrGroup, PrPlot};
 pub use pyramid::{PopulationPyramid, PyramidMode, PyramidSeries};
 pub use qq::{QQGroup, QQMode, QQPlot};
 pub use quiver::{QuiverArrow, QuiverPivot, QuiverPlot};
+pub use quiver3d::{Quiver3DArrow, Quiver3DPlot};
 pub use radar::{RadarPlot, RadarReference, RadarSeries};
 pub use raincloud::{RaincloudGroup, RaincloudPlot};
 pub use ridgeline::{RidgelineGroup, RidgelinePlot};
