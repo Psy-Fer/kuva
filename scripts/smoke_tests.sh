@@ -1421,6 +1421,10 @@ check "logo fasta reverse-complement" \
     "$BIN" logo "$DATA/logo.fasta" --reverse-complement \
         --title "Sequence Logo — Reverse Complement"
 
+check "logo per-line wrap" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --per-line 10 --consensus \
+        --title "Sequence Logo, 10 per line"
+
 check "logo fasta consensus" \
     "$BIN" logo "$DATA/logo.fasta" --consensus --consensus-threshold 0.6 \
         --title "Sequence Logo — Consensus"

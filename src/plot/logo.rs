@@ -473,6 +473,13 @@ pub struct SequenceLogo {
     /// Optional plot title carried through to the layout when the layout
     /// has none of its own (see `Layout::auto_from_plots`).
     pub title: Option<String>,
+    /// Positions per line. A longer logo wraps onto stacked rows that share
+    /// the y scale and one legend. `None` = automatic: one line, widened to
+    /// keep each column legible, unless that would pass
+    /// `AUTO_WRAP_MAX_POSITIONS`, in which case it wraps at
+    /// `AUTO_WRAP_PER_LINE`. An explicit layout width without a per-line
+    /// setting always keeps one line.
+    pub per_line: Option<usize>,
     /// Raw sequences kept when built via [`SequenceLogo::from_sequences`],
     /// so `with_respect_case` / `with_include_gaps` can re-count.  `None`
     /// for matrix-built logos, where those toggles have nothing to act on.
@@ -500,6 +507,7 @@ impl SequenceLogo {
             include_gaps: false,
             respect_case: false,
             title: None,
+            per_line: None,
             source_sequences: None,
         }
     }
@@ -510,7 +518,28 @@ impl SequenceLogo {
     /// follow `alphabet.letters()`.  `with_respect_case` / `with_include_gaps`
     /// have no effect on matrix-built logos — case and gap information is
     /// already gone from a matrix.
+    ///
+    /// # Panics
+    ///
+    /// When a row's length differs from the alphabet size, or a value is
+    /// negative, NaN or infinite. Such a matrix has no meaningful logo (a NaN
+    /// column would silently vanish, a negative entry would invert a letter),
+    /// so it is rejected rather than drawn.
     pub fn from_matrix(matrix: Vec<Vec<f64>>, alphabet: Alphabet) -> Self {
+        let n_letters = alphabet.letters().len();
+        for (pos, row) in matrix.iter().enumerate() {
+            assert!(
+                row.len() == n_letters,
+                "SequenceLogo::from_matrix: position {pos} has {} values, expected {n_letters} (one per letter)",
+                row.len()
+            );
+            for (li, &v) in row.iter().enumerate() {
+                assert!(
+                    v.is_finite() && v >= 0.0,
+                    "SequenceLogo::from_matrix: position {pos}, letter {li} is {v}; values must be finite and non-negative"
+                );
+            }
+        }
         Self::base(matrix, alphabet)
     }
 
@@ -671,6 +700,42 @@ impl SequenceLogo {
         self
     }
 
+    /// Wrap the logo onto stacked rows of at most `n` positions each, like
+    /// WebLogo's "stacks per line". Every row keeps the same column width and
+    /// y scale, positions are numbered from their true start, and the legend
+    /// is drawn once. `0` is ignored. Without this, a logo of more than
+    /// `AUTO_WRAP_MAX_POSITIONS` (80) positions wraps at 50 per line unless the
+    /// layout sets a width. Applies when the logo is the only plot rendered.
+    pub fn with_per_line(mut self, n: usize) -> Self {
+        self.per_line = (n > 0).then_some(n);
+        self
+    }
+
+    /// The logo restricted to the *displayed* positions `range` (so for a
+    /// reverse-complemented logo, displayed position `i` is source position
+    /// `n - 1 - i`). Keeps every setting and the full sequence count, so
+    /// stack heights match the unwrapped logo; `start` moves to the first
+    /// position shown. Used to build the rows of a wrapped logo.
+    pub(crate) fn chunk(&self, range: std::ops::Range<usize>) -> Self {
+        let n = self.n_positions();
+        let src = if self.reverse_complement {
+            n - range.end..n - range.start
+        } else {
+            range.clone()
+        };
+        let mut out = self.clone();
+        out.matrix = self.matrix[src.clone()].to_vec();
+        out.source_sequences = self.source_sequences.as_ref().map(|seqs| {
+            seqs.iter()
+                .map(|s| s.chars().skip(src.start).take(src.len()).collect())
+                .collect()
+        });
+        out.start = self.start + range.start as i64;
+        out.per_line = None;
+        out.title = None;
+        out
+    }
+
     // ── Computed views ────────────────────────────────────────────────────
 
     /// Number of x-axis positions.
@@ -768,6 +833,17 @@ impl SequenceLogo {
             .map(|(&c, &v)| (c, v / total))
             .collect();
 
+        // Gap weighting, as in WebLogo. `total` counts only the symbols in the
+        // column (gaps are dropped unless `include_gaps` makes them a symbol),
+        // so a column where most sequences have a gap is scaled by its non-gap
+        // fraction, and the small-sample correction uses that column's own
+        // count. Without this, one residue among nine gaps reads as fully
+        // conserved. Matrix input has no sequence count, so it is unweighted.
+        let (weight, column_n) = match self.sample_size {
+            Some(n) if n > 0 => ((total / n as f64).min(1.0), total),
+            _ => (1.0, 0.0),
+        };
+
         let column_height = match self.units {
             LogoUnits::Bits => {
                 // Shannon entropy of the observed distribution.
@@ -777,21 +853,17 @@ impl SequenceLogo {
                     .map(|(_, p)| -p * p.log2())
                     .sum();
                 let mut r = self.max_bits() - h;
-                if self.apply_correction {
-                    if let Some(n) = self.sample_size {
-                        if n > 0 {
-                            let s = self.letters.len() as f64;
-                            let e_n = (s - 1.0) / (2.0 * (2.0_f64).ln() * n as f64);
-                            r -= e_n;
-                        }
-                    }
+                if self.apply_correction && column_n > 0.0 {
+                    let s = self.letters.len() as f64;
+                    let e_n = (s - 1.0) / (2.0 * (2.0_f64).ln() * column_n);
+                    r -= e_n;
                 }
                 // Schneider clip: high-entropy small-sample positions can go
                 // slightly negative, which would render as an inverted stack —
                 // WebLogo clips at 0 and we follow suit.
-                r.max(0.0)
+                r.max(0.0) * weight
             }
-            LogoUnits::Probability => 1.0,
+            LogoUnits::Probability => weight,
             LogoUnits::Frequency => total,
         };
 
@@ -848,6 +920,14 @@ fn count_matrix(
     let width = seqs.first().map(|s| s.chars().count()).unwrap_or(0);
     let mut matrix = vec![vec![0.0_f64; letters.len()]; width];
     let mut warned_ambiguous = false;
+    // The other nucleic alphabet's base (T in RNA, U in DNA) usually means the
+    // wrong --alphabet; it is dropped like any foreign letter, but say so.
+    let foreign_base = match alphabet {
+        Alphabet::Dna => Some('U'),
+        Alphabet::Rna => Some('T'),
+        _ => None,
+    };
+    let mut warned_foreign = false;
     let count_gap = |row: &mut Vec<f64>| {
         if let Some(gi) = gap_idx {
             row[gi] += 1.0;
@@ -880,6 +960,15 @@ fn count_matrix(
                     warned_ambiguous = true;
                 }
                 count_gap(row);
+            } else if Some(upper) == foreign_base && !warned_foreign {
+                let (kind, hint) = match alphabet {
+                    Alphabet::Rna => ("RNA (ACGU)", "use --alphabet dna, or convert T to U"),
+                    _ => ("DNA (ACGT)", "use --alphabet rna, or convert U to T"),
+                };
+                eprintln!(
+                    "kuva logo: ignoring '{upper}', which is not in the {kind} alphabet; {hint}"
+                );
+                warned_foreign = true;
             }
             // Anything else drops silently.
         }
@@ -945,6 +1034,33 @@ mod tests {
     fn alphabet_letters_dna() {
         assert_eq!(Alphabet::Dna.letters(), vec!['A', 'C', 'G', 'T']);
         assert_eq!(Alphabet::Dna.max_bits(), 2.0);
+    }
+
+    /// Chunks of a (reverse-complemented) logo show exactly the columns, in the
+    /// same order, that the full logo shows at those displayed positions.
+    #[test]
+    fn chunks_tile_the_displayed_columns() {
+        let seqs = ["ACGTTGCAAC", "ACGATGCATC", "TCGTTGGAAC"];
+        for rc in [false, true] {
+            let mut full = SequenceLogo::from_sequences(seqs, Alphabet::Dna).unwrap();
+            if rc {
+                full = full.with_reverse_complement().unwrap();
+            }
+            let n = full.n_positions();
+            let displayed = |l: &SequenceLogo, i: usize| {
+                let m = l.n_positions();
+                l.stack(if l.reverse_complement { m - 1 - i } else { i })
+            };
+            let mut tiled = Vec::new();
+            for start in (0..n).step_by(4) {
+                let c = full.chunk(start..(start + 4).min(n));
+                assert_eq!(c.start, full.start + start as i64);
+                assert_eq!(c.sample_size, full.sample_size);
+                tiled.extend((0..c.n_positions()).map(|i| displayed(&c, i)));
+            }
+            let whole: Vec<_> = (0..n).map(|i| displayed(&full, i)).collect();
+            assert_eq!(tiled, whole, "reverse_complement = {rc}");
+        }
     }
 
     #[test]

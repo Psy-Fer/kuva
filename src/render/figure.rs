@@ -946,7 +946,7 @@ impl Figure {
 }
 
 /// Clone a Layout field by field.
-fn clone_layout(l: &Layout) -> Layout {
+pub(crate) fn clone_layout(l: &Layout) -> Layout {
     let mut new = Layout::new(l.x_range, l.y_range);
     new.width = l.width;
     new.height = l.height;
@@ -978,6 +978,10 @@ fn clone_layout(l: &Layout) -> Layout {
     new.legend_height = l.legend_height;
     new.legend_col_limit = l.legend_col_limit;
     new.legend_entry_limit = l.legend_entry_limit;
+    new.legend_entry_count = l.legend_entry_count;
+    new.legend_auto_labels = l.legend_auto_labels.clone();
+    new.legend_max_label_chars = l.legend_max_label_chars;
+    new.below_ticks_rows = l.below_ticks_rows;
     new.stats_entries = l.stats_entries.clone();
     new.stats_title = l.stats_title.clone();
     new.stats_position = l.stats_position;

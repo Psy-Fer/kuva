@@ -5133,6 +5133,9 @@ pub fn emit_sequence_logo(
     if !p.apply_correction {
         frags.push(".with_no_correction()".to_string());
     }
+    if let Some(n) = p.per_line {
+        frags.push(format!(".with_per_line({n})"));
+    }
     if p.reverse_complement {
         frags.push(".with_reverse_complement().unwrap()".to_string());
     }

@@ -419,83 +419,208 @@ fn outside_bottom_legend_no_wrap_renders_entries() {
     );
 }
 
-#[test]
-fn long_flat_legend_reflows_into_columns() {
-    // Build a legend with 80 short-label entries — far more than fit in one
-    // column on a default canvas. The renderer reflows them into columns
-    // rather than truncating: silently dropping entries makes a legend with
-    // distinct categories actively misleading.
-    let plots = scatter_plots();
-    let entries: Vec<LegendEntry> = (1..=80)
+// ── Legend column reflow ─────────────────────────────────────────────────────
+
+/// Canvas width from the root `<svg width="…">`.
+fn canvas_width(out: &str) -> f64 {
+    let start = out.find("width=\"").unwrap() + 7;
+    let end = start + out[start..].find('"').unwrap();
+    out[start..end].parse().unwrap()
+}
+
+/// `(x, y, content)` of every `<text>` whose content starts with `prefix`.
+fn texts_starting_with(out: &str, prefix: &str) -> Vec<(f64, f64, String)> {
+    let attr = |head: &str, name: &str| -> Option<f64> {
+        let key = format!(" {name}=\"");
+        let i = head.find(&key)? + key.len();
+        head[i..i + head[i..].find('"')?].parse().ok()
+    };
+    out.split("<text")
+        .skip(1)
+        .filter_map(|cap| {
+            let gt = cap.find('>')?;
+            let (head, rest) = (&cap[..gt], &cap[gt + 1..]);
+            let content = &rest[..rest.find('<').unwrap_or(rest.len())];
+            if !content.starts_with(prefix) {
+                return None;
+            }
+            Some((attr(head, "x")?, attr(head, "y")?, content.to_string()))
+        })
+        .collect()
+}
+
+/// Every label starting with `prefix` must end inside the canvas. Width is
+/// estimated at 8 px/char, an upper bound for DejaVu Sans at the default
+/// 12 px body size (digits are 0.636 em ≈ 7.6 px).
+fn assert_labels_on_canvas(out: &str, prefix: &str) {
+    let width = canvas_width(out);
+    let labels = texts_starting_with(out, prefix);
+    assert!(!labels.is_empty(), "no labels starting with {prefix:?}");
+    for (x, _, content) in labels {
+        let right = x + content.chars().count() as f64 * 8.0;
+        assert!(
+            x > 0.0 && right <= width + 1.0,
+            "legend label {content:?} spans x={x:.1}..{right:.1}, off the canvas (width {width})"
+        );
+    }
+}
+
+fn group_entries(n: usize) -> Vec<LegendEntry> {
+    (1..=n)
         .map(|i| LegendEntry {
             label: format!("Group {i}"),
             color: "steelblue".into(),
             shape: LegendShape::Rect,
             dasharray: None,
         })
-        .collect();
-    let layout = Layout::auto_from_plots(&plots).with_legend_entries(entries);
+        .collect()
+}
+
+fn grouped_scatters(n: usize) -> Vec<Plot> {
+    (0..n)
+        .map(|g| {
+            Plot::Scatter(
+                ScatterPlot::new()
+                    .with_data(vec![(g as f64, g as f64)])
+                    .with_legend(format!("group_{g:02}")),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn long_flat_legend_reflows_into_columns() {
+    // 80 entries are far more than one column holds on a default canvas. The
+    // renderer reflows them into columns instead of truncating: silently
+    // dropping entries makes a legend of distinct categories misleading.
+    // Entries supplied *after* auto_from_plots must still get their width.
+    let plots = scatter_plots();
+    let layout = Layout::auto_from_plots(&plots).with_legend_entries(group_entries(80));
     let out = svg(plots, layout);
     common::write_test_output("test_outputs/legend_reflow_columns.svg", &out).unwrap();
 
-    // No entries are dropped, so there is no overflow line.
-    assert!(
-        !out.contains("more)"),
-        "legend should reflow into columns, not truncate"
-    );
-
-    // First, last, and a middle entry are all rendered.
+    assert!(!out.contains("more)"), "legend should reflow, not truncate");
     for i in [1, 40, 80] {
-        assert!(
-            out.contains(&format!(">Group {i}<")),
-            "legend reflow: entry {i} missing"
-        );
+        assert!(out.contains(&format!(">Group {i}<")), "entry {i} missing");
     }
+    assert_labels_on_canvas(&out, "Group ");
 }
 
-/// Reflowed columns must fit on the canvas.
-///
-/// Reserving width from a per-plot-type entry tally undercounts (a scatter
-/// coloured by group never maintained it), which left the outer columns'
-/// labels running past the right edge — swatches visible, text clipped away.
+/// Auto-collected legends (a scatter coloured per group never maintained the
+/// per-plot-type entry tally) reserve one column width per reflowed column.
 #[test]
 fn reflowed_legend_columns_fit_on_canvas() {
-    let mut plots = Vec::new();
-    for g in 0..28 {
-        let scatter = ScatterPlot::new()
-            .with_data(vec![(g as f64, g as f64)])
-            .with_legend(format!("group_{g:02}"));
-        plots.push(Plot::Scatter(scatter));
-    }
+    let plots = grouped_scatters(28);
     let layout = Layout::auto_from_plots(&plots).with_height(380.0);
     let out = svg(plots, layout);
     common::write_test_output("test_outputs/legend_reflow_fits.svg", &out).unwrap();
 
-    let width: f64 = {
-        let start = out.find("width=\"").unwrap() + 7;
-        let end = start + out[start..].find('"').unwrap();
-        out[start..end].parse().unwrap()
-    };
-
-    // Every entry is present...
     for g in 0..28 {
         assert!(
             out.contains(&format!(">group_{g:02}<")),
-            "legend entry group_{g:02} missing"
+            "group_{g:02} missing"
         );
     }
-    // ...and every legend text baseline sits inside the canvas.
-    for cap in out.split("<text").skip(1) {
-        let head = &cap[..cap.find('>').unwrap_or(cap.len())];
-        let body = &cap[head.len()..];
-        if !body.starts_with(">group_") || !head.contains("x=\"") {
+    assert_labels_on_canvas(&out, "group_");
+}
+
+/// `with_legend_title` after `auto_from_plots` re-derives the legend width; the
+/// reflowed columns must survive that (they are reserved at render time, not by
+/// scaling `legend_width` in `auto_from_plots`).
+#[test]
+fn reflowed_legend_survives_later_legend_builders() {
+    let plots = grouped_scatters(28);
+    let layout = Layout::auto_from_plots(&plots)
+        .with_height(380.0)
+        .with_legend_title("Samples");
+    let out = svg(plots, layout);
+    common::write_test_output("test_outputs/legend_reflow_title.svg", &out).unwrap();
+    assert_labels_on_canvas(&out, "group_");
+    // Columns start below the title row: no entry sits on the title's line.
+    let title_y = texts_starting_with(&out, "Samples")[0].1;
+    for (_, y, c) in texts_starting_with(&out, "group_") {
+        assert!(
+            y > title_y + 1.0,
+            "{c:?} at y={y} overlaps the title (y={title_y})"
+        );
+    }
+}
+
+/// Wrapped labels take several lines; the column split must count lines, not
+/// entries, or the continuation lines of one entry overprint the next.
+#[test]
+fn reflowed_legend_with_wrap_does_not_overprint() {
+    let plots = scatter_plots();
+    let entries: Vec<LegendEntry> = (1..=40)
+        .map(|i| LegendEntry {
+            label: format!("Sample {i} long descriptive name"),
+            color: "steelblue".into(),
+            shape: LegendShape::Rect,
+            dasharray: None,
+        })
+        .collect();
+    let layout = Layout::auto_from_plots(&plots)
+        .with_legend_entries(entries)
+        .with_legend_wrap(12);
+    let out = svg(plots, layout);
+    common::write_test_output("test_outputs/legend_reflow_wrap.svg", &out).unwrap();
+
+    let mut seen = std::collections::HashSet::new();
+    let width = canvas_width(&out);
+    for (x, y, c) in texts_starting_with(&out, "") {
+        // Legend text only: the legend sits right of the plot area.
+        if x < width * 0.5 || c.is_empty() {
             continue;
         }
-        let xs = head.split("x=\"").nth(1).unwrap();
-        let x: f64 = xs[..xs.find('"').unwrap()].parse().unwrap();
+        let key = ((x * 10.0).round() as i64, (y * 10.0).round() as i64);
         assert!(
-            x > 0.0 && x < width,
-            "legend label x={x} runs off the canvas (width {width})"
+            seen.insert(key),
+            "two legend lines drawn at x={x}, y={y} ({c:?})"
         );
     }
+    assert!(out.contains(">Sample 40<"), "last entry missing");
+    for (x, _, c) in texts_starting_with(&out, "Sample ") {
+        assert!(
+            x + c.chars().count() as f64 * 8.0 <= width + 1.0,
+            "{c:?} at x={x} runs off the canvas"
+        );
+    }
+}
+
+/// A bottom-anchored legend is sized before it is positioned, so a reflowed box
+/// sits in the reserved band below the plot instead of floating over it.
+#[test]
+fn reflowed_bottom_center_legend_stays_below_plot() {
+    use kuva::plot::legend::LegendPosition;
+    let make_layout = || {
+        Layout::auto_from_plots(&scatter_plots())
+            .with_legend_entries(group_entries(60))
+            .with_legend_position(LegendPosition::OutsideBottomCenter)
+    };
+    let out = svg(scatter_plots(), make_layout());
+    common::write_test_output("test_outputs/legend_reflow_bottom_center.svg", &out).unwrap();
+
+    let computed = kuva::render::layout::ComputedLayout::from_layout(&make_layout());
+    let plot_bottom = computed.height - computed.margin_bottom;
+    let labels = texts_starting_with(&out, "Group ");
+    assert_eq!(labels.len(), 60, "every entry drawn once");
+    for (_, y, c) in labels {
+        assert!(
+            y > plot_bottom,
+            "{c:?} at y={y} is inside the plot (bottom {plot_bottom})"
+        );
+    }
+    assert_labels_on_canvas(&out, "Group ");
+}
+
+/// A legend that fits in one column is drawn exactly as before the reflow.
+#[test]
+fn short_legend_is_single_column() {
+    let plots = grouped_scatters(5);
+    let out = svg(plots, Layout::auto_from_plots(&grouped_scatters(5)));
+    let xs: std::collections::BTreeSet<i64> = texts_starting_with(&out, "group_")
+        .into_iter()
+        .map(|(x, _, _)| x.round() as i64)
+        .collect();
+    assert_eq!(xs.len(), 1, "a short legend must stay one column");
 }

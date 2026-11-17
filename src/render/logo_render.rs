@@ -19,6 +19,7 @@ use ttf_parser::{Face, GlyphId, OutlineBuilder};
 use crate::plot::logo::SequenceLogo;
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
+use crate::render::plots::Plot;
 use crate::render::render::{PathData, Primitive, Scene, TextAnchor};
 use crate::render::text_metrics::{ascent, line_height, FontStyle};
 
@@ -407,6 +408,13 @@ fn add_terminal_stack(
     // overprints the axis.
     let axis_row = ((computed.height - computed.margin_bottom) / cell_h).floor() as usize;
 
+    // The terminal backend draws text in the theme colour unless it sits in a
+    // group carrying this marker; logo letters are coloured by residue.
+    scene.add(Primitive::GroupStart {
+        transform: None,
+        title: None,
+        extra_attrs: Some(crate::backend::terminal::TERM_TEXT_COLOR_ATTR.to_string()),
+    });
     for (pos_idx, source_idx) in source_indices(n, sl.reverse_complement)
         .into_iter()
         .enumerate()
@@ -455,6 +463,7 @@ fn add_terminal_stack(
             }
         }
     }
+    scene.add(Primitive::GroupEnd);
 }
 
 /// Consensus letter centred under each column, one row below the x tick
@@ -506,4 +515,218 @@ pub(crate) fn add_consensus_row(sl: &SequenceLogo, scene: &mut Scene, computed: 
             color: None,
         });
     }
+}
+
+// ── Canvas sizing and wrapping ──────────────────────────────────────────────
+
+/// Plot-area width per position that an auto-sized logo keeps.
+pub(crate) const LOGO_MIN_COL_PX: f64 = 48.0;
+/// Longest logo kept on one auto-widened line (~4000 px of plot area).
+pub const AUTO_WRAP_MAX_POSITIONS: usize = 80;
+/// Positions per row when a long logo wraps automatically.
+pub const AUTO_WRAP_PER_LINE: usize = 50;
+/// Plot-area height of one wrapped row when the layout sets no height.
+const WRAP_ROW_PLOT_H: f64 = 200.0;
+/// Gap between the plot area and a wrapped logo's legend.
+const WRAP_LEGEND_GAP: f64 = 15.0;
+
+/// Size a sequence logo's canvas at render time, where an unset width still
+/// means "automatic" (an explicit `with_width` after `auto_from_plots` is
+/// respected). Wraps the logo onto rows when `with_per_line` asks for it, or
+/// when it is too long for one auto-widened line; otherwise widens the canvas
+/// to keep [`LOGO_MIN_COL_PX`] per position. Terminal output is sized by the
+/// character grid and is left alone.
+/// Returns the finished scene when the logo wrapped; otherwise adjusts `layout`
+/// in place and returns `None` so rendering continues normally.
+pub(crate) fn prepare_logo(plots: &[Plot], layout: &mut Layout) -> Option<Scene> {
+    let sl = plots.iter().find_map(|p| match p {
+        Plot::SequenceLogo(sl) => Some(sl),
+        _ => None,
+    })?;
+    if layout.term_rows.is_some() {
+        return None;
+    }
+    let n = sl.n_positions();
+    let per_line = sl.per_line.or_else(|| {
+        (layout.width.is_none() && n > AUTO_WRAP_MAX_POSITIONS).then_some(AUTO_WRAP_PER_LINE)
+    });
+    if let Some(k) = per_line.filter(|&k| k < n) {
+        if plots.len() == 1 {
+            return Some(render_wrapped(sl, layout, k));
+        }
+        if sl.per_line.is_some() {
+            eprintln!(
+                "kuva logo: per-line wrapping applies only when the logo is the only plot; drawing one line"
+            );
+        }
+    }
+    if layout.width.is_none() {
+        let plot_w = n as f64 * LOGO_MIN_COL_PX;
+        if plot_w > 600.0 {
+            // Fit the plot area exactly: measure the margins this layout gets.
+            let probe = ComputedLayout::from_layout(layout);
+            layout.width = Some(probe.margin_left + plot_w + probe.margin_right);
+        }
+    }
+    None
+}
+
+/// Draw `sl` as stacked rows of `per_line` positions.
+///
+/// Each row is rendered by `render_multiple` from a copy of `layout` and placed
+/// with a translate group, the way `Figure` places panels. Rows share the left
+/// and right margins (so the axes line up), the y range and the tick count;
+/// every row keeps `per_line` column slots, so the last, shorter row has the
+/// same column width. The title and subtitle go on the first row, the x-axis
+/// label on the last, and the legend is drawn once, beside the first row.
+fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene {
+    use crate::render::figure::clone_layout;
+    use crate::render::render::{collect_legend_entries, render_legend_at, render_multiple};
+    use crate::render::render_utils::{auto_nice_range, auto_tick_count};
+
+    let n = sl.n_positions();
+    let n_rows = n.div_ceil(per_line);
+    let chunks: Vec<SequenceLogo> = (0..n_rows)
+        .map(|r| sl.chunk(r * per_line..((r + 1) * per_line).min(n)))
+        .collect();
+
+    // One legend for the whole logo, beside the first row.
+    let legend_entries = if layout.show_legend {
+        layout
+            .legend_entries
+            .clone()
+            .unwrap_or_else(|| collect_legend_entries(&[Plot::SequenceLogo(sl.clone())]))
+    } else {
+        Vec::new()
+    };
+    let legend_w = if legend_entries.is_empty() {
+        0.0
+    } else {
+        layout.legend_width + WRAP_LEGEND_GAP
+    };
+
+    // Frequency mode has no fixed ceiling: pin every row to the whole logo's
+    // tallest column so the rows share one scale.
+    let y_max = match (sl.units, layout.y_axis_max) {
+        (crate::plot::logo::LogoUnits::Frequency, None) => {
+            let tallest = sl
+                .matrix
+                .iter()
+                .map(|row| row.iter().sum::<f64>())
+                .fold(0.0_f64, f64::max);
+            Some(auto_nice_range(0.0, tallest.max(1.0), 5).1)
+        }
+        _ => layout.y_axis_max,
+    };
+
+    let row_layout = |r: usize, chunk: &SequenceLogo| -> Layout {
+        let mut l = clone_layout(layout);
+        let first = r == 0;
+        let last = r + 1 == n_rows;
+        l.x_categories = Some(
+            (0..chunk.n_positions())
+                .map(|i| format!("{}", chunk.start + i as i64))
+                .collect(),
+        );
+        l.x_axis_min = Some(0.5);
+        l.x_axis_max = Some(per_line as f64 + 0.5);
+        l.x_range = (0.5, per_line as f64 + 0.5);
+        if y_max.is_some() {
+            l.y_axis_min = Some(0.0);
+            l.y_axis_max = y_max;
+        }
+        if !first {
+            l.title = None;
+            l.subtitle = None;
+        }
+        if !last {
+            l.x_label = None;
+        }
+        l.show_legend = false;
+        l.legend_entries = None;
+        l
+    };
+
+    // Probe each row's margins at a nominal size, then fix the shared ones.
+    let probes: Vec<ComputedLayout> = chunks
+        .iter()
+        .enumerate()
+        .map(|(r, c)| {
+            let mut l = row_layout(r, c);
+            l.width = Some(1000.0);
+            l.height = Some(400.0);
+            ComputedLayout::from_layout(&l)
+        })
+        .collect();
+    let margin_left = probes.iter().map(|p| p.margin_left).fold(0.0, f64::max);
+    let margin_right = probes.iter().map(|p| p.margin_right).fold(0.0, f64::max) + legend_w;
+    let vertical: Vec<f64> = probes
+        .iter()
+        .map(|p| p.margin_top + p.margin_bottom)
+        .collect();
+
+    let width = layout
+        .width
+        .unwrap_or(margin_left + per_line as f64 * LOGO_MIN_COL_PX + margin_right);
+    let plot_h = match layout.height {
+        Some(h) => ((h - vertical.iter().sum::<f64>()) / n_rows as f64).max(60.0),
+        None => WRAP_ROW_PLOT_H,
+    };
+    // Same y ticks on every row, whatever its title/label bands add.
+    let ticks = if layout.ticks > 0 {
+        layout.ticks
+    } else {
+        auto_tick_count(plot_h + vertical[n_rows / 2])
+    };
+    let row_heights: Vec<f64> = vertical.iter().map(|v| v + plot_h).collect();
+    let total_h: f64 = row_heights.iter().sum();
+
+    let mut master = Scene::new(width, total_h);
+
+    let mut y = 0.0;
+    for (r, chunk) in chunks.into_iter().enumerate() {
+        let mut l = row_layout(r, &chunk);
+        l.width = Some(width);
+        l.height = Some(row_heights[r]);
+        l.ticks = ticks;
+        l.force_margin_left = Some(margin_left);
+        l.force_margin_right = Some(margin_right);
+        let row = render_multiple(vec![Plot::SequenceLogo(chunk)], l);
+        if r == 0 {
+            master.font_family = row.font_family.clone();
+            master.background_color = row.background_color.clone();
+            master.text_color = row.text_color.clone();
+        }
+        master.defs.extend(row.defs);
+        master.scripts.extend(row.scripts);
+        master.interactive |= row.interactive;
+        master.add(Primitive::GroupStart {
+            transform: Some(format!("translate(0,{y})")),
+            title: None,
+            extra_attrs: None,
+        });
+        for e in row.elements {
+            master.add(e);
+        }
+        master.add(Primitive::GroupEnd);
+        y += row_heights[r];
+    }
+
+    if !legend_entries.is_empty() {
+        let lx = width - margin_right + WRAP_LEGEND_GAP + 5.0;
+        let ly = probes[0].margin_top;
+        render_legend_at(
+            &legend_entries,
+            None,
+            layout.legend_title.as_deref(),
+            layout.legend_box,
+            &mut master,
+            lx,
+            ly,
+            layout.legend_width,
+            layout.body_size,
+            &layout.theme,
+        );
+    }
+    master
 }

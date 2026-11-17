@@ -42,6 +42,12 @@ pub struct LogoArgs {
     #[arg(long, default_value_t = 1)]
     pub start: i64,
 
+    /// Positions per line: wrap a long logo onto stacked rows sharing one y
+    /// scale and legend. Default: one line up to 80 positions, then 50 per line
+    /// (unless --width is set, which keeps one line).
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    pub per_line: Option<u32>,
+
     /// Reverse-complement the motif (nucleic alphabets only).
     #[arg(long)]
     pub reverse_complement: bool,
@@ -122,6 +128,9 @@ pub fn run(mut args: LogoArgs) -> Result<(), String> {
     }
     if args.no_correction {
         logo = logo.with_no_correction();
+    }
+    if let Some(n) = args.per_line {
+        logo = logo.with_per_line(n as usize);
     }
     if args.reverse_complement {
         logo = logo.with_reverse_complement()?;
@@ -271,7 +280,7 @@ fn build_from_matrix(
             .map(|r| r.first().cloned().unwrap_or_default())
             .collect();
         detect_orientation(first_row, &first_col, &letters)
-            .unwrap_or(MatrixOrientation::RowsArePositions)
+            .unwrap_or_else(|| orientation_from_shape(&rows, letters.len()))
     };
 
     let matrix = shape_matrix(rows, orientation, &letters)?;
@@ -342,12 +351,39 @@ fn shape_matrix(
     }
 }
 
+/// Orientation of a matrix with no letter header row or column: whichever side
+/// is as long as the alphabet holds the letters. A square matrix is ambiguous,
+/// so it keeps the WebLogo/MEME default and says so.
+fn orientation_from_shape(rows: &[Vec<String>], n_letters: usize) -> MatrixOrientation {
+    let n_rows = rows.len();
+    let n_cols = rows.first().map_or(0, |r| r.len());
+    match (n_rows == n_letters, n_cols == n_letters) {
+        (true, false) => MatrixOrientation::RowsAreLetters,
+        (true, true) => {
+            eprintln!(
+                "kuva logo: the {n_rows}x{n_cols} matrix has no letter header, so its orientation \
+                 is ambiguous; reading rows as positions (pass --orientation cols if rows are letters)"
+            );
+            MatrixOrientation::RowsArePositions
+        }
+        _ => MatrixOrientation::RowsArePositions,
+    }
+}
+
 fn parse_row_f64(row: &[String], row_idx: usize) -> Result<Vec<f64>, String> {
     row.iter()
         .enumerate()
         .map(|(ci, s)| {
-            s.parse::<f64>()
-                .map_err(|_| format!("Row {row_idx} col {ci}: cannot parse '{s}' as a number"))
+            let v = s
+                .parse::<f64>()
+                .map_err(|_| format!("Row {row_idx} col {ci}: cannot parse '{s}' as a number"))?;
+            if !v.is_finite() || v < 0.0 {
+                return Err(format!(
+                    "Row {row_idx} col {ci}: '{s}' is not a valid count or probability \
+                     (values must be finite and non-negative)"
+                ));
+            }
+            Ok(v)
         })
         .collect()
 }

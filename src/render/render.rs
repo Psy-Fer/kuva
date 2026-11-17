@@ -9281,15 +9281,6 @@ fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, 
         legend_width
     };
 
-    // Guard: a reflowed legend must never run off the right edge. If the
-    // reserved margin turned out too narrow, slide the whole legend left
-    // rather than clipping its outer columns.
-    let legend_x = if legend_x + box_width > scene.width {
-        (scene.width - box_width - legend_padding).max(0.0)
-    } else {
-        legend_x
-    };
-
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
@@ -9568,6 +9559,42 @@ fn add_legend_with_offset(
             - (line_height - computed.legend_swatch_size);
     let legend_height = computed.legend_height_override.unwrap_or(computed_height);
 
+    // A flat legend with more lines than one column holds reflows into columns
+    // instead of running off the canvas. `from_layout` chose the line budget and
+    // reserved the width for this many columns, so both sides agree. Sized here,
+    // before positioning, so every anchor (centred, right- and bottom-aligned)
+    // places the whole reflowed box.
+    let flat_lines: Vec<usize> = if legend.groups.is_none() {
+        legend
+            .entries
+            .iter()
+            .map(|e| wrap_lines(&e.label))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let flat_cols = if legend.groups.is_none() {
+        render_utils::legend_columns(&flat_lines, computed.legend_line_budget)
+    } else {
+        Vec::new()
+    };
+    let reflowed = flat_cols.len() > 1;
+    let col_width = computed.legend_col_width;
+    let (legend_width, legend_height) = if reflowed {
+        let tallest = flat_cols
+            .iter()
+            .map(|r| flat_lines[r.clone()].iter().sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        let h = computed.legend_height_override.unwrap_or(
+            (tallest + title_rows) as f64 * line_height + legend_padding * 2.0
+                - (line_height - computed.legend_swatch_size),
+        );
+        (legend_width.max(col_width * flat_cols.len() as f64), h)
+    } else {
+        (legend_width, legend_height)
+    };
+
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
     let plot_top = computed.margin_top;
@@ -9657,54 +9684,29 @@ fn add_legend_with_offset(
     };
     let legend_y = legend_y + y_offset;
 
-    // Cap entries to fit within the canvas height (minimum 10 shown before capping).
-    let avail_height_entries = (computed.height - legend_y - legend_padding * 2.0).max(line_height);
-    let max_entries_display = ((avail_height_entries / line_height).floor() as usize).max(10);
-
-    // A flat entry list taller than the canvas reflows into columns rather
-    // than being truncated — dropping entries silently makes a legend worse
-    // than useless when every swatch is a distinct category.
-    let (flat_cols, flat_rows_per_col) = if legend.groups.is_none() {
-        let n = legend.entries.len();
-        if n > max_entries_display {
-            let cols = n.div_ceil(max_entries_display);
-            (cols, n.div_ceil(cols))
+    // Safety net for a reflowed legend: if the reserved margin still came up short
+    // (e.g. a layout built without `auto_from_plots`), slide the box left so its
+    // outer columns stay on the canvas. Explicit placements are left alone.
+    let legend_x = if reflowed
+        && !matches!(
+            computed.legend_position,
+            LegendPosition::Custom(..) | LegendPosition::DataCoords(..)
+        ) {
+        let box_right = legend_x - legend_padding + 5.0 + legend_width;
+        if box_right > computed.width {
+            (legend_x - (box_right - computed.width)).max(legend_padding)
         } else {
-            (1, n)
+            legend_x
         }
     } else {
-        (1, 0)
-    };
-
-    // Width of one column: swatch offset + widest label (measured from real
-    // DejaVu advances, like `legend_width` itself) + padding.
-    let flat_col_width = {
-        let widest = legend
-            .entries
-            .iter()
-            .map(|e| measure_text_width(&e.label, computed.body_size as f64, FontStyle::Regular))
-            .fold(0.0_f64, f64::max);
-        computed.legend_text_x + widest + legend_padding
-    };
-
-    let box_width = if flat_cols > 1 {
-        legend_width.max(flat_col_width * flat_cols as f64)
-    } else {
-        legend_width
-    };
-
-    // Shrink the bounding box to the tallest column actually rendered.
-    let legend_height = if flat_cols > 1 && computed.legend_height_override.is_none() {
-        (title_rows + flat_rows_per_col) as f64 * line_height + legend_padding * 2.0
-    } else {
-        legend_height
+        legend_x
     };
 
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: Color::from(&theme.legend_bg),
             stroke: None,
@@ -9714,7 +9716,7 @@ fn add_legend_with_offset(
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: "none".into(),
             stroke: Some(Color::from(&theme.legend_border)),
@@ -9783,8 +9785,6 @@ fn add_legend_with_offset(
             }
         };
 
-    // max_entries_display was already computed above after legend_y was resolved.
-
     if let Some(ref groups) = legend.groups {
         let mut bw_counter = 0usize;
         for (i, group) in groups.iter().enumerate() {
@@ -9811,20 +9811,15 @@ fn add_legend_with_offset(
                 bw_counter += 1;
             }
         }
-    } else if flat_cols > 1 {
-        // Column-major fill: entries read top-to-bottom, then wrap right.
+    } else if reflowed {
+        // Column-major: each column starts below the title and reads top to bottom.
         let start_y = cur_y;
-        for (i, entry) in legend.entries.iter().enumerate() {
-            let col = i / flat_rows_per_col;
-            let row = i % flat_rows_per_col;
-            let mut y = start_y + row as f64 * line_height;
-            render_entry(
-                entry,
-                scene,
-                &mut y,
-                legend_x + col as f64 * flat_col_width,
-                i,
-            );
+        for (c, range) in flat_cols.iter().enumerate() {
+            let mut y = start_y;
+            let x = legend_x + c as f64 * col_width;
+            for i in range.clone() {
+                render_entry(&legend.entries[i], scene, &mut y, x, i);
+            }
         }
     } else {
         for (i, entry) in legend.entries.iter().enumerate() {
@@ -16552,6 +16547,15 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
+    // Sequence logos size their canvas here (and may wrap onto rows).
+    #[cfg(feature = "logo")]
+    let layout = {
+        let mut layout = layout;
+        if let Some(scene) = crate::render::logo_render::prepare_logo(&plots, &mut layout) {
+            return scene;
+        }
+        layout
+    };
     // Auto-assign palette colors to single-color plot types
     let mut plots = plots;
     let mut layout = layout;

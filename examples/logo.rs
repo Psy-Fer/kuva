@@ -89,6 +89,19 @@ fn main() {
     layout.height = Some(340.0);
     write("zinc_finger_protein", plots, layout);
 
+    // ── Long motif wrapped onto rows ──────────────────────────────────────
+    let logo =
+        SequenceLogo::from_fasta_str(include_str!("data/logo_protein.fasta"), Alphabet::Protein)
+            .unwrap()
+            .with_per_line(10)
+            .with_consensus();
+    let plots: Vec<Plot> = vec![logo.into()];
+    let mut layout = Layout::auto_from_plots(&plots);
+    layout.title = Some("C2H2 zinc finger, 10 positions per line".to_string());
+    layout.x_label = Some("Position".to_string());
+    layout.y_label = Some("Bits".to_string());
+    write("zinc_finger_wrapped", plots, layout);
+
     // ── Reverse-complement view ───────────────────────────────────────────
     let logo = SequenceLogo::from_sequences(kozak.clone(), Alphabet::Dna)
         .unwrap()

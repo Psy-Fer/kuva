@@ -311,8 +311,12 @@ pub struct Layout {
     /// the number of entries/groups. Set explicitly via `with_legend_height(px)`.
     pub legend_height: Option<f64>,
     /// Total number of flat legend entries expected (set by `auto_from_plots`).
-    /// Used by `from_layout` to reserve enough right-margin for the overflow line.
+    /// Used by `from_layout` to size bottom-column legends.
     pub(crate) legend_entry_count: usize,
+    /// Labels of the auto-collected flat legend (set by `auto_from_plots`). Lets
+    /// `from_layout` work out how many columns a legend too tall for the canvas
+    /// reflows into, and reserve their width. Ignored when `legend_entries` is set.
+    pub(crate) legend_auto_labels: Vec<String>,
     /// Longest legend label character count — set by `auto_from_plots` for column layout.
     pub(crate) legend_max_label_chars: usize,
     /// Maximum number of columns for `OutsideBottomColumns` layout.
@@ -570,6 +574,7 @@ impl Layout {
             legend_box: true,
             legend_height: None,
             legend_entry_count: 0,
+            legend_auto_labels: Vec::new(),
             legend_max_label_chars: 0,
             legend_col_limit: 0,
             legend_entry_limit: 0,
@@ -749,8 +754,10 @@ impl Layout {
                 if !groups.is_empty() {
                     has_legend = true;
                     legend_entry_count += groups.len();
+                    // Measure the labels (not just count characters) so the
+                    // legend box fits wide glyphs like `W`.
                     for (label, _) in &groups {
-                        max_label_len = max_label_len.max(label.len());
+                        note_legend_label(&mut max_label_len, &mut max_label_w, label, 0);
                     }
                 }
             }
@@ -1669,25 +1676,16 @@ impl Layout {
                 layout.legend_entry_limit = 20;
             }
 
-            // A flat legend taller than the canvas reflows into columns
-            // (see add_legend_at); reserve right-margin width for them, or
-            // the extra columns render off the edge.
-            //
-            // Count entries via `collect_legend_entries` rather than the
-            // `legend_entry_count` tally above: that tally is only maintained
-            // for a couple of plot types (a scatter coloured by group never
-            // sets it), and an undercount reserves too little width, which
-            // clips the extra columns' labels.
-            let entry_count =
-                legend_entry_count.max(crate::render::render::collect_legend_entries(plots).len());
-            if entry_count > 0 {
-                let avail = layout.height.unwrap_or(510.0) - 60.0;
-                let rows = (avail / 18.0).floor().max(10.0) as usize;
-                let cols = entry_count.div_ceil(rows).max(1);
-                if cols > 1 {
-                    layout.legend_width *= cols as f64;
-                }
-            }
+            // Record the auto-collected labels so `from_layout` can size the
+            // columns a too-tall flat legend reflows into. Taken from
+            // `collect_legend_entries` (what the renderer draws) rather than the
+            // `legend_entry_count` tally, which only some plot types maintain.
+            // The width is reserved in `from_layout`, not here, so later
+            // `with_legend_*` calls and the final canvas height are respected.
+            layout.legend_auto_labels = crate::render::render::collect_legend_entries(plots)
+                .into_iter()
+                .map(|e| e.label)
+                .collect();
 
             // Position legend die face needs 3 cells wide — ensure legend_width fits.
             for plot in plots.iter() {
@@ -1748,11 +1746,6 @@ impl Layout {
             layout.show_grid = false;
         }
 
-        /// Minimum plot-area width per sequence-logo position before the canvas
-        /// auto-widens (see below).
-        #[cfg(feature = "logo")]
-        const LOGO_MIN_COL_PX: f64 = 48.0;
-
         // Sequence logos want integer positions on the x-axis and no grid —
         // gridlines fight with per-position letter columns, and fractional
         // ticks like "2.5" are nonsense for base positions.  Pin the exact
@@ -1782,23 +1775,9 @@ impl Layout {
                 layout.x_axis_min = Some(x_lo);
                 layout.x_axis_max = Some(x_hi);
             }
-            // Long motifs widen the canvas so every position keeps a legible
-            // column (~48 px) instead of cramming 25+ letters into the 600 px
-            // default plot area. An explicit width wins; terminal output is
-            // sized by the character grid, not by pixels.
-            if layout.width.is_none() && layout.term_rows.is_none() {
-                let plot_w = n as f64 * LOGO_MIN_COL_PX;
-                if plot_w > 600.0 {
-                    // Margins are not computed yet: approximate the standard
-                    // left gutter and the right-hand legend reserve.
-                    let right = if sl.legend_visible() {
-                        layout.legend_width + 20.0
-                    } else {
-                        20.0
-                    };
-                    layout.width = Some(70.0 + plot_w + right);
-                }
-            }
+            // Canvas width (auto-widen, or wrapping onto rows) is decided at
+            // render time in `logo_render::prepare_logo`, so a width set after
+            // this call still counts as explicit.
             // Pin the y-axis to the theoretical ceiling — log₂(alphabet size)
             // in bits, 1.0 in probability.  Letting `auto_nice_range` round
             // outward would top a protein logo at 5 bits when the maximum
@@ -3064,6 +3043,13 @@ pub struct ComputedLayout {
     /// Pixel spacing between legend entries, quantised to a whole terminal-row
     /// multiple when `term_rows` is set.  Always >= 18.0 (the SVG default).
     pub legend_line_height: f64,
+    /// Width of one column of a flat legend. Equals `legend_width` unless the
+    /// legend reflows into columns, when `legend_width` spans all of them.
+    pub legend_col_width: f64,
+    /// Text lines one column of a flat legend may hold (after the title) before
+    /// the entries reflow into another column. Decided in `from_layout` so the
+    /// renderer and the reserved margin agree. `usize::MAX` when there is no legend.
+    pub legend_line_budget: usize,
     /// Explicit major tick step for the x-axis (None = auto).
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis (None = auto).
@@ -3959,31 +3945,49 @@ impl ComputedLayout {
             layout.legend_width * s
         };
 
-        // When entries are numerous enough to trigger the height cap, the rendered legend shows
-        // a "… (+N more)" overflow line. Ensure the right margin reserves enough space for it.
+        // A flat legend with more lines than fit below the plot top reflows into
+        // columns (`add_legend_with_offset`). Decide the per-column line budget and
+        // the column count here, from the final entries, wrap setting, title and
+        // canvas height, and hand both to the renderer, so the reserved margin and
+        // the drawn legend can't disagree. One column = `effective_legend_width`
+        // (already capped by `legend_wrap`); a reflowed legend reserves one per column.
+        let legend_col_width = effective_legend_width;
+        let mut legend_line_budget = usize::MAX;
+        let mut legend_reflow_lines: Option<usize> = None;
+        if layout.show_legend
+            && layout.legend_groups.is_none()
+            && !matches!(layout.legend_position, LegendPosition::OutsideBottomColumns)
         {
-            let n_entries = if let Some(ref entries) = layout.legend_entries {
-                entries.len()
-            } else {
-                layout.legend_entry_count
+            let wrap_lines = |text: &str| -> usize {
+                layout
+                    .legend_wrap
+                    .map_or(1, |mc| render_utils::wrap_text(text, mc).len())
             };
-            if n_entries > 10 {
-                let canvas_h_est = layout.height.unwrap_or(400.0) * s;
-                let avail_h_est = (canvas_h_est - margin_top - 16.0 * s).max(legend_row_h);
-                let max_entries_est = ((avail_h_est / legend_row_h).floor() as usize).max(10);
-                if n_entries > max_entries_est {
-                    let overflow = n_entries - max_entries_est.saturating_sub(1);
-                    let overflow_text = format!("… (+{overflow} more)");
-                    // Text sits at legend_text_x (25px) from legend_x; box needs to contain it.
-                    let min_w = measure_text_width(
-                        &overflow_text,
-                        layout.body_size as f64,
-                        FontStyle::Regular,
-                    ) * s
-                        + 25.0 * s
-                        + 8.0 * s;
-                    effective_legend_width = effective_legend_width.max(min_w);
-                }
+            let lines: Vec<usize> = match layout.legend_entries {
+                Some(ref entries) => entries.iter().map(|e| wrap_lines(&e.label)).collect(),
+                None if !layout.legend_auto_labels.is_empty() => layout
+                    .legend_auto_labels
+                    .iter()
+                    .map(|l| wrap_lines(l))
+                    .collect(),
+                None => vec![1; layout.legend_entry_count],
+            };
+            let title_lines = layout.legend_title.as_deref().map_or(0, wrap_lines);
+            let canvas_h_est = layout.height.unwrap_or(margin_top + 450.0 + margin_bottom);
+            let avail_h = (canvas_h_est - margin_top - 20.0 * s).max(legend_row_h);
+            // At least 10 rows before reflowing, as with the old truncation cap.
+            let budget_total = ((avail_h / legend_row_h).floor() as usize).max(10);
+            legend_line_budget = budget_total.saturating_sub(title_lines).max(1);
+            let cols = render_utils::legend_columns(&lines, legend_line_budget);
+            if cols.len() > 1 {
+                effective_legend_width =
+                    effective_legend_width.max(legend_col_width * cols.len() as f64);
+                let tallest = cols
+                    .iter()
+                    .map(|r| lines[r.clone()].iter().sum::<usize>())
+                    .max()
+                    .unwrap_or(0);
+                legend_reflow_lines = Some(tallest + title_lines);
             }
         }
 
@@ -3999,7 +4003,9 @@ impl ComputedLayout {
                     1
                 }
             };
-            let legend_h_estimate = if let Some(ref groups) = layout.legend_groups {
+            let legend_h_estimate = if let Some(n) = legend_reflow_lines {
+                n as f64 * legend_line_h + 20.0 * s
+            } else if let Some(ref groups) = layout.legend_groups {
                 let n: usize = groups
                     .iter()
                     .map(|g| {
@@ -4325,6 +4331,8 @@ impl ComputedLayout {
             legend_position: layout.legend_position,
             stats_position: layout.stats_position,
             legend_width: effective_legend_width,
+            legend_col_width,
+            legend_line_budget,
             legend_height_override: layout.legend_height.map(|h| h * s),
             bracket_levels: brackets.levels,
             bracket_spans: brackets.spans,

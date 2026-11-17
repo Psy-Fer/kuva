@@ -575,26 +575,163 @@ fn consensus_row_sits_between_tick_labels_and_x_title() {
     );
 }
 
-/// Long motifs widen the canvas so each position keeps a legible column;
-/// short ones leave the default plot width alone.
+fn svg_size(svg: &str) -> (f64, f64) {
+    let attr = |name: &str| -> f64 {
+        let key = format!("{name}=\"");
+        let i = svg.find(&key).unwrap() + key.len();
+        svg[i..i + svg[i..].find('"').unwrap()].parse().unwrap()
+    };
+    (attr("width"), attr("height"))
+}
+
+/// Render with the auto layout and no explicit size.
+fn render_auto(logo: SequenceLogo) -> String {
+    let plots: Vec<Plot> = vec![logo.into()];
+    let layout = Layout::auto_from_plots(&plots);
+    kuva::render_to_svg(plots, layout)
+}
+
+/// A long synthetic DNA alignment of `len` positions.
+fn long_dna(len: usize) -> SequenceLogo {
+    let bases = ['A', 'C', 'G', 'T'];
+    let seqs: Vec<String> = (0..6)
+        .map(|s| (0..len).map(|i| bases[(i * 7 + s * (i % 3)) % 4]).collect())
+        .collect();
+    SequenceLogo::from_sequences(&seqs, Alphabet::Dna).unwrap()
+}
+
+/// Count the wrapped rows (one translate group per row).
+fn row_count(svg: &str) -> usize {
+    svg.matches("translate(0,").count()
+}
+
+/// Long motifs widen the canvas at render time so each position keeps a
+/// legible column; short ones leave the default plot width alone.
 #[test]
 fn long_motifs_widen_the_canvas_automatically() {
     let short = SequenceLogo::from_fasta_str(&fixture("kozak.fasta"), Alphabet::Dna).unwrap();
-    let plots: Vec<Plot> = vec![short.into()];
+    let (w_short, _) = svg_size(&render_auto(short));
     assert!(
-        Layout::auto_from_plots(&plots).width.is_none(),
-        "10 positions fit the default plot width"
+        w_short < 800.0,
+        "10 positions keep the default width, got {w_short}"
     );
 
     let long =
         SequenceLogo::from_fasta_str(&fixture("zinc_finger.fasta"), Alphabet::Protein).unwrap();
     let n = long.n_positions();
-    let plots: Vec<Plot> = vec![long.into()];
-    let width = Layout::auto_from_plots(&plots)
-        .width
-        .expect("25 positions should widen the canvas");
+    let (w_long, _) = svg_size(&render_auto(long));
     assert!(
-        width > n as f64 * 48.0,
-        "auto width {width} should leave at least 48 px per position"
+        w_long > n as f64 * 48.0,
+        "auto width {w_long} should leave at least 48 px per position"
     );
+}
+
+/// A width set after `auto_from_plots` is explicit: no auto-widen, no wrap.
+#[test]
+fn explicit_width_keeps_one_line() {
+    let plots: Vec<Plot> = vec![long_dna(120).into()];
+    let layout = Layout::auto_from_plots(&plots).with_width(900.0);
+    let svg = kuva::render_to_svg(plots, layout);
+    assert_eq!(svg_size(&svg).0, 900.0);
+    assert_eq!(row_count(&svg), 0, "an explicit width must not wrap");
+}
+
+/// Past 80 positions an auto-sized logo wraps at 50 per line instead of
+/// growing without bound; positions keep their true numbers.
+#[test]
+fn long_logo_wraps_automatically() {
+    let svg = render_auto(long_dna(120).with_start(1001));
+    common::write_test_output("test_outputs/logo_auto_wrap.svg", &svg).unwrap();
+    assert_eq!(row_count(&svg), 3, "120 positions at 50 per line");
+    let (w, h) = svg_size(&svg);
+    assert!(
+        w < 50.0 * 48.0 + 300.0,
+        "row width follows 50 columns, got {w}"
+    );
+    assert!(h > 3.0 * 200.0, "three stacked rows, got height {h}");
+    for label in [">1001<", ">1050<", ">1051<", ">1120<"] {
+        assert!(svg.contains(label), "position label {label} missing");
+    }
+    assert!(!svg.contains(">1121<"), "no positions past the end");
+
+    // 80 positions still fit on one widened line.
+    assert_eq!(row_count(&render_auto(long_dna(80))), 0);
+}
+
+/// `with_per_line` wraps even short logos, and draws the legend only once.
+#[test]
+fn per_line_wraps_and_draws_one_legend() {
+    let logo = SequenceLogo::from_fasta_str(&fixture("zinc_finger.fasta"), Alphabet::Protein)
+        .unwrap()
+        .with_per_line(10)
+        .with_title("Zinc finger");
+    let svg = render_auto(logo);
+    common::write_test_output("test_outputs/logo_per_line.svg", &svg).unwrap();
+    assert_eq!(row_count(&svg), 3, "25 positions at 10 per line");
+    assert_eq!(svg.matches(">Zinc finger<").count(), 1, "title drawn once");
+    // The protein legend lists each residue group once, not once per row.
+    assert_eq!(
+        svg.matches(">G<").count(),
+        1,
+        "legend drawn once: {}",
+        svg.matches(">G<").count()
+    );
+}
+
+/// A wrapped reverse complement renders one row per chunk (column order is
+/// unit-tested on `SequenceLogo::chunk`).
+#[test]
+fn wrapped_reverse_complement_renders() {
+    let logo = long_dna(30)
+        .with_reverse_complement()
+        .unwrap()
+        .with_per_line(10);
+    assert_eq!(row_count(&render_auto(logo)), 3);
+}
+
+/// Gaps scale a column by its non-gap fraction (WebLogo): one residue among
+/// nine gaps is not "fully conserved".
+#[test]
+fn gappy_columns_are_scaled_by_non_gap_fraction() {
+    let mut seqs = vec!["AA".to_string()];
+    seqs.extend((0..9).map(|_| "-A".to_string()));
+    let logo = SequenceLogo::from_sequences(&seqs, Alphabet::Dna)
+        .unwrap()
+        .with_no_correction();
+    let gappy: f64 = logo.stack(0).iter().map(|(_, h)| h).sum();
+    let full: f64 = logo.stack(1).iter().map(|(_, h)| h).sum();
+    assert!(
+        (full - 2.0).abs() < 1e-9,
+        "a full conserved column is 2 bits, got {full}"
+    );
+    assert!(
+        (gappy - 0.2).abs() < 1e-9,
+        "1 of 10 non-gap: 2 bits x 0.1, got {gappy}"
+    );
+
+    let prob = logo.clone().with_units(LogoUnits::Probability);
+    let p0: f64 = prob.stack(0).iter().map(|(_, h)| h).sum();
+    assert!(
+        (p0 - 0.1).abs() < 1e-9,
+        "probability column scaled too, got {p0}"
+    );
+}
+
+/// Negative, NaN and infinite matrix values are rejected, not drawn.
+#[test]
+#[should_panic(expected = "finite and non-negative")]
+fn from_matrix_rejects_nan() {
+    let _ = SequenceLogo::from_matrix(vec![vec![1.0, f64::NAN, 0.0, 0.0]], Alphabet::Dna);
+}
+
+#[test]
+#[should_panic(expected = "finite and non-negative")]
+fn from_matrix_rejects_negative() {
+    let _ = SequenceLogo::from_matrix(vec![vec![1.0, -0.5, 0.0, 0.0]], Alphabet::Dna);
+}
+
+#[test]
+#[should_panic(expected = "has 3 values, expected 4")]
+fn from_matrix_rejects_ragged_rows() {
+    let _ = SequenceLogo::from_matrix(vec![vec![1.0, 0.0, 0.0]], Alphabet::Dna);
 }
