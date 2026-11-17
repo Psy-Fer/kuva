@@ -105,28 +105,15 @@ fn theme_ctor(name: &str) -> &'static str {
     }
 }
 
-fn palette_ctor(name: &str) -> Option<&'static str> {
-    match name {
-        "category10" => Some("Palette::category10()"),
-        "wong" => Some("Palette::wong()"),
-        "okabe-ito" | "okabe_ito" => Some("Palette::okabe_ito()"),
-        "pastel" => Some("Palette::pastel()"),
-        "bold" => Some("Palette::bold()"),
-        "tol-bright" | "tol_bright" => Some("Palette::tol_bright()"),
-        "tol-muted" | "tol_muted" => Some("Palette::tol_muted()"),
-        "tol-light" | "tol_light" => Some("Palette::tol_light()"),
-        "ibm" => Some("Palette::ibm()"),
-        _ => None,
-    }
+/// `Palette::<ctor>()` for a `--palette` name, read from the same table the
+/// renderer uses. Constructor names are the canonical names with `_` for `-`.
+fn palette_ctor(name: &str) -> Option<String> {
+    crate::layout_args::find_named_palette(name)
+        .map(|p| format!("Palette::{}()", p.name.replace('-', "_")))
 }
 
-fn cvd_palette_ctor(condition: &str) -> Option<&'static str> {
-    match condition {
-        "deuteranopia" | "deuter" => Some("Palette::deuteranopia()"),
-        "protanopia" | "protan" => Some("Palette::protanopia()"),
-        "tritanopia" | "tritan" => Some("Palette::tritanopia()"),
-        _ => None,
-    }
+fn cvd_palette_ctor(condition: &str) -> Option<String> {
+    crate::layout_args::find_cvd_palette(condition).map(|c| format!("Palette::{}()", c.name))
 }
 
 fn axis_line_ctor(s: &str) -> Option<&'static str> {
@@ -421,6 +408,40 @@ pub fn assemble_with_signif(
     ))
 }
 
+/// Types the layout-chain emitters name unqualified (`Theme::dark()`,
+/// `TickFormat::Integer`, ...), with the path to import each from.
+const LAYOUT_CHAIN_TYPES: &[(&str, &str)] = &[
+    ("Palette", "kuva::Palette"),
+    ("Theme", "kuva::Theme"),
+    ("AxisLine", "kuva::AxisLine"),
+    ("TickAlign", "kuva::TickAlign"),
+    ("TickPos", "kuva::TickPos"),
+    ("TickFormat", "kuva::TickFormat"),
+    ("AxisLabelOverlap", "kuva::AxisLabelOverlap"),
+];
+
+/// The `use` paths the layout chain needs, skipping any type the plot's own
+/// imports already bring in (matched on the last path segment).
+fn layout_chain_uses(frags: &[String], existing: &[&str]) -> Vec<&'static str> {
+    LAYOUT_CHAIN_TYPES
+        .iter()
+        .filter(|(ty, _)| {
+            let needle = format!("{ty}::");
+            frags.iter().any(|f| {
+                f.match_indices(&needle).any(|(i, _)| {
+                    // Not part of a longer identifier or a qualified path.
+                    f[..i]
+                        .chars()
+                        .next_back()
+                        .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == ':'))
+                })
+            })
+        })
+        .filter(|(ty, _)| !existing.iter().any(|u| u.rsplit("::").next() == Some(ty)))
+        .map(|(_, path)| *path)
+        .collect()
+}
+
 fn assemble_impl(
     plot_uses: &[&str],
     variant: &str,
@@ -431,15 +452,26 @@ fn assemble_impl(
     extra: Option<(&str, Vec<String>)>,
 ) -> String {
     let (extra_use, extra_frags) = extra.unzip();
+
+    let mut frags = emit_base_args(base);
+    if let Some(a) = axis {
+        frags.extend(emit_axis_args(a));
+    }
+    if let Some(l) = log {
+        frags.extend(emit_log_args(l));
+    }
+    frags.extend(extra_frags.unwrap_or_default());
+
+    let mut uses: Vec<&str> = plot_uses.to_vec();
+    uses.extend(extra_use);
+    uses.extend(layout_chain_uses(&frags, &uses));
+
     let mut out = String::new();
     out.push_str("use kuva::backend::svg::SvgBackend;\n");
     out.push_str("use kuva::render::render::render_multiple;\n");
     out.push_str("use kuva::render::layout::Layout;\n");
     out.push_str("use kuva::render::plots::Plot;\n");
-    for u in plot_uses {
-        out.push_str(&format!("use {u};\n"));
-    }
-    if let Some(u) = extra_use {
+    for u in &uses {
         out.push_str(&format!("use {u};\n"));
     }
     out.push('\n');
@@ -457,15 +489,6 @@ fn assemble_impl(
         }
         out.push_str("];\n\n");
     }
-
-    let mut frags = emit_base_args(base);
-    if let Some(a) = axis {
-        frags.extend(emit_axis_args(a));
-    }
-    if let Some(l) = log {
-        frags.extend(emit_log_args(l));
-    }
-    frags.extend(extra_frags.unwrap_or_default());
 
     out.push_str(&chain(
         "let layout = Layout::auto_from_plots(&plots)",

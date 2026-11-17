@@ -85,6 +85,21 @@ check_error() {
     fi
 }
 
+# Passes when the command succeeds and its stdout contains PATTERN
+# (for subcommands that print text rather than an SVG).
+check_text() {
+    local name="$1"
+    local pattern="$2"
+    shift 2
+    if "$@" 2>/dev/null | grep -q -- "$pattern"; then
+        echo "PASS  $name"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL  $name"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 # ── scatter ───────────────────────────────────────────────────────────────────
 check "scatter basic" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
@@ -1474,6 +1489,22 @@ check_error "logo unknown palette" \
 
 check_error "logo reverse-complement on protein" \
     "$BIN" logo "$DATA/logo.pwm" --alphabet protein --reverse-complement
+
+# ── palettes ──────────────────────────────────────────────────────────────────
+check_text "palettes list" "casa-natal" \
+    "$BIN" palettes
+
+check_text "palettes all" "sinebow" \
+    "$BIN" palettes --all
+
+check_text "palettes named colormap hex" "#440154" \
+    "$BIN" palettes viridis
+
+check_text "palettes truecolor swatches" $'\e\\[38;2;' \
+    "$BIN" palettes wong --color always
+
+check_error "palettes unknown name" \
+    "$BIN" palettes notapalette
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

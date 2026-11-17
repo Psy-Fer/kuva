@@ -453,19 +453,31 @@ fn parse_units(s: &str) -> LogoUnits {
     }
 }
 
+/// Logo `--palette` presets in display order (default protein preset first).
+/// `parse_preset` and `kuva palettes --logo` both read this table.
+pub const LOGO_PRESETS: &[(&str, PalettePreset)] = &[
+    ("muted", PalettePreset::Muted),
+    ("classic", PalettePreset::Classic),
+    ("weblogo", PalettePreset::WebLogo),
+    ("shapely", PalettePreset::Shapely),
+    ("clustal", PalettePreset::Clustal),
+    ("taylor", PalettePreset::Taylor),
+    ("mono", PalettePreset::Mono),
+];
+
 fn parse_preset(s: &str) -> Result<PalettePreset, String> {
-    match s.to_ascii_lowercase().as_str() {
-        "classic" => Ok(PalettePreset::Classic),
-        "weblogo" => Ok(PalettePreset::WebLogo),
-        "shapely" => Ok(PalettePreset::Shapely),
-        "clustal" => Ok(PalettePreset::Clustal),
-        "taylor" => Ok(PalettePreset::Taylor),
-        "muted" => Ok(PalettePreset::Muted),
-        "mono" => Ok(PalettePreset::Mono),
-        other => Err(format!(
-            "Unknown logo palette '{other}'. Available: muted, classic, weblogo, shapely, clustal, taylor, mono"
-        )),
-    }
+    let lower = s.to_ascii_lowercase();
+    LOGO_PRESETS
+        .iter()
+        .find(|(name, _)| *name == lower)
+        .map(|(_, preset)| *preset)
+        .ok_or_else(|| {
+            let names: Vec<&str> = LOGO_PRESETS.iter().map(|(n, _)| *n).collect();
+            format!(
+                "Unknown logo palette '{lower}'. Available: {} (run `kuva palettes --logo` to preview)",
+                names.join(", ")
+            )
+        })
 }
 
 fn parse_color_overrides(spec: &str) -> Result<Vec<(char, [u8; 3])>, String> {

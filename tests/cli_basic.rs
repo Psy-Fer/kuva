@@ -2552,3 +2552,103 @@ fn test_quiver3d_rejects_arrow_scale_with_auto_scale() {
         "stderr should explain the conflict: {stderr}"
     );
 }
+
+// ── kuva palettes ──────────────────────────────────────────────────────────
+
+#[test]
+fn palettes_plain_lists_every_name_with_hex() {
+    // Piped stdout means no colour: names and hex codes only, no escapes.
+    let (out, err, code) = run_with_stdin(&["palettes"], "");
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(
+        !out.contains('\x1b'),
+        "piped output must not contain ANSI escapes"
+    );
+    for name in [
+        "category10",
+        "okabe-ito",
+        "tol-muted",
+        "casa-natal",
+        "deuteranopia",
+    ] {
+        assert!(out.contains(name), "missing {name}:\n{out}");
+    }
+    assert!(out.contains("#E69F00"), "wong's first colour as hex");
+    assert!(
+        !out.contains("viridis"),
+        "colormaps only with --colormaps/--all"
+    );
+}
+
+#[test]
+fn palettes_all_includes_colormaps_and_logo_schemes() {
+    let (out, _, code) = run_with_stdin(&["palettes", "--all"], "");
+    assert_eq!(code, 0);
+    for name in [
+        "category10",
+        "viridis",
+        "red-blue",
+        "sinebow",
+        "shapely",
+        "mono",
+    ] {
+        assert!(out.contains(name), "missing {name}");
+    }
+    // Every colormap shows sampled stops; viridis starts at #440154.
+    assert!(out.contains("#440154"));
+    assert!(out.contains("A=#009600"), "classic DNA logo colours");
+}
+
+#[test]
+fn palettes_color_always_emits_truecolor_swatches() {
+    let (out, _, code) = run_with_stdin(&["palettes", "wong", "--color", "always"], "");
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\x1b[38;2;230;159;0m"),
+        "wong orange as 24-bit colour"
+    );
+}
+
+#[test]
+fn palettes_named_lookup_across_lists() {
+    let (out, _, code) = run_with_stdin(&["palettes", "ltc-paloma", "RdBu", "taylor"], "");
+    assert_eq!(code, 0);
+    assert!(out.contains("paloma"));
+    assert!(
+        out.contains("red-blue"),
+        "ColorBrewer code resolves to its canonical name"
+    );
+    assert!(out.contains("taylor"));
+}
+
+#[test]
+fn palettes_unknown_name_fails() {
+    let (_, err, code) = run_with_stdin(&["palettes", "not-a-palette"], "");
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("not-a-palette") && err.contains("kuva palettes --all"),
+        "{err}"
+    );
+}
+
+#[test]
+fn unknown_palette_flag_warns_and_points_at_palettes() {
+    let (out, err, code) = run_with_stdin(
+        &[
+            "pie",
+            "--label-col",
+            "0",
+            "--value-col",
+            "1",
+            "--palette",
+            "nopenope",
+        ],
+        "a\t1\nb\t2\n",
+    );
+    assert_eq!(code, 0, "an unknown palette falls back to the default");
+    assert!(out.contains("<svg"));
+    assert!(
+        err.contains("unknown palette 'nopenope'") && err.contains("kuva palettes"),
+        "{err}"
+    );
+}

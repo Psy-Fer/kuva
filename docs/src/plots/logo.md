@@ -243,7 +243,7 @@ Omit the input or pass `-` to read stdin.
 | `--from <MODE>` | *autodetect* | Force input interpretation: `fasta` or `matrix` |
 | `--alphabet <NAME\|LETTERS>` | `dna` | `dna`, `rna`, `protein`, or a raw letter string for a custom alphabet (e.g. `--alphabet MHUL`) |
 | `--units <UNITS>` | `bits` | Y-axis units: `bits`, `probability`, or `frequency` |
-| `--palette <PRESET>` | `classic` (DNA/RNA), `muted` (protein/custom) | Letter color preset: `muted`, `classic`, `weblogo`, `shapely`, `clustal`, `taylor`, `mono`. Chemistry-group presets (`classic`, `weblogo`, `clustal`) share one color across a group; per-residue presets (`muted`, `shapely`, `taylor`) give every letter its own. For this subcommand `--palette` selects the letter preset, not a chrome palette |
+| `--palette <PRESET>` | `classic` (DNA/RNA), `muted` (protein/custom) | Letter color preset: `muted`, `classic`, `weblogo`, `shapely`, `clustal`, `taylor`, `mono`. Chemistry-group presets (`classic`, `weblogo`, `clustal`) share one color across a group; per-residue presets (`muted`, `shapely`, `taylor`) give every letter its own. For this subcommand `--palette` selects the letter preset, not a chrome palette. `kuva palettes --logo` previews every preset |
 | `--colors <SPEC>` | none | Per-letter overrides layered on top of the preset, e.g. `"A=#00CC00,C=#0000CC"` |
 | `--start <INT>` | `1` | Display position 1 as `<INT>` (genomic coordinates) |
 | `--reverse-complement` | off | Reverse-complement the motif (nucleic alphabets only; RNA displays U) |

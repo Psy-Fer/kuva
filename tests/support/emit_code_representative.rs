@@ -13,6 +13,30 @@ pub fn all_cases() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![
         ("pie", vec!["pie", "examples/data/pie.tsv"]),
         (
+            "pie_ltc_palette",
+            vec!["pie", "examples/data/pie.tsv", "--palette", "ltc-paloma"],
+        ),
+        (
+            // Layout-chain types (Theme, AxisLine, TickFormat, ...) must be imported.
+            "scatter_layout_enums",
+            vec![
+                "scatter",
+                "examples/data/scatter.tsv",
+                "--x",
+                "x",
+                "--y",
+                "y",
+                "--theme",
+                "dark",
+                "--axis-line",
+                "box",
+                "--x-tick-format",
+                "int",
+                "--cvd-palette",
+                "deuteranopia",
+            ],
+        ),
+        (
             "bar",
             vec![
                 "bar",

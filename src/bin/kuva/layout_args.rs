@@ -48,7 +48,8 @@ pub struct BaseArgs {
     /// Named color palette: category10, wong, okabe-ito, pastel, bold,
     /// tol-bright, tol-muted, tol-light, ibm, or an LTC palette (paloma, maya,
     /// dora, ploen, olga, mterese, franscoise, fernande, sylvie, expevo, minou,
-    /// alger, seafarer, luminaries, casa-natal; optional `ltc-` prefix)
+    /// alger, seafarer, luminaries, casa-natal; optional `ltc-` prefix).
+    /// Run `kuva palettes` to preview them in the terminal.
     #[arg(long)]
     pub palette: Option<String>,
 
@@ -592,14 +593,22 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
         layout = layout.with_term_rows(rows);
     }
     if let Some(ref name) = args.palette {
-        if let Some(pal) = palette_from_name(name) {
-            layout = layout.with_palette(pal);
+        match palette_from_name(name) {
+            Some(pal) => layout = layout.with_palette(pal),
+            None => eprintln!(
+                "warning: unknown palette '{name}', using the default. \
+                Run `kuva palettes` to see the available names."
+            ),
         }
     }
     // --cvd-palette overrides --palette when both are provided.
     if let Some(ref condition) = args.cvd_palette {
-        if let Some(pal) = colourblind_palette(condition) {
-            layout = layout.with_palette(pal);
+        match colourblind_palette(condition) {
+            Some(pal) => layout = layout.with_palette(pal),
+            None => eprintln!(
+                "warning: unknown --cvd-palette '{condition}'. \
+                Expected deuteranopia, protanopia or tritanopia."
+            ),
         }
     }
     if let Some(f) = args.scale {
@@ -818,46 +827,194 @@ pub(crate) fn theme_from_name(name: &str) -> Theme {
     }
 }
 
+/// One named palette the CLI accepts.
+pub struct NamedPalette {
+    /// Canonical name shown in help and `kuva palettes`.
+    pub name: &'static str,
+    /// Heading `kuva palettes` groups it under.
+    pub group: &'static str,
+    pub build: fn() -> Palette,
+}
+
+/// Every `--palette` name, in display order. `palette_from_name` and
+/// `kuva palettes` both read this table, so the list can't drift.
+pub const NAMED_PALETTES: &[NamedPalette] = &[
+    NamedPalette {
+        name: "category10",
+        group: "General",
+        build: Palette::category10,
+    },
+    NamedPalette {
+        name: "pastel",
+        group: "General",
+        build: Palette::pastel,
+    },
+    NamedPalette {
+        name: "bold",
+        group: "General",
+        build: Palette::bold,
+    },
+    NamedPalette {
+        name: "wong",
+        group: "Colourblind-safe",
+        build: Palette::wong,
+    },
+    NamedPalette {
+        name: "okabe-ito",
+        group: "Colourblind-safe",
+        build: Palette::okabe_ito,
+    },
+    NamedPalette {
+        name: "tol-bright",
+        group: "Colourblind-safe",
+        build: Palette::tol_bright,
+    },
+    NamedPalette {
+        name: "tol-muted",
+        group: "Colourblind-safe",
+        build: Palette::tol_muted,
+    },
+    NamedPalette {
+        name: "tol-light",
+        group: "Colourblind-safe",
+        build: Palette::tol_light,
+    },
+    NamedPalette {
+        name: "ibm",
+        group: "Colourblind-safe",
+        build: Palette::ibm,
+    },
+    // LTC palettes (loukesio/ltc-color-palettes, MIT). Accept an optional `ltc-` prefix.
+    NamedPalette {
+        name: "paloma",
+        group: "LTC",
+        build: Palette::paloma,
+    },
+    NamedPalette {
+        name: "maya",
+        group: "LTC",
+        build: Palette::maya,
+    },
+    NamedPalette {
+        name: "dora",
+        group: "LTC",
+        build: Palette::dora,
+    },
+    NamedPalette {
+        name: "ploen",
+        group: "LTC",
+        build: Palette::ploen,
+    },
+    NamedPalette {
+        name: "olga",
+        group: "LTC",
+        build: Palette::olga,
+    },
+    NamedPalette {
+        name: "mterese",
+        group: "LTC",
+        build: Palette::mterese,
+    },
+    NamedPalette {
+        name: "franscoise",
+        group: "LTC",
+        build: Palette::franscoise,
+    },
+    NamedPalette {
+        name: "fernande",
+        group: "LTC",
+        build: Palette::fernande,
+    },
+    NamedPalette {
+        name: "sylvie",
+        group: "LTC",
+        build: Palette::sylvie,
+    },
+    NamedPalette {
+        name: "expevo",
+        group: "LTC",
+        build: Palette::expevo,
+    },
+    NamedPalette {
+        name: "minou",
+        group: "LTC",
+        build: Palette::minou,
+    },
+    NamedPalette {
+        name: "alger",
+        group: "LTC",
+        build: Palette::alger,
+    },
+    NamedPalette {
+        name: "seafarer",
+        group: "LTC",
+        build: Palette::seafarer,
+    },
+    NamedPalette {
+        name: "luminaries",
+        group: "LTC",
+        build: Palette::luminaries,
+    },
+    NamedPalette {
+        name: "casa-natal",
+        group: "LTC",
+        build: Palette::casa_natal,
+    },
+];
+
+/// One `--cvd-palette` condition.
+pub struct CvdPalette {
+    pub name: &'static str,
+    /// Short alias (`deuter`, `protan`, `tritan`).
+    pub alias: &'static str,
+    pub build: fn() -> Palette,
+}
+
+/// Every `--cvd-palette` condition, in display order.
+pub const CVD_PALETTES: &[CvdPalette] = &[
+    CvdPalette {
+        name: "deuteranopia",
+        alias: "deuter",
+        build: Palette::deuteranopia,
+    },
+    CvdPalette {
+        name: "protanopia",
+        alias: "protan",
+        build: Palette::protanopia,
+    },
+    CvdPalette {
+        name: "tritanopia",
+        alias: "tritan",
+        build: Palette::tritanopia,
+    },
+];
+
+/// Look up a `--palette` name. `_` and `-` are interchangeable, and LTC
+/// palettes take an optional `ltc-` prefix.
+pub fn find_named_palette(name: &str) -> Option<&'static NamedPalette> {
+    let name = name.replace('_', "-");
+    let (key, ltc_only) = match name.strip_prefix("ltc-") {
+        Some(rest) => (rest, true),
+        None => (name.as_str(), false),
+    };
+    NAMED_PALETTES
+        .iter()
+        .find(|p| p.name == key && (!ltc_only || p.group == "LTC"))
+}
+
 pub fn palette_from_name(name: &str) -> Option<Palette> {
-    match name {
-        "category10" => Some(Palette::category10()),
-        "wong" => Some(Palette::wong()),
-        "okabe-ito" | "okabe_ito" => Some(Palette::okabe_ito()),
-        "pastel" => Some(Palette::pastel()),
-        "bold" => Some(Palette::bold()),
-        "tol-bright" | "tol_bright" => Some(Palette::tol_bright()),
-        "tol-muted" | "tol_muted" => Some(Palette::tol_muted()),
-        "tol-light" | "tol_light" => Some(Palette::tol_light()),
-        "ibm" => Some(Palette::ibm()),
-        // LTC palettes (loukesio/ltc-color-palettes, MIT). Accept an optional `ltc-` prefix.
-        other => match other.strip_prefix("ltc-").unwrap_or(other) {
-            "paloma" => Some(Palette::paloma()),
-            "maya" => Some(Palette::maya()),
-            "dora" => Some(Palette::dora()),
-            "ploen" => Some(Palette::ploen()),
-            "olga" => Some(Palette::olga()),
-            "mterese" => Some(Palette::mterese()),
-            "franscoise" => Some(Palette::franscoise()),
-            "fernande" => Some(Palette::fernande()),
-            "sylvie" => Some(Palette::sylvie()),
-            "expevo" => Some(Palette::expevo()),
-            "minou" => Some(Palette::minou()),
-            "alger" => Some(Palette::alger()),
-            "seafarer" => Some(Palette::seafarer()),
-            "luminaries" => Some(Palette::luminaries()),
-            "casa-natal" | "casa_natal" => Some(Palette::casa_natal()),
-            _ => None,
-        },
-    }
+    find_named_palette(name).map(|p| (p.build)())
+}
+
+/// `--cvd-palette` lookup by canonical name or short alias.
+pub fn find_cvd_palette(condition: &str) -> Option<&'static CvdPalette> {
+    CVD_PALETTES
+        .iter()
+        .find(|c| condition == c.name || condition == c.alias)
 }
 
 fn colourblind_palette(condition: &str) -> Option<Palette> {
-    match condition {
-        "deuteranopia" | "deuter" => Some(Palette::deuteranopia()),
-        "protanopia" | "protan" => Some(Palette::protanopia()),
-        "tritanopia" | "tritan" => Some(Palette::tritanopia()),
-        _ => None,
-    }
+    find_cvd_palette(condition).map(|c| (c.build)())
 }
 
 fn parse_axis_line(s: &str) -> Option<AxisLine> {

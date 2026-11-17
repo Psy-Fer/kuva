@@ -30,6 +30,7 @@ mod manhattan;
 mod mosaic;
 mod network;
 mod output;
+mod palettes;
 mod parallel;
 mod pareto;
 mod phylo;
@@ -180,6 +181,8 @@ enum Commands {
     Coverage(coverage::CoverageArgs),
     /// Sequence logo — stacked-letter plot of a PWM or aligned FASTA set.
     Logo(logo::LogoArgs),
+    /// Preview the named colour palettes, colormaps and logo schemes in the terminal.
+    Palettes(palettes::PalettesArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -257,6 +260,7 @@ fn main() {
         Commands::TwinY(args) => twin_y::run(args),
         Commands::Coverage(args) => coverage::run(args),
         Commands::Logo(args) => logo::run(args),
+        Commands::Palettes(args) => palettes::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

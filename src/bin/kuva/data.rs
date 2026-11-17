@@ -1022,62 +1022,183 @@ pub fn apply_na(
     }
 }
 
+/// One named colormap the CLI accepts.
+pub struct NamedColormap {
+    /// Canonical name shown by `kuva palettes --colormaps`.
+    pub name: &'static str,
+    /// Other accepted spellings (ColorBrewer codes, unhyphenated forms).
+    pub aliases: &'static [&'static str],
+    /// Heading `kuva palettes` groups it under.
+    pub group: &'static str,
+    pub build: fn() -> kuva::plot::ColorMap,
+}
+
+macro_rules! cmap {
+    ($name:literal, [$($alias:literal),*], $group:literal, $variant:ident) => {
+        NamedColormap {
+            name: $name,
+            aliases: &[$($alias),*],
+            group: $group,
+            build: || kuva::plot::ColorMap::$variant,
+        }
+    };
+}
+
+/// Every `--colormap` name, in display order. `parse_colormap` and
+/// `kuva palettes --colormaps` both read this table.
+pub const NAMED_COLORMAPS: &[NamedColormap] = &[
+    cmap!("viridis", [], "Sequential (perceptual)", Viridis),
+    cmap!("inferno", [], "Sequential (perceptual)", Inferno),
+    cmap!("magma", [], "Sequential (perceptual)", Magma),
+    cmap!("plasma", [], "Sequential (perceptual)", Plasma),
+    cmap!("cividis", [], "Sequential (perceptual)", Cividis),
+    cmap!("turbo", [], "Sequential (perceptual)", Turbo),
+    cmap!("warm", [], "Sequential (perceptual)", Warm),
+    cmap!("cool", [], "Sequential (perceptual)", Cool),
+    cmap!("cubehelix", [], "Sequential (perceptual)", Cubehelix),
+    cmap!(
+        "blue-green",
+        ["bluegreen", "bugn"],
+        "Sequential (ColorBrewer)",
+        BlueGreen
+    ),
+    cmap!(
+        "blue-purple",
+        ["bluepurple", "bupu"],
+        "Sequential (ColorBrewer)",
+        BluePurple
+    ),
+    cmap!(
+        "green-blue",
+        ["greenblue", "gnbu"],
+        "Sequential (ColorBrewer)",
+        GreenBlue
+    ),
+    cmap!(
+        "orange-red",
+        ["orangered", "orrd"],
+        "Sequential (ColorBrewer)",
+        OrangeRed
+    ),
+    cmap!(
+        "purple-blue-green",
+        ["purplebluegreen", "purplebluegre", "pubugn"],
+        "Sequential (ColorBrewer)",
+        PurpleBlueGreen
+    ),
+    cmap!(
+        "purple-blue",
+        ["purpleblue", "pubu"],
+        "Sequential (ColorBrewer)",
+        PurpleBlue
+    ),
+    cmap!(
+        "purple-red",
+        ["purplered", "purd"],
+        "Sequential (ColorBrewer)",
+        PurpleRed
+    ),
+    cmap!(
+        "red-purple",
+        ["redpurple", "rdpu"],
+        "Sequential (ColorBrewer)",
+        RedPurple
+    ),
+    cmap!(
+        "yellow-green-blue",
+        ["yellowgreenblue", "ylgnbu"],
+        "Sequential (ColorBrewer)",
+        YellowGreenBlue
+    ),
+    cmap!(
+        "yellow-green",
+        ["yellowgreen", "ylgn"],
+        "Sequential (ColorBrewer)",
+        YellowGreen
+    ),
+    cmap!(
+        "yellow-orange-brown",
+        ["yelloworangebrown", "ylorb", "ylorbr"],
+        "Sequential (ColorBrewer)",
+        YellowOrangeBrown
+    ),
+    cmap!(
+        "yellow-orange-red",
+        ["yelloworangered", "ylord", "ylorrd"],
+        "Sequential (ColorBrewer)",
+        YellowOrangeRed
+    ),
+    cmap!("blues", [], "Sequential (single hue)", Blues),
+    cmap!("greens", [], "Sequential (single hue)", Greens),
+    cmap!(
+        "grayscale",
+        ["grey", "gray", "greys", "grays"],
+        "Sequential (single hue)",
+        Grayscale
+    ),
+    cmap!("oranges", [], "Sequential (single hue)", Oranges),
+    cmap!("purples", [], "Sequential (single hue)", Purples),
+    cmap!("reds", [], "Sequential (single hue)", Reds),
+    cmap!(
+        "brown-green",
+        ["browngreen", "brbg"],
+        "Diverging",
+        BrownGreen
+    ),
+    cmap!("pink-green", ["pinkgreen", "piyg"], "Diverging", PinkGreen),
+    cmap!(
+        "purple-green",
+        ["purplegreen", "prgn"],
+        "Diverging",
+        PurpleGreen
+    ),
+    cmap!(
+        "purple-orange",
+        ["purpleorange", "puor"],
+        "Diverging",
+        PurpleOrange
+    ),
+    cmap!("red-blue", ["redblue", "rdbu"], "Diverging", RedBlue),
+    cmap!(
+        "red-grey",
+        ["red-gray", "redgrey", "redgray", "rdgy"],
+        "Diverging",
+        RedGrey
+    ),
+    cmap!(
+        "red-yellow-blue",
+        ["redyellowblue", "rdylbu"],
+        "Diverging",
+        RedYellowBlue
+    ),
+    cmap!(
+        "red-yellow-green",
+        ["redyellowgreen", "rdylgn"],
+        "Diverging",
+        RedYellowGreen
+    ),
+    cmap!("spectral", [], "Diverging", Spectral),
+    cmap!("rainbow", [], "Cyclical", Rainbow),
+    cmap!("sinebow", [], "Cyclical", Sinebow),
+];
+
+/// Look up a `--colormap` name (case-insensitive; `_` and `-` interchangeable).
+pub fn colormap_from_name(name: &str) -> Option<kuva::plot::ColorMap> {
+    let key = name.to_ascii_lowercase().replace('_', "-");
+    NAMED_COLORMAPS
+        .iter()
+        .find(|c| c.name == key || c.aliases.contains(&key.as_str()))
+        .map(|c| (c.build)())
+}
+
 pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
-    use kuva::plot::ColorMap;
-    match name.to_ascii_lowercase().replace('_', "-").as_str() {
-        // Sequential perceptual
-        "viridis" => ColorMap::Viridis,
-        "inferno" => ColorMap::Inferno,
-        "magma" => ColorMap::Magma,
-        "plasma" => ColorMap::Plasma,
-        "cividis" => ColorMap::Cividis,
-        "turbo" => ColorMap::Turbo,
-        "warm" => ColorMap::Warm,
-        "cool" => ColorMap::Cool,
-        "cubehelix" => ColorMap::Cubehelix,
-        // Sequential ColorBrewer
-        "blue-green" | "bluegreen" | "bugn" => ColorMap::BlueGreen,
-        "blue-purple" | "bluepurple" | "bupu" => ColorMap::BluePurple,
-        "green-blue" | "greenblue" | "gnbu" => ColorMap::GreenBlue,
-        "orange-red" | "orangered" | "orrd" => ColorMap::OrangeRed,
-        "purple-blue-green" | "purplebluegre" | "pubugn" => ColorMap::PurpleBlueGreen,
-        "purple-blue" | "purpleblue" | "pubu" => ColorMap::PurpleBlue,
-        "purple-red" | "purplered" | "purd" => ColorMap::PurpleRed,
-        "red-purple" | "redpurple" | "rdpu" => ColorMap::RedPurple,
-        "yellow-green-blue" | "yellowgreenblue" | "ylgnbu" => ColorMap::YellowGreenBlue,
-        "yellow-green" | "yellowgreen" | "ylgn" => ColorMap::YellowGreen,
-        "yellow-orange-brown" | "yelloworangebrown" | "ylorb" | "ylorbr" => {
-            ColorMap::YellowOrangeBrown
-        }
-        "yellow-orange-red" | "yelloworangered" | "ylord" | "ylorrd" => ColorMap::YellowOrangeRed,
-        // Sequential single-hue
-        "blues" => ColorMap::Blues,
-        "greens" => ColorMap::Greens,
-        "grayscale" | "grey" | "gray" | "greys" | "grays" => ColorMap::Grayscale,
-        "oranges" => ColorMap::Oranges,
-        "purples" => ColorMap::Purples,
-        "reds" => ColorMap::Reds,
-        // Diverging
-        "brown-green" | "browngreen" | "brbg" => ColorMap::BrownGreen,
-        "pink-green" | "pinkgreen" | "piyg" => ColorMap::PinkGreen,
-        "purple-green" | "purplegreen" | "prgn" => ColorMap::PurpleGreen,
-        "purple-orange" | "purpleorange" | "puor" => ColorMap::PurpleOrange,
-        "red-blue" | "redblue" | "rdbu" => ColorMap::RedBlue,
-        "red-grey" | "red-gray" | "redgrey" | "redgray" | "rdgy" => ColorMap::RedGrey,
-        "red-yellow-blue" | "redyellowblue" | "rdylbu" => ColorMap::RedYellowBlue,
-        "red-yellow-green" | "redyellowgreen" | "rdylgn" => ColorMap::RedYellowGreen,
-        "spectral" => ColorMap::Spectral,
-        // Cyclical
-        "rainbow" => ColorMap::Rainbow,
-        "sinebow" => ColorMap::Sinebow,
-        _ => {
-            eprintln!(
-                "warning: unknown colormap '{name}', using viridis. \
-                Run with --help to see accepted names."
-            );
-            ColorMap::Viridis
-        }
-    }
+    colormap_from_name(name).unwrap_or_else(|| {
+        eprintln!(
+            "warning: unknown colormap '{name}', using viridis. \
+            Run `kuva palettes --colormaps` to see the available names."
+        );
+        kuva::plot::ColorMap::Viridis
+    })
 }
 
 #[cfg(test)]

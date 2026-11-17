@@ -220,7 +220,7 @@ These flags are available on every subcommand.
 | `--width <PX>` | `800` | Canvas width in pixels |
 | `--height <PX>` | `500` | Canvas height in pixels |
 | `--theme <NAME>` | `light` | Theme: `light`, `dark`, `solarized`, `minimal` |
-| `--palette <NAME>` | `category10` | Color palette for multi-series plots |
+| `--palette <NAME>` | `category10` | Color palette for multi-series plots. `kuva palettes` lists them |
 | `--cvd-palette <NAME>` | — | Colour-vision-deficiency palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
 | `--bw` | off | [Black & white / accessibility mode](../reference/bw_mode.md) — replaces colors with grey shades, hatch patterns, dash styles, and marker shapes so the plot stays legible in greyscale |
 | `--background <COLOR>` | *(theme default)* | SVG background color (any CSS color string) |
@@ -477,6 +477,7 @@ All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | Subcommand | Description |
 |---|---|
 | [twin-y](../plots/twin_y.md#cli) | Two series sharing an x-axis with independent primary/secondary y-scales |
+| `palettes` | Preview the named palettes, colormaps and logo colour schemes in the terminal (see below) |
 
 ---
 
@@ -498,6 +499,16 @@ kuva scatter data.tsv -o /tmp/out.png      # requires --features png
 kuva manhattan gwas.tsv --chr-col chr --pvalue-col pvalue \
     --theme dark --background "#1a1a2e" -o manhattan_dark.svg
 ```
+
+**Previewing palettes and colormaps:**
+```bash
+kuva palettes                  # --palette and --cvd-palette names, with swatches
+kuva palettes --colormaps      # --colormap names as gradient bars
+kuva palettes --logo           # kuva logo letter presets
+kuva palettes --all --hex      # everything, with hex codes
+kuva palettes wong viridis     # just these, with hex codes
+```
+Swatches use 24-bit terminal colour. When the output is piped, or `NO_COLOR` is set, names and hex codes are printed instead; `--color always|never` overrides the detection.
 
 **Colour-vision-deficiency palette:**
 ```bash
