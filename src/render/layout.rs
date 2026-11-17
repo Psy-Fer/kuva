@@ -748,7 +748,6 @@ impl Layout {
                 }
             }
 
-            #[cfg(feature = "logo")]
             if let Plot::SequenceLogo(sl) = plot {
                 let groups = sl.legend_groups();
                 if !groups.is_empty() {
@@ -1751,7 +1750,6 @@ impl Layout {
         // ticks like "2.5" are nonsense for base positions.  Pin the exact
         // axis span so `auto_nice_range` doesn't pad the first / last column
         // away from the y-axis.
-        #[cfg(feature = "logo")]
         if let Some(sl) = plots.iter().find_map(|p| match p {
             Plot::SequenceLogo(sl) => Some(sl),
             _ => None,

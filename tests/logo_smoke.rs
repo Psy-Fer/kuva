@@ -1,7 +1,5 @@
 //! End-to-end tests for the sequence-logo plot type.
 
-#![cfg(feature = "logo")]
-
 mod common;
 
 use kuva::plot::logo::{parse_fasta, Alphabet, LogoUnits, PalettePreset, SequenceLogo, GAP_LETTER};

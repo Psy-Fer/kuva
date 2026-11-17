@@ -13501,7 +13501,6 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::LegendPlot(_) => {}
-            #[cfg(feature = "logo")]
             Plot::SequenceLogo(sl) => {
                 // One row per distinct color, labelled with the letters
                 // sharing it — chemistry-group palettes map many letters
@@ -16548,7 +16547,6 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     // Sequence logos size their canvas here (and may wrap onto rows).
-    #[cfg(feature = "logo")]
     let layout = {
         let mut layout = layout;
         if let Some(scene) = crate::render::logo_render::prepare_logo(&plots, &mut layout) {
@@ -17130,7 +17128,6 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Quiver(q) => {
                 add_quiver(q, &mut scene, &computed);
             }
-            #[cfg(feature = "logo")]
             Plot::SequenceLogo(sl) => {
                 crate::render::logo_render::add_sequence_logo(sl, &mut scene, &computed, &layout);
             }
@@ -17196,7 +17193,6 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     }
 
     // Sequence-logo consensus row sits below the x tick labels — emit after ClipEnd.
-    #[cfg(feature = "logo")]
     for plot in plots.iter() {
         if let Plot::SequenceLogo(sl) = plot {
             if sl.show_consensus {

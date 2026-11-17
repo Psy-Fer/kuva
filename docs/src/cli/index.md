@@ -462,7 +462,7 @@ All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | [manhattan](../plots/manhattan.md#cli) | Manhattan plot for GWAS results |
 | [volcano](../plots/volcano.md#cli) | Volcano plot for differential expression |
 | [synteny](../plots/synteny.md#cli) | Genomic alignment ribbon plot |
-| [logo](../plots/logo.md#cli) | Sequence logo from a PWM or aligned FASTA set (`logo` feature) |
+| [logo](../plots/logo.md#cli) | Sequence logo from a PWM or aligned FASTA set |
 
 ### 3D
 

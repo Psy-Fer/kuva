@@ -24,7 +24,6 @@ mod histogram;
 mod horizon;
 mod layout_args;
 mod line;
-#[cfg(feature = "logo")]
 mod logo;
 mod lollipop;
 mod manhattan;
@@ -180,7 +179,6 @@ enum Commands {
     /// Genomic coverage plot — stacked depth tracks + variants + feature bands on a shared locus.
     Coverage(coverage::CoverageArgs),
     /// Sequence logo — stacked-letter plot of a PWM or aligned FASTA set.
-    #[cfg(feature = "logo")]
     Logo(logo::LogoArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
@@ -258,7 +256,6 @@ fn main() {
         Commands::Quiver3D(args) => quiver3d::run(args),
         Commands::TwinY(args) => twin_y::run(args),
         Commands::Coverage(args) => coverage::run(args),
-        #[cfg(feature = "logo")]
         Commands::Logo(args) => logo::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),

@@ -2069,7 +2069,6 @@ fn test_roc_near_scores_auc_label() {
 // ── logo ─────────────────────────────────────────────────────────────────────
 
 /// FASTA through stdin (forced with --from) renders letter glyph paths.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_fasta_stdin() {
     let fasta = ">s1\nACGT\n>s2\nACGT\n>s3\nACGA\n";
@@ -2086,7 +2085,6 @@ fn test_logo_fasta_stdin() {
 }
 
 /// PWM file input with WebLogo-style letter headers.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_pwm_file() {
     let (stdout, stderr, code) = run_with_file(&["logo", &data("logo.pwm")]);
@@ -2096,7 +2094,6 @@ fn test_logo_pwm_file() {
 }
 
 /// --palette selects a logo preset; mono renders black letters.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_palette_mono() {
     let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--palette", "mono"]);
@@ -2108,7 +2105,6 @@ fn test_logo_palette_mono() {
 }
 
 /// An unknown --palette errors with the available preset names.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_palette_unknown_errors() {
     let (_, stderr, code) =
@@ -2118,7 +2114,6 @@ fn test_logo_palette_unknown_errors() {
 }
 
 /// --reverse-complement on a protein alphabet is an error.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_reverse_complement_protein_errors() {
     let (_, _, code) = run_with_file(&[
@@ -2132,7 +2127,6 @@ fn test_logo_reverse_complement_protein_errors() {
 }
 
 /// --start shifts the displayed x-axis labels.
-#[cfg(feature = "logo")]
 #[test]
 fn test_logo_start_offset() {
     let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--start", "500"]);

@@ -14,7 +14,6 @@ bundled face (DejaVu Sans Mono Bold) gives `I` serifs, so it survives the
 stretch.
 
 **Import path:** `kuva::plot::logo::SequenceLogo`
-**Feature gate:** `logo` (adds `ttf-parser` + the bundled bold-font asset).
 
 ---
 
@@ -232,8 +231,6 @@ let logo = SequenceLogo::from_matrix(matrix, Alphabet::Dna);
 ---
 
 ## CLI
-
-**Requires the `logo` feature** (included in `--features full`).
 
 **Input:** either an aligned FASTA file (`.fa`, `.fasta`, `.fna`, `.faa`,
 `.aln`, `.afa`) or a matrix file (`.csv`, `.tsv`, `.txt`, `.pwm`, `.ppm`).

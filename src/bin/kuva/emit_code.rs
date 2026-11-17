@@ -31,7 +31,6 @@ use crate::layout_args::{
     parse_signif_format, parse_signif_spec, AxisArgs, BaseArgs, LogArgs, SignifArgs,
 };
 use kuva::plot::annotations::{BracketAnchor, BracketLabel};
-#[cfg(feature = "logo")]
 use kuva::plot::logo::{Alphabet, LogoUnits, PalettePreset, SequenceLogo};
 
 // Tier 2 additions (line/histogram/violin/roc/survival) — kept as a separate
@@ -5017,7 +5016,6 @@ pub fn emit_scatter3d_plot(p: &Scatter3DPlot) -> String {
 
 // ── Sequence logo (feature `logo`) ───────────────────────────────────────────
 
-#[cfg(feature = "logo")]
 fn alphabet_ctor(alphabet: &Alphabet) -> String {
     match alphabet {
         Alphabet::Dna => "Alphabet::Dna".to_string(),
@@ -5034,7 +5032,6 @@ fn alphabet_ctor(alphabet: &Alphabet) -> String {
     }
 }
 
-#[cfg(feature = "logo")]
 fn palette_preset_ctor(preset: PalettePreset) -> &'static str {
     match preset {
         PalettePreset::Classic => "PalettePreset::Classic",
@@ -5047,7 +5044,6 @@ fn palette_preset_ctor(preset: PalettePreset) -> &'static str {
     }
 }
 
-#[cfg(feature = "logo")]
 fn logo_units_ctor(units: LogoUnits) -> &'static str {
     match units {
         LogoUnits::Bits => "LogoUnits::Bits",
@@ -5063,7 +5059,6 @@ fn logo_units_ctor(units: LogoUnits) -> &'static str {
 /// FASTA-built logos keep their sequences (`source_sequences`), so they are
 /// emitted through `from_sequences` and reproduce the small-sample correction
 /// and case/gap handling exactly; matrix-built logos emit the matrix.
-#[cfg(feature = "logo")]
 pub fn emit_sequence_logo(
     p: &SequenceLogo,
     preset: PalettePreset,

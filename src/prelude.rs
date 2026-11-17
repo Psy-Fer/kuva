@@ -168,7 +168,6 @@ pub use crate::plot::{
     ZReduce,
 };
 
-#[cfg(feature = "logo")]
 pub use crate::plot::{
     Alphabet, AlphabetPalette, LogoUnits, MatrixOrientation, PalettePreset, SequenceLogo,
 };

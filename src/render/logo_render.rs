@@ -1,8 +1,8 @@
 //! Rendering for [`crate::plot::logo::SequenceLogo`].
 //!
-//! The SVG/PNG/PDF path emits stacked glyph outlines: bold contours
-//! extracted with `ttf-parser`, converted to SVG path `d` strings,
-//! and mapped onto each (position × probability-fraction) cell.  Letters
+//! The SVG/PNG/PDF path emits stacked glyph outlines: bold letter contours
+//! baked into source (`render::logo_glyphs`), mapped onto each
+//! (position × probability-fraction) cell.  Letters
 //! therefore stretch non-uniformly on the y-axis, matching the
 //! Schneider / Stephens convention.
 //!
@@ -11,139 +11,12 @@
 //! per position, cell count proportional to each letter's contribution —
 //! because a char grid cannot stretch a glyph.
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
-
-use ttf_parser::{Face, GlyphId, OutlineBuilder};
-
 use crate::plot::logo::SequenceLogo;
 use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
 use crate::render::render::{PathData, Primitive, Scene, TextAnchor};
 use crate::render::text_metrics::{ascent, line_height, FontStyle};
-
-/// Cached glyph outlines for one typeface, keyed by character.
-struct GlyphCache {
-    outlines: HashMap<char, GlyphOutline>,
-}
-
-struct GlyphOutline {
-    /// Path `d` string in font-em units (y-up).
-    path_em: String,
-    /// X-range covered by the outline (font-em units).
-    ///
-    /// Using the outline bbox rather than the advance width strips the
-    /// font's side bearings, so a stretched glyph fills its column edge
-    /// to edge — the canonical WebLogo look.
-    x_min_em: f64,
-    x_max_em: f64,
-    /// Y-range covered by the outline (font-em units, y-up).
-    y_min_em: f64,
-    y_max_em: f64,
-}
-
-fn build_cache(bytes: &[u8]) -> GlyphCache {
-    let face = Face::parse(bytes, 0).expect("bundled logo font TTF failed to parse");
-    // Precompute A-Z, a-z, digits, and gap/wildcard letters so any common
-    // alphabet is covered in one pass.
-    let candidates: Vec<char> = ('A'..='Z')
-        .chain('a'..='z')
-        .chain('0'..='9')
-        .chain(['-', '.', '*', '?'])
-        .collect();
-    let outlines = candidates
-        .into_iter()
-        .filter_map(|c| build_glyph(&face, c).map(|o| (c, o)))
-        .collect();
-    GlyphCache { outlines }
-}
-
-fn glyph_cache() -> &'static GlyphCache {
-    static CACHE: OnceLock<GlyphCache> = OnceLock::new();
-    CACHE.get_or_init(|| build_cache(crate::fonts::logo_font()))
-}
-
-fn build_glyph(face: &Face, c: char) -> Option<GlyphOutline> {
-    let glyph_id: GlyphId = face.glyph_index(c)?;
-    let mut builder = PathBuilder::default();
-    let bbox = face.outline_glyph(glyph_id, &mut builder)?;
-    Some(GlyphOutline {
-        path_em: builder.path,
-        x_min_em: bbox.x_min as f64,
-        x_max_em: bbox.x_max as f64,
-        y_min_em: bbox.y_min as f64,
-        y_max_em: bbox.y_max as f64,
-    })
-}
-
-/// Builds an SVG path `d` string from a glyph outline, emitting only
-/// `M` / `L` / `C` / `Z`.
-///
-/// TrueType outlines are quadratic, but kuva's rasteriser understands only
-/// `m l h v c a z` — a `Q` command is silently dropped, which makes every
-/// curved letter (C, G, O, S…) vanish from PNG output while straight-line
-/// letters (A, T) survive. Every quadratic is therefore degree-elevated to
-/// its exact cubic equivalent here, so all backends see the same commands
-/// and render identically.
-#[derive(Default)]
-struct PathBuilder {
-    path: String,
-    /// Current pen position — the quadratic's implicit start point.
-    cx: f32,
-    cy: f32,
-    /// Start of the current subpath, restored by `close`.
-    start: (f32, f32),
-}
-
-impl OutlineBuilder for PathBuilder {
-    fn move_to(&mut self, x: f32, y: f32) {
-        use std::fmt::Write;
-        let _ = write!(self.path, "M{:.2} {:.2}", x, y);
-        self.cx = x;
-        self.cy = y;
-        self.start = (x, y);
-    }
-    fn line_to(&mut self, x: f32, y: f32) {
-        use std::fmt::Write;
-        let _ = write!(self.path, "L{:.2} {:.2}", x, y);
-        self.cx = x;
-        self.cy = y;
-    }
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        use std::fmt::Write;
-        // Exact degree elevation of a quadratic (P0, P1, P2) to a cubic:
-        //   C1 = P0 + ⅔(P1 − P0)      C2 = P2 + ⅔(P1 − P2)
-        // The curve is identical, not an approximation.
-        const T: f32 = 2.0 / 3.0;
-        let c1x = self.cx + T * (x1 - self.cx);
-        let c1y = self.cy + T * (y1 - self.cy);
-        let c2x = x + T * (x1 - x);
-        let c2y = y + T * (y1 - y);
-        let _ = write!(
-            self.path,
-            "C{:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
-            c1x, c1y, c2x, c2y, x, y
-        );
-        self.cx = x;
-        self.cy = y;
-    }
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        use std::fmt::Write;
-        let _ = write!(
-            self.path,
-            "C{:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
-            x1, y1, x2, y2, x, y
-        );
-        self.cx = x;
-        self.cy = y;
-    }
-    fn close(&mut self) {
-        self.path.push('Z');
-        self.cx = self.start.0;
-        self.cy = self.start.1;
-    }
-}
 
 /// Em-space bounding box of a glyph outline.
 #[derive(Clone, Copy)]
@@ -285,7 +158,6 @@ pub fn add_sequence_logo(
 
 /// Vector path rendering — SVG / PNG / PDF.
 fn add_glyph_stack(sl: &SequenceLogo, scene: &mut Scene, computed: &ComputedLayout) {
-    let cache = glyph_cache();
     let n = sl.n_positions();
 
     for (pos_idx, source_idx) in source_indices(n, sl.reverse_complement)
@@ -328,12 +200,12 @@ fn add_glyph_stack(sl: &SequenceLogo, scene: &mut Scene, computed: &ComputedLayo
             let color = sl.palette.color_of(display_letter);
             let color_str = format!("rgb({},{},{})", color[0], color[1], color[2]);
 
-            if let Some(outline) = cache.outlines.get(&display_letter) {
+            if let Some(outline) = crate::render::logo_glyphs::glyph(display_letter) {
                 let em = EmBox {
-                    x_min: outline.x_min_em,
-                    y_min: outline.y_min_em,
-                    x_max: outline.x_max_em,
-                    y_max: outline.y_max_em,
+                    x_min: outline.x_min,
+                    y_min: outline.y_min,
+                    x_max: outline.x_max,
+                    y_max: outline.y_max,
                 };
                 // Each letter fills its column, less a hair of breathing room
                 // so neighbouring columns don't touch.
@@ -344,7 +216,7 @@ fn add_glyph_stack(sl: &SequenceLogo, scene: &mut Scene, computed: &ComputedLayo
                     w: col_w - 2.0 * inset,
                     h: cell_h,
                 };
-                let d = transform_path(&outline.path_em, em, dst);
+                let d = transform_path(outline.path, em, dst);
                 scene.add(Primitive::Path(Box::new(PathData {
                     d,
                     fill: Some(Color::from(color_str.as_str())),

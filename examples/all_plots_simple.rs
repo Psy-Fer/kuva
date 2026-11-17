@@ -1,4 +1,4 @@
-//! Compact showcase of all 65 kuva plot types in a 12×6 Figure grid.
+//! Compact showcase of all 66 kuva plot types in a 12×6 Figure grid.
 //! Each cell uses minimal inline data — see all_plots_complex for larger
 //! datasets with axes, legends, and titles.
 //!
@@ -9,6 +9,7 @@
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::brick::BrickTemplate;
+use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::{
     BandPlot, BarPlot, BoxPlot, BrickPlot, BumpPlot, CalendarPlot, CandlestickPlot, ChordPlot,
     Clustermap, ContourPlot, DensityPlot, DicePlot, DotPlot, EcdfPlot, ForestPlot, FunnelPlot,
@@ -704,7 +705,20 @@ fn main() {
             (-y * 0.4, x * 0.4, 0.3)
         });
 
-    // ── Assemble 12×6 Figure (row-major, 67 cells; row 11 holds Quiver3D) ─────
+    // 67: SequenceLogo (small DNA motif)
+    let logo = SequenceLogo::from_sequences(
+        [
+            "GCCACCATGG",
+            "CCCACCATGG",
+            "GCCGCCATGG",
+            "ACCACCATGC",
+            "GCCACCATGA",
+        ],
+        Alphabet::Dna,
+    )
+    .unwrap();
+
+    // ── Assemble 12×6 Figure (row-major, 68 cells; row 11: Quiver3D, Logo) ────
 
     let all_plots: Vec<Vec<Plot>> = vec![
         // Row 0: Scatter, Line, Bar, Histogram, Histogram2D, Hexbin
@@ -788,8 +802,9 @@ fn main() {
         vec![Plot::Pareto(pareto)],
         vec![Plot::Band(ribbon_band), Plot::Line(ribbon_line)],
         vec![Plot::LegendPlot(legend)],
-        // Row 11: Quiver3D
+        // Row 11: Quiver3D, SequenceLogo
         vec![Plot::Quiver3D(quiver3d)],
+        vec![Plot::SequenceLogo(logo)],
     ];
 
     let layouts: Vec<Layout> = all_plots
