@@ -1,7 +1,7 @@
 use crate::plot::annotations::{stack_levels, BracketAnchor, SignificanceBracket};
 use crate::plot::axis_break::AxisBreak;
 use crate::plot::hexbin::{HexbinPlot, ZReduce};
-use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition};
+use crate::plot::legend::{LegendEntry, LegendGroup, LegendPosition, LegendShape};
 use crate::plot::pareto::ParetoBar;
 use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
 use crate::render::datetime::DateTimeAxis;
@@ -382,6 +382,11 @@ pub struct Layout {
     /// `colorbar_tick_format` (which the user may set after `auto_from_plots`). `None`
     /// when no colorbar is present or the layout was built by hand.
     pub(crate) colorbar_tick_values: Option<Vec<f64>>,
+    /// Plot-area size (width, height) a plot asked for, used instead of the default 600 x 450
+    /// when the canvas size isn't set. Set by `auto_from_plots` for a `Clustermap` with a
+    /// fixed cell size, so the canvas is the margins (resolved at render time, after any
+    /// title or legend added later) plus exactly the room the table needs.
+    pub(crate) auto_plot_size: (Option<f64>, Option<f64>),
     pub y2_range: Option<(f64, f64)>,
     pub data_y2_range: Option<(f64, f64)>,
     pub y2_label: Option<String>,
@@ -609,6 +614,7 @@ impl Layout {
             y_tick_format: TickFormat::Auto,
             colorbar_tick_format: TickFormat::Auto,
             colorbar_tick_values: None,
+            auto_plot_size: (None, None),
             y2_range: None,
             data_y2_range: None,
             y2_label: None,
@@ -987,6 +993,7 @@ impl Layout {
             }
 
             if matches!(plot, Plot::Heatmap(_) | Plot::Histogram2d(_))
+                || matches!(plot, Plot::Clustermap(cm) if cm.uses_colorbar())
                 || matches!(plot, Plot::Hexbin(hb) if hb.show_colorbar)
                 || matches!(plot, Plot::Treemap(tm) if matches!(tm.color_mode, crate::plot::treemap::TreemapColorMode::ByValue(_)) && tm.show_colorbar)
                 || matches!(plot, Plot::Sunburst(sb) if matches!(sb.color_mode, crate::plot::sunburst::SunburstColorMode::ByValue(_)) && sb.show_colorbar)
@@ -1933,6 +1940,53 @@ impl Layout {
                         }
                     }
                 }
+            }
+        }
+
+        // Clustermap categorical annotation tracks: one titled legend group per track, laid
+        // out by the grouped-legend path (which also widens the legend to fit).
+        for plot in plots.iter() {
+            if let Plot::Clustermap(cm) = plot {
+                // The cells' own swatch legend (categorical / binned) first, then one group
+                // per categorical annotation track.
+                for (title, entries) in cm
+                    .cell_legend_group()
+                    .into_iter()
+                    .chain(cm.annotation_legend_groups())
+                {
+                    let entries = entries
+                        .into_iter()
+                        .map(|e| LegendEntry {
+                            label: e.label,
+                            color: e.color,
+                            shape: LegendShape::Rect,
+                            dasharray: None,
+                        })
+                        .collect();
+                    layout = layout.with_legend_group(title, entries);
+                }
+            }
+        }
+
+        // Clustermap with a fixed cell size: ask for exactly the plot area the table needs.
+        // The canvas is that plus the margins, which are resolved at render time, so a title
+        // or legend added after this still leaves the cells at the requested size.
+        for plot in plots.iter() {
+            if let Plot::Clustermap(cm) = plot {
+                let Some((cw, ch)) = cm.cell_size else {
+                    continue;
+                };
+                let (rows, cols) = cm.dims();
+                if rows == 0 || cols == 0 {
+                    continue;
+                }
+                let body_size = layout.body_size as f64 * layout.scale.max(0.1);
+                let f = crate::render::render::clustermap_frame(cm, body_size);
+                layout.auto_plot_size = (
+                    Some(f.left() + cols as f64 * cw + f.right()),
+                    Some(f.top() + rows as f64 * ch + f.bottom()),
+                );
+                break;
             }
         }
 
@@ -3971,7 +4025,9 @@ impl ComputedLayout {
                 None => vec![1; layout.legend_entry_count],
             };
             let title_lines = layout.legend_title.as_deref().map_or(0, wrap_lines);
-            let canvas_h_est = layout.height.unwrap_or(margin_top + 450.0 + margin_bottom);
+            let canvas_h_est = layout
+                .height
+                .unwrap_or(margin_top + layout.auto_plot_size.1.unwrap_or(450.0) + margin_bottom);
             let avail_h = (canvas_h_est - margin_top - 20.0 * s).max(legend_row_h);
             // At least 10 rows before reflowing, as with the old truncation cap.
             let budget_total = ((avail_h / legend_row_h).floor() as usize).max(10);
@@ -4147,8 +4203,8 @@ impl ComputedLayout {
             }
         }
 
-        let plot_width = 600.0;
-        let plot_height = 450.0;
+        let plot_width = layout.auto_plot_size.0.unwrap_or(600.0);
+        let plot_height = layout.auto_plot_size.1.unwrap_or(450.0);
 
         // Reserve space below the plot for the interactive UI strip.
         // Only applies when height is auto-computed; user-fixed heights are left unchanged.

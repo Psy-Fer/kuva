@@ -395,6 +395,7 @@ All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | [raincloud](../plots/raincloud.md#cli) | Half-violin KDE cloud, box, and jittered points combined |
 | [hexbin](../plots/hexbin.md#cli) | Hexagonal-bin density plot from two numeric columns |
 | [heatmap](../plots/heatmap.md#cli) | Color-encoded matrix heatmap |
+| [clustermap](../plots/clustermap.md#cli) | Clustered heatmap with dendrograms, annotation strips and categorical cells |
 
 ### Relationships & correlation
 

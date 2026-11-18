@@ -4,6 +4,7 @@ mod bump;
 mod calendar;
 mod candlestick;
 mod chord;
+mod clustermap;
 mod contour;
 mod coverage;
 mod data;
@@ -98,6 +99,7 @@ enum Commands {
     Manhattan(manhattan::ManhattanArgs),
     Candlestick(candlestick::CandlestickArgs),
     Heatmap(heatmap::HeatmapArgs),
+    Clustermap(clustermap::ClustermapArgs),
     #[command(name = "hist2d")]
     Hist2d(hist2d::Hist2dArgs),
     Contour(contour::ContourArgs),
@@ -214,6 +216,7 @@ fn main() {
         Commands::Manhattan(args) => manhattan::run(args),
         Commands::Candlestick(args) => candlestick::run(args),
         Commands::Heatmap(args) => heatmap::run(args),
+        Commands::Clustermap(args) => clustermap::run(args),
         Commands::Hist2d(args) => hist2d::run(args),
         Commands::Contour(args) => contour::run(args),
         Commands::Dot(args) => dot::run(args),

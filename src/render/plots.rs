@@ -1598,8 +1598,8 @@ impl Plot {
                 n + 70
             }
             Plot::Clustermap(c) => {
-                let cells: usize = c.data.iter().map(|r| r.len()).sum();
-                cells + 500
+                let (rows, cols) = c.dims();
+                rows * cols + 500
             }
             Plot::Joint(jp) => {
                 jp.groups
@@ -1782,17 +1782,21 @@ impl Plot {
                 )
             }
             Plot::Clustermap(cm) => {
-                if cm.data.is_empty() || cm.data.iter().all(|r| r.is_empty()) {
+                // Categorical cells and binned values get a swatch legend instead.
+                if !cm.uses_colorbar() || cm.data.is_empty() || cm.data.iter().all(|r| r.is_empty())
+                {
                     return None;
                 }
-                let min = cm
-                    .data
+                // Cells are coloured by the normalised values (e.g. row z-scores), so the
+                // colorbar must span those, not the raw data.
+                let values =
+                    crate::render::render::apply_normalization(cm.data.clone(), &cm.normalization);
+                let min = values
                     .iter()
                     .flatten()
                     .cloned()
                     .fold(f64::INFINITY, f64::min);
-                let max = cm
-                    .data
+                let max = values
                     .iter()
                     .flatten()
                     .cloned()

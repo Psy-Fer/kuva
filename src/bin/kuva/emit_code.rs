@@ -3886,6 +3886,202 @@ fn emit_owned_string_vec(labels: &[String]) -> String {
         .join(", ")
 }
 
+/// `use` paths a `Clustermap` snippet needs.
+pub fn clustermap_uses(cm: &kuva::plot::clustermap::Clustermap) -> Vec<&'static str> {
+    let mut uses = vec!["kuva::plot::clustermap::Clustermap"];
+    if !cm.row_annotations.is_empty() || !cm.col_annotations.is_empty() {
+        uses.push("kuva::plot::clustermap::AnnotationTrack");
+    }
+    if !matches!(
+        cm.normalization,
+        kuva::plot::clustermap::ClustermapNorm::None
+    ) {
+        uses.push("kuva::plot::clustermap::ClustermapNorm");
+    }
+    if cm.categorical_data.is_none() && !matches!(cm.color_map, ColorMap::Viridis) {
+        uses.push("kuva::plot::ColorMap");
+    }
+    if cm.col_label_side != kuva::plot::ColLabelSide::Bottom {
+        uses.push("kuva::plot::ColLabelSide");
+    }
+    if cm.row_label_side != kuva::plot::RowLabelSide::Right {
+        uses.push("kuva::plot::RowLabelSide");
+    }
+    if cm.annotation_placement != kuva::plot::AnnotationPlacement::OutsideLabels {
+        uses.push("kuva::plot::AnnotationPlacement");
+    }
+    uses
+}
+
+fn emit_string_vec(values: &[String]) -> String {
+    format!(
+        "vec![{}]",
+        values
+            .iter()
+            .map(|v| str_lit(v))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn emit_pairs(pairs: &[(String, String)]) -> String {
+    format!(
+        "[{}]",
+        pairs
+            .iter()
+            .map(|(k, v)| format!("({}, {})", str_lit(k), str_lit(v)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn emit_annotation_track(t: &kuva::plot::clustermap::AnnotationTrack) -> String {
+    let mut frags = Vec::new();
+    let ctor = match t.categories {
+        Some(ref values) => format!("AnnotationTrack::categorical({})", emit_string_vec(values)),
+        None => format!("AnnotationTrack::new({})", emit_string_vec(&t.colors)),
+    };
+    if let Some(ref label) = t.label {
+        frags.push(format!(".with_label({})", str_lit(label)));
+    }
+    for (k, v) in &t.style.colors {
+        frags.push(format!(
+            ".with_category_color({}, {})",
+            str_lit(k),
+            str_lit(v)
+        ));
+    }
+    for (k, v) in &t.style.labels {
+        frags.push(format!(
+            ".with_category_label({}, {})",
+            str_lit(k),
+            str_lit(v)
+        ));
+    }
+    if !t.style.order.is_empty() {
+        frags.push(format!(
+            ".with_category_order({})",
+            emit_string_vec(&t.style.order)
+        ));
+    }
+    if let Some(ref na) = t.style.na_label {
+        frags.push(format!(".with_na_label({})", str_lit(na)));
+    }
+    if (t.width - 15.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_width({})", f64_lit(t.width)));
+    }
+    chain(&ctor, frags)
+}
+
+pub fn emit_clustermap_plot(cm: &kuva::plot::clustermap::Clustermap) -> String {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let mut frags: Vec<String> = Vec::new();
+    match cm.categorical_data {
+        Some(ref d) => frags.push(format!(
+            ".with_categorical_data(vec![{}])",
+            d.iter()
+                .map(|r| emit_string_vec(r))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        None => frags.push(format!(".with_data({})", emit_matrix(&cm.data))),
+    }
+    if let Some(ref l) = cm.row_labels {
+        frags.push(format!(".with_row_labels({})", emit_string_vec(l)));
+    }
+    if let Some(ref l) = cm.col_labels {
+        frags.push(format!(".with_col_labels({})", emit_string_vec(l)));
+    }
+    if cm.categorical_data.is_none() {
+        if !cm.cluster_rows {
+            frags.push(".with_cluster_rows(false)".to_string());
+        }
+        if !cm.cluster_cols {
+            frags.push(".with_cluster_cols(false)".to_string());
+        }
+        match cm.normalization {
+            ClustermapNorm::None => {}
+            ClustermapNorm::RowZScore => {
+                frags.push(".with_normalization(ClustermapNorm::RowZScore)".to_string())
+            }
+            ClustermapNorm::ColZScore => {
+                frags.push(".with_normalization(ClustermapNorm::ColZScore)".to_string())
+            }
+        }
+        if !matches!(cm.color_map, ColorMap::Viridis) {
+            frags.push(format!(
+                ".with_color_map({})",
+                color_map_ctor(&cm.color_map)
+            ));
+        }
+    } else {
+        if !cm.cell_style.colors.is_empty() {
+            frags.push(format!(
+                ".with_category_colors({})",
+                emit_pairs(&cm.cell_style.colors)
+            ));
+        }
+        if !cm.cell_style.labels.is_empty() {
+            frags.push(format!(
+                ".with_category_labels({})",
+                emit_pairs(&cm.cell_style.labels)
+            ));
+        }
+        if !cm.cell_style.order.is_empty() {
+            frags.push(format!(
+                ".with_category_order({})",
+                emit_string_vec(&cm.cell_style.order)
+            ));
+        }
+    }
+    for t in &cm.col_annotations {
+        frags.push(format!(
+            ".with_col_annotation({})",
+            emit_annotation_track(t)
+        ));
+    }
+    for t in &cm.row_annotations {
+        frags.push(format!(
+            ".with_row_annotation({})",
+            emit_annotation_track(t)
+        ));
+    }
+    if let Some(ref na) = cm.cell_style.na_label {
+        frags.push(format!(".with_na_label({})", str_lit(na)));
+    }
+    if cm.annotation_placement != kuva::plot::AnnotationPlacement::OutsideLabels {
+        frags.push(".with_annotation_placement(AnnotationPlacement::NextToCells)".to_string());
+    }
+    if !cm.annotation_legend {
+        frags.push(".with_annotation_legend(false)".to_string());
+    }
+    if cm.show_values {
+        frags.push(".with_values()".to_string());
+    }
+    if let Some(ref label) = cm.legend_label {
+        frags.push(format!(".with_legend({})", str_lit(label)));
+    }
+    if cm.col_label_side != kuva::plot::ColLabelSide::Bottom {
+        frags.push(".with_col_labels_position(ColLabelSide::Top)".to_string());
+    }
+    if cm.row_label_side != kuva::plot::RowLabelSide::Right {
+        frags.push(".with_row_labels_position(RowLabelSide::Left)".to_string());
+    }
+    if (cm.col_label_rotation - 45.0).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_col_label_rotation({})",
+            f64_lit(cm.col_label_rotation)
+        ));
+    }
+    if let Some((w, h)) = cm.cell_size {
+        frags.push(format!(".with_cell_size({}, {})", f64_lit(w), f64_lit(h)));
+    }
+    if let Some(g) = cm.cell_gap {
+        frags.push(format!(".with_cell_gap({})", f64_lit(g)));
+    }
+    chain("Clustermap::new()", frags)
+}
+
 pub fn emit_heatmap_plot(p: &Heatmap) -> String {
     let mut frags: Vec<String> = vec![format!(".with_data({})", emit_matrix(&p.data))];
     let rows = p.row_labels.clone().unwrap_or_default();

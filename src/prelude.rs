@@ -9,6 +9,7 @@
 
 // ── Plot structs ─────────────────────────────────────────────────────────────
 pub use crate::plot::{
+    AnnotationPlacement,
     AnnotationTrack,
     BandPlot,
     BarPlot,
@@ -25,6 +26,7 @@ pub use crate::plot::{
     ChromSpan,
     Clustermap,
     ClustermapNorm,
+    ColLabelSide,
     ColorMap,
     ContourPlot,
     CurveStyle as BumpCurveStyle,
@@ -112,6 +114,7 @@ pub use crate::plot::{
     RoseMode,
     RosePlot,
     RoseSeries,
+    RowLabelSide,
     SankeyAlluvium,
     SankeyLink,
     SankeyLinkColor,

@@ -320,7 +320,9 @@ use crate::plot::calendar::{
 };
 use crate::plot::candlestick::{CandleDataPoint, CandlestickPlot};
 use crate::plot::chord::ChordPlot;
-use crate::plot::clustermap::{Clustermap, ClustermapNorm};
+use crate::plot::clustermap::{
+    AnnotationPlacement, Clustermap, ClustermapNorm, ColLabelSide, RowLabelSide,
+};
 use crate::plot::contour::ContourPlot;
 use crate::plot::density::DensityPlot;
 use crate::plot::diceplot::DicePlot;
@@ -8062,7 +8064,7 @@ fn euclidean_dist_matrix(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     dm
 }
 
-fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) -> Vec<Vec<f64>> {
+pub(crate) fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) -> Vec<Vec<f64>> {
     match norm {
         ClustermapNorm::None => data,
         ClustermapNorm::RowZScore => data
@@ -8359,6 +8361,162 @@ fn draw_col_dendrogram(
     }
 }
 
+/// Room a [`Clustermap`] needs around its cell body inside the plot area: dendrograms,
+/// annotation strips, label bands, and padding for slanted labels that reach sideways. It
+/// depends only on the clustermap and the text size, never on the body's size, so the
+/// renderer and [`with_cell_size`](Clustermap::with_cell_size) canvas sizing agree exactly.
+pub(crate) struct ClustermapFrame {
+    pub pad_left: f64,
+    pub pad_right: f64,
+    pub row_dend_w: f64,
+    pub row_annot_w: f64,
+    pub left_label_w: f64,
+    pub right_label_w: f64,
+    pub col_dend_h: f64,
+    pub col_annot_h: f64,
+    pub top_label_h: f64,
+    pub bottom_h: f64,
+    /// Column label slant in degrees, `0..=90`.
+    pub rot: f64,
+    pub col_top: bool,
+    pub row_left: bool,
+    /// Column strips sit between the column labels and the cells (labels on top only).
+    pub col_strips_inner: bool,
+    /// Row strips sit between the row labels and the cells (labels on the left only).
+    pub row_strips_inner: bool,
+    /// How far left of the body the column-strip labels' right edge sits.
+    pub col_strip_label_inset: f64,
+}
+
+impl ClustermapFrame {
+    /// Width left of the body.
+    pub fn left(&self) -> f64 {
+        self.pad_left + self.row_dend_w + self.row_annot_w + self.left_label_w
+    }
+    /// Width right of the body.
+    pub fn right(&self) -> f64 {
+        self.right_label_w + self.pad_right
+    }
+    /// Height above the body.
+    pub fn top(&self) -> f64 {
+        self.col_dend_h + self.col_annot_h + self.top_label_h
+    }
+    /// Height below the body.
+    pub fn bottom(&self) -> f64 {
+        self.bottom_h
+    }
+}
+
+pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64) -> ClustermapFrame {
+    let (n_rows, n_cols) = cm.dims();
+    let numeric = cm.categorical_data.is_none();
+    // Same conditions as the tree building in `add_clustermap`.
+    let has_row_tree = cm.row_tree.is_some() || (numeric && cm.cluster_rows && n_rows >= 2);
+    let has_col_tree = cm.col_tree.is_some() || (numeric && cm.cluster_cols && n_cols >= 2);
+    let row_dend_w = if has_row_tree {
+        cm.row_dendrogram_width
+    } else {
+        0.0
+    };
+    let col_dend_h = if has_col_tree {
+        cm.col_dendrogram_height
+    } else {
+        0.0
+    };
+    let row_annot_w: f64 = cm.row_annotations.iter().map(|t| t.width + 4.0).sum();
+    let col_annot_h: f64 = cm.col_annotations.iter().map(|t| t.width + 4.0).sum();
+
+    let width = |l: &str| measure_text_width(l, tsf, FontStyle::Regular);
+    let widest = |labels: &Option<Vec<String>>| {
+        labels
+            .as_ref()
+            .map(|l| widest_text_width(l.iter().map(|s| s.as_str()), tsf, FontStyle::Regular))
+    };
+    let row_label_w = widest(&cm.row_labels)
+        .map(|w| (w + 10.0).clamp(30.0, 200.0))
+        .unwrap_or(0.0);
+    let rot = cm.col_label_rotation.abs().clamp(0.0, 90.0);
+    let (sin_r, cos_r) = rot.to_radians().sin_cos();
+    // Band for the column labels: the widest label's reach away from the body at this slant,
+    // plus the text height across it and a gap either side.
+    let col_label_w = widest(&cm.col_labels);
+    let col_label_h = col_label_w
+        .map(|w| 6.0 + w * sin_r + tsf * cos_r + 4.0)
+        .unwrap_or(0.0);
+    // Row-annotation track labels hang down below the body, rotated.
+    let row_annot_label_h = cm
+        .row_annotations
+        .iter()
+        .filter_map(|t| t.label.as_deref())
+        .map(|l| width(l) + 8.0)
+        .fold(0.0, f64::max);
+    let col_top = cm.col_label_side == ColLabelSide::Top;
+    let row_left = cm.row_label_side == RowLabelSide::Left;
+    // With column labels on top, row-track labels go up there too, reading upward from just
+    // above their strip, so every label sits on the same side.
+    let (top_label_h, bottom_h) = if col_top {
+        (col_label_h.max(row_annot_label_h), 0.0)
+    } else {
+        (0.0, col_label_h.max(row_annot_label_h))
+    };
+    let left_label_w = if row_left { row_label_w } else { 0.0 };
+    let right_label_w = if row_left { 0.0 } else { row_label_w };
+
+    // A slanted label reaches sideways past its column: to the left from the first column
+    // when labels are below, to the right from the last when above. Which label ends up first
+    // depends on clustering, so reserve for the widest, where nothing else (dendrogram,
+    // annotations, row labels) already provides the room.
+    let overhang = if rot > 0.0 && rot < 90.0 {
+        col_label_w.map_or(0.0, |w| w * cos_r + tsf * 0.5 * sin_r)
+    } else {
+        0.0
+    };
+    let left_room = row_dend_w + row_annot_w + left_label_w;
+    let inner = cm.annotation_placement == AnnotationPlacement::NextToCells;
+    let col_strips_inner = inner && col_top;
+    let row_strips_inner = inner && row_left;
+    // Column-track labels are drawn right-aligned just left of the body. With column labels on
+    // top the row-track labels stand above their strips, so when the row strips touch the body
+    // the column-track labels move left past them.
+    let row_strips_touch_body = !row_left || row_strips_inner;
+    let col_strip_label_inset = if col_top && row_strips_touch_body {
+        4.0 + row_annot_w
+    } else {
+        4.0
+    };
+    let col_annot_label_w = cm
+        .col_annotations
+        .iter()
+        .filter_map(|t| t.label.as_deref())
+        .map(|l| width(l) + col_strip_label_inset)
+        .fold(0.0, f64::max);
+    let left_overhang = if col_top { 0.0 } else { overhang };
+    let pad_left = (left_overhang.max(col_annot_label_w) - left_room).max(0.0);
+    let pad_right = if col_top {
+        (overhang - right_label_w).max(0.0)
+    } else {
+        0.0
+    };
+    ClustermapFrame {
+        pad_left,
+        pad_right,
+        row_dend_w,
+        row_annot_w,
+        left_label_w,
+        right_label_w,
+        col_dend_h,
+        col_annot_h,
+        top_label_h,
+        bottom_h,
+        rot,
+        col_top,
+        row_left,
+        col_strips_inner,
+        row_strips_inner,
+        col_strip_label_inset,
+    }
+}
+
 fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout) {
     use crate::plot::phylo::post_order_dfs;
 
@@ -8367,11 +8525,12 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     } else {
         cm.color_map.clone()
     };
-    let n_rows = cm.data.len();
-    let n_cols = cm.data.first().map_or(0, |r| r.len());
+    let (n_rows, n_cols) = cm.dims();
     if n_rows == 0 || n_cols == 0 {
         return;
     }
+    // Text cells can't be clustered by distance; only a supplied tree orders them.
+    let numeric = cm.categorical_data.is_none();
 
     // ── Step 1: Build / obtain trees ─────────────────────────────────────────
 
@@ -8396,7 +8555,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     let row_tree: Option<(Vec<crate::plot::phylo::PhyloNode>, usize)> =
         if let Some(ref tree) = cm.row_tree {
             Some((tree.nodes.clone(), tree.root))
-        } else if cm.cluster_rows && n_rows >= 2 {
+        } else if numeric && cm.cluster_rows && n_rows >= 2 {
             let dist = euclidean_dist_matrix(&cm.data);
             Some(render_utils::upgma(&row_label_strs, &dist))
         } else {
@@ -8406,7 +8565,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     let col_tree: Option<(Vec<crate::plot::phylo::PhyloNode>, usize)> =
         if let Some(ref tree) = cm.col_tree {
             Some((tree.nodes.clone(), tree.root))
-        } else if cm.cluster_cols && n_cols >= 2 {
+        } else if numeric && cm.cluster_cols && n_cols >= 2 {
             let transposed: Vec<Vec<f64>> = (0..n_cols)
                 .map(|j| (0..n_rows).map(|i| cm.data[i][j]).collect())
                 .collect();
@@ -8460,11 +8619,27 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
         (0..n_cols).collect()
     };
 
-    // Reorder data matrix
-    let data: Vec<Vec<f64>> = row_perm
-        .iter()
-        .map(|&r| col_perm.iter().map(|&c| cm.data[r][c]).collect())
-        .collect();
+    // Reorder the cell matrix: numeric values, or category text in categorical mode.
+    let data: Vec<Vec<f64>> = if numeric {
+        row_perm
+            .iter()
+            .map(|&r| col_perm.iter().map(|&c| cm.data[r][c]).collect())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let cat_data: Vec<Vec<&str>> = match cm.categorical_data {
+        Some(ref d) => row_perm
+            .iter()
+            .map(|&r| {
+                col_perm
+                    .iter()
+                    .map(|&c| d[r].get(c).map_or("", String::as_str))
+                    .collect()
+            })
+            .collect(),
+        None => Vec::new(),
+    };
 
     // Reorder labels
     let row_labels_ord: Option<Vec<String>> = cm
@@ -8491,44 +8666,59 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
     let norm_val =
         |v: f64| -> f64 { ((v - v_min) / (v_max - v_min + f64::EPSILON)).clamp(0.0, 1.0) };
+    // Colour of the cell at (row, col) in display order, by gradient, category or bin.
+    let cell_entries = cm.cell_legend_group().map(|(_, e)| e).unwrap_or_default();
+    let cell_fill = |row_k: usize, col_k: usize| -> Color {
+        if !numeric {
+            Color::from(crate::plot::clustermap::category_color(
+                &cell_entries,
+                cat_data[row_k][col_k],
+            ))
+        } else if let Some(ref map) = cm.discrete_color_map {
+            Color::from(
+                map.bin_of(data[row_k][col_k])
+                    .map_or(crate::plot::clustermap::NA_COLOR, |b| b.color.as_str()),
+            )
+        } else {
+            Color::from(cmap.map(norm_val(data[row_k][col_k])))
+        }
+    };
+    // Text for a cell's value label and tooltip.
+    let cell_text = |row_k: usize, col_k: usize| -> String {
+        if numeric {
+            format!("{:.2}", data[row_k][col_k])
+        } else {
+            cat_data[row_k][col_k].to_string()
+        }
+    };
+    let n_body_rows = row_perm.len();
+    let n_body_cols = col_perm.len();
 
     // ── Step 4: Pixel layout ──────────────────────────────────────────────────
-    let ml = computed.margin_left;
+    let ts = computed.body_size;
+    let tsf = ts as f64;
+    let f = clustermap_frame(cm, tsf);
+    let (row_dend_w, col_dend_h) = (f.row_dend_w, f.col_dend_h);
+    let (rot, sin_r, cos_r) = (f.rot, f.rot.to_radians().sin(), f.rot.to_radians().cos());
+    let (col_top, row_left) = (f.col_top, f.row_left);
+
+    let ml = computed.margin_left + f.pad_left;
     let mt = computed.margin_top;
-    let pw = computed.plot_width();
-    let ph = computed.plot_height();
-
-    let row_dend_w = if row_tree.is_some() {
-        cm.row_dendrogram_width
-    } else {
-        0.0
-    };
-    let col_dend_h = if col_tree.is_some() {
-        cm.col_dendrogram_height
-    } else {
-        0.0
-    };
-    let row_annot_w: f64 = cm.row_annotations.iter().map(|t| t.width + 4.0).sum();
-    let col_annot_h: f64 = cm.col_annotations.iter().map(|t| t.width + 4.0).sum();
-
-    let row_label_w = row_labels_ord
-        .as_ref()
-        .map(|l| {
-            let widest = widest_text_width(l.iter().map(|s| s.as_str()), 12.0, FontStyle::Regular);
-            (widest + 10.0).clamp(30.0, 200.0)
-        })
-        .unwrap_or(0.0);
-    let col_label_h = if col_labels_ord.is_some() { 80.0 } else { 0.0 };
-
-    let hm_x = ml + row_dend_w + row_annot_w;
-    let hm_y = mt + col_dend_h + col_annot_h;
-    let hm_w = (pw - row_dend_w - row_annot_w - row_label_w).max(10.0);
-    let hm_h = (ph - col_dend_h - col_annot_h - col_label_h).max(10.0);
+    let hm_x = computed.margin_left + f.left();
+    let hm_y = mt + f.top();
+    let hm_w = (computed.plot_width() - f.left() - f.right()).max(10.0);
+    let hm_h = (computed.plot_height() - f.top() - f.bottom()).max(10.0);
 
     let n_rows_ord = row_perm.len().max(1);
     let n_cols_ord = col_perm.len().max(1);
     let cell_w = hm_w / n_cols_ord as f64;
     let cell_h = hm_h / n_rows_ord as f64;
+    // Drawn size of a cell (and of an annotation strip's cell) along a pitch: the pitch less
+    // the cell gap, or 99% of it by default.
+    let inset = |pitch: f64| match cm.cell_gap {
+        Some(g) => (pitch - g).max(0.0),
+        None => pitch * 0.99,
+    };
 
     // ── Step 5: Row dendrogram ────────────────────────────────────────────────
     if let Some((ref nodes, root)) = row_tree {
@@ -8565,38 +8755,54 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     // ── Step 7: Annotation tracks ─────────────────────────────────────────────
 
     // Row annotations (between row dendrogram and heatmap body)
-    let mut x_cursor = ml + row_dend_w;
-    for track in &cm.row_annotations {
+    let (col_entries, row_entries) = cm.annotation_entries();
+    // Row strips start after the dendrogram, or after the row labels when they sit inside.
+    let mut x_cursor = ml
+        + row_dend_w
+        + if f.row_strips_inner {
+            f.left_label_w
+        } else {
+            0.0
+        };
+    // Labels on top start above the column strips when those sit inside.
+    let top_label_base = hm_y
+        - 6.0
+        - if f.col_strips_inner {
+            f.col_annot_h
+        } else {
+            0.0
+        };
+    for (track, entries) in cm.row_annotations.iter().zip(&row_entries) {
         if let Some(ref label) = track.label {
-            // anchor End + rotate(-90°): the text's "end" (anchor) is the
-            // *top* of the downward-rendering text. Placing y just below
-            // hm_y + hm_h keeps 4 px of padding from the last annotation
-            // cell and the label hangs down into the col-label margin, clear
-            // of the dendrogram and all annotation boxes above.
+            // Rotated -90 deg, centred on the strip. Below the body (labels at the bottom) the
+            // text hangs down from just under the last cell (anchor End is the text's top);
+            // with column labels on top it reads upward from just above the first cell, beside
+            // the column labels.
+            let (y, anchor) = if col_top {
+                (top_label_base, TextAnchor::Start)
+            } else {
+                (hm_y + hm_h + 4.0, TextAnchor::End)
+            };
             scene.add(Primitive::Text {
-                x: x_cursor + track.width / 2.0,
-                y: hm_y + hm_h + 4.0,
+                x: x_cursor + track.width / 2.0 + center_offset(tsf, FontStyle::Regular),
+                y,
                 content: label.clone(),
                 size: computed.body_size,
-                anchor: TextAnchor::End,
+                anchor,
                 rotate: Some(-90.0),
                 bold: false,
                 color: None,
             });
         }
         for (k, &orig_row) in row_perm.iter().enumerate() {
-            let color_str = track
-                .colors
-                .get(orig_row)
-                .map(|s| s.as_str())
-                .unwrap_or("#cccccc");
+            let color_str = track.color_at(orig_row, entries);
             let y = hm_y + k as f64 * cell_h;
             scene.add(Primitive::Rect {
                 x: x_cursor,
                 y,
                 width: track.width,
-                height: cell_h * 0.99,
-                fill: Color::from(color_str),
+                height: inset(cell_h),
+                fill: Color::from(color_str.as_str()),
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
@@ -8606,11 +8812,17 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // Col annotations (between col dendrogram and heatmap body)
-    let mut y_cursor = mt + col_dend_h;
-    for track in &cm.col_annotations {
+    let mut y_cursor = mt
+        + col_dend_h
+        + if f.col_strips_inner {
+            f.top_label_h
+        } else {
+            0.0
+        };
+    for (track, entries) in cm.col_annotations.iter().zip(&col_entries) {
         if let Some(ref label) = track.label {
             scene.add(Primitive::Text {
-                x: hm_x - 4.0,
+                x: hm_x - f.col_strip_label_inset,
                 y: y_cursor + track.width / 2.0,
                 content: label.clone(),
                 size: computed.body_size,
@@ -8621,18 +8833,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
             });
         }
         for (k, &orig_col) in col_perm.iter().enumerate() {
-            let color_str = track
-                .colors
-                .get(orig_col)
-                .map(|s| s.as_str())
-                .unwrap_or("#cccccc");
+            let color_str = track.color_at(orig_col, entries);
             let x = hm_x + k as f64 * cell_w;
             scene.add(Primitive::Rect {
                 x,
                 y: y_cursor,
-                width: cell_w * 0.99,
+                width: inset(cell_w),
                 height: track.width,
-                fill: Color::from(color_str),
+                fill: Color::from(color_str.as_str()),
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
@@ -8642,7 +8850,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 8: Heatmap body ──────────────────────────────────────────────────
-    let n_cells = data.iter().map(|r| r.len()).sum::<usize>();
+    let n_cells = n_body_rows * n_body_cols;
     let use_batch = !cm.show_tooltips;
 
     if use_batch {
@@ -8651,13 +8859,13 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
         let mut ws = Vec::with_capacity(n_cells);
         let mut hs = Vec::with_capacity(n_cells);
         let mut fills = Vec::with_capacity(n_cells);
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for row_k in 0..n_body_rows {
+            for col_k in 0..n_body_cols {
                 xs.push(hm_x + col_k as f64 * cell_w);
                 ys.push(hm_y + row_k as f64 * cell_h);
-                ws.push(cell_w * 0.99);
-                hs.push(cell_h * 0.99);
-                fills.push(Color::from(cmap.map(norm_val(value))));
+                ws.push(inset(cell_w));
+                hs.push(inset(cell_h));
+                fills.push(cell_fill(row_k, col_k));
             }
         }
         scene.add(Primitive::RectBatch {
@@ -8668,12 +8876,10 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
             fills,
         });
     } else {
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for (row_k, &orig_row) in row_perm.iter().enumerate() {
+            for (col_k, &orig_col) in col_perm.iter().enumerate() {
                 let x = hm_x + col_k as f64 * cell_w;
                 let y = hm_y + row_k as f64 * cell_h;
-                let orig_row = row_perm.get(row_k).copied().unwrap_or(row_k);
-                let orig_col = col_perm.get(col_k).copied().unwrap_or(col_k);
                 let row_lbl = row_labels_ord
                     .as_ref()
                     .and_then(|l| l.get(row_k))
@@ -8684,11 +8890,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                     .and_then(|l| l.get(col_k))
                     .map(|s| s.as_str())
                     .unwrap_or("");
+                // The tooltip shows the raw value, before any normalization.
+                let value_text = if numeric {
+                    format!("{:.2}", cm.data[orig_row][orig_col])
+                } else {
+                    cell_text(row_k, col_k)
+                };
                 let tip = if cm.show_tooltips {
-                    Some(format!(
-                        "{}, {}: {:.2}",
-                        row_lbl, col_lbl, cm.data[orig_row][orig_col]
-                    ))
+                    Some(format!("{}, {}: {}", row_lbl, col_lbl, value_text))
                 } else {
                     None
                 };
@@ -8702,9 +8911,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 scene.add(Primitive::Rect {
                     x,
                     y,
-                    width: cell_w * 0.99,
-                    height: cell_h * 0.99,
-                    fill: Color::from(cmap.map(norm_val(value))),
+                    width: inset(cell_w),
+                    height: inset(cell_h),
+                    fill: cell_fill(row_k, col_k),
                     stroke: None,
                     stroke_width: None,
                     opacity: None,
@@ -8717,14 +8926,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     if cm.show_values {
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for row_k in 0..n_body_rows {
+            for col_k in 0..n_body_cols {
                 scene.add(Primitive::Text {
                     x: hm_x + (col_k as f64 + 0.5) * cell_w,
                     y: hm_y
                         + (row_k as f64 + 0.5) * cell_h
                         + center_offset(computed.body_size as f64, FontStyle::Regular),
-                    content: format!("{:.2}", value),
+                    content: cell_text(row_k, col_k),
                     size: computed.body_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
@@ -8736,16 +8945,29 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 9: Axis labels ───────────────────────────────────────────────────
-    let ts = computed.body_size;
+    let c_off = center_offset(tsf, FontStyle::Regular);
 
     if let Some(ref labels) = row_labels_ord {
+        let (x, anchor) = if row_left {
+            (
+                hm_x - 6.0
+                    - if f.row_strips_inner {
+                        f.row_annot_w
+                    } else {
+                        0.0
+                    },
+                TextAnchor::End,
+            )
+        } else {
+            (hm_x + hm_w + 6.0, TextAnchor::Start)
+        };
         for (k, label) in labels.iter().enumerate() {
             scene.add(Primitive::Text {
-                x: hm_x + hm_w + 6.0,
-                y: hm_y + (k as f64 + 0.5) * cell_h + center_offset(ts as f64, FontStyle::Regular),
+                x,
+                y: hm_y + (k as f64 + 0.5) * cell_h + c_off,
                 content: label.clone(),
                 size: ts,
-                anchor: TextAnchor::Start,
+                anchor,
                 rotate: None,
                 bold: false,
                 color: None,
@@ -8754,14 +8976,38 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     if let Some(ref labels) = col_labels_ord {
+        // The label's end (below) or start (above) sits at its column centre, `6` px off the
+        // body, and reads upward at the chosen slant. Shifting by the centring offset across
+        // the text puts the middle of the glyphs, not the baseline, on the column centre.
+        let base = if col_top {
+            top_label_base
+        } else {
+            hm_y + hm_h + 6.0
+        };
         for (k, label) in labels.iter().enumerate() {
+            let cx = hm_x + (k as f64 + 0.5) * cell_w;
+            let (x, y, anchor, rotate) = if rot <= 0.0 {
+                let y = if col_top {
+                    base - tsf * 0.5 + c_off
+                } else {
+                    base + tsf * 0.5 + c_off
+                };
+                (cx, y, TextAnchor::Middle, None)
+            } else {
+                let anchor = if col_top {
+                    TextAnchor::Start
+                } else {
+                    TextAnchor::End
+                };
+                (cx + c_off * sin_r, base + c_off * cos_r, anchor, Some(-rot))
+            };
             scene.add(Primitive::Text {
-                x: hm_x + (k as f64 + 0.5) * cell_w,
-                y: hm_y + hm_h + 6.0,
+                x,
+                y,
                 content: label.clone(),
                 size: ts,
-                anchor: TextAnchor::End,
-                rotate: Some(-45.0),
+                anchor,
+                rotate,
                 bold: false,
                 color: None,
             });

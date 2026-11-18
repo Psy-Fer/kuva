@@ -1,0 +1,13 @@
+sample	condition	batch
+rescue_3	rescue	B1
+ctrl_3	ctrl	B1
+rescue_2	rescue	B2
+ctrl_4	ctrl	B2
+treat_3	treat	B1
+treat_1	treat	B1
+treat_4	treat	B2
+treat_2	treat	B2
+ctrl_1	ctrl	B1
+rescue_1	rescue	B1
+ctrl_2	ctrl	B2
+rescue_4	rescue	B2

@@ -84,7 +84,10 @@ pub use bump::{BumpPlot, BumpSeries, BumpTieBreak, CurveStyle};
 pub use calendar::{CalendarAgg, CalendarPeriod, CalendarPlot, WeekStart};
 pub use candlestick::{CandleDataPoint, CandlestickPlot};
 pub use chord::ChordPlot;
-pub use clustermap::{AnnotationTrack, Clustermap, ClustermapNorm};
+pub use clustermap::{
+    AnnotationPlacement, AnnotationTrack, Clustermap, ClustermapNorm, ColLabelSide,
+    DiscreteColorMap, RowLabelSide,
+};
 pub use colormap::ColorMap;
 pub use contour::ContourPlot;
 pub use density::DensityPlot;

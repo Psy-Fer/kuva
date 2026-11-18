@@ -3,6 +3,7 @@ pub mod annotations;
 pub mod axis;
 pub mod brick_pop;
 pub mod bw;
+pub mod clustermap_legend;
 pub mod color;
 pub mod coverage;
 pub mod datetime;

@@ -504,6 +504,34 @@ check "heatmap long-format" \
         --row-col species --col-col week --value-col abundance \
         --title "Abundance by Species and Week" --x-label "Week" --y-label "Species"
 
+# ── clustermap ────────────────────────────────────────────────────────────────
+check "clustermap basic" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --legend "log2 expr"
+
+check "clustermap row z-score, no col clustering" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --normalize row --no-cluster-cols \
+        --colormap inferno --legend "z-score"
+
+check "clustermap annotated, labels top/left" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --normalize row \
+        --col-annot "$DATA/clustermap_samples.tsv:condition" \
+        --col-annot "$DATA/clustermap_samples.tsv:batch" \
+        --row-annot "$DATA/clustermap_genes.tsv" \
+        --category-colors "ctrl=#999999" --category-labels "treat=Treated (10 uM)" \
+        --col-labels-top --row-labels-left --legend "z-score"
+
+check "clustermap categorical genotypes" \
+    "$BIN" clustermap "$DATA/clustermap_genotypes.tsv" --categorical \
+        --col-annot "$DATA/clustermap_populations.tsv:population" \
+        --category-colors "ref=#eeeeee,het=#4c9be8,hom=#1a3d6e" \
+        --legend Genotype --col-labels-top --col-label-rotation 90 --cell-size 22
+
+check "clustermap cell size and gap" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --cell-size 18x14 --cell-gap 2 --values
+
+check_error "clustermap text cells without --categorical" \
+    "$BIN" clustermap "$DATA/clustermap_genotypes.tsv"
+
 # ── hist2d ────────────────────────────────────────────────────────────────────
 check "hist2d basic" \
     "$BIN" hist2d "$DATA/hist2d.tsv" --x x --y y \

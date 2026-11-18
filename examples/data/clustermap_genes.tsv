@@ -1,0 +1,21 @@
+gene	pathway
+MDM2	DNA repair
+CCND1	Cell cycle
+AKT1	Growth
+KRAS	Growth
+ERBB2	Growth
+MYC	Growth
+BCL2	Apoptosis
+SMAD4	Apoptosis
+PTEN	Apoptosis
+BAX	Apoptosis
+APC	Apoptosis
+BRCA1	DNA repair
+CDKN2A	Cell cycle
+MTOR	Growth
+PIK3CA	Growth
+EGFR	Growth
+TP53	DNA repair
+VEGFA	Growth
+CDK4	Cell cycle
+RB1	Cell cycle
