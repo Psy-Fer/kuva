@@ -764,30 +764,9 @@ impl Track for PlotTrack {
 }
 
 /// Which way an [`Interval`] reads along the x-axis, e.g. the direction a gene is transcribed.
-/// A stranded interval is drawn as an arrow pointing in that direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Strand {
-    /// `+`: reads left to right (towards larger coordinates). The arrow points right.
-    Forward,
-    /// `-`: reads right to left. The arrow points left.
-    Reverse,
-}
-
-impl Strand {
-    /// Parse a strand token as written in BED/GFF files: `+` is forward, `-` is reverse, and `.`,
-    /// `?` or an empty cell mean "no strand" (`Ok(None)`). The words `forward`/`reverse`/`fwd`/`rev`
-    /// are accepted too, case-insensitively. Anything else is an error.
-    pub fn parse(token: &str) -> Result<Option<Strand>, String> {
-        match token.trim().to_ascii_lowercase().as_str() {
-            "+" | "forward" | "fwd" => Ok(Some(Strand::Forward)),
-            "-" | "reverse" | "rev" => Ok(Some(Strand::Reverse)),
-            "." | "?" | "" => Ok(None),
-            other => Err(format!(
-                "invalid strand '{other}': expected '+', '-' or '.'"
-            )),
-        }
-    }
-}
+/// A stranded interval is drawn as an arrow pointing in that direction. This is the same type
+/// [`SyntenyPlot`](crate::plot::SyntenyPlot) uses for block orientation, re-exported here.
+pub use crate::plot::synteny::Strand;
 
 /// A labelled band over an x-interval, in an [`IntervalTrack`] (amplicons, primers, gene models).
 pub struct Interval {
