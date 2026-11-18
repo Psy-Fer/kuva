@@ -9,7 +9,8 @@
 //! These helpers produce the pieces; the page around them is yours:
 //!
 //! - [`figure`]: one figure as an HTML snippet (an `<img>`, a download link and the compressed
-//!   data), to drop anywhere in your own page.
+//!   data), to drop anywhere in your own page. [`figure_with_caption`] takes your own caption,
+//!   and [`download_link`] makes a download button for it.
 //! - [`loader_script`]: the `<script>` that decompresses every figure on the page. Include it
 //!   once, after the figures. Figures are decompressed as they scroll into view, so a page of
 //!   many large figures stays fast, and a figure inside a closed `<details>` is only
@@ -57,6 +58,19 @@ const DATA_TYPE: &str = "application/x-kuva-svgz";
 /// needs is `DecompressionStream`, and it says so in the figure if the browser lacks it.
 const LOADER: &str = r#"<script>
 (function () {
+  // Replace a figure that can't be shown with a visible message (class kuva-error), and give
+  // back the space reserved for it.
+  function show(fig, img, state, message) {
+    fig.setAttribute("data-kuva-state", state);
+    img.alt = message;
+    img.style.display = "none";
+    var frame = img.parentNode;
+    frame.style.aspectRatio = "auto";
+    var note = document.createElement("p");
+    note.className = "kuva-error";
+    note.textContent = message;
+    frame.insertBefore(note, img);
+  }
   function inflate(fig) {
     if (fig.getAttribute("data-kuva-state")) return;
     fig.setAttribute("data-kuva-state", "loading");
@@ -64,21 +78,28 @@ const LOADER: &str = r#"<script>
     var img = fig.querySelector("img");
     if (!data || !img) return;
     if (typeof DecompressionStream === "undefined") {
-      fig.setAttribute("data-kuva-state", "unsupported");
-      img.alt = "This browser cannot show compressed figures (needs Chrome 80+, Firefox 113+ or Safari 16.4+).";
+      show(fig, img, "unsupported", "This browser cannot show compressed figures (needs Chrome 80+, Firefox 113+ or Safari 16.4+).");
       return;
     }
-    var bin = atob(data.textContent.trim());
-    var bytes = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    var svg = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-    new Response(svg).blob().then(function (blob) {
-      var url = URL.createObjectURL(new Blob([blob], { type: "image/svg+xml" }));
-      img.src = url;
-      var link = fig.querySelector("a.kuva-download");
-      if (link) link.href = url;
-      fig.setAttribute("data-kuva-state", "ready");
-    });
+    function fail() {
+      show(fig, img, "error", "This figure could not be shown: its data is damaged.");
+    }
+    try {
+      var bin = atob(data.textContent.trim());
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var svg = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      new Response(svg).blob().then(function (blob) {
+        var url = URL.createObjectURL(new Blob([blob], { type: "image/svg+xml" }));
+        img.onerror = fail;
+        img.src = url;
+        var links = fig.querySelectorAll("a.kuva-download");
+        for (var k = 0; k < links.length; k++) links[k].href = url;
+        fig.setAttribute("data-kuva-state", "ready");
+      }).catch(fail);
+    } catch (e) {
+      fail();
+    }
   }
   function start() {
     var figs = document.querySelectorAll("figure.kuva-figure");
@@ -93,7 +114,7 @@ const LOADER: &str = r#"<script>
           inflate(e.target);
         }
       });
-    }, { rootMargin: "400px" });
+    }, { rootMargin: "200px" });
     for (var j = 0; j < figs.length; j++) io.observe(figs[j]);
   }
   window.kuvaInflate = inflate;
@@ -104,25 +125,54 @@ const LOADER: &str = r#"<script>
 "#;
 
 /// One compressed figure as an HTML snippet: a `<figure class="kuva-figure">` holding an
-/// `<img>`, a "Download SVG" link (`a.kuva-download`) and the figure's gzip data in base64.
+/// `<img>`, a caption with a "Download SVG" link (`a.kuva-download`) and the figure's gzip data
+/// in base64.
 ///
 /// `svgz` is gzipped SVG, e.g. from
 /// [`SvgBackend::render_scene_svgz`](crate::backend::svg::SvgBackend::render_scene_svgz).
 /// `name` is the image's alt text and the download's file name (`.svg` is added unless it is
-/// already there). The figure stays blank until [`loader_script`] is on the page.
+/// already there). The figure stays blank until [`loader_script`] is on the page. For your own
+/// caption, use [`figure_with_caption`].
 pub fn figure(svgz: &[u8], name: &str) -> String {
-    let file = if name.to_ascii_lowercase().ends_with(".svg") {
-        name.to_string()
-    } else {
-        format!("{name}.svg")
-    };
+    figure_with_caption(svgz, name, &download_link(name, "Download SVG"))
+}
+
+/// Like [`figure`], with your own HTML as the caption (inserted as is, so escape any text in
+/// it). An empty caption leaves out the `<figcaption>`.
+///
+/// Every `a.kuva-download` link inside the figure gets the decompressed SVG as its `href`
+/// once the figure loads, so a caption can carry its own download button: build it with
+/// [`download_link`] or write `<a class="kuva-download" download="name.svg">` yourself.
+pub fn figure_with_caption(svgz: &[u8], name: &str, caption_html: &str) -> String {
     let data = base64_encode(svgz);
-    let mut out = String::with_capacity(data.len() + 400);
-    out.push_str("<figure class=\"kuva-figure\">\n<img alt=\"");
-    out.push_str(&escape_attr(name));
-    out.push_str("\">\n<figcaption><a class=\"kuva-download\" download=\"");
-    out.push_str(&escape_attr(&file));
-    out.push_str("\">Download SVG</a></figcaption>\n<script type=\"");
+    let mut out = String::with_capacity(data.len() + caption_html.len() + 400);
+    out.push_str("<figure class=\"kuva-figure\">\n");
+    // Reserve the figure's own size before it decompresses, so the page doesn't jump as
+    // figures load and lazy loading only starts figures that are really near the screen. This
+    // has to be on a wrapper: an `<img>` with no `src` yet is drawn as its alt text, and
+    // browsers ignore its width/height until the image arrives. The frame scales down on
+    // narrow screens and keeps the aspect ratio.
+    let alt = escape_attr(name);
+    match svg_size(svgz) {
+        Some((w, h)) => {
+            let (w, h) = (w.round(), h.round());
+            out.push_str(&format!(
+                "<div class=\"kuva-frame\" style=\"max-width:{w}px;aspect-ratio:{w} / {h}\">\
+                 <img alt=\"{alt}\" width=\"{w}\" height=\"{h}\" \
+                 style=\"display:block;width:100%;height:auto\"></div>\n"
+            ));
+        }
+        None => out.push_str(&format!(
+            "<div class=\"kuva-frame\"><img alt=\"{alt}\" \
+             style=\"display:block;max-width:100%\"></div>\n"
+        )),
+    }
+    if !caption_html.is_empty() {
+        out.push_str("<figcaption>");
+        out.push_str(caption_html);
+        out.push_str("</figcaption>\n");
+    }
+    out.push_str("<script type=\"");
     out.push_str(DATA_TYPE);
     out.push_str("\">");
     // Base64 has no `<`, so it can never close the script element early.
@@ -131,12 +181,56 @@ pub fn figure(svgz: &[u8], name: &str) -> String {
     out
 }
 
+/// A link that downloads its figure as `name.svg` (`.svg` is added unless `name` already ends
+/// with it), for a caption written with [`figure_with_caption`]. `label` is the link text.
+/// Both are escaped.
+pub fn download_link(name: &str, label: &str) -> String {
+    let file = if name.to_ascii_lowercase().ends_with(".svg") {
+        name.to_string()
+    } else {
+        format!("{name}.svg")
+    };
+    format!(
+        "<a class=\"kuva-download\" download=\"{}\">{}</a>",
+        escape_attr(&file),
+        escape_attr(label)
+    )
+}
+
+/// The `width`/`height` of the root `<svg>` element, read from the start of the gzip data
+/// without decompressing the rest. `None` if they can't be found.
+fn svg_size(svgz: &[u8]) -> Option<(f64, f64)> {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(2048);
+    flate2::read::GzDecoder::new(svgz)
+        .take(2048)
+        .read_to_end(&mut head)
+        .ok()?;
+    let head = String::from_utf8_lossy(&head);
+    let start = head.find("<svg")?;
+    let tag = &head[start..start + head[start..].find('>')?];
+    let attr = |name: &str| -> Option<f64> {
+        let key = format!(" {name}=\"");
+        let from = tag.find(&key)? + key.len();
+        let value = &tag[from..from + tag[from..].find('"')?];
+        value
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0)
+    };
+    Some((attr("width")?, attr("height")?))
+}
+
 /// The `<script>` element that decompresses and shows every [`figure`] on the page. Include it
 /// once per page, after the figures (e.g. just before `</body>`).
 ///
-/// Figures are decompressed as they come within 400 px of the viewport, so a long page only
+/// Figures are decompressed as they come within 200 px of the viewport, so a long page only
 /// pays for what is looked at. To decompress one yourself (for example when a hidden panel is
 /// shown), call `kuvaInflate(figureElement)` from your own script.
+///
+/// Each figure's `data-kuva-state` is `loading`, then `ready`; or `error` if its data is
+/// damaged, or `unsupported` in a browser without `DecompressionStream`. On either failure the
+/// image is replaced by a `<p class="kuva-error">` explaining why.
 pub fn loader_script() -> &'static str {
     LOADER
 }
@@ -155,7 +249,6 @@ pub fn standalone_page(title: &str, svgz: &[u8], name: &str) -> String {
     out.push_str(
         "body { margin: 16px; font-family: system-ui, sans-serif; background: #fff; }\n\
          .kuva-figure { margin: 0; }\n\
-         .kuva-figure img { display: block; max-width: 100%; height: auto; }\n\
          .kuva-figure figcaption { margin-top: 8px; font-size: 14px; }\n",
     );
     out.push_str("</style>\n</head>\n<body>\n");
@@ -233,5 +326,36 @@ mod tests {
         assert_eq!(page.matches("class=\"kuva-figure\"").count(), 1);
         assert_eq!(page.matches("DecompressionStream").count(), 2);
         assert!(page.ends_with("</html>\n"));
+    }
+
+    /// The `<img>` carries the SVG's own size, read from the gzip data, so the page reserves
+    /// the space before the figure decompresses.
+    #[test]
+    fn figure_img_has_the_svg_size() {
+        let svg =
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="820.4" height="520"><g/></svg>"#;
+        let fig = figure(&crate::encoding::gzip(svg.as_bytes()), "f");
+        assert!(
+            fig.contains(
+                r#"<div class="kuva-frame" style="max-width:820px;aspect-ratio:820 / 520">"#
+            ),
+            "{fig}"
+        );
+        assert!(fig.contains(r#"width="820" height="520""#), "{fig}");
+        // Unreadable data: no size, still a figure.
+        let fig = figure(b"not gzip", "f");
+        assert!(!fig.contains("aspect-ratio"), "{fig}");
+        assert!(fig.contains("<img alt=\"f\""));
+    }
+
+    #[test]
+    fn custom_caption_and_download_link() {
+        let gz = crate::encoding::gzip(b"<svg/>");
+        let caption = format!("<b>RFC1</b> {}", download_link("RFC1 <x>", "Save & go"));
+        let fig = figure_with_caption(&gz, "RFC1", &caption);
+        assert!(fig.contains("<figcaption><b>RFC1</b> <a class=\"kuva-download\" download=\"RFC1 &lt;x&gt;.svg\">Save &amp; go</a></figcaption>"), "{fig}");
+        let bare = figure_with_caption(&gz, "RFC1", "");
+        assert!(!bare.contains("figcaption"), "{bare}");
+        assert!(!bare.contains("kuva-download"));
     }
 }

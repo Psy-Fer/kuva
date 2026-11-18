@@ -14,11 +14,14 @@ batching, and 2.0 KB gzipped.
 
 ## Rect batching
 
-A run of consecutive rectangles with no stroke, opacity or tooltip, where no two rectangles
-overlap, is written as one `<path>` per fill colour instead of one `<rect>` per rectangle.
-Because nothing in the run overlaps, the order rectangles are painted in cannot matter, so the
-image is the same. Each rectangle stays its own closed shape inside the path, so the thin gaps
-between bricks or cells are kept. A run that has any overlap is written as ordinary `<rect>`s.
+Consecutive rectangles with no stroke, opacity or tooltip are written as one `<path>` per fill
+colour instead of one `<rect>` per rectangle. Each rectangle stays its own closed shape inside
+the path, so the thin gaps between bricks or cells are kept, and the image is the same:
+
+- Rectangles of different colours that overlap must keep their paint order, so the run is
+  split at that point and batching carries on after it.
+- Rectangles of the same solid colour may overlap; painting them once as one shape looks the
+  same. (A translucent colour would look lighter, so its overlaps split the run too.)
 
 It is on by default for every SVG kuva writes. Turn it off if something downstream needs each
 rectangle as its own element, for example to select or restyle single cells in Inkscape or
@@ -65,13 +68,16 @@ disk or from a server, with no libraries.
 | Function | Gives you |
 |---|---|
 | `html::figure(&svgz, name)` | One figure as an HTML snippet: an `<img>`, a "Download SVG" link and the compressed data, inside `<figure class="kuva-figure">`. |
+| `html::figure_with_caption(&svgz, name, caption_html)` | The same with your own caption HTML (or none, if empty). |
+| `html::download_link(name, label)` | A download button for a custom caption. |
 | `html::loader_script()` | The `<script>` that decompresses and shows every figure on the page. Include it once, after the figures. |
 | `html::standalone_page(title, &svgz, name)` | A complete self-contained `.html` file holding one figure. |
 
 `name` is the image's alt text and the download's file name (`name.svg`). Each figure is shown
 through an `<img>`, so figures cannot interfere with each other or with your page's styles, and
-right-click "Save image as" saves the full SVG. Figures decompress as they scroll into view, so
-a page of many large figures stays fast.
+right-click "Save image as" saves the full SVG. The figure's size is read from the SVG and its
+space reserved straight away, so the page doesn't jump as figures load, and figures decompress
+only as they come near the screen. A page of many large figures stays fast.
 
 On the CLI, `-o figure.html` writes a standalone page. Its title is `--title` if given,
 otherwise the file name.
@@ -131,7 +137,7 @@ for (gene, scene) in &scenes {
 body.push_str(kuva::html::loader_script());
 let page = format!(
     "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>All loci</title>\n\
-     <style>.kuva-figure img {{ max-width: 100%; }}</style></head>\n<body>\n{body}</body></html>\n"
+     </head>\n<body>\n{body}</body></html>\n"
 );
 std::fs::write("loci.html", page).unwrap();
 ```
@@ -139,16 +145,40 @@ std::fs::write("loci.html", page).unwrap();
 To decompress a figure from your own script, for example when you show a hidden tab, call
 `kuvaInflate(figureElement)`.
 
+### Custom captions
+
+`figure` writes its own caption with a "Download SVG" link. To put your own content there
+(a locus name, flags, your own buttons), use `figure_with_caption`. Any link with class
+`kuva-download` inside the figure gets the decompressed SVG once it loads, so a custom caption
+can still offer the download:
+
+```rust,no_run
+use kuva::html;
+# let svgz: Vec<u8> = vec![];
+
+let caption = format!(
+    "<strong>RFC1</strong> pathogenic expansion {}",
+    html::download_link("RFC1", "Save SVG"),
+);
+let snippet = html::figure_with_caption(&svgz, "RFC1", &caption);
+```
+
+The caption is inserted as is, so escape any text in it yourself. `download_link` escapes its
+arguments.
+
 ### Styling
 
 The snippet uses these classes, so you can style it from your page:
 
 - `figure.kuva-figure`: the wrapper.
-- `.kuva-figure img`: the figure. Set `max-width: 100%` to fit narrow screens.
+- `.kuva-frame`: the box that reserves the figure's space. It is already sized to the figure
+  and scales down to fit narrow screens.
+- `.kuva-figure img`: the figure itself.
 - `a.kuva-download`: the download link.
+- `p.kuva-error`: shown in place of a figure that can't be displayed.
 
-Each figure also has a `data-kuva-state` attribute: `loading`, `ready`, or `unsupported` in a
-browser without `DecompressionStream`.
+Each figure also has a `data-kuva-state` attribute: `loading`, then `ready`; or `error` if its
+data is damaged, or `unsupported` in a browser without `DecompressionStream`.
 
 ## Choosing a format
 

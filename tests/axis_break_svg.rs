@@ -195,7 +195,10 @@ fn bars_run_through_the_gap() {
     let layout = Layout::auto_from_plots(&bars()).with_y_break(12.0, 880.0);
     let c = ComputedLayout::from_layout(&layout);
     let b = c.y_break_px.unwrap();
-    let svg = render(bars(), layout);
+    // Reads the bar back as a `<rect>`, so rect batching is off.
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(bars(), layout));
     let top = c.map_y(940.0);
     let tall = rects(&svg)
         .into_iter()

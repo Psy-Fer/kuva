@@ -58,6 +58,17 @@ fn write_newline(buf: &mut String, pretty: bool) {
     }
 }
 
+/// Writes a [`Scene`] as SVG.
+///
+/// Start from [`SvgBackend::new()`] and chain options:
+/// `SvgBackend::new().with_rect_batching(false).render_scene(&scene)`.
+///
+/// `SvgBackend` is also a constant holding the default backend (see the
+/// [`SvgBackend` const](constant@SvgBackend)), so older code written as
+/// `SvgBackend.render_scene(&scene)` still compiles. Chaining off the constant works too
+/// (`SvgBackend.with_rect_batching(false)` is the same as
+/// `SvgBackend::new().with_rect_batching(false)`), but prefer `SvgBackend::new()` in new code so
+/// it is clear a fresh, configurable backend is meant.
 pub struct SvgBackend {
     pretty: bool,
     embed_font: bool,
@@ -188,11 +199,15 @@ impl SvgBackend {
             write_newline(&mut svg, p);
         }
 
+        // Clip ids come from a process-wide counter (so merged Figure panels never collide);
+        // renumber them per SVG, in order of first use, so the same scene always writes the
+        // same bytes.
+        let mut clip_ids = ClipIdRenamer::default();
         if !scene.defs.is_empty() || scene.has_tooltips || scene.interactive {
             write_indent(&mut svg, 1, p);
             svg.push_str("<defs>");
             for d in &scene.defs {
-                svg.push_str(d);
+                clip_ids.write_renamed(&mut svg, d);
             }
             if scene.interactive {
                 svg.push_str(r#"<style>"#);
@@ -220,19 +235,14 @@ impl SvgBackend {
         // Unique tag per embedded math fragment, to namespace Typst's element IDs.
         #[cfg(feature = "typst-math")]
         let mut math_uid: usize = 0;
-        // Elements before this index were already checked for a batchable rect run and found
-        // none (or an overlapping one), so they are written one by one.
-        let mut no_batch_before = 0;
         let mut i = 0;
         while i < scene.elements.len() {
-            if self.rect_batching && i >= no_batch_before {
+            if self.rect_batching {
                 let end = rect_run_end(&scene.elements, i);
                 if end > i {
-                    if write_rect_run(&mut svg, &scene.elements[i..end], depth, p) {
-                        i = end;
-                        continue;
-                    }
-                    no_batch_before = end;
+                    write_rect_run(&mut svg, &scene.elements[i..end], depth, p);
+                    i = end;
+                    continue;
                 }
             }
             let elem = &scene.elements[i];
@@ -570,7 +580,7 @@ impl SvgBackend {
                     // Here we only open the clipping group.
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<g clip-path="url(#"#);
-                    svg.push_str(id);
+                    clip_ids.write_renamed(&mut svg, id);
                     svg.push_str(r#")">"#);
                     write_newline(&mut svg, p);
                     depth += 1;
@@ -738,6 +748,42 @@ impl SvgBackend {
     }
 }
 
+/// Renumbers `kuva-clip-N` ids within one SVG: the first id seen becomes `kuva-clip-0`, the
+/// next new one `kuva-clip-1`, and so on, and every later mention of an id gets the same new
+/// number. The renderer takes `N` from a process-wide counter so the panels of a merged
+/// [`Figure`](crate::render::figure::Figure) never share an id; renumbering at write time keeps
+/// that while making the output depend only on the scene, not on what the process drew before.
+#[derive(Default)]
+struct ClipIdRenamer {
+    map: std::collections::HashMap<u64, usize>,
+}
+
+impl ClipIdRenamer {
+    const PREFIX: &'static str = "kuva-clip-";
+
+    /// Append `text` to `svg` with every `kuva-clip-<digits>` id renumbered.
+    fn write_renamed(&mut self, svg: &mut String, text: &str) {
+        let mut rest = text;
+        while let Some(pos) = rest.find(Self::PREFIX) {
+            let after = &rest[pos + Self::PREFIX.len()..];
+            let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+            match after[..digits].parse::<u64>() {
+                Ok(old) => {
+                    let next = self.map.len();
+                    let new = *self.map.entry(old).or_insert(next);
+                    svg.push_str(&rest[..pos]);
+                    svg.push_str(Self::PREFIX);
+                    let _ = write!(svg, "{new}");
+                }
+                // Not followed by a number: not one of ours, copy it unchanged.
+                Err(_) => svg.push_str(&rest[..pos + Self::PREFIX.len()]),
+            }
+            rest = &after[digits..];
+        }
+        svg.push_str(rest);
+    }
+}
+
 /// Write one `<rect>` element (no indent or newline).
 fn write_rect(
     svg: &mut String,
@@ -861,82 +907,146 @@ fn rect_run_end(elements: &[Primitive], start: usize) -> usize {
 /// written to two decimals, so a smaller overlap is rounding, not paint.
 const OVERLAP_EPS: f64 = 0.01;
 
-/// Whether any two rectangles in the run overlap. Only an overlap-free run may be regrouped by
-/// colour: with no shared pixels, paint order (and any translucency) cannot change the image.
-///
-/// Uses a uniform grid sized from the median rectangle, so a big heatmap or brick plot costs
-/// about one bucket check per rectangle instead of comparing every pair. If the grid work grows
-/// far past the rectangle count (wildly mixed sizes), it gives up and reports an overlap, which
-/// is the safe answer: the run is then written as plain `<rect>`s.
-fn any_overlap(rects: &[PlainRect]) -> bool {
-    use std::collections::HashMap;
-
-    let live: Vec<&PlainRect> = rects.iter().filter(|r| r.w > 0.0 && r.h > 0.0).collect();
-    if live.len() < 2 {
-        return false;
-    }
-    let median = |mut v: Vec<f64>| {
-        v.sort_by(f64::total_cmp);
-        v[v.len() / 2].max(OVERLAP_EPS)
-    };
-    let cw = median(live.iter().map(|r| r.w).collect());
-    let ch = median(live.iter().map(|r| r.h).collect());
-    let budget = 64 * live.len() + 100_000;
-    let mut work = 0usize;
-    let mut grid: HashMap<(i64, i64), Vec<u32>> = HashMap::new();
-    for (idx, r) in live.iter().enumerate() {
-        let (c0, c1) = ((r.x / cw).floor() as i64, ((r.x + r.w) / cw).floor() as i64);
-        let (r0, r1) = ((r.y / ch).floor() as i64, ((r.y + r.h) / ch).floor() as i64);
-        for gx in c0..=c1 {
-            for gy in r0..=r1 {
-                work += 1;
-                if work > budget {
-                    return true;
-                }
-                let cell = grid.entry((gx, gy)).or_default();
-                for &other in cell.iter() {
-                    let o = live[other as usize];
-                    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
-                    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
-                    if xov > OVERLAP_EPS && yov > OVERLAP_EPS {
-                        return true;
-                    }
-                    work += 1;
-                }
-                cell.push(idx as u32);
-            }
-        }
-    }
-    false
+/// Whether two rects of the same fill may overlap inside one batched path. One path paints the
+/// union of its subpaths once, which matches separate rects only when the fill is opaque, so
+/// this is limited to plain `#rrggbb` colours. A CSS colour may carry alpha
+/// (`rgba(..)`, `#rrggbbaa`, `transparent`), so its overlaps split the run instead.
+fn opaque(fill: &Color) -> bool {
+    matches!(fill, Color::Rgb(..))
 }
 
-/// Write a run of batchable rect primitives as one `<path>` per fill (first-seen colour order),
-/// each rectangle a closed `M x y h w v h h -w z` subpath with relative moves between them. A
-/// colour with a single rectangle stays a `<rect>`. Returns `false`, writing nothing, if any two
-/// rectangles overlap; the caller then writes the run element by element.
-fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) -> bool {
-    use std::collections::HashMap;
+/// Splits a run of rects into consecutive segments that can each be regrouped by colour.
+///
+/// Within a segment no two rects of different colours overlap, so painting it colour by
+/// colour gives the same image as painting it in order. Same-colour rects may overlap if the
+/// colour is opaque. A rect that would break that starts a new segment, so paint order across
+/// the conflict is kept and only that boundary costs anything: one bad rect no longer turns
+/// batching off for a whole plot.
+///
+/// The overlap check uses a uniform grid sized from the median rect, so a big heatmap or brick
+/// plot costs about one bucket lookup per rect. If one segment's grid work runs far past its
+/// size (wildly mixed rect sizes), the segment is closed early: always safe, just less merging.
+struct Segmenter {
+    cw: f64,
+    ch: f64,
+    grid: std::collections::HashMap<(i64, i64), Vec<u32>>,
+    members: Vec<u32>,
+    work: usize,
+}
 
+impl Segmenter {
+    fn new(rects: &[PlainRect]) -> Self {
+        let median = |mut v: Vec<f64>| {
+            if v.is_empty() {
+                return 1.0;
+            }
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2].max(OVERLAP_EPS)
+        };
+        let live = || rects.iter().filter(|r| r.w > 0.0 && r.h > 0.0);
+        Segmenter {
+            cw: median(live().map(|r| r.w).collect()),
+            ch: median(live().map(|r| r.h).collect()),
+            grid: std::collections::HashMap::new(),
+            members: Vec::new(),
+            work: 0,
+        }
+    }
+
+    fn cells(
+        &self,
+        r: &PlainRect,
+    ) -> (std::ops::RangeInclusive<i64>, std::ops::RangeInclusive<i64>) {
+        (
+            (r.x / self.cw).floor() as i64..=((r.x + r.w) / self.cw).floor() as i64,
+            (r.y / self.ch).floor() as i64..=((r.y + r.h) / self.ch).floor() as i64,
+        )
+    }
+
+    /// Whether rect `idx` can join the current segment.
+    fn fits(&mut self, rects: &[PlainRect], idx: usize) -> bool {
+        let r = &rects[idx];
+        let budget = 64 * (self.members.len() + 1) + 10_000;
+        let (xs, ys) = self.cells(r);
+        for gx in xs {
+            for gy in ys.clone() {
+                self.work += 1;
+                let Some(cell) = self.grid.get(&(gx, gy)) else {
+                    continue;
+                };
+                for &other in cell {
+                    self.work += 1;
+                    let o = &rects[other as usize];
+                    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
+                    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
+                    if xov > OVERLAP_EPS
+                        && yov > OVERLAP_EPS
+                        && !(opaque(r.fill) && r.fill == o.fill)
+                    {
+                        return false;
+                    }
+                }
+                if self.work > budget {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn add(&mut self, rects: &[PlainRect], idx: usize) {
+        let (xs, ys) = self.cells(&rects[idx]);
+        for gx in xs {
+            for gy in ys.clone() {
+                self.grid.entry((gx, gy)).or_default().push(idx as u32);
+            }
+        }
+        self.members.push(idx as u32);
+    }
+
+    /// Close the current segment, returning its rect indices in paint order.
+    fn take(&mut self) -> Vec<u32> {
+        self.grid.clear();
+        self.work = 0;
+        std::mem::take(&mut self.members)
+    }
+}
+
+/// Write a run of batchable rect primitives. The run is split into segments (see
+/// [`Segmenter`]), and each segment is written as one `<path>` per fill in first-seen order,
+/// each rect a closed `M x y h w v h h -w z` subpath with relative moves between them. A colour
+/// with a single rect in a segment stays a `<rect>`.
+fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) {
     let mut rects = Vec::new();
     for elem in run {
         push_plain_rects(elem, &mut rects);
     }
-    if any_overlap(&rects) {
-        return false;
-    }
-
-    // Group by the fill exactly as it would be written, in first-seen order (never HashMap
-    // order, so the output is deterministic).
-    // A rect with no positive size paints nothing (and a negative-size subpath would paint), so
-    // those are dropped here.
-    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
-    let mut index: HashMap<String, usize> = HashMap::new();
-    for (k, r) in rects.iter().enumerate() {
-        if !(r.w > 0.0 && r.h > 0.0) {
+    let mut seg = Segmenter::new(&rects);
+    for idx in 0..rects.len() {
+        // A rect with no positive size paints nothing (and a negative-size subpath would
+        // paint), so it is dropped.
+        if !(rects[idx].w > 0.0 && rects[idx].h > 0.0) {
             continue;
         }
+        if !seg.fits(&rects, idx) {
+            write_segment(svg, &rects, &seg.take(), depth, p);
+        }
+        seg.add(&rects, idx);
+    }
+    write_segment(svg, &rects, &seg.take(), depth, p);
+}
+
+/// Write one overlap-safe segment as one `<path>` per fill (first-seen order, never HashMap
+/// order, so the output is deterministic).
+fn write_segment(svg: &mut String, rects: &[PlainRect], members: &[u32], depth: usize, p: bool) {
+    use std::collections::HashMap;
+
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for &k in members {
+        let k = k as usize;
         let mut key = String::with_capacity(7);
-        r.fill.write_svg(&mut key);
+        rects[k].fill.write_svg(&mut key);
         match index.get(&key) {
             Some(&g) => groups[g].1.push(k),
             None => {
@@ -947,10 +1057,10 @@ fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) ->
     }
 
     let round = |v: f64| (v * 100.0).round() / 100.0;
-    for (fill, members) in &groups {
+    for (fill, ks) in &groups {
         write_indent(svg, depth, p);
-        if members.len() == 1 {
-            let r = &rects[members[0]];
+        if ks.len() == 1 {
+            let r = &rects[ks[0]];
             write_rect(svg, (r.x, r.y, r.w, r.h), r.fill, None, None, None);
             write_newline(svg, p);
             continue;
@@ -960,7 +1070,7 @@ fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) ->
         // previous rectangle's corner. Deltas come from the rounded corners, so they add up to
         // exactly the absolute coordinates a `<rect>` would have used.
         let mut prev: Option<(f64, f64)> = None;
-        for &k in members {
+        for &k in ks {
             let r = &rects[k];
             let (x, y) = (round(r.x), round(r.y));
             match prev {
@@ -992,13 +1102,15 @@ fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) ->
         svg.push_str(r#"" />"#);
         write_newline(svg, p);
     }
-    true
 }
 
 // Backward-compat shim in the value namespace.
 // `SvgBackend.render_scene(...)` in old code: `SvgBackend` resolves to this const.
 // `SvgBackend::new()` in new code: `SvgBackend` resolves to the type.
 // TODO: To phase out later: add #[deprecated(note = "Use SvgBackend::new()")] here.
+/// The default SVG backend as a value, equal to [`SvgBackend::new()`]. Kept so code written as
+/// `SvgBackend.render_scene(&scene)` keeps compiling; new code should call `SvgBackend::new()`
+/// (see the [`SvgBackend` type](struct@SvgBackend)).
 #[allow(non_upper_case_globals)]
 pub const SvgBackend: SvgBackend = SvgBackend::new();
 
@@ -1203,18 +1315,84 @@ mod tests {
         );
     }
 
-    /// Two different colours overlapping: paint order matters, so the run stays as `<rect>`s,
-    /// byte for byte what batching-off writes.
+    /// Two different colours overlapping: the run splits at the conflict, so the blue rect is
+    /// still painted after the red one it covers, and batching carries on after it.
     #[test]
-    fn overlapping_run_is_left_alone() {
-        let els = || {
-            vec![
-                rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
-                rect(5.0, 5.0, 10.0, 10.0, "#0000ff"),
-                rect(20.0, 0.0, 10.0, 10.0, "#ff0000"),
-            ]
+    fn cross_colour_overlap_splits_the_run() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(20.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(5.0, 5.0, 10.0, 10.0, "#0000ff"), // covers the first red rect
+            rect(40.0, 0.0, 10.0, 10.0, "#0000ff"),
+            rect(60.0, 0.0, 10.0, 10.0, "#0000ff"),
+        ];
+        let svg = render(els, true);
+        // Segment 1: the two reds. Segment 2: the three blues.
+        let red = svg.find("fill=\"#ff0000\"").unwrap();
+        let blue = svg.find("fill=\"#0000ff\"").unwrap();
+        assert!(
+            red < blue,
+            "red must be painted before the blue that covers it: {svg}"
+        );
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+        assert_eq!(svg.matches('z').count(), 5, "{svg}");
+    }
+
+    /// The CPUM_TYMS case: a widened 1 bp CIGAR span overlapping a neighbour of the same opaque
+    /// colour does not stop batching.
+    #[test]
+    fn same_opaque_colour_overlap_still_batches() {
+        let els = vec![
+            rect(0.0, 0.0, 0.6, 5.0, "#cccccc"),
+            rect(0.45, 0.0, 0.6, 5.0, "#cccccc"),
+            rect(10.0, 0.0, 5.0, 5.0, "#cccccc"),
+        ];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 1, "{svg}");
+        assert!(!svg.contains("<rect x"), "{svg}");
+    }
+
+    /// A translucent colour painted as one path would cover the overlap once instead of twice,
+    /// so same-colour overlaps of a CSS colour split the run.
+    #[test]
+    fn translucent_overlap_splits() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "rgba(255,0,0,0.5)"),
+            rect(5.0, 0.0, 10.0, 10.0, "rgba(255,0,0,0.5)"),
+        ];
+        let svg = render(els, true);
+        assert!(!svg.contains("<path"), "{svg}");
+        assert_eq!(svg.matches("<rect x").count(), 2);
+    }
+
+    /// Clip ids are renumbered per SVG, so rendering the same plot twice in one process gives
+    /// identical bytes even though the renderer's id counter has moved on.
+    #[test]
+    fn clip_ids_are_reproducible_within_a_process() {
+        use crate::plot::ScatterPlot;
+        use crate::render::layout::Layout;
+        use crate::render::plots::Plot;
+        use crate::render::render::render_multiple;
+        let draw = || {
+            let plots: Vec<Plot> = vec![ScatterPlot::new().with_data(vec![(1.0, 2.0)]).into()];
+            let layout = Layout::auto_from_plots(&plots);
+            SvgBackend::new().render_scene(&render_multiple(plots, layout))
         };
-        assert_eq!(render(els(), true), render(els(), false));
+        let (a, b) = (draw(), draw());
+        assert_eq!(a, b);
+        assert!(a.contains(r#"<clipPath id="kuva-clip-0">"#), "{a}");
+        assert!(a.contains(r#"clip-path="url(#kuva-clip-0)""#), "{a}");
+    }
+
+    #[test]
+    fn clip_id_renamer_keeps_references_consistent() {
+        let mut r = super::ClipIdRenamer::default();
+        let mut out = String::new();
+        r.write_renamed(
+            &mut out,
+            "a kuva-clip-41 b kuva-clip-7 c kuva-clip-41 kuva-clip-x",
+        );
+        assert_eq!(out, "a kuva-clip-0 b kuva-clip-1 c kuva-clip-0 kuva-clip-x");
     }
 
     /// Edges that touch (or overlap by less than the 0.01 px written precision) are not an

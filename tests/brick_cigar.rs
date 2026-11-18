@@ -673,3 +673,28 @@ fn legend_box_fits_the_cigar_operation_labels() {
         );
     }
 }
+
+/// bladerunner's CPUM_TYMS case: at a narrow width a 1 bp CIGAR span is under 0.6 px, so the
+/// renderer widens it into its neighbour. That overlap used to turn rect batching off for the
+/// whole plot; now it only splits the run where the conflict is, and the plot still shrinks.
+#[test]
+fn narrow_render_with_widened_spans_still_batches() {
+    let plots = vec![Plot::Brick(build(BrickSort::Cigar))];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(160.0)
+        .with_height(520.0);
+    let scene = render_multiple(plots, layout);
+    let batched = kuva::backend::svg::SvgBackend::new().render_scene(&scene);
+    let plain = kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene);
+    common::write_test_output("test_outputs/brick_cigar_bars_narrow.svg", &batched).unwrap();
+    common::write_test_output("test_outputs/brick_cigar_bars_narrow_unbatched.svg", &plain)
+        .unwrap();
+    assert!(
+        batched.len() * 10 < plain.len() * 6,
+        "batched {} vs plain {}",
+        batched.len(),
+        plain.len()
+    );
+}
