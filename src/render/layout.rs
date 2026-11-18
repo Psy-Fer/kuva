@@ -4257,19 +4257,68 @@ impl ComputedLayout {
         // value axis so the stack and its labels fit inside the plot area. An
         // explicit axis-max override is left alone (the user asked for it) and
         // the stack is squeezed into the room below it instead.
-        let brackets = resolve_brackets(
-            layout,
+        let resolve = |xr: (f64, f64), yr: (f64, f64)| {
+            resolve_brackets(
+                layout,
+                xr,
+                yr,
+                (x_break, y_break),
+                (
+                    width - margin_left - margin_right,
+                    height - margin_top - margin_bottom,
+                ),
+                layout.body_size as f64 * s,
+                layout.term_rows.map(|r| height / r as f64),
+            )
+        };
+        // A log bound tightened to a 1-2-5 tick goes back to a power of ten if the final axis is
+        // too wide to draw those ticks (#136). The max is only auto when brackets left it alone:
+        // a bracket-grown max is deliberately off-tick headroom.
+        let widen =
+            |log: bool, (lo, hi): (f64, f64), grown_hi: f64, min_set: bool, max_set: bool| {
+                if !log {
+                    return (lo, grown_hi);
+                }
+                render_utils::widen_log_bounds_to_ticks(
+                    (lo, grown_hi),
+                    (!min_set, !max_set && grown_hi == hi),
+                )
+            };
+        let mut brackets = resolve((x_min, x_max), (y_min, y_max));
+        let mut wx = widen(
+            layout.log_x,
             (x_min, x_max),
-            (y_min, y_max),
-            (x_break, y_break),
-            (
-                width - margin_left - margin_right,
-                height - margin_top - margin_bottom,
-            ),
-            layout.body_size as f64 * s,
-            layout.term_rows.map(|r| height / r as f64),
+            brackets.x_max,
+            layout.x_axis_min.is_some(),
+            layout.x_axis_max.is_some(),
         );
-        let (x_max, y_max) = (brackets.x_max, brackets.y_max);
+        let mut wy = widen(
+            layout.log_y,
+            (y_min, y_max),
+            brackets.y_max,
+            layout.y_axis_min.is_some(),
+            layout.y_axis_max.is_some(),
+        );
+        // Lowering a min changes the pixels per data unit, so the bracket stack is sized again
+        // against the widened min (its max growth is measured on the final mapping).
+        if !layout.brackets.is_empty() && (wx.0 != x_min || wy.0 != y_min) {
+            brackets = resolve((wx.0, x_max), (wy.0, y_max));
+            wx = widen(
+                layout.log_x,
+                (wx.0, x_max),
+                brackets.x_max,
+                layout.x_axis_min.is_some(),
+                layout.x_axis_max.is_some(),
+            );
+            wy = widen(
+                layout.log_y,
+                (wy.0, y_max),
+                brackets.y_max,
+                layout.y_axis_min.is_some(),
+                layout.y_axis_max.is_some(),
+            );
+        }
+        let ((x_min, x_max), (y_min, y_max)) = (wx, wy);
         let y2_range = layout.y2_range.map(|range| {
             resolve_axis_range(
                 range,
@@ -4285,10 +4334,18 @@ impl ComputedLayout {
         // exactly like x_axis_min/x_axis_max and y_axis_min/y_axis_max above.
         let y2_range = if layout.y2_axis_min.is_some() || layout.y2_axis_max.is_some() {
             let (auto_min, auto_max) = y2_range.unwrap_or((0.0, 1.0));
-            Some((
+            let range = (
                 layout.y2_axis_min.unwrap_or(auto_min),
                 layout.y2_axis_max.unwrap_or(auto_max),
-            ))
+            );
+            Some(if layout.log_y2 {
+                render_utils::widen_log_bounds_to_ticks(
+                    range,
+                    (layout.y2_axis_min.is_none(), layout.y2_axis_max.is_none()),
+                )
+            } else {
+                range
+            })
         } else {
             y2_range
         };

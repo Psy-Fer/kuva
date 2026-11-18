@@ -493,3 +493,33 @@ fn out_of_range_index_draws_nothing() {
         .with_bracket(SignificanceBracket::new(0usize, 9usize, 0.01));
     assert!(bracket_paths(&render(plots, layout)).is_empty());
 }
+
+/// #136: a narrow log axis is tightened to 1-2-5 ticks (data from 33 gives a min of 20), but the
+/// bracket stack stretches it past three decades, where only powers of ten are ticked. The min
+/// must widen back to 10 so the axis starts on a tick, and the stack is resized for that min so
+/// the top bracket still fits inside the plot.
+#[test]
+fn log_axis_min_returns_to_a_decade_when_brackets_widen_it() {
+    let plot = BoxPlot::new()
+        .with_group("Input", vec![80.0, 110.0, 120.0, 130.0, 160.0])
+        .with_group("IP", vec![1700.0, 2200.0, 2400.0, 2600.0, 3300.0])
+        .with_group("IgG", vec![33.0, 75.0, 90.0, 105.0, 145.0]);
+    let plots = vec![Plot::Box(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_log_y()
+        .with_significance("Input", "IP", 1e-6)
+        .with_significance("IP", "IgG", 1e-6)
+        .with_significance("Input", "IgG", 0.4);
+
+    let computed = ComputedLayout::from_layout(&layout);
+    assert_eq!(computed.y_range.0, 10.0, "min should be a power of ten");
+    assert!(!computed.bracket_overflow);
+
+    let svg = render(plots, layout);
+    common::write_test_output("test_outputs/significance_log_widened_min.svg", &svg).unwrap();
+    assert!(
+        svg.contains(">10</text>"),
+        "the axis should start on a labelled tick"
+    );
+    assert!(common::text_y(&svg, "ns") > computed.margin_top);
+}

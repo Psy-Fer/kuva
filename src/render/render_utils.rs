@@ -590,7 +590,12 @@ pub fn auto_nice_range_capped(
 }
 
 /// Compute a nice log-scale range that fully includes the data.
-/// Rounds to powers of 10 so boundaries always align with generated ticks.
+///
+/// The bounds always land on a generated tick. A wide range (more than three decades, where only
+/// powers of ten are ticked) rounds out to powers of ten. A narrow range, which is ticked at
+/// `1, 2, 5 × 10^n`, rounds out only to the nearest of those ticks, so data just past a power of
+/// ten (say a maximum of `1.05`) gets an axis ending at `2`, not a whole extra decade at `10`
+/// (#136). The data is never snapped: every value stays inside the returned range.
 pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
     let clamped_max = if data_max <= 0.0 {
         eprintln!(
@@ -614,10 +619,88 @@ pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
 
     // Ensure at least one decade of range
     if (nice_max / nice_min - 1.0).abs() < 1e-8 {
-        (nice_min / 10.0, nice_max * 10.0)
-    } else {
-        (nice_min, nice_max)
+        return (nice_min / 10.0, nice_max * 10.0);
     }
+
+    // Narrow range: tighten each decade bound to the nearest 1-2-5 tick that still contains the
+    // data. Tightening can only shrink the decade span, so the axis keeps the 1-2-5 tick pattern.
+    let multipliers = log_multipliers(nice_min, nice_max);
+    if multipliers.len() > 1 {
+        let lo = log_tick_at_or_below(clamped_min, multipliers);
+        let hi = log_tick_at_or_above(clamped_max, multipliers);
+        if lo < hi {
+            return (lo, hi);
+        }
+    }
+    (nice_min, nice_max)
+}
+
+/// Re-widen auto-chosen log-axis bounds once the final range is known. [`auto_nice_range_log`]
+/// may tighten a narrow range to `1, 2, 5 × 10^n` ticks, but a later step can stretch the axis
+/// past three decades (room for significance brackets, or an explicit override on the other end),
+/// and such an axis is ticked at powers of ten only. A tightened bound would then sit between
+/// ticks, so each bound the caller marks as `auto` is widened out to its power of ten. Bounds
+/// that are explicit, or that the axis is still ticked at, are returned unchanged.
+pub(crate) fn widen_log_bounds_to_ticks(
+    (min, max): (f64, f64),
+    (auto_min, auto_max): (bool, bool),
+) -> (f64, f64) {
+    if min <= 0.0 || max <= min || log_multipliers(min, max).len() > 1 {
+        return (min, max);
+    }
+    let min = if auto_min {
+        10f64.powf(min.log10().floor())
+    } else {
+        min
+    };
+    let max = if auto_max {
+        10f64.powf(max.log10().ceil())
+    } else {
+        max
+    };
+    (min, max)
+}
+
+/// `mult × 10^exp`, computed by dividing for negative exponents so ticks like `0.2` or `0.05`
+/// come out as the same doubles as the literals (`0.1 * 5.0` is fine, but `0.01` from
+/// `10f64.powi(-2)` is not exactly `0.01`).
+fn log_tick_value(mult: f64, exp: i32) -> f64 {
+    if exp < 0 {
+        mult / 10f64.powi(-exp)
+    } else {
+        mult * 10f64.powi(exp)
+    }
+}
+
+/// The smallest tick in the `multipliers × 10^n` pattern that is `>= v`. Exact comparison, no
+/// tolerance: a value a hair past a tick moves on to the next one, so it is never left outside
+/// the axis.
+fn log_tick_at_or_above(v: f64, multipliers: &[f64]) -> f64 {
+    let exp = v.log10().floor() as i32;
+    for e in exp - 1..=exp + 1 {
+        for &mult in multipliers {
+            let candidate = log_tick_value(mult, e);
+            if candidate >= v {
+                return candidate;
+            }
+        }
+    }
+    log_tick_value(1.0, exp + 2)
+}
+
+/// The largest tick in the `multipliers × 10^n` pattern that is `<= v`. See
+/// [`log_tick_at_or_above`].
+fn log_tick_at_or_below(v: f64, multipliers: &[f64]) -> f64 {
+    let exp = v.log10().floor() as i32;
+    for e in (exp - 1..=exp + 1).rev() {
+        for &mult in multipliers.iter().rev() {
+            let candidate = log_tick_value(mult, e);
+            if candidate <= v {
+                return candidate;
+            }
+        }
+    }
+    log_tick_value(1.0, exp - 1)
 }
 
 /// Selects the log-tick multiplier set for a given axis span: `[1, 2, 5]` per
@@ -2171,6 +2254,75 @@ mod tests {
     // tick pair, which is wrong for the `[1,2,5]` per-decade pattern (ratios
     // alternate 2x/2.5x, not constant). `log_tick_after`/`log_tick_before`
     // must instead walk the actual pattern.
+
+    /// #136: data a hair past a power of ten must not add a whole decade to a narrow log axis.
+    #[test]
+    fn log_range_narrow_rounds_to_1_2_5_ticks() {
+        assert_eq!(auto_nice_range_log(0.1, 1.0), (0.1, 1.0));
+        assert_eq!(auto_nice_range_log(0.1, 1.0 + f64::EPSILON), (0.1, 2.0));
+        assert_eq!(auto_nice_range_log(0.1, 1.05), (0.1, 2.0));
+        assert_eq!(auto_nice_range_log(0.1, 3.0), (0.1, 5.0));
+        assert_eq!(auto_nice_range_log(0.1, 6.0), (0.1, 10.0));
+        assert_eq!(auto_nice_range_log(0.3, 40.0), (0.2, 50.0));
+        assert_eq!(auto_nice_range_log(0.012, 0.9), (0.01, 1.0));
+        assert_eq!(auto_nice_range_log(0.05, 0.2), (0.05, 0.2));
+        // A single value tightens to the ticks either side of it.
+        assert_eq!(auto_nice_range_log(3.0, 3.0), (2.0, 5.0));
+    }
+
+    /// Never snaps: the data always stays inside the range, including values one ulp past a tick.
+    #[test]
+    fn log_range_always_contains_the_data() {
+        for &(lo, hi) in &[
+            (0.1, 1.0 + f64::EPSILON),
+            (0.2 - 1e-17, 5.0 + 1e-15),
+            (0.013, 0.0499),
+            (1.5, 1.8),
+            (3.0, 4.0),
+            (7.0, 700.0),
+            (0.5, 2.0e6),
+        ] {
+            let (a, b) = auto_nice_range_log(lo, hi);
+            assert!(a <= lo && b >= hi, "({lo}, {hi}) -> ({a}, {b})");
+            // Both bounds sit on a tick the axis will actually draw.
+            let ticks = generate_ticks_log(a, b);
+            assert_eq!(ticks.first().copied(), Some(a), "({lo}, {hi})");
+            assert_eq!(ticks.last().copied(), Some(b), "({lo}, {hi})");
+        }
+    }
+
+    /// A tightened bound goes back to its power of ten once the final axis is too wide for 1-2-5
+    /// ticks; explicit bounds, and axes still ticked at 1-2-5, are left alone.
+    #[test]
+    fn widen_log_bounds_only_when_ticks_are_decades() {
+        // 20..20000 spans four decades: powers of ten only, so the auto 20 widens to 10.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (true, false)),
+            (10.0, 20000.0)
+        );
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (true, true)),
+            (10.0, 100000.0)
+        );
+        // Explicit bounds are never moved.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (false, false)),
+            (20.0, 20000.0)
+        );
+        // Narrow axis: 20 is a drawn 1-2-5 tick, nothing changes.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 500.0), (true, true)),
+            (20.0, 500.0)
+        );
+    }
+
+    /// Wide ranges (ticked at powers of ten only) still round out to whole decades.
+    #[test]
+    fn log_range_wide_keeps_decades() {
+        assert_eq!(auto_nice_range_log(0.5, 2.0e6), (0.1, 1.0e7));
+        // A value on an exact power of ten still gets a decade either side.
+        assert_eq!(auto_nice_range_log(10.0, 10.0), (1.0, 100.0));
+    }
 
     #[test]
     fn log_tick_after_crosses_a_5x_to_next_decade_1x() {
