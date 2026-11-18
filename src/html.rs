@@ -137,12 +137,29 @@ pub fn figure(svgz: &[u8], name: &str) -> String {
     figure_with_caption(svgz, name, &download_link(name, "Download SVG"))
 }
 
-/// Like [`figure`], with your own HTML as the caption (inserted as is, so escape any text in
-/// it). An empty caption leaves out the `<figcaption>`.
+/// Like [`figure`], with your own HTML as the caption. An empty caption leaves out the
+/// `<figcaption>`.
+///
+/// The caption is inserted as is, so it can hold markup and buttons. **Escape any text you put
+/// in it** with [`escape`], especially anything that came from input data (sample names,
+/// locus names, notes), or a `<` in that text becomes markup in the page.
 ///
 /// Every `a.kuva-download` link inside the figure gets the decompressed SVG as its `href`
 /// once the figure loads, so a caption can carry its own download button: build it with
 /// [`download_link`] or write `<a class="kuva-download" download="name.svg">` yourself.
+///
+/// ```rust
+/// use kuva::html;
+/// # let svgz = Vec::new();
+/// let locus = "RFC1 <AAGGG>n"; // from input data: escape it
+/// let caption = format!(
+///     "<strong>{}</strong> {}",
+///     html::escape(locus),
+///     html::download_link(locus, "Save SVG"), // escapes its own arguments
+/// );
+/// let snippet = html::figure_with_caption(&svgz, locus, &caption);
+/// assert!(snippet.contains("<strong>RFC1 &lt;AAGGG&gt;n</strong>"));
+/// ```
 pub fn figure_with_caption(svgz: &[u8], name: &str, caption_html: &str) -> String {
     let data = base64_encode(svgz);
     let mut out = String::with_capacity(data.len() + caption_html.len() + 400);
@@ -179,6 +196,13 @@ pub fn figure_with_caption(svgz: &[u8], name: &str, caption_html: &str) -> Strin
     out.push_str(&data);
     out.push_str("</script>\n</figure>\n");
     out
+}
+
+/// Escape text for HTML: `&`, `<`, `>`, `"` and `'` become entities. Safe for element text and
+/// for double- or single-quoted attribute values. Use it on any text you put into a caption for
+/// [`figure_with_caption`] or into your own page.
+pub fn escape(text: &str) -> String {
+    escape_attr(text)
 }
 
 /// A link that downloads its figure as `name.svg` (`.svg` is added unless `name` already ends

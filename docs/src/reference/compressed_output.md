@@ -70,6 +70,7 @@ disk or from a server, with no libraries.
 | `html::figure(&svgz, name)` | One figure as an HTML snippet: an `<img>`, a "Download SVG" link and the compressed data, inside `<figure class="kuva-figure">`. |
 | `html::figure_with_caption(&svgz, name, caption_html)` | The same with your own caption HTML (or none, if empty). |
 | `html::download_link(name, label)` | A download button for a custom caption. |
+| `html::escape(text)` | Escape text for a caption or your own page. |
 | `html::loader_script()` | The `<script>` that decompresses and shows every figure on the page. Include it once, after the figures. |
 | `html::standalone_page(title, &svgz, name)` | A complete self-contained `.html` file holding one figure. |
 
@@ -115,8 +116,8 @@ let index = format!(
 std::fs::write("index.html", index).unwrap();
 ```
 
-Escape any text you put in your own page yourself. `figure` and `standalone_page` already
-escape the title and name they are given.
+Escape any text you put in your own page with `html::escape`. `figure` and `standalone_page`
+already escape the title and name they are given.
 
 ### Many figures in one page, opened on demand
 
@@ -156,15 +157,18 @@ can still offer the download:
 use kuva::html;
 # let svgz: Vec<u8> = vec![];
 
+let locus = "RFC1 <AAGGG>n"; // from input data, so escape it
 let caption = format!(
-    "<strong>RFC1</strong> pathogenic expansion {}",
-    html::download_link("RFC1", "Save SVG"),
+    "<strong>{}</strong> pathogenic expansion {}",
+    html::escape(locus),
+    html::download_link(locus, "Save SVG"),
 );
-let snippet = html::figure_with_caption(&svgz, "RFC1", &caption);
+let snippet = html::figure_with_caption(&svgz, locus, &caption);
 ```
 
-The caption is inserted as is, so escape any text in it yourself. `download_link` escapes its
-arguments.
+The caption is inserted as is, so it can hold markup. Escape any text you put in it with
+`html::escape`, especially names or notes that came from input data; otherwise a `<` in that
+text becomes markup in the page. `download_link` escapes its own arguments.
 
 ### Styling
 
