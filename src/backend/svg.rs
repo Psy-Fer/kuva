@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crate::backend::interactive_js;
+use crate::render::color::Color;
 use crate::render::render::{Primitive, Scene, TextAnchor};
 
 /// Fast float-to-string conversion using Ryu.
@@ -60,6 +61,7 @@ fn write_newline(buf: &mut String, pretty: bool) {
 pub struct SvgBackend {
     pretty: bool,
     embed_font: bool,
+    rect_batching: bool,
 }
 
 impl Default for SvgBackend {
@@ -73,6 +75,7 @@ impl SvgBackend {
         Self {
             pretty: false,
             embed_font: false,
+            rect_batching: true,
         }
     }
 
@@ -89,6 +92,34 @@ impl SvgBackend {
     pub fn with_embedded_font(mut self, v: bool) -> Self {
         self.embed_font = v;
         self
+    }
+
+    /// Write runs of plain rectangles compactly (on by default).
+    ///
+    /// A run of consecutive rectangles with no stroke, opacity or tooltip, in which no two
+    /// rectangles overlap, is written as one `<path>` per fill colour instead of one `<rect>`
+    /// per rectangle. Brick plots, heatmaps and bar charts are made of exactly such runs, so
+    /// their SVGs come out about half the size and compress much better. Because nothing in the
+    /// run overlaps, paint order cannot matter and the image is unchanged; every rectangle stays
+    /// its own closed subpath, so gaps between neighbours are kept. A run with any overlap is
+    /// written as individual `<rect>`s, exactly as with batching off.
+    ///
+    /// Turn it off (`false`) when something downstream needs each rectangle as its own element,
+    /// e.g. to select or restyle single cells in an editor or with CSS.
+    pub fn with_rect_batching(mut self, v: bool) -> Self {
+        self.rect_batching = v;
+        self
+    }
+
+    /// Render the scene as a gzipped SVG (the bytes of a `.svgz` file).
+    ///
+    /// Big brick plots and heatmaps compress 10 to 50 times. Image viewers, Inkscape and Firefox
+    /// open a `.svgz` directly, but Chrome only shows one served over HTTP with
+    /// `Content-Encoding: gzip`, not from a local file. To put a compressed figure in a web page
+    /// that works anywhere, including from `file://`, use the [`html`](crate::html) helpers.
+    #[cfg(feature = "svgz")]
+    pub fn render_scene_svgz(&self, scene: &Scene) -> Vec<u8> {
+        crate::encoding::gzip(self.render_scene(scene).as_bytes())
     }
 
     pub fn render_scene(&self, scene: &Scene) -> String {
@@ -189,7 +220,23 @@ impl SvgBackend {
         // Unique tag per embedded math fragment, to namespace Typst's element IDs.
         #[cfg(feature = "typst-math")]
         let mut math_uid: usize = 0;
-        for elem in &scene.elements {
+        // Elements before this index were already checked for a batchable rect run and found
+        // none (or an overlapping one), so they are written one by one.
+        let mut no_batch_before = 0;
+        let mut i = 0;
+        while i < scene.elements.len() {
+            if self.rect_batching && i >= no_batch_before {
+                let end = rect_run_end(&scene.elements, i);
+                if end > i {
+                    if write_rect_run(&mut svg, &scene.elements[i..end], depth, p) {
+                        i = end;
+                        continue;
+                    }
+                    no_batch_before = end;
+                }
+            }
+            let elem = &scene.elements[i];
+            i += 1;
             match elem {
                 Primitive::Circle {
                     cx,
@@ -545,33 +592,14 @@ impl SvgBackend {
                     opacity,
                 } => {
                     write_indent(&mut svg, depth, p);
-                    svg.push_str(r#"<rect x=""#);
-                    write_float(&mut svg, *x);
-                    svg.push_str(r#"" y=""#);
-                    write_float(&mut svg, *y);
-                    svg.push_str(r#"" width=""#);
-                    write_float(&mut svg, *width);
-                    svg.push_str(r#"" height=""#);
-                    write_float(&mut svg, *height);
-                    svg.push_str(r#"" fill=""#);
-                    fill.write_svg(&mut svg);
-                    svg.push('"');
-                    if let Some(stroke) = stroke {
-                        svg.push_str(r#" stroke=""#);
-                        stroke.write_svg(&mut svg);
-                        svg.push('"');
-                    }
-                    if let Some(w) = stroke_width {
-                        svg.push_str(r#" stroke-width=""#);
-                        write_float(&mut svg, *w);
-                        svg.push('"');
-                    }
-                    if let Some(opacity) = opacity {
-                        svg.push_str(r#" fill-opacity=""#);
-                        write_float(&mut svg, *opacity);
-                        svg.push('"');
-                    }
-                    svg.push_str(" />");
+                    write_rect(
+                        &mut svg,
+                        (*x, *y, *width, *height),
+                        fill,
+                        stroke.as_ref(),
+                        *stroke_width,
+                        *opacity,
+                    );
                     write_newline(&mut svg, p);
                 }
                 Primitive::CircleBatch {
@@ -620,19 +648,16 @@ impl SvgBackend {
                     }
                 }
                 Primitive::RectBatch { x, y, w, h, fills } => {
-                    for i in 0..x.len() {
+                    for k in 0..x.len() {
                         write_indent(&mut svg, depth, p);
-                        svg.push_str(r#"<rect x=""#);
-                        write_float(&mut svg, x[i]);
-                        svg.push_str(r#"" y=""#);
-                        write_float(&mut svg, y[i]);
-                        svg.push_str(r#"" width=""#);
-                        write_float(&mut svg, w[i]);
-                        svg.push_str(r#"" height=""#);
-                        write_float(&mut svg, h[i]);
-                        svg.push_str(r#"" fill=""#);
-                        fills[i].write_svg(&mut svg);
-                        svg.push_str(r#"" />"#);
+                        write_rect(
+                            &mut svg,
+                            (x[k], y[k], w[k], h[k]),
+                            &fills[k],
+                            None,
+                            None,
+                            None,
+                        );
                         write_newline(&mut svg, p);
                     }
                 }
@@ -711,6 +736,263 @@ impl SvgBackend {
         write_newline(&mut svg, p);
         svg
     }
+}
+
+/// Write one `<rect>` element (no indent or newline).
+fn write_rect(
+    svg: &mut String,
+    (x, y, width, height): (f64, f64, f64, f64),
+    fill: &Color,
+    stroke: Option<&Color>,
+    stroke_width: Option<f64>,
+    opacity: Option<f64>,
+) {
+    svg.push_str(r#"<rect x=""#);
+    write_float(svg, x);
+    svg.push_str(r#"" y=""#);
+    write_float(svg, y);
+    svg.push_str(r#"" width=""#);
+    write_float(svg, width);
+    svg.push_str(r#"" height=""#);
+    write_float(svg, height);
+    svg.push_str(r#"" fill=""#);
+    fill.write_svg(svg);
+    svg.push('"');
+    if let Some(stroke) = stroke {
+        svg.push_str(r#" stroke=""#);
+        stroke.write_svg(svg);
+        svg.push('"');
+    }
+    if let Some(w) = stroke_width {
+        svg.push_str(r#" stroke-width=""#);
+        write_float(svg, w);
+        svg.push('"');
+    }
+    if let Some(opacity) = opacity {
+        svg.push_str(r#" fill-opacity=""#);
+        write_float(svg, opacity);
+        svg.push('"');
+    }
+    svg.push_str(" />");
+}
+
+/// A rectangle that rect batching may fold into a per-colour `<path>`.
+struct PlainRect<'a> {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    fill: &'a Color,
+}
+
+/// Whether a fill can move from a `<rect>` to a `<path>` unchanged. A pattern or gradient
+/// (`url(...)`) may be sized to the element's bounding box, which differs between one rect and
+/// a path spanning many, and `none` paints nothing, so neither is batched.
+fn batchable_fill(fill: &Color) -> bool {
+    match fill {
+        Color::Rgb(..) => true,
+        Color::None => false,
+        Color::Css(s) => !s.trim_start().starts_with("url("),
+    }
+}
+
+/// Append `elem`'s rectangles to `out` if every one of them can be batched; otherwise return
+/// `false` (and leave `out` as it was).
+fn push_plain_rects<'a>(elem: &'a Primitive, out: &mut Vec<PlainRect<'a>>) -> bool {
+    let finite = |v: [f64; 4]| v.iter().all(|c| c.is_finite());
+    match elem {
+        Primitive::Rect {
+            x,
+            y,
+            width,
+            height,
+            fill,
+            stroke: None,
+            opacity: None,
+            ..
+        } if batchable_fill(fill) && finite([*x, *y, *width, *height]) => {
+            out.push(PlainRect {
+                x: *x,
+                y: *y,
+                w: *width,
+                h: *height,
+                fill,
+            });
+            true
+        }
+        Primitive::RectBatch { x, y, w, h, fills } => {
+            let n = x.len();
+            let ok = y.len() == n
+                && w.len() == n
+                && h.len() == n
+                && fills.len() == n
+                && (0..n).all(|k| batchable_fill(&fills[k]) && finite([x[k], y[k], w[k], h[k]]));
+            if ok {
+                out.extend((0..n).map(|k| PlainRect {
+                    x: x[k],
+                    y: y[k],
+                    w: w[k],
+                    h: h[k],
+                    fill: &fills[k],
+                }));
+            }
+            ok
+        }
+        _ => false,
+    }
+}
+
+/// End (exclusive) of the run of batchable rect primitives starting at `start`, or `start`
+/// when the run holds fewer than two rectangles (nothing to gain).
+fn rect_run_end(elements: &[Primitive], start: usize) -> usize {
+    let mut scratch = Vec::new();
+    let mut end = start;
+    while end < elements.len() && push_plain_rects(&elements[end], &mut scratch) {
+        end += 1;
+    }
+    if scratch.len() < 2 {
+        start
+    } else {
+        end
+    }
+}
+
+/// Overlap below this many pixels, in both directions, counts as touching. SVG coordinates are
+/// written to two decimals, so a smaller overlap is rounding, not paint.
+const OVERLAP_EPS: f64 = 0.01;
+
+/// Whether any two rectangles in the run overlap. Only an overlap-free run may be regrouped by
+/// colour: with no shared pixels, paint order (and any translucency) cannot change the image.
+///
+/// Uses a uniform grid sized from the median rectangle, so a big heatmap or brick plot costs
+/// about one bucket check per rectangle instead of comparing every pair. If the grid work grows
+/// far past the rectangle count (wildly mixed sizes), it gives up and reports an overlap, which
+/// is the safe answer: the run is then written as plain `<rect>`s.
+fn any_overlap(rects: &[PlainRect]) -> bool {
+    use std::collections::HashMap;
+
+    let live: Vec<&PlainRect> = rects.iter().filter(|r| r.w > 0.0 && r.h > 0.0).collect();
+    if live.len() < 2 {
+        return false;
+    }
+    let median = |mut v: Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2].max(OVERLAP_EPS)
+    };
+    let cw = median(live.iter().map(|r| r.w).collect());
+    let ch = median(live.iter().map(|r| r.h).collect());
+    let budget = 64 * live.len() + 100_000;
+    let mut work = 0usize;
+    let mut grid: HashMap<(i64, i64), Vec<u32>> = HashMap::new();
+    for (idx, r) in live.iter().enumerate() {
+        let (c0, c1) = ((r.x / cw).floor() as i64, ((r.x + r.w) / cw).floor() as i64);
+        let (r0, r1) = ((r.y / ch).floor() as i64, ((r.y + r.h) / ch).floor() as i64);
+        for gx in c0..=c1 {
+            for gy in r0..=r1 {
+                work += 1;
+                if work > budget {
+                    return true;
+                }
+                let cell = grid.entry((gx, gy)).or_default();
+                for &other in cell.iter() {
+                    let o = live[other as usize];
+                    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
+                    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
+                    if xov > OVERLAP_EPS && yov > OVERLAP_EPS {
+                        return true;
+                    }
+                    work += 1;
+                }
+                cell.push(idx as u32);
+            }
+        }
+    }
+    false
+}
+
+/// Write a run of batchable rect primitives as one `<path>` per fill (first-seen colour order),
+/// each rectangle a closed `M x y h w v h h -w z` subpath with relative moves between them. A
+/// colour with a single rectangle stays a `<rect>`. Returns `false`, writing nothing, if any two
+/// rectangles overlap; the caller then writes the run element by element.
+fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) -> bool {
+    use std::collections::HashMap;
+
+    let mut rects = Vec::new();
+    for elem in run {
+        push_plain_rects(elem, &mut rects);
+    }
+    if any_overlap(&rects) {
+        return false;
+    }
+
+    // Group by the fill exactly as it would be written, in first-seen order (never HashMap
+    // order, so the output is deterministic).
+    // A rect with no positive size paints nothing (and a negative-size subpath would paint), so
+    // those are dropped here.
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (k, r) in rects.iter().enumerate() {
+        if !(r.w > 0.0 && r.h > 0.0) {
+            continue;
+        }
+        let mut key = String::with_capacity(7);
+        r.fill.write_svg(&mut key);
+        match index.get(&key) {
+            Some(&g) => groups[g].1.push(k),
+            None => {
+                index.insert(key.clone(), groups.len());
+                groups.push((key, vec![k]));
+            }
+        }
+    }
+
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    for (fill, members) in &groups {
+        write_indent(svg, depth, p);
+        if members.len() == 1 {
+            let r = &rects[members[0]];
+            write_rect(svg, (r.x, r.y, r.w, r.h), r.fill, None, None, None);
+            write_newline(svg, p);
+            continue;
+        }
+        svg.push_str(r#"<path d=""#);
+        // After `z` the current point is the subpath's start, so each move is relative to the
+        // previous rectangle's corner. Deltas come from the rounded corners, so they add up to
+        // exactly the absolute coordinates a `<rect>` would have used.
+        let mut prev: Option<(f64, f64)> = None;
+        for &k in members {
+            let r = &rects[k];
+            let (x, y) = (round(r.x), round(r.y));
+            match prev {
+                None => {
+                    svg.push('M');
+                    write_float(svg, x);
+                    svg.push(' ');
+                    write_float(svg, y);
+                }
+                Some((px, py)) => {
+                    svg.push('m');
+                    write_float(svg, x - px);
+                    svg.push(' ');
+                    write_float(svg, y - py);
+                }
+            }
+            let w = round(r.w);
+            svg.push('h');
+            write_float(svg, w);
+            svg.push('v');
+            write_float(svg, round(r.h));
+            svg.push('h');
+            write_float(svg, -w);
+            svg.push('z');
+            prev = Some((x, y));
+        }
+        svg.push_str(r#"" fill=""#);
+        svg.push_str(fill);
+        svg.push_str(r#"" />"#);
+        write_newline(svg, p);
+    }
+    true
 }
 
 // Backward-compat shim in the value namespace.
@@ -866,5 +1148,139 @@ mod tests {
             let decimals = s.split('.').nth(1).map_or(0, str::len);
             assert!(decimals <= 2, "write_float({}) = {s}", i as f64 * 0.013);
         }
+    }
+
+    use super::SvgBackend;
+    use crate::render::color::Color;
+    use crate::render::render::{Primitive, Scene};
+
+    fn rect(x: f64, y: f64, w: f64, h: f64, fill: &str) -> Primitive {
+        Primitive::Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+            fill: Color::from(fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        }
+    }
+
+    fn render(elements: Vec<Primitive>, batching: bool) -> String {
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.elements = elements;
+        SvgBackend::new()
+            .with_rect_batching(batching)
+            .render_scene(&scene)
+    }
+
+    /// Bricks: alternating colours with small gaps. One path per colour, every brick its own
+    /// closed subpath (so the gaps survive), colours in first-seen order.
+    #[test]
+    fn non_overlapping_run_becomes_one_path_per_colour() {
+        let els = (0..6)
+            .map(|i| {
+                let fill = if i % 2 == 0 { "#ff0000" } else { "#0000ff" };
+                rect(10.0 + i as f64 * 2.4, 5.0, 2.28, 4.0, fill)
+            })
+            .collect();
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+        assert_eq!(
+            svg.matches("<rect").count(),
+            1,
+            "only the background rect: {svg}"
+        );
+        assert_eq!(svg.matches('z').count(), 6);
+        let red = svg.find("#ff0000").unwrap();
+        let blue = svg.find("#0000ff").unwrap();
+        assert!(red < blue);
+        // First red brick absolute, the next two relative to it (4.8 px pitch).
+        assert!(
+            svg.contains(r#"d="M10 5h2.28v4h-2.28zm4.8 0h2.28v4h-2.28zm4.8 0h2.28v4h-2.28z""#),
+            "{svg}"
+        );
+    }
+
+    /// Two different colours overlapping: paint order matters, so the run stays as `<rect>`s,
+    /// byte for byte what batching-off writes.
+    #[test]
+    fn overlapping_run_is_left_alone() {
+        let els = || {
+            vec![
+                rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
+                rect(5.0, 5.0, 10.0, 10.0, "#0000ff"),
+                rect(20.0, 0.0, 10.0, 10.0, "#ff0000"),
+            ]
+        };
+        assert_eq!(render(els(), true), render(els(), false));
+    }
+
+    /// Edges that touch (or overlap by less than the 0.01 px written precision) are not an
+    /// overlap: flush heatmap cells still batch.
+    #[test]
+    fn touching_cells_still_batch() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(10.0, 0.0, 10.0, 10.0, "#00ff00"),
+            rect(0.0, 9.995, 10.0, 10.0, "#00ff00"),
+            rect(10.0, 10.0, 10.0, 10.0, "#ff0000"),
+        ];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+    }
+
+    /// Stroked, translucent, pattern-filled or unfilled rects break the run; a lone plain rect
+    /// is never turned into a path.
+    #[test]
+    fn only_plain_rects_batch() {
+        let mut stroked = rect(30.0, 0.0, 5.0, 5.0, "#ff0000");
+        if let Primitive::Rect { stroke, .. } = &mut stroked {
+            *stroke = Some(Color::from("#000000"));
+        }
+        let mut faded = rect(40.0, 0.0, 5.0, 5.0, "#ff0000");
+        if let Primitive::Rect { opacity, .. } = &mut faded {
+            *opacity = Some(0.5);
+        }
+        let els = vec![
+            rect(0.0, 0.0, 5.0, 5.0, "#ff0000"),
+            stroked,
+            rect(10.0, 0.0, 5.0, 5.0, "url(#hatch)"),
+            rect(20.0, 0.0, 5.0, 5.0, "#ff0000"),
+            faded,
+        ];
+        let batched = render(els, true);
+        assert!(!batched.contains("<path"), "{batched}");
+    }
+
+    /// A RectBatch (heatmap cells) batches, and zero-size cells are dropped rather than drawn.
+    #[test]
+    fn rect_batch_primitive_batches_and_skips_empty_cells() {
+        let els = vec![Primitive::RectBatch {
+            x: vec![0.0, 10.0, 20.0, 30.0],
+            y: vec![0.0; 4],
+            w: vec![10.0, 10.0, 0.0, 10.0],
+            h: vec![10.0; 4],
+            fills: vec![Color::from("#111111"); 4],
+        }];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 1, "{svg}");
+        assert_eq!(svg.matches('z').count(), 3, "{svg}");
+    }
+
+    /// The default is on, and `SvgBackend` the value-namespace const matches `new()`.
+    #[test]
+    fn batching_is_the_default() {
+        let els = || {
+            vec![
+                rect(0.0, 0.0, 5.0, 5.0, "#ff0000"),
+                rect(10.0, 0.0, 5.0, 5.0, "#ff0000"),
+            ]
+        };
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.elements = els();
+        assert!(super::SvgBackend.render_scene(&scene).contains("<path"));
+        assert!(SvgBackend::new().render_scene(&scene).contains("<path"));
     }
 }

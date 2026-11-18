@@ -52,8 +52,11 @@ png        = ["dep:fontdue", "dep:png", "dep:flate2"]
 # README/CHANGELOG rather than enforced through Cargo metadata.
 pdf        = ["dep:krilla", "dep:krilla-svg", "dep:usvg", "dep:flate2"]
 embed_font = ["dep:flate2"]
+# Gzipped SVG (`.svgz`) output and the `kuva::html` helpers that embed compressed figures in a
+# web page. Only adds `flate2`, which `png`/`pdf`/`embed_font` already use.
+svgz       = ["dep:flate2"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full       = ["embed_font", "png", "pdf"]
+full       = ["embed_font", "png", "pdf", "svgz"]
 parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
 # In-process math typesetter (the "typst tier"): each label containing `$...$`
 # is typeset by the Typst compiler (linked as a library, no external binary)

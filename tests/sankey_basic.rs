@@ -315,7 +315,9 @@ fn sankey_reused_labels_keep_consistent_colors_across_axes() {
 
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots).with_title("Repeated Label Colors");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
 
     assert_eq!(
         count_occurrences(&svg, "fill=\"#1f77b4\""),
@@ -334,7 +336,9 @@ fn sankey_left_coloring_propagates_parent_colors() {
 
     let plots = vec![Plot::Sankey(sankey)];
     let layout = Layout::auto_from_plots(&plots);
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
 
     let a = node_fill_for_label(&svg, "A");
     let b = node_fill_for_label(&svg, "B");

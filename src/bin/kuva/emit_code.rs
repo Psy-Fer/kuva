@@ -165,8 +165,8 @@ fn tick_format_ctor(s: &str) -> Option<String> {
 }
 
 /// Emit `.with_x(...)` fragments for `BaseArgs` — mirrors `apply_base_args`.
-/// Terminal-only fields (`terminal`/`term_bg`/`term_width`/`term_height`) and
-/// `embed_font` are intentionally skipped: the emitted snippet always targets
+/// Terminal-only fields (`terminal`/`term_bg`/`term_width`/`term_height`),
+/// `embed_font` and `no_rect_batching` are intentionally skipped: the emitted snippet always targets
 /// `SvgBackend`, and those flags only affect the CLI's own output dispatch.
 pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     let mut frags = Vec::new();

@@ -64,7 +64,41 @@ fn renders_bars_and_writes_svg_for_inspection() {
         .with_title("SCA17_TBP - CIGAR bars")
         .with_width(820.0)
         .with_height(520.0);
-    let svg = kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout));
+    let scene = render_multiple(plots, layout);
+    let svg = kuva::backend::svg::SvgBackend.render_scene(&scene);
+    // Same figure with rect batching off, to compare size and rendering side by side.
+    let unbatched = kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene);
+    assert!(
+        svg.len() < unbatched.len() * 3 / 4,
+        "batching should shrink a brick plot"
+    );
+    common::write_test_output("test_outputs/brick_cigar_bars_unbatched.svg", unbatched).unwrap();
+    // The compressed-figure HTML outputs, for checking by eye: one standalone page, and a page
+    // of several figures in <details> (the first open; the others decompress when opened).
+    let svgz = kuva::backend::svg::SvgBackend::new().render_scene_svgz(&scene);
+    common::write_test_output(
+        "test_outputs/brick_cigar_bars.html",
+        kuva::html::standalone_page("SCA17_TBP - CIGAR bars", &svgz, "brick_cigar_bars"),
+    )
+    .unwrap();
+    let mut body = String::from("<h1>Loci</h1>\n");
+    for (i, name) in ["SCA17_TBP", "copy_2", "copy_3"].iter().enumerate() {
+        let open = if i == 0 { " open" } else { "" };
+        body.push_str(&format!("<details{open}><summary>{name}</summary>\n"));
+        body.push_str(&kuva::html::figure(&svgz, name));
+        body.push_str("</details>\n");
+    }
+    body.push_str(kuva::html::loader_script());
+    common::write_test_output(
+        "test_outputs/brick_cigar_bars_details.html",
+        format!(
+            "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Loci</title>\n\
+             <style>.kuva-figure img {{ max-width: 100%; }}</style></head>\n<body>\n{body}</body></html>\n"
+        ),
+    )
+    .unwrap();
 
     assert!(svg.contains("<svg"));
     // Bar fills for the ops present, and none for ops that are not.
@@ -240,7 +274,10 @@ fn render_svg(plot: BrickPlot) -> String {
     let layout = Layout::auto_from_plots(&plots)
         .with_width(700.0)
         .with_height(220.0);
-    kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout))
+    // Geometry checks parse individual `<rect>`s, so rect batching is off.
+    kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout))
 }
 
 // The bar must begin at the row's first drawn base (the left flank), not at

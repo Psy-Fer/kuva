@@ -14,6 +14,15 @@ fn bw_svg(plots: Vec<Plot>, layout: Layout) -> String {
     SvgBackend.render_scene(&scene)
 }
 
+/// `bw_svg` with rect batching off, for tests that look for an individual `<rect>` marker.
+fn bw_svg_rects(plots: Vec<Plot>, layout: Layout) -> String {
+    let layout = layout.with_bw_mode();
+    let scene = render_multiple(plots, layout);
+    SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene)
+}
+
 /// Color-mode counterpart to `bw_svg`, used by the Group 6 colormap tests to
 /// confirm the same plot construction actually produces colorful fills
 /// outside BW mode (i.e. the test data exercises the colormap meaningfully).
@@ -1100,7 +1109,7 @@ fn bw_polar_scatter_series_use_distinct_shapes() {
         .with_series(vec![1.5, 2.5], vec![45.0, 135.0]);
     let plots = vec![Plot::Polar(polar)];
     let layout = Layout::auto_from_plots(&plots);
-    let svg = bw_svg(plots, layout);
+    let svg = bw_svg_rects(plots, layout);
     common::write_test_output("test_outputs/bw_polar.svg", svg.clone()).unwrap();
     assert!(
         svg_has_bw_square_marker(&svg),
@@ -1117,7 +1126,7 @@ fn bw_ternary_groups_use_distinct_shapes() {
         .with_point_group(0.3, 0.5, 0.2, "B");
     let plots = vec![Plot::Ternary(ternary)];
     let layout = Layout::auto_from_plots(&plots);
-    let svg = bw_svg(plots, layout);
+    let svg = bw_svg_rects(plots, layout);
     common::write_test_output("test_outputs/bw_ternary.svg", svg.clone()).unwrap();
     assert!(
         svg_has_bw_square_marker(&svg),
@@ -1195,7 +1204,7 @@ fn bw_scatter3d_instances_use_distinct_shapes() {
         .with_color("tomato");
     let plots = vec![Plot::Scatter3D(s0), Plot::Scatter3D(s1)];
     let layout = Layout::auto_from_plots(&plots);
-    let svg = bw_svg(plots, layout);
+    let svg = bw_svg_rects(plots, layout);
     common::write_test_output("test_outputs/bw_scatter3d.svg", svg.clone()).unwrap();
     assert!(
         svg_has_bw_square_marker(&svg),

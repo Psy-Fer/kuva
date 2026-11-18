@@ -118,6 +118,7 @@
 - [Colormaps](./reference/colormap.md)
 - [Black & White / Accessibility Mode](./reference/bw_mode.md)
 - [SVG Interactivity](./reference/interactive.md)
+- [Compressed Output & HTML](./reference/compressed_output.md)
 - [Date & Time Axes](./reference/datetime.md)
 - [Stats Box](./reference/stats_box.md)
 - [Significance Brackets](./reference/significance.md)

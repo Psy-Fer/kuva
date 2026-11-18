@@ -1386,6 +1386,16 @@ check_error "twin-y unsupported plot type" \
 
 rm -f "$TWIN_Y_DATA"
 
+# ── compressed output (.svgz / .html) and --no-rect-batching ─────────────────
+OUT_TMP="$(mktemp -d)"
+check_text "svgz output gunzips to SVG" "<svg" \
+    sh -c "\"$BIN\" heatmap \"$DATA/heatmap.tsv\" -o \"$OUT_TMP/hm.svgz\" && gzip -dc \"$OUT_TMP/hm.svgz\""
+check_text "html output is a standalone page" "DecompressionStream" \
+    sh -c "\"$BIN\" heatmap \"$DATA/heatmap.tsv\" --title Expression -o \"$OUT_TMP/hm.html\" && cat \"$OUT_TMP/hm.html\""
+check "heatmap no-rect-batching" \
+    "$BIN" heatmap "$DATA/heatmap.tsv" --no-rect-batching
+rm -rf "$OUT_TMP"
+
 # ── coverage ──────────────────────────────────────────────────────────────────
 check "coverage full (depth+variants+features+locus)" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal \

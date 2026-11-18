@@ -2683,3 +2683,74 @@ fn histogram_density_conflicts_with_normalize() {
         "{err}"
     );
 }
+
+/// `-o x.svgz` writes the same SVG as `-o x.svg`, gzipped.
+#[cfg(feature = "svgz")]
+#[test]
+fn test_output_svgz_is_gzipped_svg() {
+    use std::io::Read;
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let svg_path = output_path("same.svg");
+    let svgz_path = output_path("same.svgz");
+    let (_, stderr, code) = run_with_stdin(&["scatter", "-o", svg_path.to_str().unwrap()], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    let (_, stderr, code) = run_with_stdin(&["scatter", "-o", svgz_path.to_str().unwrap()], tsv);
+    assert_eq!(code, 0, "{stderr}");
+
+    let gz = fs::read(&svgz_path).unwrap();
+    assert_eq!(&gz[..2], &[0x1f, 0x8b], "gzip magic");
+    let mut inflated = String::new();
+    flate2::read::GzDecoder::new(&gz[..])
+        .read_to_string(&mut inflated)
+        .unwrap();
+    assert_eq!(inflated, fs::read_to_string(&svg_path).unwrap());
+    let _ = fs::remove_file(&svg_path);
+    let _ = fs::remove_file(&svgz_path);
+}
+
+/// `-o x.html` writes a self-contained page: one compressed figure plus the loader, titled by
+/// `--title` and with a download named after the file.
+#[cfg(feature = "svgz")]
+#[test]
+fn test_output_html_is_a_standalone_page() {
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let path = output_path("figure.html");
+    let (_, stderr, code) = run_with_stdin(
+        &[
+            "scatter",
+            "--title",
+            "My <plot>",
+            "-o",
+            path.to_str().unwrap(),
+        ],
+        tsv,
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let page = fs::read_to_string(&path).unwrap();
+    let _ = fs::remove_file(&path);
+    assert!(page.starts_with("<!DOCTYPE html>"));
+    assert!(
+        page.contains("<title>My &lt;plot&gt;</title>"),
+        "title escaped"
+    );
+    assert_eq!(page.matches("class=\"kuva-figure\"").count(), 1);
+    assert!(page.contains("DecompressionStream"));
+    let stem = path.file_stem().unwrap().to_str().unwrap();
+    assert!(page.contains(&format!("download=\"{stem}.svg\"")));
+}
+
+/// Rect batching is on by default (heatmap cells become per-colour paths) and
+/// `--no-rect-batching` restores one `<rect>` per cell.
+#[test]
+fn test_no_rect_batching_flag() {
+    let tsv = "row\ta\tb\tc\nr1\t1\t2\t1\nr2\t2\t1\t2\nr3\t1\t2\t1\n";
+    let (batched, stderr, code) = run_with_stdin(&["heatmap"], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    let (plain, stderr, code) = run_with_stdin(&["heatmap", "--no-rect-batching"], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(batched.len() < plain.len());
+    assert!(
+        plain.matches("<rect").count() >= batched.matches("<rect").count() + 9 - 2,
+        "nine cells in two colours"
+    );
+}

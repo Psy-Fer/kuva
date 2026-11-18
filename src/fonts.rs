@@ -81,47 +81,13 @@ pub(crate) fn newcm_math() -> &'static [u8] {
     BYTES.get_or_init(|| inflate(NEWCM_MATH_GZ, 1_200_000, "NewCM Math"))
 }
 
-// Used only by `dejavu_sans_style_block` (the `embed_font` SVG path); the
-// `fonts` module is also compiled for `png`/`pdf`/`math`, where this is dead.
-#[cfg(feature = "embed_font")]
-fn base64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 {
-            chunk[1] as usize
-        } else {
-            0
-        };
-        let b2 = if chunk.len() > 2 {
-            chunk[2] as usize
-        } else {
-            0
-        };
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[(n >> 18) & 0x3f] as char);
-        out.push(TABLE[(n >> 12) & 0x3f] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) & 0x3f] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[n & 0x3f] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
 /// Returns a `<style>` block with `@font-face` rules for all four DejaVu variants.
 /// The result is computed once and cached for the lifetime of the process.
 #[cfg(feature = "embed_font")]
 pub(crate) fn dejavu_sans_style_block() -> &'static str {
     static BLOCK: OnceLock<String> = OnceLock::new();
     BLOCK.get_or_init(|| {
+        use crate::encoding::base64_encode;
         let reg = base64_encode(dejavu_sans());
         let bold = base64_encode(dejavu_sans_bold());
         let oblique = base64_encode(dejavu_sans_oblique());

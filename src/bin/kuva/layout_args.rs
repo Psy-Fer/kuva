@@ -16,7 +16,8 @@ use kuva::render::theme::Theme;
 #[derive(Args, Debug)]
 #[command(next_help_heading = "Output & appearance")]
 pub struct BaseArgs {
-    /// Output file. Extension must be .svg, .png, or .pdf (case-insensitive).
+    /// Output file. Extension must be .svg, .svgz (gzipped SVG), .html (a self-contained page
+    /// that shows the compressed figure in any browser), .png, or .pdf (case-insensitive).
     /// Defaults to SVG on stdout.
     #[arg(
         short = 'o',
@@ -138,6 +139,13 @@ pub struct BaseArgs {
     /// Has no effect on PNG/PDF output (those backends always have the font).
     #[arg(long, conflicts_with = "terminal")]
     pub embed_font: bool,
+
+    /// Write every rectangle as its own `<rect>` in SVG output. By default, runs of plain,
+    /// non-overlapping rectangles (bricks, heatmap cells, bars) are written as one `<path>` per
+    /// colour, which renders identically and roughly halves the file. Use this if something
+    /// downstream needs to select or restyle individual cells.
+    #[arg(long, conflicts_with = "terminal")]
+    pub no_rect_batching: bool,
 
     /// Print the equivalent Rust library code for this plot instead of rendering it.
     /// The emitted snippet bakes in the resolved data as literals (a copy-pasteable

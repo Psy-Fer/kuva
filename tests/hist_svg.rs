@@ -433,7 +433,9 @@ fn test_histogram_kde_overlay_matches_manual_density_curve() {
         .with_title("Histogram KDE Overlay vs. Manually-scaled Density Curve")
         .with_x_label("Value")
         .with_y_label("Count");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
     common::write_test_output("test_outputs/hist_kde_vs_manual_density.svg", svg.clone()).unwrap();
 
     assert!(svg.contains("<svg"));
@@ -648,7 +650,9 @@ fn test_histogram_bin_method_svg() {
         .with_title("Freedman-Diaconis Bins")
         .with_x_label("Value")
         .with_y_label("Count");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
     common::write_test_output("test_outputs/hist_bin_method_fd.svg", &svg).unwrap();
 
     // More than 3 filled bars means the auto rule overrode with_bins(3).
@@ -749,7 +753,9 @@ fn test_histogram_density_kde_is_the_density_itself() {
 
     let plots = vec![Plot::Histogram(hist), Plot::Density(manual)];
     let layout = Layout::auto_from_plots(&plots).with_y_label("Density");
-    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
     common::write_test_output("test_outputs/hist_density_kde.svg", svg.clone()).unwrap();
 
     let ds: Vec<String> = svg

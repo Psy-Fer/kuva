@@ -32,10 +32,11 @@
 //! | `png`        | Enables [`RasterBackend`] (direct pixel-buffer rasteriser) and the [`PngBackend`] compatibility shim. |
 //! | `pdf`        | Enables [`PdfBackend`] for vector PDF output via `krilla`. Requires Rust >= 1.92 (higher than the crate's own MSRV — see CHANGELOG.md). |
 //! | `embed_font` | Enables [`backend::svg::SvgBackend::with_embedded_font`] — bakes DejaVu Sans into the SVG as a base64 `@font-face`. Adds `flate2` as a dependency but does **not** pull in `png` or `pdf`. |
+//! | `svgz`       | Enables [`backend::svg::SvgBackend::render_scene_svgz`] (gzipped `.svgz` output) and the [`html`] helpers that embed compressed figures in a web page. Adds only `flate2`. |
 //! | `cli`        | Enables the `kuva` CLI binary (pulls in `clap`). |
 //! | `typst-math` | Typesets `$...$` labels with the Typst compiler (linked as a library) for real 2-D math in SVG/PNG/PDF. Heavy (~200 crates) and opt-in: deliberately **not** in `full`. Requires Rust >= 1.89. |
 //! | `typst`      | Enables `TypstBackend` for emitting Typst markup (compile externally). Zero deps, but opt-in — also **not** in `full`. |
-//! | `full`       | Enables `embed_font` + `png` + `pdf` — the core backends for the expected use cases. Extras (`typst-math`, `typst`, `parquet`, `emit_code`) are opted into explicitly. |
+//! | `full`       | Enables `embed_font` + `png` + `pdf` + `svgz` — the core backends for the expected use cases. Extras (`typst-math`, `typst`, `parquet`, `emit_code`) are opted into explicitly. |
 //!
 //! # Math in labels
 //!
@@ -87,6 +88,12 @@ pub mod render;
     feature = "typst-math"
 ))]
 pub(crate) mod fonts;
+
+#[cfg(any(feature = "embed_font", feature = "svgz"))]
+pub(crate) mod encoding;
+
+#[cfg(feature = "svgz")]
+pub mod html;
 
 pub use backend::terminal::TerminalBackend;
 
