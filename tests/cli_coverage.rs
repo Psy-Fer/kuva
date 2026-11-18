@@ -106,3 +106,63 @@ fn coverage_png_output() {
     assert!(meta.len() > 0, "empty png");
     let _ = std::fs::remove_file(&tmp);
 }
+
+/// Count arrow-shaped bands: a stranded interval is a closed 5-vertex path (`M` + four `L`).
+fn count_arrows(svg: &str) -> usize {
+    svg.split("<path d=\"M ")
+        .skip(1)
+        .filter(|p| p.split('"').next().unwrap().matches(" L ").count() == 4)
+        .count()
+}
+
+/// Gene direction (#126): a fourth `strand` column draws stranded regions as arrows; `.` and a
+/// three-column file stay plain boxes.
+#[test]
+fn coverage_region_strand_column_draws_arrows() {
+    let (stdout, stderr, code) = run(&[
+        "coverage",
+        &data("coverage_depth.tsv"),
+        "--regions",
+        &data("coverage_genes.tsv"),
+    ]);
+    assert_eq!(code, 0, "coverage failed: {stderr}");
+    // coverage_genes.tsv: five stranded genes (+/-) and one `.` row.
+    assert_eq!(
+        count_arrows(&stdout),
+        5,
+        "expected one arrow per stranded gene"
+    );
+    assert!(stdout.contains(">GENE2<") && stdout.contains(">lncRNA<"));
+
+    // The three-column feature file still loads, with no arrows.
+    let (stdout, stderr, code) = run(&[
+        "coverage",
+        &data("coverage_depth.tsv"),
+        "--features",
+        &data("coverage_features.tsv"),
+    ]);
+    assert_eq!(code, 0, "coverage failed: {stderr}");
+    assert_eq!(count_arrows(&stdout), 0);
+}
+
+#[test]
+fn coverage_bad_strand_token_errors() {
+    let path = std::env::temp_dir().join(format!("kuva_bad_strand_{}.tsv", std::process::id()));
+    std::fs::write(
+        &path,
+        "start\tend\tlabel\tstrand\n10\t20\tg1\t+\n30\t40\tg2\tsideways\n",
+    )
+    .unwrap();
+    let (_, stderr, code) = run(&[
+        "coverage",
+        &data("coverage_depth.tsv"),
+        "--regions",
+        path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("row 2") && stderr.contains("invalid strand 'sideways'"),
+        "unexpected error: {stderr}"
+    );
+}

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
 use kuva::render::coverage::CoveragePlot;
+use kuva::render::track_stack::{Interval, Strand};
 
 use crate::data::{ColSpec, DataTable, HeaderMode, InputArgs};
 use crate::layout_args::{theme_from_name, BaseArgs};
@@ -37,8 +38,9 @@ pub struct CoverageArgs {
     #[arg(long, value_name = "FILE")]
     pub variants: Option<PathBuf>,
 
-    /// Features file (TSV/CSV): three columns `start,end,label`. Drawn as a lane above the axis;
-    /// overlapping bands tile onto pool-coloured rows (amplicons / primers).
+    /// Features file (TSV/CSV): columns `start,end,label`, plus an optional fourth `strand`
+    /// column (`+`, `-` or `.`). Drawn as a lane above the axis; overlapping bands tile onto
+    /// pool-coloured rows (amplicons / primers). Stranded features are drawn as arrows.
     #[arg(long, value_name = "FILE")]
     pub features: Option<PathBuf>,
 
@@ -46,8 +48,10 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub feature_name: Option<String>,
 
-    /// Regions file (TSV/CSV): three columns `start,end,label`. A reference genome annotation
-    /// (genes / ORFs), drawn just above the axis; labels that don't fit their band are omitted.
+    /// Regions file (TSV/CSV): columns `start,end,label`, plus an optional fourth `strand`
+    /// column (`+`, `-` or `.`). A reference genome annotation (genes / ORFs), drawn just above
+    /// the axis; labels that don't fit their band are omitted. Stranded regions are drawn as
+    /// arrows pointing the way the gene is transcribed.
     #[arg(long, value_name = "FILE")]
     pub regions: Option<PathBuf>,
 
@@ -156,45 +160,17 @@ pub fn run(args: CoverageArgs) -> Result<(), String> {
         }
     }
 
-    // Features (separate file): start,end,label -> below-axis bands.
+    // Features (separate file): start,end,label[,strand] -> a lane of bands above the axis.
     if let Some(path) = &args.features {
-        let start = ColSpec::Index(0);
-        let end = ColSpec::Index(1);
-        let label = ColSpec::Index(2);
-        let ft = DataTable::parse(
-            Some(path.as_path()),
-            HeaderMode::Auto,
-            args.input.delimiter,
-            &[start.clone(), end.clone(), label.clone()],
-        )?;
-        let starts = ft.col_f64(&start)?;
-        let ends = ft.col_f64(&end)?;
-        let labels = ft.col_str(&label)?;
-        for ((s, e), l) in starts.iter().zip(ends.iter()).zip(labels.iter()) {
-            cov = cov.with_feature(*s, *e, l.clone());
-        }
+        cov = cov.with_features(read_intervals(path, args.input.delimiter)?);
         if let Some(name) = &args.feature_name {
             cov = cov.with_feature_track_name(name.clone());
         }
     }
 
-    // Regions (genes/ORFs): start,end,label -> reference annotation lane above the axis.
+    // Regions (genes/ORFs): start,end,label[,strand] -> reference annotation lane above the axis.
     if let Some(path) = &args.regions {
-        let start = ColSpec::Index(0);
-        let end = ColSpec::Index(1);
-        let label = ColSpec::Index(2);
-        let rt = DataTable::parse(
-            Some(path.as_path()),
-            HeaderMode::Auto,
-            args.input.delimiter,
-            &[start.clone(), end.clone(), label.clone()],
-        )?;
-        let starts = rt.col_f64(&start)?;
-        let ends = rt.col_f64(&end)?;
-        let labels = rt.col_str(&label)?;
-        for ((s, e), l) in starts.iter().zip(ends.iter()).zip(labels.iter()) {
-            cov = cov.with_region(*s, *e, l.clone());
-        }
+        cov = cov.with_regions(read_intervals(path, args.input.delimiter)?);
         if let Some(name) = &args.region_name {
             cov = cov.with_region_track_name(name.clone());
         }
@@ -213,4 +189,30 @@ pub fn run(args: CoverageArgs) -> Result<(), String> {
         None => cov.render(width),
     };
     write_output(scene, &args.base)
+}
+
+/// Read a `start,end,label[,strand]` interval file (features or regions). The strand column is
+/// optional: a file with only three columns gives unstranded bands, and `.` marks a row with no
+/// strand. Columns past the fourth are ignored, so a BED-like file with extra fields still loads.
+fn read_intervals(path: &Path, delimiter: Option<char>) -> Result<Vec<Interval>, String> {
+    let (start, end, label) = (ColSpec::Index(0), ColSpec::Index(1), ColSpec::Index(2));
+    // Read every column (an empty projection): asking for a strand column the file doesn't have
+    // would fail, and these annotation files are small.
+    let t = DataTable::parse(Some(path), HeaderMode::Auto, delimiter, &[])?;
+    let starts = t.col_f64(&start)?;
+    let ends = t.col_f64(&end)?;
+    let labels = t.col_str(&label)?;
+    let mut out = Vec::with_capacity(starts.len());
+    for (row, ((s, e), l)) in starts.iter().zip(&ends).zip(labels).enumerate() {
+        let mut iv = Interval::new(*s, *e).with_label(l);
+        if let Some(token) = t.rows[row].get(3) {
+            if let Some(strand) = Strand::parse(token)
+                .map_err(|e| format!("{}: row {}: {e}", path.display(), row + 1))?
+            {
+                iv = iv.with_strand(strand);
+            }
+        }
+        out.push(iv);
+    }
+    Ok(out)
 }

@@ -1409,6 +1409,10 @@ check "coverage features only" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
         --features "$DATA/coverage_features.tsv" --feature-name amplicons
 
+check "coverage stranded genes (+/-/. strand column)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --regions "$DATA/coverage_genes.tsv" --region-name genes --x-label "chr7 position"
+
 check "coverage real CoVarPlot ARTIC data" \
     "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 \
         --variants "$DATA/covar_variants.tsv" --features "$DATA/covar_amplicons.tsv" \

@@ -102,7 +102,7 @@ let scene = CoveragePlot::new()
 | `.with_feature(start, end, label)` | Add one feature band (amplicon / primer). |
 | `.with_features(intervals)` | Add several feature bands at once. |
 | `.with_region(start, end, label)` | Add a genome region (gene / ORF), coloured per region with a legend. |
-| `.with_regions(intervals)` | Add several regions at once. |
+| `.with_regions(intervals)` | Add several regions at once. Give an `Interval` a strand with `.with_strand(Strand::Forward)` to draw it as an arrow (see [Gene direction](#gene-direction)). |
 | `.with_locus(start, end)` | Pin the x range. Without it, the union of all data is used. |
 | `.with_title(text)` | Figure title in a band at the top. |
 | `.with_x_label(text)` | X-axis label (drawn in the left gutter). |
@@ -117,6 +117,39 @@ does not overlap one already placed. So N mutually overlapping bands need N rows
 gives the classic tiled-amplicon layout, where a two-pool primer scheme lands on two rows. Feature
 lanes colour rows by pool; region lanes colour each item individually and expose every item in the
 legend, so a tiny region whose label does not fit inside its band is still identifiable by colour.
+
+### Gene direction
+
+Give an interval a strand and it is drawn as an arrow pointing the way it reads: right for
+`Strand::Forward` (`+`), left for `Strand::Reverse` (`-`). This shows which way each gene is
+transcribed. Intervals without a strand stay plain boxes, so stranded and unstranded features can
+share a lane. A gene too narrow for its arrowhead is drawn as a small triangle.
+
+```rust,no_run
+use kuva::render::coverage::CoveragePlot;
+use kuva::render::track_stack::{Interval, Strand};
+
+# let tumour: Vec<(f64, f64)> = vec![];
+let genes = vec![
+    Interval::new(1_001_500.0, 1_009_000.0).with_label("GENE1").with_strand(Strand::Forward),
+    Interval::new(1_010_500.0, 1_018_500.0).with_label("GENE2").with_strand(Strand::Reverse),
+    Interval::new(1_017_000.0, 1_021_000.0).with_label("GENE3").with_strand(Strand::Forward),
+    Interval::new(1_023_000.0, 1_031_500.0).with_label("GENE4").with_strand(Strand::Reverse),
+    Interval::new(1_034_500.0, 1_039_000.0).with_label("lncRNA"), // no strand: a plain box
+];
+
+let scene = CoveragePlot::new()
+    .with_locus(1_000_000.0, 1_040_000.0)
+    .with_sample("tumour", tumour)
+    .with_regions(genes)
+    .with_x_label("chr7 position")
+    .render_sized(820.0, 280.0);
+```
+
+<img src="../assets/coverage/strands.svg" alt="Coverage plot with a gene lane: forward genes point right, reverse genes point left, and an unstranded lncRNA is a plain box" width="700">
+
+On the CLI, add a fourth `strand` column (`+`, `-` or `.`) to the `--regions` or `--features` file.
+`Strand::parse` reads the same tokens if you are loading annotation files yourself.
 
 ### Legends
 
@@ -169,8 +202,8 @@ kuva coverage depth.tsv --x pos --samples pool1,pool2 \
 | `--overlay-samples` | Overlay all samples in one shared track. |
 | `--min-coverage <depth>` | Dashed threshold line at `depth` on every coverage track (repeatable). |
 | `--variants <file>` | Variants file with columns `position,type`. |
-| `--features <file>` / `--feature-name <name>` | Feature bands file (`start,end,label`) and lane name. |
-| `--regions <file>` / `--region-name <name>` | Region / gene file (`start,end,label`) and lane name. |
+| `--features <file>` / `--feature-name <name>` | Feature bands file (`start,end,label`, optional `strand`) and lane name. |
+| `--regions <file>` / `--region-name <name>` | Region / gene file (`start,end,label`, optional `strand` of `+`, `-` or `.`) and lane name. Stranded rows draw as arrows. |
 | `--locus-start <n>` / `--locus-end <n>` | Pin the genomic window. |
 | `--x-label <text>` | X-axis label. |
 

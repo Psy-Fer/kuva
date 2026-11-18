@@ -36,7 +36,8 @@ use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
 use crate::render::render::{
-    collect_legend_entries, render_legend_at, render_multiple, Primitive, Scene, TextAnchor,
+    collect_legend_entries, render_legend_at, render_multiple, PathData, Primitive, Scene,
+    TextAnchor,
 };
 use crate::render::text_metrics::{measure_text_width, FontStyle};
 use crate::render::theme::Theme;
@@ -762,11 +763,40 @@ impl Track for PlotTrack {
     }
 }
 
+/// Which way an [`Interval`] reads along the x-axis, e.g. the direction a gene is transcribed.
+/// A stranded interval is drawn as an arrow pointing in that direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strand {
+    /// `+`: reads left to right (towards larger coordinates). The arrow points right.
+    Forward,
+    /// `-`: reads right to left. The arrow points left.
+    Reverse,
+}
+
+impl Strand {
+    /// Parse a strand token as written in BED/GFF files: `+` is forward, `-` is reverse, and `.`,
+    /// `?` or an empty cell mean "no strand" (`Ok(None)`). The words `forward`/`reverse`/`fwd`/`rev`
+    /// are accepted too, case-insensitively. Anything else is an error.
+    pub fn parse(token: &str) -> Result<Option<Strand>, String> {
+        match token.trim().to_ascii_lowercase().as_str() {
+            "+" | "forward" | "fwd" => Ok(Some(Strand::Forward)),
+            "-" | "reverse" | "rev" => Ok(Some(Strand::Reverse)),
+            "." | "?" | "" => Ok(None),
+            other => Err(format!(
+                "invalid strand '{other}': expected '+', '-' or '.'"
+            )),
+        }
+    }
+}
+
 /// A labelled band over an x-interval, in an [`IntervalTrack`] (amplicons, primers, gene models).
 pub struct Interval {
     pub start: f64,
     pub end: f64,
     pub label: Option<String>,
+    /// Direction of the interval. `Some` draws the band as an arrow; `None` (the default) draws a
+    /// plain box.
+    pub strand: Option<Strand>,
 }
 
 impl Interval {
@@ -775,10 +805,18 @@ impl Interval {
             start,
             end,
             label: None,
+            strand: None,
         }
     }
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+    /// Give the interval a direction, drawn as an arrowhead on its leading end (the right end for
+    /// [`Strand::Forward`], the left end for [`Strand::Reverse`]). Use it for genes, so the plot
+    /// shows which way each is transcribed, or for primers.
+    pub fn with_strand(mut self, strand: Strand) -> Self {
+        self.strand = Some(strand);
         self
     }
 }
@@ -927,7 +965,8 @@ impl Track for IntervalTrack {
             let row = row_of[i];
             let row_top = cx.y_top + row as f64 * row_h;
             let y = row_top + (row_h - bar_h) * 0.5;
-            let (x0, x1) = (cx.x.map(iv.start), cx.x.map(iv.end));
+            let (px_a, px_b) = (cx.x.map(iv.start), cx.x.map(iv.end));
+            let (x0, x1) = (px_a.min(px_b), px_a.max(px_b));
             // Per-item colours win, then per-row (pool) colours, then the single fill.
             let fill = if let Some(cs) = self.item_colors.as_ref().filter(|c| !c.is_empty()) {
                 cs[i % cs.len()].clone()
@@ -936,23 +975,49 @@ impl Track for IntervalTrack {
             } else {
                 self.fill.clone()
             };
-            scene.add(Primitive::Rect {
-                x: x0.min(x1),
-                y,
-                width: (x1 - x0).abs().max(1.0),
-                height: bar_h,
-                fill,
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            // Which pixel end the arrowhead sits on. Strand is relative to the data axis, so a
+            // reversed x-scale (start maps right of end) flips the drawn direction with it.
+            let head_right = iv.strand.map(|s| (s == Strand::Forward) == (px_b >= px_a));
+            // The body is the part of the band left over after the arrowhead; labels centre on it.
+            let (body0, body1) = match head_right {
+                Some(right) if x1 - x0 >= 1.0 => {
+                    let head = arrow_head_len(x1 - x0, bar_h);
+                    let d = arrow_path(x0, x1, y, bar_h, head, right);
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: Some(fill),
+                        stroke: Color::None,
+                        stroke_width: 0.0,
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                    if right {
+                        (x0, x1 - head)
+                    } else {
+                        (x0 + head, x1)
+                    }
+                }
+                _ => {
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y,
+                        width: (x1 - x0).max(1.0),
+                        height: bar_h,
+                        fill,
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    (x0, x1)
+                }
+            };
             // Draw the label centred inside the band only if it fits; tiny bands (e.g. the small
             // 3' SARS-CoV-2 genes) stay as bare coloured boxes rather than spilling overlapping text.
             if let Some(label) = &iv.label {
-                let box_w = (x1 - x0).abs();
+                let box_w = body1 - body0;
                 if measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
                     scene.add(Primitive::Text {
-                        x: (x0 + x1) / 2.0,
+                        x: (body0 + body1) / 2.0,
                         y: row_top + row_h * 0.5 + 3.0,
                         content: label.clone(),
                         size: 9,
@@ -964,6 +1029,26 @@ impl Track for IntervalTrack {
                 }
             }
         }
+    }
+}
+
+/// Arrowhead length for a stranded band `width` px wide and `bar_h` px tall: a fixed fraction of
+/// the bar height, so every arrow in a track has the same head angle, but never more than the
+/// band itself. A band narrower than the head is drawn as a plain triangle.
+fn arrow_head_len(width: f64, bar_h: f64) -> f64 {
+    (bar_h * 0.6).min(width)
+}
+
+/// SVG path for a band from `x0` to `x1` (pixels, `x0 <= x1`) whose `right` (or left) end is an
+/// arrowhead `head` px long, pointing at the band's mid-height.
+fn arrow_path(x0: f64, x1: f64, y: f64, h: f64, head: f64, right: bool) -> String {
+    let (top, mid, bot) = (y, y + h * 0.5, y + h);
+    if right {
+        let shoulder = x1 - head;
+        format!("M {x0} {top} L {shoulder} {top} L {x1} {mid} L {shoulder} {bot} L {x0} {bot} Z")
+    } else {
+        let shoulder = x0 + head;
+        format!("M {x1} {top} L {shoulder} {top} L {x0} {mid} L {shoulder} {bot} L {x1} {bot} Z")
     }
 }
 
@@ -1658,5 +1743,59 @@ mod tests {
             first_rect.unwrap() < first_group.unwrap(),
             "underlay must render behind (before) the track"
         );
+    }
+
+    #[test]
+    fn strand_parse_tokens() {
+        assert_eq!(Strand::parse("+"), Ok(Some(Strand::Forward)));
+        assert_eq!(Strand::parse(" - "), Ok(Some(Strand::Reverse)));
+        assert_eq!(Strand::parse("Reverse"), Ok(Some(Strand::Reverse)));
+        assert_eq!(Strand::parse("fwd"), Ok(Some(Strand::Forward)));
+        assert_eq!(Strand::parse("."), Ok(None));
+        assert_eq!(Strand::parse(""), Ok(None));
+        assert!(Strand::parse("x").is_err());
+    }
+
+    /// Pull the x coordinates out of an `M x y L x y ...` path.
+    fn path_xs(d: &str) -> Vec<f64> {
+        let nums: Vec<f64> = d
+            .split_whitespace()
+            .filter_map(|t| t.parse().ok())
+            .collect();
+        nums.chunks(2).map(|c| c[0]).collect()
+    }
+
+    #[test]
+    fn arrow_tip_is_on_the_strand_end() {
+        // Forward: the point (mid-height vertex) is at the right end, x1.
+        let fwd = arrow_path(10.0, 110.0, 0.0, 10.0, 6.0, true);
+        let xs = path_xs(&fwd);
+        assert_eq!(xs[2], 110.0);
+        assert!(xs.iter().all(|&x| (10.0..=110.0).contains(&x)));
+        // Reverse: the point is at the left end, x0.
+        let rev = arrow_path(10.0, 110.0, 0.0, 10.0, 6.0, false);
+        assert_eq!(path_xs(&rev)[2], 10.0);
+    }
+
+    #[test]
+    fn arrow_head_never_longer_than_the_band() {
+        assert_eq!(arrow_head_len(100.0, 10.0), 6.0);
+        // A band narrower than the head becomes a triangle: head == width.
+        assert_eq!(arrow_head_len(3.0, 10.0), 3.0);
+    }
+
+    #[test]
+    fn stranded_interval_renders_as_path_unstranded_as_rect() {
+        let track = IntervalTrack::new(vec![
+            Interval::new(0.0, 40.0).with_strand(Strand::Reverse),
+            Interval::new(50.0, 100.0),
+        ]);
+        let scene = TrackStack::new().track(track).render(400.0);
+        let paths = scene
+            .elements
+            .iter()
+            .filter(|p| matches!(p, Primitive::Path(_)))
+            .count();
+        assert_eq!(paths, 1, "only the stranded interval is an arrow");
     }
 }
