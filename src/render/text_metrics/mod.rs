@@ -28,14 +28,9 @@
 //! font); a close, fails-safe prediction for bare SVG (the consumer picks the
 //! font, but the cascade resolves to DejaVu or a near-metric-match like Verdana).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 mod data;
-
-/// Advance assumed for a codepoint DejaVu Sans has no glyph for (CJK, emoji,
-/// exotic scripts). One em deliberately over-reserves rather than clipping, and
-/// such glyphs render in a substituted font of unknown metrics anyway.
-const FALLBACK_ADVANCE_UNITS: u16 = data::UNITS_PER_EM;
 
 /// Which face to measure against. Each variant has its own advance table; do not
 /// assume any two share metrics (they do not, across the full character set).
@@ -134,11 +129,11 @@ fn first_family_is_monospace(list: &str) -> bool {
         .any(|word| word == "mono" || word == "monospace")
 }
 
-/// Per-style vertical metrics for the bundled face, in font units (scale to
-/// pixels by `size / UNITS_PER_EM`). `descent` is stored as a positive depth
-/// below the baseline. `cap_height`/`x_height` are measured from the `H`/`x`
-/// glyph outlines (robust to faces whose OS/2 table omits them, as DejaVu does).
-#[derive(Clone, Copy, Debug)]
+/// Vertical metrics for one face, in font units (scale to pixels by
+/// `size / units_per_em`). `descent` is stored as a positive depth below the
+/// baseline. `cap_height`/`x_height` are measured from the `H`/`x` glyph outlines
+/// (robust to faces whose OS/2 table omits them, as DejaVu does).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct VMetrics {
     ascent: i16,
     descent: i16,
@@ -147,62 +142,259 @@ struct VMetrics {
     x_height: i16,
 }
 
-/// Vertical metrics (font units) for `style`.
-fn vmetrics(style: FontStyle) -> VMetrics {
-    match style {
-        FontStyle::Regular => data::VMETRICS_REGULAR,
-        FontStyle::Italic => data::VMETRICS_ITALIC,
-        FontStyle::Bold => data::VMETRICS_BOLD,
-        FontStyle::BoldItalic => data::VMETRICS_BOLD_ITALIC,
-        FontStyle::Mono => data::VMETRICS_MONO,
+/// Everything layout needs to measure text in one face: horizontal advances over
+/// the Basic Multilingual Plane plus the vertical metrics, measured **once** when
+/// the face is loaded and then only looked up.
+///
+/// Every font is measured through this one type. The bundled DejaVu faces are
+/// decoded from the generated tables in [`data`] (see [`FontMetrics::builtin`]), so
+/// the dependency-free default build needs no font bytes or parser.
+#[derive(Debug)]
+pub(crate) struct FontMetrics {
+    /// Font design units per em: the divisor that turns units into em fractions.
+    units_per_em: u16,
+    /// Advance per BMP codepoint, in font units; 0 marks a codepoint with no glyph.
+    advances: Box<[u16; 0x10000]>,
+    vmetrics: VMetrics,
+    /// Mean advance over printable ASCII, in em, for the few inverse
+    /// width-to-character-count estimates that have no concrete string.
+    mean_advance_em: f64,
+}
+
+impl FontMetrics {
+    /// Metrics of the bundled DejaVu face for `style`, decoded on first use and
+    /// shared for the life of the process.
+    pub(crate) fn builtin(style: FontStyle) -> &'static Arc<FontMetrics> {
+        static REGULAR: OnceLock<Arc<FontMetrics>> = OnceLock::new();
+        static ITALIC: OnceLock<Arc<FontMetrics>> = OnceLock::new();
+        static BOLD: OnceLock<Arc<FontMetrics>> = OnceLock::new();
+        static BOLD_ITALIC: OnceLock<Arc<FontMetrics>> = OnceLock::new();
+        static MONO: OnceLock<Arc<FontMetrics>> = OnceLock::new();
+        let (cell, rle, vmetrics) = match style {
+            FontStyle::Regular => (&REGULAR, data::ADVANCE_RLE_REGULAR, data::VMETRICS_REGULAR),
+            FontStyle::Italic => (&ITALIC, data::ADVANCE_RLE_ITALIC, data::VMETRICS_ITALIC),
+            FontStyle::Bold => (&BOLD, data::ADVANCE_RLE_BOLD, data::VMETRICS_BOLD),
+            FontStyle::BoldItalic => (
+                &BOLD_ITALIC,
+                data::ADVANCE_RLE_BOLD_ITALIC,
+                data::VMETRICS_BOLD_ITALIC,
+            ),
+            FontStyle::Mono => (&MONO, data::ADVANCE_RLE_MONO, data::VMETRICS_MONO),
+        };
+        cell.get_or_init(|| {
+            Arc::new(FontMetrics {
+                units_per_em: data::UNITS_PER_EM,
+                advances: decode_rle(rle),
+                vmetrics,
+                // The generator records the Regular face's mean for every style,
+                // which is what `mean_char_width` has always used.
+                mean_advance_em: data::MEAN_ADVANCE_EM,
+            })
+        })
+    }
+
+    /// Measure a parsed font face (feature `custom_fonts`): advances over the BMP,
+    /// vertical metrics and the printable-ASCII mean advance. Called once per face,
+    /// when it is registered. Uses exactly the rules `examples/gen_text_metrics.rs`
+    /// applies to the bundled faces, so DejaVu measured here equals the built-in table.
+    #[cfg(feature = "custom_fonts")]
+    pub(crate) fn from_face(face: &ttf_parser::Face) -> FontMetrics {
+        let units_per_em = face.units_per_em();
+        let advance = |c: char| face.glyph_index(c).and_then(|g| face.glyph_hor_advance(g));
+        let mut advances: Box<[u16; 0x10000]> = vec![0u16; 0x10000]
+            .into_boxed_slice()
+            .try_into()
+            .expect("65536 entries");
+        // Visit only the codepoints the font maps: `glyph_index` consults just the
+        // Unicode cmap subtables, and those enumerate exactly what they map, so this
+        // fills the same table as probing all 65536 codepoints, much faster.
+        // U+FFFF is probed explicitly: a format-4 subtable's closing sentinel segment
+        // sits there, which `glyph_index` resolves but enumeration skips.
+        let mut mapped = vec![0xFFFF];
+        if let Some(cmap) = face.tables().cmap {
+            for subtable in cmap.subtables.into_iter().filter(|s| s.is_unicode()) {
+                subtable.codepoints(|cp| {
+                    if cp <= 0xFFFF {
+                        mapped.push(cp);
+                    }
+                });
+            }
+        }
+        for cp in mapped {
+            if let Some(a) = char::from_u32(cp).and_then(advance) {
+                advances[cp as usize] = a;
+            }
+        }
+
+        let ascent = face.ascender();
+        // Cap and x height from the 'H' and 'x' outlines (DejaVu's OS/2 table omits
+        // them), then OS/2, then a derived value.
+        let glyph_top = |ch: char| {
+            face.glyph_index(ch)
+                .and_then(|g| face.glyph_bounding_box(g))
+                .map(|bb| bb.y_max)
+        };
+        let cap_height = glyph_top('H')
+            .or_else(|| face.capital_height())
+            .unwrap_or(ascent);
+        let x_height = glyph_top('x')
+            .or_else(|| face.x_height())
+            .unwrap_or((f32::from(cap_height) * 0.72) as i16);
+        let vmetrics = VMetrics {
+            ascent,
+            descent: -face.descender(),
+            line_gap: face.line_gap(),
+            cap_height,
+            x_height,
+        };
+
+        let ascii: Vec<f64> = (0x20u8..=0x7E)
+            .filter_map(|b| advance(char::from(b)))
+            .map(|a| f64::from(a) / f64::from(units_per_em))
+            .collect();
+        let mean_advance_em = if ascii.is_empty() {
+            data::MEAN_ADVANCE_EM
+        } else {
+            ascii.iter().sum::<f64>() / ascii.len() as f64
+        };
+
+        FontMetrics {
+            units_per_em,
+            advances,
+            vmetrics,
+            mean_advance_em,
+        }
+    }
+
+    /// Scales a font-unit metric to pixels at `font_size`.
+    fn scale(&self, units: impl Into<i32>, font_size: f64) -> f64 {
+        f64::from(units.into()) / f64::from(self.units_per_em) * font_size
+    }
+
+    /// Advance of one codepoint in font units. A codepoint the face has no glyph
+    /// for (CJK, emoji, exotic scripts) reserves one em: deliberately over-reserving
+    /// rather than clipping, since such glyphs render in a substituted font of
+    /// unknown metrics anyway.
+    fn advance_units(&self, c: char) -> u16 {
+        let cp = c as u32;
+        let units = if cp <= 0xFFFF {
+            self.advances[cp as usize]
+        } else {
+            0
+        };
+        if units == 0 {
+            self.units_per_em
+        } else {
+            units
+        }
+    }
+
+    /// Rendered width of a single line of `text` at `font_size` pixels.
+    ///
+    /// Counts Unicode scalar values (not UTF-8 bytes), so multi-byte labels are
+    /// measured correctly. Newlines are not interpreted: callers wrap first.
+    pub(crate) fn text_width(&self, text: &str, font_size: f64) -> f64 {
+        let total_units: u64 = text.chars().map(|c| u64::from(self.advance_units(c))).sum();
+        total_units as f64 / f64::from(self.units_per_em) * font_size
+    }
+
+    /// Width of the widest of `labels` at `font_size`; `0.0` for an empty set.
+    pub(crate) fn widest_text_width<'a>(
+        &self,
+        labels: impl IntoIterator<Item = &'a str>,
+        font_size: f64,
+    ) -> f64 {
+        labels
+            .into_iter()
+            .map(|s| self.text_width(s, font_size))
+            .fold(0.0, f64::max)
+    }
+
+    /// Mean rendered width of one character at `font_size`.
+    pub(crate) fn mean_char_width(&self, font_size: f64) -> f64 {
+        font_size * self.mean_advance_em
+    }
+
+    /// Single-spaced line height (ascent + descent + line gap) in pixels.
+    pub(crate) fn line_height(&self, font_size: f64) -> f64 {
+        let m = self.vmetrics;
+        self.scale(
+            i32::from(m.ascent) + i32::from(m.descent) + i32::from(m.line_gap),
+            font_size,
+        )
+    }
+
+    /// Distance from the baseline up to the top of the ascenders, in pixels.
+    pub(crate) fn ascent(&self, font_size: f64) -> f64 {
+        self.scale(self.vmetrics.ascent, font_size)
+    }
+
+    /// Distance from the baseline down to the bottom of descenders (positive), in px.
+    pub(crate) fn descent(&self, font_size: f64) -> f64 {
+        self.scale(self.vmetrics.descent, font_size)
+    }
+
+    /// Ascent + descent, without line leading.
+    pub(crate) fn text_height(&self, font_size: f64) -> f64 {
+        let m = self.vmetrics;
+        self.scale(i32::from(m.ascent) + i32::from(m.descent), font_size)
+    }
+
+    /// Cap height (top of uppercase letters above the baseline), in pixels.
+    pub(crate) fn cap_height(&self, font_size: f64) -> f64 {
+        self.scale(self.vmetrics.cap_height, font_size)
+    }
+
+    /// x-height (top of lowercase letters above the baseline), in pixels.
+    pub(crate) fn x_height(&self, font_size: f64) -> f64 {
+        self.scale(self.vmetrics.x_height, font_size)
+    }
+
+    /// Baseline offset that vertically centres a line of cap-height text on a
+    /// target y (half the cap height).
+    pub(crate) fn center_offset(&self, font_size: f64) -> f64 {
+        self.cap_height(font_size) / 2.0
     }
 }
 
-/// Scales a font-unit vertical metric to pixels at `font_size`.
-fn scale_units(units: impl Into<i32>, font_size: f64) -> f64 {
-    f64::from(units.into()) / f64::from(data::UNITS_PER_EM) * font_size
-}
+// ── Free functions: the bundled DejaVu faces ─────────────────────────────────
+// These measure against `FontMetrics::builtin(style)`. Call sites move to the
+// layout's resolved fonts as custom-font support lands (#134).
 
 /// Natural single-spaced line height (ascent + descent + line gap) in pixels —
 /// the vertical advance between stacked lines and the minimum height a row or box
-/// must reserve to hold one line of text without clipping. Replaces the zoo of
-/// `font_size * {1.0..1.55}` and hardcoded-pixel line-height guesses.
+/// must reserve to hold one line of text without clipping.
 pub(crate) fn line_height(font_size: f64, style: FontStyle) -> f64 {
-    let m = vmetrics(style);
-    scale_units(
-        i32::from(m.ascent) + i32::from(m.descent) + i32::from(m.line_gap),
-        font_size,
-    )
+    FontMetrics::builtin(style).line_height(font_size)
 }
 
 /// Distance from the baseline up to the top of the font's ascenders, in pixels.
 /// Use to top-anchor text in a reserved band (baseline = top + ascent).
 pub(crate) fn ascent(font_size: f64, style: FontStyle) -> f64 {
-    scale_units(vmetrics(style).ascent, font_size)
+    FontMetrics::builtin(style).ascent(font_size)
 }
 
 /// Distance from the baseline down to the bottom of descenders (positive), in px.
 pub(crate) fn descent(font_size: f64, style: FontStyle) -> f64 {
-    scale_units(vmetrics(style).descent, font_size)
+    FontMetrics::builtin(style).descent(font_size)
 }
 
 /// Height of the em box glyphs actually occupy (ascent + descent), without line
 /// leading — the measure to test text against a fixed height (cell, band, ring).
 pub(crate) fn text_height(font_size: f64, style: FontStyle) -> f64 {
-    let m = vmetrics(style);
-    scale_units(i32::from(m.ascent) + i32::from(m.descent), font_size)
+    FontMetrics::builtin(style).text_height(font_size)
 }
 
 /// Cap height (top of uppercase letters above the baseline), in pixels.
 #[allow(dead_code)]
 pub(crate) fn cap_height(font_size: f64, style: FontStyle) -> f64 {
-    scale_units(vmetrics(style).cap_height, font_size)
+    FontMetrics::builtin(style).cap_height(font_size)
 }
 
 /// x-height (top of lowercase letters above the baseline), in pixels.
 #[allow(dead_code)]
 pub(crate) fn x_height(font_size: f64, style: FontStyle) -> f64 {
-    scale_units(vmetrics(style).x_height, font_size)
+    FontMetrics::builtin(style).x_height(font_size)
 }
 
 /// Baseline offset that vertically centers a line of uppercase/digit text on a
@@ -211,7 +403,7 @@ pub(crate) fn x_height(font_size: f64, style: FontStyle) -> f64 {
 /// ubiquitous `font_size * 0.35` centering guess (`0.35 ≈ cap_height/2` for
 /// DejaVu, but this tracks the actual font instead of assuming it).
 pub(crate) fn center_offset(font_size: f64, style: FontStyle) -> f64 {
-    scale_units(vmetrics(style).cap_height, font_size) / 2.0
+    FontMetrics::builtin(style).center_offset(font_size)
 }
 
 /// Estimated rendered width of a single line of `text` at `font_size` pixels,
@@ -220,20 +412,7 @@ pub(crate) fn center_offset(font_size: f64, style: FontStyle) -> f64 {
 /// Counts Unicode scalar values (not UTF-8 bytes), so multi-byte labels are
 /// measured correctly. Newlines are not interpreted — callers wrap first.
 pub(crate) fn measure_text_width(text: &str, font_size: f64, style: FontStyle) -> f64 {
-    let table = advance_table(style);
-    let total_units: u64 = text
-        .chars()
-        .map(|c| {
-            let cp = c as u32;
-            let units = if cp <= 0xFFFF { table[cp as usize] } else { 0 };
-            u64::from(if units == 0 {
-                FALLBACK_ADVANCE_UNITS
-            } else {
-                units
-            })
-        })
-        .sum();
-    total_units as f64 / f64::from(data::UNITS_PER_EM) * font_size
+    FontMetrics::builtin(style).text_width(text, font_size)
 }
 
 /// Width of the widest of `labels` at `font_size` — the correct way to size a box
@@ -247,36 +426,14 @@ pub(crate) fn widest_text_width<'a>(
     font_size: f64,
     style: FontStyle,
 ) -> f64 {
-    labels
-        .into_iter()
-        .map(|s| measure_text_width(s, font_size, style))
-        .fold(0.0, f64::max)
+    FontMetrics::builtin(style).widest_text_width(labels, font_size)
 }
 
 /// Mean rendered width of one character at `font_size`, for the few sites that
 /// invert the relationship (fitting a character *budget* into an available
 /// width) and so have no concrete string to measure.
 pub(crate) fn mean_char_width(font_size: f64) -> f64 {
-    font_size * data::MEAN_ADVANCE_EM
-}
-
-/// Returns the lazily-decoded dense advance table (font units, indexed by BMP
-/// codepoint; 0 = no glyph) for `style`.
-fn advance_table(style: FontStyle) -> &'static [u16; 0x10000] {
-    static REGULAR: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
-    static ITALIC: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
-    static BOLD: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
-    static BOLD_ITALIC: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
-    static MONO: OnceLock<Box<[u16; 0x10000]>> = OnceLock::new();
-    match style {
-        FontStyle::Regular => REGULAR.get_or_init(|| decode_rle(data::ADVANCE_RLE_REGULAR)),
-        FontStyle::Italic => ITALIC.get_or_init(|| decode_rle(data::ADVANCE_RLE_ITALIC)),
-        FontStyle::Bold => BOLD.get_or_init(|| decode_rle(data::ADVANCE_RLE_BOLD)),
-        FontStyle::BoldItalic => {
-            BOLD_ITALIC.get_or_init(|| decode_rle(data::ADVANCE_RLE_BOLD_ITALIC))
-        }
-        FontStyle::Mono => MONO.get_or_init(|| decode_rle(data::ADVANCE_RLE_MONO)),
-    }
+    FontMetrics::builtin(FontStyle::Regular).mean_char_width(font_size)
 }
 
 /// Expands a run-length-encoded advance table into a dense BMP array.
@@ -467,7 +624,7 @@ mod tests {
             let face = ttf_parser::Face::parse(&bytes, 0).expect("parse font");
             assert_eq!(face.units_per_em(), data::UNITS_PER_EM);
 
-            let table = advance_table(style);
+            let table = &FontMetrics::builtin(style).advances;
             for cp in 0u32..=0xFFFF {
                 let expected = char::from_u32(cp)
                     .and_then(|c| face.glyph_index(c))
@@ -519,7 +676,7 @@ mod tests {
                 .or_else(|| face.x_height())
                 .unwrap_or((f32::from(cap) * 0.72) as i16);
 
-            let m = vmetrics(style);
+            let m = FontMetrics::builtin(style).vmetrics;
             assert_eq!(m.ascent, face.ascender(), "{style:?} ascent");
             assert_eq!(m.descent, -face.descender(), "{style:?} descent");
             assert_eq!(m.line_gap, face.line_gap(), "{style:?} line_gap");
@@ -557,6 +714,63 @@ mod tests {
         let s = FontStyle::Regular;
         assert!(x_height(SIZE, s) < cap_height(SIZE, s));
         assert!(cap_height(SIZE, s) < ascent(SIZE, s));
+    }
+
+    /// A face measured at load time must equal the built-in table generated from
+    /// the same file: the loader and the generator apply the same rules.
+    #[cfg(feature = "custom_fonts")]
+    #[test]
+    fn loaded_dejavu_matches_builtin_tables() {
+        let dir = format!("{}/assets/fonts", env!("CARGO_MANIFEST_DIR"));
+        // No bold-oblique face is bundled, so BoldItalic is built from Bold.
+        let cases = [
+            (FontStyle::Regular, "DejaVuSans.ttf"),
+            (FontStyle::Italic, "DejaVuSans-Oblique.ttf"),
+            (FontStyle::Bold, "DejaVuSans-Bold.ttf"),
+            (FontStyle::BoldItalic, "DejaVuSans-Bold.ttf"),
+            (FontStyle::Mono, "DejaVuSansMono.ttf"),
+        ];
+        for (style, file) in cases {
+            let bytes = std::fs::read(format!("{dir}/{file}")).expect("read bundled font");
+            let face = ttf_parser::Face::parse(&bytes, 0).expect("parse font");
+            let loaded = FontMetrics::from_face(&face);
+            let builtin = FontMetrics::builtin(style);
+            assert_eq!(loaded.units_per_em, builtin.units_per_em, "{style:?}");
+            let diff: Vec<u32> = (0u32..=0xFFFF)
+                .filter(|&cp| loaded.advances[cp as usize] != builtin.advances[cp as usize])
+                .collect();
+            assert!(
+                diff.is_empty(),
+                "{style:?}: {} codepoints differ, first {:X?}",
+                diff.len(),
+                &diff[..diff.len().min(8)]
+            );
+            assert_eq!(loaded.vmetrics, builtin.vmetrics, "{style:?} vmetrics");
+        }
+        // The generator writes the Regular mean rounded to 6 places.
+        let bytes = std::fs::read(format!("{dir}/DejaVuSans.ttf")).unwrap();
+        let regular = FontMetrics::from_face(&ttf_parser::Face::parse(&bytes, 0).unwrap());
+        assert!((regular.mean_advance_em - data::MEAN_ADVANCE_EM).abs() < 1e-6);
+    }
+
+    /// A different font measures differently: DejaVu Serif (the test font) against
+    /// the built-in Sans.
+    #[cfg(feature = "custom_fonts")]
+    #[test]
+    fn serif_measures_differently_from_sans() {
+        let path = format!(
+            "{}/tests/data/fonts/DejaVuSerif.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let bytes = std::fs::read(path).expect("read test font");
+        let serif = FontMetrics::from_face(&ttf_parser::Face::parse(&bytes, 0).unwrap());
+        let sans = FontMetrics::builtin(FontStyle::Regular);
+        let text = "Frequency of samples";
+        let (w_serif, w_sans) = (serif.text_width(text, SIZE), sans.text_width(text, SIZE));
+        assert!(
+            (w_serif - w_sans).abs() > 1.0,
+            "serif {w_serif} vs sans {w_sans}"
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ exclude = [
     "examples/*.png",                # generated PNG outputs
     "examples/data/gene_stats.tsv",  # large TSV (~500 KB) only used in smoke tests
     "examples/data/gene_stats_logp.tsv",
+    "tests/data/fonts/",             # test-only fonts (DejaVu Serif) for custom_fonts tests
 ]
 
 [package.metadata.docs.rs]
@@ -55,8 +56,11 @@ embed_font = ["dep:flate2"]
 # Gzipped SVG (`.svgz`) output and the `kuva::html` helpers that embed compressed figures in a
 # web page. Only adds `flate2`, which `png`/`pdf`/`embed_font` already use.
 svgz       = ["dep:flate2"]
+# Load TTF/OTF/TTC fonts at runtime (`kuva::fonts::register_font_file`) and select them by
+# family name; layout measures them with their real metrics. Adds only `ttf-parser`.
+custom_fonts = ["dep:ttf-parser"]
 cli        = ["dep:clap", "dep:clap_mangen", "dep:csv"]
-full       = ["embed_font", "png", "pdf", "svgz"]
+full       = ["embed_font", "png", "pdf", "svgz", "custom_fonts"]
 parquet    = ["cli", "dep:parquet", "dep:bytes", "dep:arrow-array", "dep:arrow-schema"]
 # In-process math typesetter (the "typst tier"): each label containing `$...$`
 # is typeset by the Typst compiler (linked as a library, no external binary)
@@ -97,6 +101,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 ryu = "1"
 flate2      = { version = "1", optional = true }
 fontdue     = { version = "0.9",  optional = true }
+ttf-parser  = { version = "0.25", optional = true }
 png         = { version = "0.18", optional = true }
 parquet      = { version = "59.2", features = ["arrow"], optional = true }
 arrow-array  = { version = "59.2", optional = true }
