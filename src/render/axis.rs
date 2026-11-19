@@ -7,9 +7,7 @@ use crate::render::layout::{
 };
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils::{self, escape_attr};
-use crate::render::text_metrics::{
-    ascent, center_offset, line_height, measure_text_width, FontStyle,
-};
+use crate::render::text_metrics::{FontSet, FontStyle};
 
 /// Opens a group that applies the tick-label font family, when one is set, to
 /// the tick labels drawn before the matching [`end_tick_font`].
@@ -143,6 +141,8 @@ pub(crate) struct XLabelPlacer {
     /// monospace tick family must be measured as one or labels are thinned
     /// against widths they do not have.
     style: FontStyle,
+    /// The layout's fonts, which `style` is looked up in.
+    fonts: FontSet,
     rotate: Option<f64>,
     last_right: f64,
     row_right: [f64; 2],
@@ -153,12 +153,14 @@ impl XLabelPlacer {
         strategy: AxisLabelOverlap,
         tick_size: f64,
         style: FontStyle,
+        fonts: &FontSet,
         rotate: Option<f64>,
     ) -> Self {
         Self {
             strategy,
             tick_size,
             style,
+            fonts: fonts.clone(),
             rotate,
             last_right: f64::NEG_INFINITY,
             row_right: [f64::NEG_INFINITY; 2],
@@ -166,7 +168,9 @@ impl XLabelPlacer {
     }
 
     fn footprint(&self, x: f64, label: &str, anchor: &TextAnchor) -> (f64, f64) {
-        let text_w = measure_text_width(label, self.tick_size, self.style);
+        let text_w = self
+            .fonts
+            .measure_text_width(label, self.tick_size, self.style);
         let h_extent = match self.rotate {
             Some(angle) => text_w * angle.to_radians().cos().abs(),
             None => text_w,
@@ -196,7 +200,7 @@ impl XLabelPlacer {
                 let (left, right) = self.footprint(x, label, anchor);
                 // Second row sits one real line height below the first; layout.rs
                 // reserves the same so the lower row never clips the axis title.
-                let row_h = line_height(self.tick_size, FontStyle::Regular);
+                let row_h = self.fonts.line_height(self.tick_size, FontStyle::Regular);
                 for row in 0..2usize {
                     if left >= self.row_right[row] + GAP {
                         self.row_right[row] = right;
@@ -531,7 +535,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y_pos + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y_pos
+                        + computed
+                            .fonts
+                            .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label.clone(),
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -549,7 +556,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
-                    computed.tick_font_style(),
+                    FontStyle::Tick,
+                    &computed.fonts,
                     layout.x_tick_rotate,
                 );
                 for (i, label) in x_cats.iter().enumerate() {
@@ -562,7 +570,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     };
                     let base_y = computed.height - computed.margin_bottom
                         + computed.tick_mark_major
-                        + ascent(computed.tick_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .ascent(computed.tick_size as f64, FontStyle::Regular);
                     if let Some(y_off) = placer.place(x_pos, label, &anchor) {
                         scene.add(Primitive::Text {
                             x: x_pos,
@@ -582,7 +592,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
-                    computed.tick_font_style(),
+                    FontStyle::Tick,
+                    &computed.fonts,
                     layout.x_tick_rotate,
                 );
                 for tx in x_ticks.iter() {
@@ -603,7 +614,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     };
                     let base_y = computed.height - computed.margin_bottom
                         + computed.tick_mark_major
-                        + ascent(computed.tick_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .ascent(computed.tick_size as f64, FontStyle::Regular);
                     if let Some(y_off) = placer.place(x, &label, &anchor) {
                         scene.add(Primitive::Text {
                             x,
@@ -624,7 +637,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
-                computed.tick_font_style(),
+                FontStyle::Tick,
+                &computed.fonts,
                 layout.x_tick_rotate,
             );
             for (i, label) in categories.iter().enumerate() {
@@ -637,7 +651,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 let base_y = computed.height - computed.margin_bottom
                     + computed.tick_mark_major
-                    + ascent(computed.tick_size as f64, FontStyle::Regular);
+                    + computed
+                        .fonts
+                        .ascent(computed.tick_size as f64, FontStyle::Regular);
                 if let Some(y_off) = placer.place(x_pos, label, &anchor) {
                     scene.add(Primitive::Text {
                         x: x_pos,
@@ -669,7 +685,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y + computed
+                        .fonts
+                        .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label,
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -686,7 +704,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
-                computed.tick_font_style(),
+                FontStyle::Tick,
+                &computed.fonts,
                 layout.x_tick_rotate,
             );
             for tx in x_ticks.iter() {
@@ -708,7 +727,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 let base_y = computed.height - computed.margin_bottom
                     + computed.tick_mark_major
-                    + ascent(computed.tick_size as f64, FontStyle::Regular);
+                    + computed
+                        .fonts
+                        .ascent(computed.tick_size as f64, FontStyle::Regular);
                 if let Some(y_off) = placer.place(x, &label, &anchor) {
                     scene.add(Primitive::Text {
                         x,
@@ -739,7 +760,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y + computed
+                        .fonts
+                        .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label,
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -1040,7 +1063,9 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         };
         scene.add(Primitive::Text {
             x: axis_x + computed.tick_label_margin,
-            y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+            y: y + computed
+                .fonts
+                .center_offset(computed.tick_size as f64, FontStyle::Regular),
             content: label,
             size: computed.tick_size,
             anchor: TextAnchor::Start,
@@ -1054,7 +1079,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     if let Some(ref label) = layout.y2_label {
         let lines = render_utils::wrap_or_single(label, computed.y2_label_wrap);
         let ls = computed.label_size as f64;
-        let lh = line_height(ls, FontStyle::Regular);
+        let lh = computed.fonts.line_height(ls, FontStyle::Regular);
         let (dx, dy) = layout.y2_label_offset;
         // Base x for the rightmost (first) line; additional lines shift left.
         let base_x = axis_x + computed.y2_axis_width - ls * 0.5 + dx;
@@ -1150,7 +1175,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     if let Some(ref label) = layout.x2_label {
         let lines = render_utils::wrap_or_single(label, computed.x2_label_wrap);
         let ls = computed.label_size as f64;
-        let lh = line_height(ls, FontStyle::Regular);
+        let lh = computed.fonts.line_height(ls, FontStyle::Regular);
         let (dx, dy) = layout.x2_label_offset;
         let base_x = computed.margin_left + computed.plot_width() / 2.0 + dx;
         let base_y = axis_y - computed.x2_axis_height + ls * 0.5 + dy;
@@ -1172,7 +1197,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
 pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     let ls = computed.label_size as f64;
     // Real line height for stacking wrapped label lines (1.0em let them overlap).
-    let lh = line_height(ls, FontStyle::Regular);
+    let lh = computed.fonts.line_height(ls, FontStyle::Regular);
 
     // X-axis title. Drawn whenever an x_label is set, even when the numeric ticks are
     // suppressed — Manhattan draws its own chromosome labels but still wants the
@@ -1251,12 +1276,13 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         // Stack wrapped title lines by the real line height (was 1.0em, which let
         // adjacent lines' ascenders/descenders touch) and drop the first baseline by
         // the real ascent.
-        let tlh = line_height(ts, FontStyle::Regular);
+        let tlh = computed.fonts.line_height(ts, FontStyle::Regular);
         let total_height = lines.len() as f64 * tlh;
         let cx = computed.margin_left + computed.plot_width() / 2.0;
         // Use title_y (derived from base margin before notation tiers) so that
         // BrickPlot notation labels don't push the title into the annotation zone.
-        let start_y = computed.title_y - total_height / 2.0 + ascent(ts, FontStyle::Regular);
+        let start_y =
+            computed.title_y - total_height / 2.0 + computed.fonts.ascent(ts, FontStyle::Regular);
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
                 x: cx,
@@ -1279,15 +1305,17 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         let lines = render_utils::wrap_or_single(subtitle, computed.subtitle_wrap);
         let ts = computed.title_size as f64;
         let sts = computed.subtitle_size as f64;
-        let slh = line_height(sts, FontStyle::Regular);
+        let slh = computed.fonts.line_height(sts, FontStyle::Regular);
         let cx = computed.margin_left + computed.plot_width() / 2.0;
         // The title occupies `title_lines · line_height(ts)` centred on `title_y`,
         // so its bottom edge is `title_y + that / 2`. Drop the first subtitle
         // baseline by its ascent so the line clears the title. `title_lines` is
         // computed once in `from_layout` and reused here to stay in lockstep with
         // the height it reserved.
-        let title_block_h = computed.title_lines as f64 * line_height(ts, FontStyle::Regular);
-        let start_y = computed.title_y + title_block_h / 2.0 + ascent(sts, FontStyle::Regular);
+        let title_block_h =
+            computed.title_lines as f64 * computed.fonts.line_height(ts, FontStyle::Regular);
+        let start_y =
+            computed.title_y + title_block_h / 2.0 + computed.fonts.ascent(sts, FontStyle::Regular);
         let color = muted_subtitle_color(scene, &computed.theme.background);
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {

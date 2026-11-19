@@ -2,10 +2,10 @@ use crate::plot::legend::{LegendEntry, LegendGroup};
 use crate::render::layout::{ComputedLayout, Layout, DEFAULT_FONT_FAMILY};
 use crate::render::plots::Plot;
 use crate::render::render::{
-    collect_legend_entries, render_legend_at, render_multiple, render_twin_y, Primitive, Scene,
-    TextAnchor,
+    collect_legend_entries, render_legend_at_with_fonts, render_multiple, render_twin_y, Primitive,
+    Scene, TextAnchor,
 };
-use crate::render::text_metrics::{ascent, text_height, widest_text_width, FontStyle};
+use crate::render::text_metrics::FontStyle;
 
 #[derive(Debug, Clone)]
 pub enum FigureLegendPosition {
@@ -433,6 +433,9 @@ impl Figure {
             row_heights: explicit_row_heights,
             col_widths: explicit_col_widths,
         } = self;
+        // Figure-level text (title, panel labels, shared legend) is measured in the
+        // family the figure inherits from its first layout, as `master` renders it.
+        let fonts = user_layouts.first().map(|l| l.fonts()).unwrap_or_default();
 
         // Build a lookup from cell_index → (primary, secondary) for twin-Y cells.
         let mut twin_y_map: std::collections::HashMap<usize, (Vec<Plot>, Vec<Plot>)> = twin_y_plots
@@ -480,7 +483,7 @@ impl Figure {
                 (0.0, 0.0)
             } else {
                 let labels = entries.iter().map(|e| e.label.as_str());
-                let w = widest_text_width(labels, 12.0, FontStyle::Regular) + 35.0;
+                let w = fonts.widest_text_width(labels, 12.0, FontStyle::Regular) + 35.0;
                 let body = user_layouts.first().map_or(12, |l| l.body_size) as f64;
                 // Match render_legend_at: ~1.5em leading, box hugging the content.
                 let line_h = (body * 1.5).max(12.0);
@@ -537,11 +540,11 @@ impl Figure {
         // band with a y=22 baseline clipped the title once title_size exceeded ~20.
         let title_pad = title_size as f64 * 0.2;
         let figure_title_height = if title.is_some() {
-            text_height(title_size as f64, FontStyle::Regular) + 2.0 * title_pad
+            fonts.text_height(title_size as f64, FontStyle::Regular) + 2.0 * title_pad
         } else {
             0.0
         };
-        let figure_title_baseline = title_pad + ascent(title_size as f64, FontStyle::Regular);
+        let figure_title_baseline = title_pad + fonts.ascent(title_size as f64, FontStyle::Regular);
 
         // If total figure size is specified, back-compute cell dimensions to fit.
         // Explicit per-row/col sizes are subtracted first; remaining space is shared
@@ -837,7 +840,7 @@ impl Figure {
                 let label = config.label_for(i);
                 master.add(Primitive::Text {
                     x: cell_x + 8.0,
-                    y: cell_y + 2.0 + ascent(config.size as f64, FontStyle::Regular),
+                    y: cell_y + 2.0 + fonts.ascent(config.size as f64, FontStyle::Regular),
                     content: label,
                     size: config.size,
                     anchor: TextAnchor::Start,
@@ -926,7 +929,7 @@ impl Figure {
                     FigureLegendPosition::Custom(x, y) => (*x, *y),
                 };
                 let body_size = user_layouts.first().map_or(12, |l| l.body_size);
-                render_legend_at(
+                render_legend_at_with_fonts(
                     entries,
                     None::<&[LegendGroup]>,
                     None,
@@ -937,6 +940,7 @@ impl Figure {
                     legend_width,
                     body_size,
                     &figure_theme,
+                    &fonts,
                 );
             }
         }
@@ -969,7 +973,7 @@ pub(crate) fn clone_layout(l: &Layout) -> Layout {
     new.show_colorbar = l.show_colorbar;
     new.legend_position = l.legend_position;
     new.legend_width = l.legend_width;
-    new.legend_auto_width = l.legend_auto_width;
+    new.legend_needs = l.legend_needs.clone();
     new.legend_width_override = l.legend_width_override;
     new.legend_entries = l.legend_entries.clone();
     new.legend_title = l.legend_title.clone();
@@ -1068,6 +1072,7 @@ pub(crate) fn clone_layout(l: &Layout) -> Layout {
     new.legend_wrap = l.legend_wrap;
     new.horizon_right_annot_px = l.horizon_right_annot_px;
     new.gantt_right_annot_px = l.gantt_right_annot_px;
+    new.gantt_right_annot_needs = l.gantt_right_annot_needs.clone();
     new.bw_mode = l.bw_mode;
     new.label_background = l.label_background;
     new

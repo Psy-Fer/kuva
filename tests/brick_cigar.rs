@@ -77,28 +77,31 @@ fn renders_bars_and_writes_svg_for_inspection() {
     common::write_test_output("test_outputs/brick_cigar_bars_unbatched.svg", unbatched).unwrap();
     // The compressed-figure HTML outputs, for checking by eye: one standalone page, and a page
     // of several figures in <details> (the first open; the others decompress when opened).
-    let svgz = kuva::backend::svg::SvgBackend::new().render_scene_svgz(&scene);
-    common::write_test_output(
-        "test_outputs/brick_cigar_bars.html",
-        kuva::html::standalone_page("SCA17_TBP - CIGAR bars", &svgz, "brick_cigar_bars"),
-    )
-    .unwrap();
-    let mut body = String::from("<h1>Loci</h1>\n");
-    for (i, name) in ["SCA17_TBP", "copy_2", "copy_3"].iter().enumerate() {
-        let open = if i == 0 { " open" } else { "" };
-        body.push_str(&format!("<details{open}><summary>{name}</summary>\n"));
-        body.push_str(&kuva::html::figure(&svgz, name));
-        body.push_str("</details>\n");
+    #[cfg(feature = "svgz")]
+    {
+        let svgz = kuva::backend::svg::SvgBackend::new().render_scene_svgz(&scene);
+        common::write_test_output(
+            "test_outputs/brick_cigar_bars.html",
+            kuva::html::standalone_page("SCA17_TBP - CIGAR bars", &svgz, "brick_cigar_bars"),
+        )
+        .unwrap();
+        let mut body = String::from("<h1>Loci</h1>\n");
+        for (i, name) in ["SCA17_TBP", "copy_2", "copy_3"].iter().enumerate() {
+            let open = if i == 0 { " open" } else { "" };
+            body.push_str(&format!("<details{open}><summary>{name}</summary>\n"));
+            body.push_str(&kuva::html::figure(&svgz, name));
+            body.push_str("</details>\n");
+        }
+        body.push_str(kuva::html::loader_script());
+        common::write_test_output(
+            "test_outputs/brick_cigar_bars_details.html",
+            format!(
+                "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Loci</title>\n\
+                 <style>.kuva-figure img {{ max-width: 100%; }}</style></head>\n<body>\n{body}</body></html>\n"
+            ),
+        )
+        .unwrap();
     }
-    body.push_str(kuva::html::loader_script());
-    common::write_test_output(
-        "test_outputs/brick_cigar_bars_details.html",
-        format!(
-            "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Loci</title>\n\
-             <style>.kuva-figure img {{ max-width: 100%; }}</style></head>\n<body>\n{body}</body></html>\n"
-        ),
-    )
-    .unwrap();
 
     assert!(svg.contains("<svg"));
     // Bar fills for the ops present, and none for ops that are not.

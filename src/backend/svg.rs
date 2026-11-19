@@ -391,6 +391,10 @@ impl SvgBackend {
                             depth,
                             p,
                             &mut math_uid,
+                            &crate::render::text_metrics::FontSet::resolve(
+                                scene.font_family.as_deref(),
+                                None,
+                            ),
                         );
                         continue;
                     }
@@ -1135,9 +1139,12 @@ fn rich_text_with_math(
     depth: usize,
     pretty: bool,
     math_uid: &mut usize,
+    fonts: &crate::render::text_metrics::FontSet,
 ) {
     use crate::render::math;
-    use crate::render::text_metrics::{measure_text_width, FontStyle};
+    use crate::render::text_metrics::FontStyle;
+    let measure_text_width =
+        |text: &str, size: f64, style: FontStyle| fonts.measure_text_width(text, size, style);
 
     // Resolve each span to (drawable, advance) up front so anchoring can use
     // the exact total width.

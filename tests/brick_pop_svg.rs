@@ -133,6 +133,7 @@ fn test_brick_pop_large_cohort() {
     )
     .unwrap();
     // A self-contained page holding the compressed figure, for checking the HTML path by eye.
+    #[cfg(feature = "svgz")]
     common::write_test_output(
         "test_outputs/brick_pop_large_cohort.html",
         kuva::html::standalone_page(

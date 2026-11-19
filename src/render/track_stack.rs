@@ -36,10 +36,10 @@ use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
 use crate::render::render::{
-    collect_legend_entries, render_legend_at, render_multiple, PathData, Primitive, Scene,
-    TextAnchor,
+    collect_legend_entries, render_legend_at_with_fonts, render_multiple, PathData, Primitive,
+    Scene, TextAnchor,
 };
-use crate::render::text_metrics::{measure_text_width, FontStyle};
+use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 
 /// Fixed vertical band an axis element reserves (tick marks + tick labels).
@@ -442,6 +442,7 @@ impl TrackStack {
             underlays,
             overlays,
         } = self;
+        let fonts = FontSet::resolve(theme.font_family.as_deref(), tick_font_family.as_deref());
 
         // Push the tick family down before anything measures: a track's
         // `left_margin` is reserved from its own tick labels, so it has to know
@@ -503,15 +504,15 @@ impl TrackStack {
         let px_left = entries
             .iter()
             .map(|e| match e {
-                Entry::Track(t) => t.left_margin().max(label_gutter_width(t.label())),
-                Entry::Axis(s) => label_gutter_width(s.label.as_deref()),
+                Entry::Track(t) => t.left_margin().max(label_gutter_width(t.label(), &fonts)),
+                Entry::Axis(s) => label_gutter_width(s.label.as_deref(), &fonts),
             })
             .fold(0.0_f64, f64::max)
             .max(10.0);
 
         // Shared RIGHT edge reserves the widest track right_margin OR the legend block (its own
         // content width + a left gap + right padding so the box border stays clear of the canvas).
-        let legend_w = legend_groups_width(&legend_groups);
+        let legend_w = legend_groups_width(&legend_groups, &fonts);
         let legend_reserve = if legend_w > 0.0 {
             legend_w + LEGEND_LEFT_GAP + LEGEND_RIGHT_PAD
         } else {
@@ -617,7 +618,7 @@ impl TrackStack {
                 .map(|g| g.entries.len() + usize::from(!g.title.is_empty()))
                 .sum();
             let legend_h = total_rows as f64 * (LABEL_SIZE * 1.5).max(12.0);
-            render_legend_at(
+            render_legend_at_with_fonts(
                 &[],
                 Some(&legend_groups),
                 None,
@@ -628,6 +629,7 @@ impl TrackStack {
                 legend_w,
                 LABEL_SIZE as u32,
                 &theme,
+                &fonts,
             );
         }
         scene
@@ -994,7 +996,8 @@ impl Track for IntervalTrack {
             // 3' SARS-CoV-2 genes) stay as bare coloured boxes rather than spilling overlapping text.
             if let Some(label) = &iv.label {
                 let box_w = body1 - body0;
-                if measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
+                let fonts = FontSet::resolve(cx.theme.font_family.as_deref(), None);
+                if fonts.measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
                     scene.add(Primitive::Text {
                         x: (body0 + body1) / 2.0,
                         y: row_top + row_h * 0.5 + 3.0,
@@ -1322,25 +1325,25 @@ fn draw_shared_x_axis(
 }
 
 /// Width to reserve in the left gutter for a track's name label (0 if none).
-fn label_gutter_width(label: Option<&str>) -> f64 {
+fn label_gutter_width(label: Option<&str>, fonts: &FontSet) -> f64 {
     match label {
-        Some(s) => measure_text_width(s, LABEL_SIZE, FontStyle::Regular) + GUTTER_PAD,
+        Some(s) => fonts.measure_text_width(s, LABEL_SIZE, FontStyle::Regular) + GUTTER_PAD,
         None => 0.0,
     }
 }
 
 /// Width of the shared-legend box: widest entry-or-title label across all groups + swatch/padding.
 /// 0 if there are no entries.
-fn legend_groups_width(groups: &[LegendGroup]) -> f64 {
+fn legend_groups_width(groups: &[LegendGroup], fonts: &FontSet) -> f64 {
     let mut widest = 0.0_f64;
     for g in groups {
         if !g.title.is_empty() {
-            widest = widest.max(measure_text_width(&g.title, LABEL_SIZE, FontStyle::Regular));
+            widest = widest.max(fonts.measure_text_width(&g.title, LABEL_SIZE, FontStyle::Regular));
         }
         for e in &g.entries {
             // Entries are inset past the swatch, so account for that in the content width.
-            widest =
-                widest.max(measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular) + 20.0);
+            widest = widest
+                .max(fonts.measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular) + 20.0);
         }
     }
     if widest == 0.0 {

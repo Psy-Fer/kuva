@@ -50,6 +50,11 @@ pub(crate) enum FontStyle {
     /// Bundled DejaVu Sans Mono — the face a label rendered in a monospace
     /// family resolves to, and the one its width must be reserved from.
     Mono,
+    /// Axis tick labels: the tick font family (or the body family when none is
+    /// set). A [`FontSet`] resolves it to that family's regular face; for the
+    /// built-in tables it means whichever DejaVu face [`FontStyle::for_family`]
+    /// picks for that family.
+    Tick,
 }
 
 impl FontStyle {
@@ -180,6 +185,8 @@ impl FontMetrics {
                 data::VMETRICS_BOLD_ITALIC,
             ),
             FontStyle::Mono => (&MONO, data::ADVANCE_RLE_MONO, data::VMETRICS_MONO),
+            // The tick role is resolved by `FontSet`; on its own it is the body face.
+            FontStyle::Tick => (&REGULAR, data::ADVANCE_RLE_REGULAR, data::VMETRICS_REGULAR),
         };
         cell.get_or_init(|| {
             Arc::new(FontMetrics {
@@ -357,42 +364,185 @@ impl FontMetrics {
     }
 }
 
-// ── Free functions: the bundled DejaVu faces ─────────────────────────────────
-// These measure against `FontMetrics::builtin(style)`. Call sites move to the
-// layout's resolved fonts as custom-font support lands (#134).
+/// The faces one layout measures its text with, resolved **once** from its font
+/// families (see [`FontSet::resolve`]) and then only looked up.
+///
+/// Every measuring site asks the layout's `FontSet` rather than a fixed font, so a
+/// registered custom font (feature `custom_fonts`) is measured with its own
+/// metrics, and the bundled DejaVu faces are simply the default entries.
+#[derive(Clone, Debug)]
+pub(crate) struct FontSet {
+    regular: Arc<FontMetrics>,
+    bold: Arc<FontMetrics>,
+    italic: Arc<FontMetrics>,
+    bold_italic: Arc<FontMetrics>,
+    mono: Arc<FontMetrics>,
+    tick: Arc<FontMetrics>,
+}
+
+impl Default for FontSet {
+    /// The bundled DejaVu faces: what an unregistered family measures as.
+    fn default() -> Self {
+        Self::resolve(None, None)
+    }
+}
+
+impl FontSet {
+    /// Resolve the faces for a body font-family list and an optional tick-label
+    /// family list (`None` means the tick labels use the body family).
+    ///
+    /// For each list only the **first** family counts, the one a renderer picks
+    /// when it is available; the rest is fallback for SVG viewers without it.
+    /// - A registered family (feature `custom_fonts`) gets its own faces, chosen
+    ///   by CSS font matching. A style the family lacks resolves to its nearest
+    ///   face: kuva never synthesises bold or italic.
+    /// - Otherwise the bundled DejaVu faces are used, with tick labels measured
+    ///   as DejaVu Sans Mono when their family is monospace.
+    ///
+    /// Code spans always use DejaVu Sans Mono for now.
+    pub(crate) fn resolve(body: Option<&str>, tick: Option<&str>) -> FontSet {
+        let builtin = |style| Arc::clone(FontMetrics::builtin(style));
+        let body_face = |weight: u16, italic: bool, fallback: FontStyle| {
+            registered_face(body, weight, italic).unwrap_or_else(|| builtin(fallback))
+        };
+        let tick_family = tick.or(body);
+        let tick_face = registered_face(tick_family, 400, false)
+            .unwrap_or_else(|| builtin(FontStyle::for_family(tick_family)));
+        FontSet {
+            regular: body_face(400, false, FontStyle::Regular),
+            bold: body_face(700, false, FontStyle::Bold),
+            italic: body_face(400, true, FontStyle::Italic),
+            bold_italic: body_face(700, true, FontStyle::BoldItalic),
+            mono: builtin(FontStyle::Mono),
+            tick: tick_face,
+        }
+    }
+
+    /// The face a `style` is measured with.
+    pub(crate) fn face(&self, style: FontStyle) -> &FontMetrics {
+        match style {
+            FontStyle::Regular => &self.regular,
+            FontStyle::Bold => &self.bold,
+            FontStyle::Italic => &self.italic,
+            FontStyle::BoldItalic => &self.bold_italic,
+            FontStyle::Mono => &self.mono,
+            FontStyle::Tick => &self.tick,
+        }
+    }
+
+    /// Rendered width of a single line of `text`; see [`FontMetrics::text_width`].
+    pub(crate) fn measure_text_width(&self, text: &str, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).text_width(text, font_size)
+    }
+
+    /// Width of the widest of `labels`; `0.0` for an empty set.
+    pub(crate) fn widest_text_width<'a>(
+        &self,
+        labels: impl IntoIterator<Item = &'a str>,
+        font_size: f64,
+        style: FontStyle,
+    ) -> f64 {
+        self.face(style).widest_text_width(labels, font_size)
+    }
+
+    /// Mean width of one character of body text, for inverse estimates.
+    pub(crate) fn mean_char_width(&self, font_size: f64) -> f64 {
+        self.regular.mean_char_width(font_size)
+    }
+
+    pub(crate) fn line_height(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).line_height(font_size)
+    }
+
+    pub(crate) fn ascent(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).ascent(font_size)
+    }
+
+    pub(crate) fn descent(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).descent(font_size)
+    }
+
+    pub(crate) fn text_height(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).text_height(font_size)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn cap_height(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).cap_height(font_size)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn x_height(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).x_height(font_size)
+    }
+
+    pub(crate) fn center_offset(&self, font_size: f64, style: FontStyle) -> f64 {
+        self.face(style).center_offset(font_size)
+    }
+}
+
+/// The registered face CSS matching picks in the first family of `family_list`,
+/// or `None` when that family is not registered (or `custom_fonts` is off).
+#[cfg(feature = "custom_fonts")]
+fn registered_face(
+    family_list: Option<&str>,
+    weight: u16,
+    italic: bool,
+) -> Option<Arc<FontMetrics>> {
+    let first = first_family(family_list?)?;
+    crate::fonts::match_face(&first, weight, italic).map(|face| Arc::clone(&face.metrics))
+}
+
+#[cfg(not(feature = "custom_fonts"))]
+fn registered_face(_: Option<&str>, _: u16, _: bool) -> Option<Arc<FontMetrics>> {
+    None
+}
+
+/// The first family of a CSS `font-family` list, unquoted and trimmed.
+#[cfg(feature = "custom_fonts")]
+fn first_family(list: &str) -> Option<String> {
+    let first = list
+        .split(',')
+        .next()?
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim();
+    (!first.is_empty()).then(|| first.to_string())
+}
+
+// ── Free functions: the bundled DejaVu faces (tests only) ────────────────────
+// Production code measures through a layout's `FontSet`, so a custom font is
+// never silently measured as DejaVu. These remain for the table tests.
 
 /// Natural single-spaced line height (ascent + descent + line gap) in pixels —
 /// the vertical advance between stacked lines and the minimum height a row or box
 /// must reserve to hold one line of text without clipping.
+#[cfg(test)]
 pub(crate) fn line_height(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).line_height(font_size)
 }
 
 /// Distance from the baseline up to the top of the font's ascenders, in pixels.
 /// Use to top-anchor text in a reserved band (baseline = top + ascent).
+#[cfg(test)]
 pub(crate) fn ascent(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).ascent(font_size)
 }
 
 /// Distance from the baseline down to the bottom of descenders (positive), in px.
+#[cfg(test)]
 pub(crate) fn descent(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).descent(font_size)
 }
 
-/// Height of the em box glyphs actually occupy (ascent + descent), without line
-/// leading — the measure to test text against a fixed height (cell, band, ring).
-pub(crate) fn text_height(font_size: f64, style: FontStyle) -> f64 {
-    FontMetrics::builtin(style).text_height(font_size)
-}
-
 /// Cap height (top of uppercase letters above the baseline), in pixels.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn cap_height(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).cap_height(font_size)
 }
 
 /// x-height (top of lowercase letters above the baseline), in pixels.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn x_height(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).x_height(font_size)
 }
@@ -402,6 +552,7 @@ pub(crate) fn x_height(font_size: f64, style: FontStyle) -> f64 {
 /// cap-height midpoint lands on `target_y`. The real-metric replacement for the
 /// ubiquitous `font_size * 0.35` centering guess (`0.35 ≈ cap_height/2` for
 /// DejaVu, but this tracks the actual font instead of assuming it).
+#[cfg(test)]
 pub(crate) fn center_offset(font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).center_offset(font_size)
 }
@@ -411,6 +562,7 @@ pub(crate) fn center_offset(font_size: f64, style: FontStyle) -> f64 {
 ///
 /// Counts Unicode scalar values (not UTF-8 bytes), so multi-byte labels are
 /// measured correctly. Newlines are not interpreted — callers wrap first.
+#[cfg(test)]
 pub(crate) fn measure_text_width(text: &str, font_size: f64, style: FontStyle) -> f64 {
     FontMetrics::builtin(style).text_width(text, font_size)
 }
@@ -421,19 +573,13 @@ pub(crate) fn measure_text_width(text: &str, font_size: f64, style: FontStyle) -
 /// Prefer this over picking the longest-by-`len()` label and measuring it: more
 /// characters does not mean more width (`"iiiii"` is narrower than `"MMM"`), and
 /// `len()` counts bytes, not glyphs.
+#[cfg(test)]
 pub(crate) fn widest_text_width<'a>(
     labels: impl IntoIterator<Item = &'a str>,
     font_size: f64,
     style: FontStyle,
 ) -> f64 {
     FontMetrics::builtin(style).widest_text_width(labels, font_size)
-}
-
-/// Mean rendered width of one character at `font_size`, for the few sites that
-/// invert the relationship (fitting a character *budget* into an available
-/// width) and so have no concrete string to measure.
-pub(crate) fn mean_char_width(font_size: f64) -> f64 {
-    FontMetrics::builtin(FontStyle::Regular).mean_char_width(font_size)
 }
 
 /// Expands a run-length-encoded advance table into a dense BMP array.
@@ -771,6 +917,49 @@ mod tests {
             (w_serif - w_sans).abs() > 1.0,
             "serif {w_serif} vs sans {w_sans}"
         );
+    }
+
+    #[test]
+    fn an_unregistered_family_resolves_to_the_builtin_faces() {
+        let fonts = FontSet::resolve(Some("No Such Family, sans-serif"), None);
+        for style in [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+            FontStyle::Mono,
+        ] {
+            assert!(std::ptr::eq(
+                fonts.face(style),
+                &**FontMetrics::builtin(style)
+            ));
+        }
+        // Proportional tick family: the regular face.
+        assert!(std::ptr::eq(
+            fonts.face(FontStyle::Tick),
+            &**FontMetrics::builtin(FontStyle::Regular)
+        ));
+    }
+
+    #[test]
+    fn a_monospace_tick_family_measures_as_mono() {
+        let fonts = FontSet::resolve(None, Some("monospace"));
+        assert!(std::ptr::eq(
+            fonts.face(FontStyle::Tick),
+            &**FontMetrics::builtin(FontStyle::Mono)
+        ));
+        // No tick family: ticks follow the body family, here monospace.
+        let fonts = FontSet::resolve(Some("DejaVu Sans Mono"), None);
+        assert!(std::ptr::eq(
+            fonts.face(FontStyle::Tick),
+            &**FontMetrics::builtin(FontStyle::Mono)
+        ));
+        // Body text keeps the regular face even in a monospace family (unchanged
+        // behaviour: only tick labels used the monospace heuristic).
+        assert!(std::ptr::eq(
+            fonts.face(FontStyle::Regular),
+            &**FontMetrics::builtin(FontStyle::Regular)
+        ));
     }
 
     #[test]

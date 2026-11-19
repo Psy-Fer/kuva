@@ -21,7 +21,7 @@
 //! ```
 
 use crate::render::render::{Primitive, Scene, TextAnchor};
-use crate::render::text_metrics::{center_offset, FontStyle};
+use crate::render::text_metrics::{FontSet, FontStyle};
 
 // ── Box-drawing bit constants ─────────────────────────────────────────────────
 
@@ -75,6 +75,8 @@ impl TerminalBackend {
             .map(css_to_rgb)
             .unwrap_or((210, 210, 210));
         let mut canvas = Canvas::new(self.cols, self.rows, scene.width, scene.height, text_color);
+        // The renderer offset text baselines with the scene's fonts; undo it with the same.
+        canvas.fonts = FontSet::resolve(scene.font_family.as_deref(), None);
         for p in &scene.elements {
             canvas.draw(p);
         }
@@ -115,6 +117,9 @@ struct Canvas {
     /// `text_color`, because many plots draw text in a fixed colour (black value
     /// labels inside cells) that would vanish on a dark terminal.
     text_color_groups: Vec<bool>,
+
+    /// The fonts the scene was laid out with, for undoing baseline offsets.
+    fonts: FontSet,
 }
 
 /// `GroupStart::extra_attrs` marker that lets the terminal backend draw the
@@ -141,6 +146,7 @@ impl Canvas {
             transform_stack: vec![(0.0, 0.0)],
             text_color,
             text_color_groups: Vec::new(),
+            fonts: FontSet::default(),
         }
     }
 
@@ -845,7 +851,7 @@ impl Canvas {
                 // centres on its reference line; subtract the *same* offset here so
                 // it lands on the matching character row. Using center_offset (not a
                 // hardcoded 0.35) keeps this in lockstep with the renderer.
-                let baseline = center_offset(*size as f64, FontStyle::Regular);
+                let baseline = self.fonts.center_offset(*size as f64, FontStyle::Regular);
                 let row = self.to_cy(y_s - baseline);
                 // Lookup tier: the terminal can't typeset, so `$...$` math is
                 // lowered to inline Unicode (σ, x², √(…)). No-op for plain
@@ -946,7 +952,7 @@ impl Canvas {
                 let x_s = x + tx;
                 let y_s = y + ty;
                 // Same center_offset the renderer used (kept in lockstep).
-                let baseline = center_offset(*size as f64, FontStyle::Regular);
+                let baseline = self.fonts.center_offset(*size as f64, FontStyle::Regular);
                 let row = self.to_cy(y_s - baseline);
                 let chars: Vec<char> = content.chars().collect();
                 let len = chars.len() as isize;

@@ -42,6 +42,8 @@ pub(crate) use bundled::*;
 #[cfg(feature = "custom_fonts")]
 mod registry;
 #[cfg(feature = "custom_fonts")]
+pub(crate) use registry::match_face;
+#[cfg(feature = "custom_fonts")]
 pub use registry::{
     family_styles, register_font_bytes, register_font_file, register_fonts_dir, registered_fonts,
     DirReport, FamilyStyles, FontError, FontInfo,

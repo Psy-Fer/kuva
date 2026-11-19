@@ -4,6 +4,8 @@
 //! Serif files (re-registering replaces), so the tests can run in any order.
 #![cfg(feature = "custom_fonts")]
 
+mod common;
+
 use kuva::fonts::{self, FontError};
 use std::path::PathBuf;
 
@@ -132,4 +134,140 @@ fn errors_name_what_failed() {
 
     let err = fonts::register_fonts_dir("/no/such/dir").unwrap_err();
     assert!(matches!(err, FontError::Io { .. }));
+}
+
+// ── Layout measures registered fonts (#134 step 3) ───────────────────────────
+
+use kuva::plot::legend::LegendShape;
+use kuva::plot::{BoxPlot, LegendEntry, ScatterPlot};
+use kuva::render::layout::{ComputedLayout, Layout};
+use kuva::render::plots::Plot;
+
+fn register_serif() {
+    fonts::register_font_file(serif()).unwrap();
+    fonts::register_font_file(serif_bold()).unwrap();
+}
+
+fn scatter_with_legend() -> Vec<Plot> {
+    vec![ScatterPlot::new()
+        .with_data(vec![(1.0, 10.0), (2.0, 2000.0), (3.0, 30000.0)])
+        .with_legend("Measured abundance (sample 7)")
+        .into()]
+}
+
+fn legend_entries() -> Vec<LegendEntry> {
+    ["Wild type control", "Knock-out, replicate 2"]
+        .iter()
+        .map(|l| LegendEntry {
+            label: l.to_string(),
+            color: "#336699".into(),
+            shape: LegendShape::Rect,
+            dasharray: None,
+        })
+        .collect()
+}
+
+#[test]
+fn legend_width_follows_a_registered_font_set_after_auto_from_plots() {
+    register_serif();
+    let plots = scatter_with_legend();
+    let sans = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots));
+    // The family is set *after* auto_from_plots measured the legend labels.
+    let serif = ComputedLayout::from_layout(
+        &Layout::auto_from_plots(&plots).with_font_family("DejaVu Serif, serif"),
+    );
+    assert!(
+        (serif.legend_width - sans.legend_width).abs() > 1.0,
+        "serif {} vs sans {}",
+        serif.legend_width,
+        sans.legend_width
+    );
+}
+
+#[test]
+fn legend_width_does_not_depend_on_builder_order() {
+    register_serif();
+    let before = Layout::new((0.0, 1.0), (0.0, 1.0))
+        .with_font_family("DejaVu Serif")
+        .with_legend_entries(legend_entries())
+        .with_legend_title("Genotype");
+    let after = Layout::new((0.0, 1.0), (0.0, 1.0))
+        .with_legend_entries(legend_entries())
+        .with_legend_title("Genotype")
+        .with_font_family("DejaVu Serif");
+    let sans = Layout::new((0.0, 1.0), (0.0, 1.0))
+        .with_legend_entries(legend_entries())
+        .with_legend_title("Genotype");
+    let w = |l: &Layout| ComputedLayout::from_layout(l).legend_width;
+    assert_eq!(w(&before), w(&after));
+    assert!((w(&after) - w(&sans)).abs() > 1.0);
+    // The public field tracks the family too.
+    assert_eq!(after.legend_width, before.legend_width);
+}
+
+#[test]
+fn tick_label_margin_follows_a_registered_tick_family() {
+    register_serif();
+    // Text category labels: DejaVu Serif and Sans share their digit widths, so
+    // numeric ticks would not tell them apart.
+    let plots: Vec<Plot> = vec![BoxPlot::new()
+        .with_group("Wild type control", vec![1.0, 2.0, 3.0])
+        .with_group("Knock-out, replicate 2", vec![2.0, 3.0, 4.0])
+        .with_horizontal(true)
+        .into()];
+    let sans = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots));
+    let serif = ComputedLayout::from_layout(
+        &Layout::auto_from_plots(&plots).with_tick_font_family("DejaVu Serif"),
+    );
+    assert!(
+        (serif.y_tick_label_px - sans.y_tick_label_px).abs() > 1.0,
+        "serif {} vs sans {}",
+        serif.y_tick_label_px,
+        sans.y_tick_label_px
+    );
+    assert!((serif.margin_left - sans.margin_left).abs() > 1.0);
+}
+
+#[test]
+fn an_unregistered_family_still_measures_as_dejavu() {
+    let plots = scatter_with_legend();
+    let default = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots));
+    let other = ComputedLayout::from_layout(
+        &Layout::auto_from_plots(&plots)
+            .with_font_family("Some Font Nobody Registered, sans-serif"),
+    );
+    assert_eq!(default.legend_width, other.legend_width);
+    assert_eq!(default.margin_left, other.margin_left);
+}
+
+/// For checking by eye: the same plot laid out in DejaVu Sans and in DejaVu Serif.
+/// Labels, legend and margins should each hug their own font (the SVG names the
+/// family; it renders as Serif where DejaVu Serif is installed).
+#[test]
+fn write_serif_and_sans_layouts_for_inspection() {
+    register_serif();
+    let plots = || -> Vec<Plot> {
+        vec![BoxPlot::new()
+            .with_group("Wild type control", vec![1.0, 2.0, 3.0, 2.5])
+            .with_group("Knock-out, replicate 2", vec![2.0, 3.0, 4.0, 3.2])
+            .with_group("Rescue (low dose)", vec![1.5, 2.2, 2.9, 2.4])
+            .with_horizontal(true)
+            .into()]
+    };
+    let render = |layout: Layout| {
+        kuva::backend::svg::SvgBackend::new()
+            .render_scene(&kuva::render::render::render_multiple(plots(), layout))
+    };
+    let titled = |l: Layout| {
+        l.with_title("Expression by genotype")
+            .with_x_label("Normalised expression")
+            .with_legend_entries(legend_entries())
+            .with_legend_title("Genotype")
+    };
+    let sans = render(titled(Layout::auto_from_plots(&plots())));
+    let serif = render(titled(Layout::auto_from_plots(&plots())).with_font_family("DejaVu Serif"));
+    assert!(serif.contains("font-family=\"DejaVu Serif\""));
+    assert_ne!(sans, serif, "the layouts should differ");
+    common::write_test_output("test_outputs/custom_font_sans.svg", sans).unwrap();
+    common::write_test_output("test_outputs/custom_font_serif.svg", serif).unwrap();
 }

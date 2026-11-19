@@ -10,10 +10,7 @@ use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RA
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
 use crate::render::render_utils::{self, linear_fit, pearson_corr, percentile};
-use crate::render::text_metrics::{
-    ascent, cap_height, center_offset, descent, line_height, mean_char_width, measure_text_width,
-    text_height, widest_text_width, FontStyle,
-};
+use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -191,8 +188,8 @@ fn label_bg_rect(
         TextAnchor::Middle => (-(text_width / 2.0 + pad_x), text_width / 2.0 + pad_x),
         TextAnchor::End => (-(text_width + pad_x), pad_x),
     };
-    let dy_lo = -ascent(size as f64, style) - pad_y;
-    let dy_hi = descent(size as f64, style) + pad_y;
+    let dy_lo = -computed.fonts.ascent(size as f64, style) - pad_y;
+    let dy_hi = computed.fonts.descent(size as f64, style) + pad_y;
     let fill = Color::from(&computed.theme.legend_bg);
 
     if let Some(angle_deg) = rotate {
@@ -3260,7 +3257,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         // Vertical fit gates legibility: when the cells are too short for even floor-size
         // text (dense grids) drop every label rather than overflow into neighbours. Check
         // this before formatting any values so a sub-floor grid skips the O(n_cells) work.
-        let v_fit = (cell0.full_h / text_height(base, FontStyle::Regular)).min(1.0);
+        let v_fit = (cell0.full_h / computed.fonts.text_height(base, FontStyle::Regular)).min(1.0);
         if base * v_fit < 5.0 {
             return;
         }
@@ -3272,16 +3269,23 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         // short-valued grid) would shrink the whole grid below the legibility floor, hold
         // the floor and drop only the individual values too wide for their own cell —
         // rather than blanking every label.
-        let widest =
-            widest_text_width(values.iter().map(|s| s.as_str()), base, FontStyle::Regular).max(1.0);
+        let widest = computed
+            .fonts
+            .widest_text_width(values.iter().map(|s| s.as_str()), base, FontStyle::Regular)
+            .max(1.0);
         let ideal = base * v_fit.min(cell0.full_w / widest);
         let fs = ideal.max(5.0);
         let drop_overflow = ideal < 5.0;
-        let off = center_offset(fs, FontStyle::Regular);
+        let off = computed.fonts.center_offset(fs, FontStyle::Regular);
         for (cd, value) in cell_data.iter().zip(values.iter()) {
             // Only the floored (outlier) path can leave a value wider than its cell; on
             // the uniform path the widest already fit, so skip the per-cell measure.
-            if drop_overflow && measure_text_width(value, fs, FontStyle::Regular) > cd.full_w {
+            if drop_overflow
+                && computed
+                    .fonts
+                    .measure_text_width(value, fs, FontStyle::Regular)
+                    > cd.full_w
+            {
                 continue;
             }
             scene.add(Primitive::Text {
@@ -3710,7 +3714,9 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
                         + ((y1 - y0).abs() / 2.0)
-                        + center_offset(computed.body_size as f64, FontStyle::Regular),
+                        + computed
+                            .fonts
+                            .center_offset(computed.body_size as f64, FontStyle::Regular),
                     content: format!("{}", value),
                     size: computed.body_size,
                     anchor: TextAnchor::Middle,
@@ -3941,7 +3947,11 @@ fn brickplot_notation_rows(
                     .get(&r.letter)
                     .map(|k| format!("({}){}", k, r.count))
             })
-            .map(|l| measure_text_width(&l, font_px, FontStyle::Regular))
+            .map(|l| {
+                computed
+                    .fonts
+                    .measure_text_width(&l, font_px, FontStyle::Regular)
+            })
             .sum();
 
         if total_label_px > plot_px * tier_budget as f64 {
@@ -3971,7 +3981,11 @@ fn brickplot_notation_rows(
             };
             let label = format!("({}){}", kmer, run.count);
             let center_px = computed.map_x((run.x_start + run.x_end) / 2.0 - eff_offset);
-            let text_half_w = measure_text_width(&label, font_px, FontStyle::Regular) * 0.5;
+            let text_half_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_px, FontStyle::Regular)
+                    * 0.5;
 
             // Clamp so the label never overflows onto y-axis content or past the right edge.
             let clamped_center = center_px
@@ -4082,7 +4096,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             NotationRow::Fallback => {
                 let y = tier_baseline(&p, 0);
                 if !p.upward {
-                    let w = measure_text_width(
+                    let w = computed.fonts.measure_text_width(
                         "complex structure: see TSV",
                         font_px,
                         FontStyle::Regular,
@@ -5367,7 +5381,9 @@ fn add_lollipop(
                 // Centre on the *drawn* size (0.75×body), not the parent body_size.
                 y: y_top
                     + height / 2.0
-                    + center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular),
+                    + computed
+                        .fonts
+                        .center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular),
                 content: label.clone(),
                 size: (computed.body_size as f64 * 0.75) as u32,
                 anchor: TextAnchor::Middle,
@@ -5725,7 +5741,9 @@ fn add_survival_risk_table(
         .flat_map(|g| g.times.iter().copied())
         .fold(0.0_f64, f64::max);
 
-    let rh = line_height(computed.body_size as f64, FontStyle::Regular);
+    let rh = computed
+        .fonts
+        .line_height(computed.body_size as f64, FontStyle::Regular);
     // The reserved band sits at the very bottom of the canvas.
     let table_top = computed.height - computed.risk_table_extra + rh * 0.5;
 
@@ -6161,7 +6179,10 @@ fn add_slope(sp: &crate::plot::slope::SlopePlot, scene: &mut Scene, computed: &C
             // Whichever dot is further left gets anchor=End (label extends leftward);
             // whichever is further right gets anchor=Start (label extends rightward).
             // Centre on the *drawn* size (0.75×body), not the parent body_size.
-            let label_y = py + center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular);
+            let label_y = py
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular);
             let label_size = (computed.body_size as f64 * 0.75) as u32;
             let gap = sp.dot_radius + 3.0;
             let (before_x, before_anchor, after_x, after_anchor) = if px_before <= px_after {
@@ -6523,7 +6544,10 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
                 });
                 scene.add(Primitive::Text {
                     x: label_x,
-                    y: py + center_offset(tick_size as f64, computed.tick_font_style()),
+                    y: py
+                        + computed
+                            .fonts
+                            .center_offset(tick_size as f64, FontStyle::Tick),
                     content: format_tick_value(val),
                     size: tick_size,
                     anchor: if is_last {
@@ -6812,6 +6836,7 @@ fn draw_inline_indicators(
     label_size: u32,
     n: usize,
     bw_mode: bool,
+    fonts: &FontSet,
 ) {
     if !vp.show_set_indicators || (!vp.show_counts && !vp.show_percentages) {
         return;
@@ -6832,7 +6857,8 @@ fn draw_inline_indicators(
     } else {
         ly
     };
-    let dot_cy = first_text_y - cap_height(label_size as f64, FontStyle::Regular) - dot_r - 2.0;
+    let dot_cy =
+        first_text_y - fonts.cap_height(label_size as f64, FontStyle::Regular) - dot_r - 2.0;
 
     for (k, &set_i) in in_sets.iter().enumerate() {
         let color = vp.color_for(set_i);
@@ -7108,7 +7134,17 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let pct_str = format!("({:.1}%)", count as f64 / total as f64 * 100.0);
 
             // Set-indicator dots above the text block.
-            draw_inline_indicators(vp, scene, mask, lx, ly, label_size, n, computed.bw_mode);
+            draw_inline_indicators(
+                vp,
+                scene,
+                mask,
+                lx,
+                ly,
+                label_size,
+                n,
+                computed.bw_mode,
+                &computed.fonts,
+            );
 
             match (vp.show_counts, vp.show_percentages) {
                 (true, true) => {
@@ -7284,8 +7320,11 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 } else {
                     0.0
                 };
-                let count_text_w =
-                    measure_text_width(&count_str, label_size as f64, FontStyle::Regular);
+                let count_text_w = computed.fonts.measure_text_width(
+                    &count_str,
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 let text_gap = if vp.show_set_indicators { 4.0 } else { 0.0 };
 
                 let nx = lnx; // reuse: direction from centroid toward label
@@ -7321,7 +7360,10 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 }
 
                 let text_x = group_start_x + total_dots_w + text_gap;
-                let text_y = ly + center_offset(label_size as f64, FontStyle::Regular);
+                let text_y = ly
+                    + computed
+                        .fonts
+                        .center_offset(label_size as f64, FontStyle::Regular);
 
                 if vp.show_counts {
                     scene.add(Primitive::Text {
@@ -7383,7 +7425,17 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let pct_str = format!("({:.1}%)", count as f64 / total as f64 * 100.0);
 
                 // Set-indicator dots above the text block.
-                draw_inline_indicators(vp, scene, mask, lx, ly, label_size, n, computed.bw_mode);
+                draw_inline_indicators(
+                    vp,
+                    scene,
+                    mask,
+                    lx,
+                    ly,
+                    label_size,
+                    n,
+                    computed.bw_mode,
+                    &computed.fonts,
+                );
 
                 match (vp.show_counts, vp.show_percentages) {
                     (true, true) => {
@@ -7486,8 +7538,11 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
             let label_x = bx + nx * label_margin;
             // Small baseline adjustment so the text visual centre aligns with the point
-            let label_y =
-                by + ny * label_margin + center_offset(label_size_big as f64, FontStyle::Regular);
+            let label_y = by
+                + ny * label_margin
+                + computed
+                    .fonts
+                    .center_offset(label_size_big as f64, FontStyle::Regular);
 
             let anchor = if nx < -0.25 {
                 TextAnchor::End
@@ -7551,7 +7606,7 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let pad_x = 7.0_f64;
         let pad_y = 5.0_f64;
         let row_h = text_size as f64 * 1.4;
-        let box_w = (widest_text_width(
+        let box_w = (computed.fonts.widest_text_width(
             [label_text, value_text.as_str()],
             text_size as f64,
             FontStyle::Regular,
@@ -8407,7 +8462,7 @@ impl ClustermapFrame {
     }
 }
 
-pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64) -> ClustermapFrame {
+pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64, fonts: &FontSet) -> ClustermapFrame {
     let (n_rows, n_cols) = cm.dims();
     let numeric = cm.categorical_data.is_none();
     // Same conditions as the tree building in `add_clustermap`.
@@ -8426,11 +8481,11 @@ pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64) -> ClustermapFrame {
     let row_annot_w: f64 = cm.row_annotations.iter().map(|t| t.width + 4.0).sum();
     let col_annot_h: f64 = cm.col_annotations.iter().map(|t| t.width + 4.0).sum();
 
-    let width = |l: &str| measure_text_width(l, tsf, FontStyle::Regular);
+    let width = |l: &str| fonts.measure_text_width(l, tsf, FontStyle::Regular);
     let widest = |labels: &Option<Vec<String>>| {
         labels
             .as_ref()
-            .map(|l| widest_text_width(l.iter().map(|s| s.as_str()), tsf, FontStyle::Regular))
+            .map(|l| fonts.widest_text_width(l.iter().map(|s| s.as_str()), tsf, FontStyle::Regular))
     };
     let row_label_w = widest(&cm.row_labels)
         .map(|w| (w + 10.0).clamp(30.0, 200.0))
@@ -8697,7 +8752,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     // ── Step 4: Pixel layout ──────────────────────────────────────────────────
     let ts = computed.body_size;
     let tsf = ts as f64;
-    let f = clustermap_frame(cm, tsf);
+    let f = clustermap_frame(cm, tsf, &computed.fonts);
     let (row_dend_w, col_dend_h) = (f.row_dend_w, f.col_dend_h);
     let (rot, sin_r, cos_r) = (f.rot, f.rot.to_radians().sin(), f.rot.to_radians().cos());
     let (col_top, row_left) = (f.col_top, f.row_left);
@@ -8784,7 +8839,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 (hm_y + hm_h + 4.0, TextAnchor::End)
             };
             scene.add(Primitive::Text {
-                x: x_cursor + track.width / 2.0 + center_offset(tsf, FontStyle::Regular),
+                x: x_cursor
+                    + track.width / 2.0
+                    + computed.fonts.center_offset(tsf, FontStyle::Regular),
                 y,
                 content: label.clone(),
                 size: computed.body_size,
@@ -8932,7 +8989,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                     x: hm_x + (col_k as f64 + 0.5) * cell_w,
                     y: hm_y
                         + (row_k as f64 + 0.5) * cell_h
-                        + center_offset(computed.body_size as f64, FontStyle::Regular),
+                        + computed
+                            .fonts
+                            .center_offset(computed.body_size as f64, FontStyle::Regular),
                     content: cell_text(row_k, col_k),
                     size: computed.body_size,
                     anchor: TextAnchor::Middle,
@@ -8945,7 +9004,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 9: Axis labels ───────────────────────────────────────────────────
-    let c_off = center_offset(tsf, FontStyle::Regular);
+    let c_off = computed.fonts.center_offset(tsf, FontStyle::Regular);
 
     if let Some(ref labels) = row_labels_ord {
         let (x, anchor) = if row_left {
@@ -9203,7 +9262,10 @@ fn render_legend_entry(
     // space at the top and bottom edges. The text baseline sits a real cap-height
     // half-offset below swatch_cy so the glyph cap-midpoint lands on it.
     let swatch_cy = cur_y + computed.legend_swatch_size / 2.0;
-    let text_baseline = swatch_cy + center_offset(computed.body_size as f64, FontStyle::Regular);
+    let text_baseline = swatch_cy
+        + computed
+            .fonts
+            .center_offset(computed.body_size as f64, FontStyle::Regular);
     scene.add(Primitive::Text {
         x: legend_x + computed.legend_text_x,
         y: text_baseline,
@@ -9373,7 +9435,7 @@ fn add_stats_box(
     let n_rows = title_rows + layout.stats_entries.len();
     let box_height = n_rows as f64 * line_height + padding * 2.0;
 
-    let widest = widest_text_width(
+    let widest = computed.fonts.widest_text_width(
         layout
             .stats_entries
             .iter()
@@ -9543,8 +9605,11 @@ fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, 
         String::new()
     };
     let box_width = if overflow > 0 {
-        let min_w =
-            measure_text_width(&overflow_label, 12.0, FontStyle::Regular) + 18.0 + legend_padding;
+        let min_w = computed
+            .fonts
+            .measure_text_width(&overflow_label, 12.0, FontStyle::Regular)
+            + 18.0
+            + legend_padding;
         legend_width.max(min_w)
     } else {
         legend_width
@@ -9997,7 +10062,9 @@ fn add_legend_with_offset(
     let mut cur_y = legend_y;
     let wrap_max = computed.legend_wrap;
     let text_baseline_offset = computed.legend_swatch_size / 2.0
-        + center_offset(computed.body_size as f64, FontStyle::Regular);
+        + computed
+            .fonts
+            .center_offset(computed.body_size as f64, FontStyle::Regular);
 
     // Optional top title
     if let Some(ref title) = legend.title {
@@ -10276,11 +10343,13 @@ fn draw_repel_labels(
         return;
     }
     let fs = computed.body_size as f64;
-    let half_h = text_height(fs, FontStyle::Regular) * 0.5;
+    let half_h = computed.fonts.text_height(fs, FontStyle::Regular) * 0.5;
     let mut items: Vec<render_utils::RepelItem> = anchors
         .iter()
         .map(|(cx, cy, text)| {
-            let w = measure_text_width(text, fs, FontStyle::Regular);
+            let w = computed
+                .fonts
+                .measure_text_width(text, fs, FontStyle::Regular);
             render_utils::RepelItem {
                 anchor: (*cx, *cy),
                 half_w: w * 0.5 + 2.0,
@@ -10328,7 +10397,7 @@ fn draw_repel_labels(
         });
     }
     // Text.
-    let baseline = center_offset(fs, FontStyle::Regular);
+    let baseline = computed.fonts.center_offset(fs, FontStyle::Regular);
     for (item, (_, _, text)) in items.iter().zip(anchors) {
         scene.add(Primitive::Text {
             x: item.pos.0,
@@ -10779,7 +10848,8 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     let mut placer = XLabelPlacer::new(
         computed.x_label_overlap.clone(),
         computed.tick_size as f64,
-        computed.tick_font_style(),
+        FontStyle::Tick,
+        &computed.fonts,
         computed.x_tick_rotate,
     );
     start_tick_font(scene, computed);
@@ -11018,7 +11088,11 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
                 } else {
                     slice.label.clone()
                 };
-                measure_text_width(&label_text, computed.body_size as f64, FontStyle::Regular)
+                computed.fonts.measure_text_width(
+                    &label_text,
+                    computed.body_size as f64,
+                    FontStyle::Regular,
+                )
             })
             .fold(0.0f64, f64::max);
 
@@ -11212,7 +11286,10 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
             x: plot_x2 + 3.0,
             // Centre on the drawn (reduced) size, not the parent tick_size, via the
             // real cap-height offset — the *0.35/0.4 sweep missed this 0.4 factor.
-            y: py + center_offset(pct_size as f64, FontStyle::Regular),
+            y: py
+                + computed
+                    .fonts
+                    .center_offset(pct_size as f64, FontStyle::Regular),
             content: pct_str,
             size: pct_size,
             anchor: TextAnchor::Start,
@@ -12051,7 +12128,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
             scene.add(Primitive::Text {
                 x: tx,
-                y: ty + tl + tlm + cap_height(ts as f64, FontStyle::Regular),
+                y: ty + tl + tlm + computed.fonts.cap_height(ts as f64, FontStyle::Regular),
                 content: label.clone(),
                 size: ts,
                 anchor: TextAnchor::Middle,
@@ -12074,7 +12151,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
             scene.add(Primitive::Text {
                 x: grid_x0 - tl - tlm,
-                y: ty + center_offset(ts as f64, FontStyle::Regular),
+                y: ty + computed.fonts.center_offset(ts as f64, FontStyle::Regular),
                 content: label.clone(),
                 size: ts,
                 anchor: TextAnchor::End,
@@ -12373,7 +12450,9 @@ fn add_dice_position_legend(
             y: pip_cy
                 + die_cell_pip_h / 2.0
                 + label_area_h / 2.0
-                + center_offset(label_size as f64, FontStyle::Regular),
+                + computed
+                    .fonts
+                    .center_offset(label_size as f64, FontStyle::Regular),
             content: label.to_string(),
             size: label_size,
             anchor: TextAnchor::Middle,
@@ -12470,7 +12549,10 @@ fn add_dice_size_legend_section(
         let value = size_min + pct * (size_max - size_min);
         scene.add(Primitive::Text {
             x: swatch_cx + 14.0,
-            y: circle_cy + center_offset(computed.body_size as f64, FontStyle::Regular),
+            y: circle_cy
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64, FontStyle::Regular),
             content: format!("{:.1}", value),
             size: computed.body_size,
             anchor: TextAnchor::Start,
@@ -12620,8 +12702,10 @@ fn add_dot_stacked_legends(
         // Centre the swatch on the row. The sibling legend paths dropped the legacy
         // `- 1.0` rect nudge; this Circle path has no rect, so match them.
         let swatch_cy = legend_y + computed.legend_swatch_size / 2.0;
-        let text_baseline =
-            swatch_cy + center_offset(computed.body_size as f64, FontStyle::Regular);
+        let text_baseline = swatch_cy
+            + computed
+                .fonts
+                .center_offset(computed.body_size as f64, FontStyle::Regular);
         scene.add(Primitive::Text {
             x: legend_x + computed.legend_text_x,
             y: text_baseline,
@@ -13807,6 +13891,27 @@ pub fn render_legend_at(
     body_size: u32,
     theme: &Theme,
 ) {
+    let fonts = FontSet::resolve(theme.font_family.as_deref(), None);
+    render_legend_at_with_fonts(
+        entries, groups, title, show_box, scene, x, y, width, body_size, theme, &fonts,
+    );
+}
+
+/// [`render_legend_at`] measuring with a layout's resolved `fonts`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_legend_at_with_fonts(
+    entries: &[LegendEntry],
+    groups: Option<&[LegendGroup]>,
+    title: Option<&str>,
+    show_box: bool,
+    scene: &mut Scene,
+    x: f64,
+    y: f64,
+    width: f64,
+    body_size: u32,
+    theme: &Theme,
+    fonts: &FontSet,
+) {
     let legend_padding = 10.0;
     // Comfortable list leading (~1.5em) that scales with body_size — matches the main
     // legend and no longer overflows at large sizes. Never below the 12px swatch.
@@ -13871,7 +13976,7 @@ pub fn render_legend_at(
     // Helper: inline entry rendering (avoids needing a full ComputedLayout)
     let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: f64| {
         let swatch_cy = cur_y + 5.0;
-        let text_baseline = swatch_cy + center_offset(body_size as f64, FontStyle::Regular);
+        let text_baseline = swatch_cy + fonts.center_offset(body_size as f64, FontStyle::Regular);
         scene.add(Primitive::Text {
             x: x + 25.0,
             y: text_baseline,
@@ -13995,7 +14100,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let label_size = computed.label_size as f64;
 
     // Left panel layout (left → right): [bar_area][count_gap][name_area]
-    let name_area = (widest_text_width(
+    let name_area = (computed.fonts.widest_text_width(
         up.set_names.iter().map(|n| n.as_str()),
         tick_size,
         FontStyle::Regular,
@@ -14089,7 +14194,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 // Fixed position in the count_gap zone — never encroaches on name_area.
                 scene.add(Primitive::Text {
                     x: pl + bar_area + 3.0,
-                    y: cy + center_offset(tick_size, FontStyle::Regular),
+                    y: cy + computed.fonts.center_offset(tick_size, FontStyle::Regular),
                     content: format!("{}", size),
                     size: computed.tick_size,
                     anchor: TextAnchor::Start,
@@ -14119,7 +14224,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let cy = mat_t + (j as f64 + 0.5) * dot_row_h;
         scene.add(Primitive::Text {
             x: name_x,
-            y: cy + center_offset(tick_size, FontStyle::Regular),
+            y: cy + computed.fonts.center_offset(tick_size, FontStyle::Regular),
             content: name.clone(),
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -14173,7 +14278,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         });
         scene.add(Primitive::Text {
             x: mat_l - 7.0,
-            y: y + center_offset(tick_size, FontStyle::Regular),
+            y: y + computed.fonts.center_offset(tick_size, FontStyle::Regular),
             content: format!("{}", val),
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -14652,12 +14757,18 @@ fn add_streamgraph(
 
             let font_size = computed.body_size as f64;
             // Half-width of the label (middle-anchored).
-            let half_text_w = measure_text_width(&label, font_size, FontStyle::Regular) * 0.5 + 4.0;
+            let half_text_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_size, FontStyle::Regular)
+                    * 0.5
+                    + 4.0;
             let plot_left_px = computed.margin_left;
             let plot_right_px = computed.width - computed.margin_right;
 
             // Minimum band height (px) for the label to fit vertically.
-            let min_h = (text_height(font_size, FontStyle::Regular) + 4.0).max(sg.min_label_height);
+            let min_h = (computed.fonts.text_height(font_size, FontStyle::Regular) + 4.0)
+                .max(sg.min_label_height);
 
             // Exclude the first and last data points (stream has no fill there),
             // and restrict to the inner 80 % of the x range so labels are never
@@ -14691,7 +14802,8 @@ fn add_streamgraph(
             let mid_x = raw_x
                 .max(plot_left_px + half_text_w)
                 .min(plot_right_px - half_text_w);
-            let mid_y = (lower_y + upper_y) / 2.0 + center_offset(font_size, FontStyle::Regular);
+            let mid_y = (lower_y + upper_y) / 2.0
+                + computed.fonts.center_offset(font_size, FontStyle::Regular);
 
             // Choose text color: white for dark fills, dark for light
             let txt_color = choose_label_color(sg.resolve_color(orig_idx));
@@ -15412,7 +15524,9 @@ fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let lx = cx + label_gap * mid.cos();
         let ly = cy
             + label_gap * mid.sin()
-            + center_offset(computed.body_size as f64, FontStyle::Regular);
+            + computed
+                .fonts
+                .center_offset(computed.body_size as f64, FontStyle::Regular);
 
         let label = if let Some(l) = chord.labels.get(i) {
             l.clone()
@@ -16050,7 +16164,11 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             let src_label_right = if col[src] == 0 {
                 x_src + edge_margin // source label is on the LEFT; right is clear
             } else {
-                let label_w = measure_text_width(&sankey.nodes[src].label, bs, FontStyle::Regular);
+                let label_w = computed.fonts.measure_text_width(
+                    &sankey.nodes[src].label,
+                    bs,
+                    FontStyle::Regular,
+                );
                 x_src + 6.0 + label_w + edge_margin
             };
             let clear_end = x_tgt - edge_margin;
@@ -16071,8 +16189,8 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             let ribbon_h_at_t = y_bot_at_t - y_top_at_t;
             if ribbon_h_at_t >= sankey.flow_label_min_height {
                 let label_x = x_src + t * (x_tgt - x_src);
-                let label_y =
-                    (y_top_at_t + y_bot_at_t) / 2.0 + center_offset(ts, FontStyle::Regular);
+                let label_y = (y_top_at_t + y_bot_at_t) / 2.0
+                    + computed.fonts.center_offset(ts, FontStyle::Regular);
                 let text = if sankey.flow_percent {
                     format!("{:.1}%", (link.value / out_flow[src]) * 100.0)
                 } else {
@@ -16108,7 +16226,9 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             x: lx,
             y: node_y[i]
                 + node_h[i] / 2.0
-                + center_offset(computed.body_size as f64, FontStyle::Regular),
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64, FontStyle::Regular),
             content: sankey.nodes[i].label.clone(),
             size: computed.body_size,
             anchor,
@@ -16322,7 +16442,12 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
 /// next line. A math span is one unbreakable word whose length is the typeset
 /// fragment's width expressed in mean-character units (`font_size` sizes the
 /// fragment; it is unused without the `typst-math` feature).
-fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<Vec<TextSpan>> {
+fn wrap_rich_spans(
+    spans: &[TextSpan],
+    max_chars: usize,
+    font_size: u32,
+    fonts: &FontSet,
+) -> Vec<Vec<TextSpan>> {
     #[cfg(not(feature = "typst-math"))]
     let _ = font_size;
     struct Word {
@@ -16378,7 +16503,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
     // The wrapping length of one word, in character units.
     let word_len = |w: &Word| -> usize {
         if w.math {
-            math_word_chars(&w.text, font_size)
+            math_word_chars(&w.text, font_size, fonts)
         } else {
             w.text.chars().count()
         }
@@ -16475,7 +16600,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
 /// Falls back to the lookup tier's inline form when the fragment fails to
 /// compile (the backends will draw that same fallback).
 #[cfg(feature = "typst-math")]
-fn math_word_chars(body: &str, font_size: u32) -> usize {
+fn math_word_chars(body: &str, font_size: u32, fonts: &FontSet) -> usize {
     let label = format!("${body}$");
     let fs = font_size as f64;
     match crate::render::math::fragment_size(&label, fs) {
@@ -16483,7 +16608,7 @@ fn math_word_chars(body: &str, font_size: u32) -> usize {
             // Subtract the fragment's baked-in page margin: inline it
             // advances like a word, not a padded box.
             let w = (w - 2.0 * crate::render::math::FRAGMENT_MARGIN_EM * fs).max(1.0);
-            (w / crate::render::text_metrics::mean_char_width(fs)).ceil() as usize
+            (w / fonts.mean_char_width(fs)).ceil() as usize
         }
         None => crate::render::math::to_unicode(&label).chars().count(),
     }
@@ -16491,7 +16616,7 @@ fn math_word_chars(body: &str, font_size: u32) -> usize {
 }
 
 #[cfg(not(feature = "typst-math"))]
-fn math_word_chars(_body: &str, _font_size: u32) -> usize {
+fn math_word_chars(_body: &str, _font_size: u32, _fonts: &FontSet) -> usize {
     1
 }
 
@@ -16499,8 +16624,7 @@ fn math_word_chars(_body: &str, _font_size: u32) -> usize {
 /// overshoot) a rich-text line whose math fragments are taller than the
 /// surrounding text. Zero without the `typst-math` feature.
 #[cfg(feature = "typst-math")]
-fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
-    use crate::render::text_metrics::{ascent, descent, FontStyle};
+fn rich_line_math_extents(spans: &[TextSpan], font_size: u32, fonts: &FontSet) -> (f64, f64) {
     let fs = font_size as f64;
     let mut asc_extra = 0.0f64;
     let mut desc_extra = 0.0f64;
@@ -16511,15 +16635,15 @@ fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
         if let Some((_w, h, baseline)) =
             crate::render::math::fragment_size(&format!("${}$", sp.text), fs)
         {
-            asc_extra = asc_extra.max(baseline - ascent(fs, FontStyle::Regular));
-            desc_extra = desc_extra.max((h - baseline) - descent(fs, FontStyle::Regular));
+            asc_extra = asc_extra.max(baseline - fonts.ascent(fs, FontStyle::Regular));
+            desc_extra = desc_extra.max((h - baseline) - fonts.descent(fs, FontStyle::Regular));
         }
     }
     (asc_extra.max(0.0), desc_extra.max(0.0))
 }
 
 #[cfg(not(feature = "typst-math"))]
-fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32) -> (f64, f64) {
+fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32, _fonts: &FontSet) -> (f64, f64) {
     (0.0, 0.0)
 }
 
@@ -16555,7 +16679,7 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
 
     // Auto-compute columns if not set, then bump up columns to fit within cell height.
     let mut n_cols = lp.cols.unwrap_or_else(|| {
-        let label_w = widest_text_width(
+        let label_w = computed.fonts.widest_text_width(
             lp.entries.iter().map(|e| e.label.as_str()),
             computed.body_size as f64,
             FontStyle::Regular,
@@ -16683,7 +16807,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let font_size = tp.font_size.unwrap_or(computed.body_size);
     let line_height = font_size as f64 * 1.55;
     let avail_w = (pw - 2.0 * padding).max(20.0);
-    let max_chars = ((avail_w / mean_char_width(font_size as f64)) as usize).max(1);
+    let max_chars = ((avail_w / computed.fonts.mean_char_width(font_size as f64)) as usize).max(1);
 
     let (anchor, text_x) = match tp.text_align {
         TextAlign::Left => (TextAnchor::Start, px + padding),
@@ -16742,7 +16866,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
             }
             let fs = font_size + size_bump;
             let lh = fs as f64 * 1.55;
-            let mc = ((avail_w / mean_char_width(fs as f64)) as usize).max(1);
+            let mc = ((avail_w / computed.fonts.mean_char_width(fs as f64)) as usize).max(1);
             // Wrap heading words (plain Text, always bold)
             let words: Vec<&str> = text.split_whitespace().collect();
             let mut cur = String::new();
@@ -16791,13 +16915,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Body line — parse inline markup, word-wrap, emit RichText
         let spans = parse_inline_markup(raw);
-        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size);
+        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size, &computed.fonts);
         for line_spans in wrapped_lines {
             // Typeset math fragments can be taller than the text line
             // (stacked fractions, radicals): grow this line's leading by the
             // fragment's overshoot above the ascent and below the descent so
             // neighbouring lines never overlap it.
-            let (asc_extra, desc_extra) = rich_line_math_extents(&line_spans, font_size);
+            let (asc_extra, desc_extra) =
+                rich_line_math_extents(&line_spans, font_size, &computed.fonts);
             cy += asc_extra;
             scene.add(Primitive::RichText {
                 x: text_x,
@@ -16925,7 +17050,11 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     } else {
                         slice.label.clone()
                     };
-                    measure_text_width(&label_text, computed.body_size as f64, FontStyle::Regular)
+                    computed.fonts.measure_text_width(
+                        &label_text,
+                        computed.body_size as f64,
+                        FontStyle::Regular,
+                    )
                 })
                 .fold(0.0_f64, f64::max);
             let leader_gap = 30.0;
@@ -17120,7 +17249,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         computed.dice_x_label_pos = Some((gx0 + gw / 2.0, x_label_y));
 
         // y-label: centred on grid height, just left of the tick labels
-        let max_y_px = widest_text_width(
+        let max_y_px = computed.fonts.widest_text_width(
             dp.y_categories.iter().map(|s| s.as_str()),
             ts,
             FontStyle::Regular,
@@ -17895,7 +18024,7 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
     let mt = computed.margin_top;
 
     // Reserve pixels for leaf labels and general padding so labels don't clip.
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         tree.nodes
             .iter()
             .filter(|n| n.children.is_empty())
@@ -18300,7 +18429,7 @@ fn add_synteny(synteny: &SyntenyPlot, scene: &mut Scene, computed: &ComputedLayo
     let n = synteny.sequences.len();
 
     // Reserve left margin for bar labels
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         synteny.sequences.iter().map(|s| s.label.as_str()),
         12.0,
         FontStyle::Regular,
@@ -18673,7 +18802,7 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             } else if sin_a < -0.15 {
                 ly_raw + ts * 0.8 // below centre: shift baseline down by ~cap-height
             } else {
-                ly_raw + center_offset(ts, FontStyle::Regular) // horizontal: small centering nudge
+                ly_raw + computed.fonts.center_offset(ts, FontStyle::Regular) // horizontal: small centering nudge
             };
 
             let anchor = if cos_a < -0.1 {
@@ -19346,9 +19475,10 @@ fn joint_draw_right_marginal(
 /// size plus symmetric padding, so a larger `title_size` reserves proportionally
 /// more and never clips (the old fixed 35px band ignored `title_size`).
 fn jointplot_title_height(layout: &Layout) -> f64 {
+    let fonts = layout.fonts();
     let ts = layout.title_size as f64;
     let title_h = if layout.title.is_some() {
-        text_height(ts, FontStyle::Regular) + 2.0 * (ts * 0.2)
+        fonts.text_height(ts, FontStyle::Regular) + 2.0 * (ts * 0.2)
     } else {
         0.0
     };
@@ -19358,7 +19488,7 @@ fn jointplot_title_height(layout: &Layout) -> f64 {
     let subtitle_h = match &layout.subtitle {
         Some(s) => {
             let lines = render_utils::wrap_or_single(s, layout.subtitle_wrap).len();
-            lines as f64 * line_height(jointplot_subtitle_size(layout), FontStyle::Regular)
+            lines as f64 * fonts.line_height(jointplot_subtitle_size(layout), FontStyle::Regular)
         }
         None => 0.0,
     };
@@ -19379,14 +19509,19 @@ fn jointplot_subtitle_size(layout: &Layout) -> f64 {
 /// Baseline y for a JointPlot title within its [`jointplot_title_height`] band.
 fn jointplot_title_baseline(layout: &Layout) -> f64 {
     let ts = layout.title_size as f64;
-    ts * 0.2 + ascent(ts, FontStyle::Regular)
+    let fonts = layout.fonts();
+    ts * 0.2 + fonts.ascent(ts, FontStyle::Regular)
 }
 
 /// Legend box width for a joint plot, sized to its widest group label. `JointPlot`
 /// renders its own legend, so it doesn't pass through `auto_from_plots`; this gives
 /// it the same content-hugging width (swatch + gap + measured text + padding).
-fn jointplot_legend_width(jp: &crate::plot::jointplot::JointPlot, body_size: f64) -> f64 {
-    widest_text_width(
+fn jointplot_legend_width(
+    jp: &crate::plot::jointplot::JointPlot,
+    body_size: f64,
+    fonts: &FontSet,
+) -> f64 {
+    fonts.widest_text_width(
         jp.groups
             .iter()
             .filter_map(|g| g.scatter.legend_label.as_deref()),
@@ -19430,7 +19565,7 @@ fn add_jointplot(
     // Size the legend box to the widest group label rather than the generic
     // `legend_width` default (which is not derived from these labels).
     let legend_width = if has_legend {
-        jointplot_legend_width(jp, computed.body_size as f64)
+        jointplot_legend_width(jp, computed.body_size as f64, &computed.fonts)
     } else {
         legend_width
     };
@@ -19638,7 +19773,7 @@ fn add_jointplot(
                     }
                     scene.add(Primitive::Text {
                         x: legend_x + 18.0,
-                        y: swatch_cy + center_offset(bs, FontStyle::Regular),
+                        y: swatch_cy + computed.fonts.center_offset(bs, FontStyle::Regular),
                         content: lbl,
                         size: scatter_computed.body_size,
                         anchor: TextAnchor::Start,
@@ -19668,6 +19803,7 @@ fn add_jointplot(
 /// let scene = render_jointplot(joint, layout);
 /// ```
 pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -> Scene {
+    let fonts = layout.fonts();
     let width = layout.width.unwrap_or(500.0);
     let height = layout.height.unwrap_or(500.0);
     let title_h = jointplot_title_height(&layout);
@@ -19675,7 +19811,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     let has_legend = jp.groups.iter().any(|g| g.scatter.legend_label.is_some());
     let legend_after_right = has_legend && jp.show_right;
     let legend_extra_w = if legend_after_right {
-        jointplot_legend_width(&jp, layout.body_size as f64) + 20.0
+        jointplot_legend_width(&jp, layout.body_size as f64, &fonts) + 20.0
     } else {
         0.0
     };
@@ -19709,15 +19845,15 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     if let Some(ref subtitle) = layout.subtitle {
         let ts = layout.title_size as f64;
         let sts = jointplot_subtitle_size(&layout);
-        let slh = line_height(sts, FontStyle::Regular);
+        let slh = fonts.line_height(sts, FontStyle::Regular);
         // Bottom of the title (baseline + descent), or the very top when there is
         // no title; then drop the first subtitle baseline by its own ascent.
         let title_bottom = if layout.title.is_some() {
-            jointplot_title_baseline(&layout) + descent(ts, FontStyle::Regular)
+            jointplot_title_baseline(&layout) + fonts.descent(ts, FontStyle::Regular)
         } else {
             0.0
         };
-        let start_y = title_bottom + ascent(sts, FontStyle::Regular);
+        let start_y = title_bottom + fonts.ascent(sts, FontStyle::Regular);
         let color = muted_subtitle_color(&scene, &layout.theme.background);
         for (i, line) in render_utils::wrap_or_single(subtitle, layout.subtitle_wrap)
             .iter()
@@ -19744,6 +19880,10 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     if layout.bw_mode {
         stub_layout = stub_layout.with_bw_mode();
     }
+    // Carry the font families so the stub measures text in the faces the scene
+    // renders (`scene.font_family` comes from `layout` above).
+    stub_layout.font_family = layout.font_family.clone();
+    stub_layout.tick_font_family = layout.tick_font_family.clone();
     let computed = ComputedLayout::from_layout(&stub_layout);
 
     add_jointplot(
@@ -19751,7 +19891,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
         &mut scene,
         &computed,
         title_h,
-        layout.legend_width,
+        layout.legend_width_with(&fonts),
         layout.show_legend,
         true,
     );
@@ -19881,19 +20021,23 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 if mp.show_values {
                     lines.push(format!("{val}"));
                 }
-                let widest = widest_text_width(
+                let widest = computed.fonts.widest_text_width(
                     lines.iter().map(|s| s.as_str()),
                     label_size as f64,
                     FontStyle::Regular,
                 );
                 if widest < col_w * 0.9 {
                     let cx = col_x + col_w / 2.0;
-                    let line_h = text_height(label_size as f64, FontStyle::Regular);
+                    let line_h = computed
+                        .fonts
+                        .text_height(label_size as f64, FontStyle::Regular);
                     // Centre the whole stack on the segment rather than its first
                     // line, so a one-line label lands exactly where it used to.
                     let first_cy = seg_top + seg_h / 2.0
                         - line_h * (lines.len() as f64 - 1.0) / 2.0
-                        + center_offset(label_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .center_offset(label_size as f64, FontStyle::Regular);
                     for (li, line) in lines.iter().enumerate() {
                         let cy = first_cy + line_h * li as f64;
                         label_bg_rect(
@@ -19902,7 +20046,7 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             cx,
                             cy,
                             TextAnchor::Middle,
-                            widest_text_width(
+                            computed.fonts.widest_text_width(
                                 std::iter::once(line.as_str()),
                                 label_size as f64,
                                 FontStyle::Regular,
@@ -19979,7 +20123,10 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let pct_label = format!("{}%", (frac * 100.0) as u32);
         scene.add(Primitive::Text {
             x: axis_x - tick_len - computed.tick_label_margin,
-            y: ty + center_offset(computed.tick_size as f64, FontStyle::Regular),
+            y: ty
+                + computed
+                    .fonts
+                    .center_offset(computed.tick_size as f64, FontStyle::Regular),
             content: pct_label,
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -20007,7 +20154,12 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
     let max_label_px = if net.show_labels {
         net.nodes
             .iter()
-            .map(|n| measure_text_width(&n.label, font_size as f64, FontStyle::Regular) + 4.0)
+            .map(|n| {
+                computed
+                    .fonts
+                    .measure_text_width(&n.label, font_size as f64, FontStyle::Regular)
+                    + 4.0
+            })
             .fold(0.0_f64, f64::max)
     } else {
         0.0
@@ -20508,13 +20660,15 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
             for (i, node) in net.nodes.iter().enumerate() {
                 let r = node.size.unwrap_or(net.node_radius);
                 // Largest font whose measured label width fits the node diameter.
-                let label_w_per_px =
-                    measure_text_width(&node.label, 1.0, FontStyle::Regular).max(1e-6);
+                let label_w_per_px = computed
+                    .fonts
+                    .measure_text_width(&node.label, 1.0, FontStyle::Regular)
+                    .max(1e-6);
                 let max_fs = ((2.0 * r) / label_w_per_px).floor() as u32;
                 let fs = max_fs.min(font_size).max(6);
                 scene.add(Primitive::Text {
                     x: round2(px[i]),
-                    y: round2(py[i] + center_offset(fs as f64, FontStyle::Regular)),
+                    y: round2(py[i] + computed.fonts.center_offset(fs as f64, FontStyle::Regular)),
                     content: node.label.clone(),
                     size: fs,
                     anchor: TextAnchor::Middle,
@@ -20549,7 +20703,11 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 .enumerate()
                 .map(|(i, node)| {
                     let r = node.size.unwrap_or(net.node_radius);
-                    let lw = measure_text_width(&node.label, font_size as f64, FontStyle::Regular);
+                    let lw = computed.fonts.measure_text_width(
+                        &node.label,
+                        font_size as f64,
+                        FontStyle::Regular,
+                    );
                     let gap = r + 4.0;
                     // Unit vector from centroid to node.
                     let fdx = px[i] - cx_c;
@@ -20566,8 +20724,11 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                         (px[i], TextAnchor::Middle)
                     };
                     // Vertical: shift in the outward y direction; apply baseline offset.
-                    let ly =
-                        py[i] + fuy * gap + center_offset(font_size as f64, FontStyle::Regular);
+                    let ly = py[i]
+                        + fuy * gap
+                        + computed
+                            .fonts
+                            .center_offset(font_size as f64, FontStyle::Regular);
                     (lx, ly, node.label.clone(), lw, anchor)
                 })
                 .collect();
@@ -21095,7 +21256,10 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
                 scene.add(Primitive::Text {
                     x: round2(cx + radial * th.cos()),
                     y: round2(
-                        cy + radial * th.sin() + center_offset(label_sz as f64, FontStyle::Regular),
+                        cy + radial * th.sin()
+                            + computed
+                                .fonts
+                                .center_offset(label_sz as f64, FontStyle::Regular),
                     ),
                     content: text.clone(),
                     size: label_sz,
@@ -22159,8 +22323,9 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
             };
 
             if show_lbl {
-                let max_chars =
-                    ((tile.rect.w * 0.88) / mean_char_width(font_size as f64)).floor() as usize;
+                let max_chars = ((tile.rect.w * 0.88)
+                    / computed.fonts.mean_char_width(font_size as f64))
+                .floor() as usize;
                 let label = if max_chars > 2 && tile.label.chars().count() > max_chars {
                     let truncated: String = tile
                         .label
@@ -22184,7 +22349,9 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         tile.rect.x + tile.rect.w * 0.5,
                         tile.rect.y
                             + tile.rect.h * 0.5
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         TextAnchor::Middle,
                         false,
                     )
@@ -22195,7 +22362,10 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 } else {
                     FontStyle::Regular
                 };
-                let label_w = measure_text_width(&label, font_size as f64, label_style);
+                let label_w =
+                    computed
+                        .fonts
+                        .measure_text_width(&label, font_size as f64, label_style);
                 label_bg_rect(
                     scene, computed, lx, ly, anchor, label_w, font_size, bold, None,
                 );
@@ -22627,7 +22797,7 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
             let font_size = 11u32;
             // Available arc width at midpoint
             let arc_len = arc.sweep_deg.to_radians() * r_mid;
-            let max_chars = ((arc_len * 0.88) / mean_char_width(font_size as f64))
+            let max_chars = ((arc_len * 0.88) / computed.fonts.mean_char_width(font_size as f64))
                 .floor()
                 .max(0.0) as usize;
             let label = if max_chars > 2 && arc.label.chars().count() > max_chars {
@@ -22653,7 +22823,10 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
                 None
             };
 
-            let label_w = measure_text_width(&label, font_size as f64, FontStyle::Regular);
+            let label_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_size as f64, FontStyle::Regular);
             label_bg_rect(
                 scene,
                 computed,
@@ -22858,7 +23031,10 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                         .min(computed.body_size);
                     scene.add(Primitive::Text {
                         x: px,
-                        y: py + center_offset(font_sz as f64, FontStyle::Regular),
+                        y: py
+                            + computed
+                                .fonts
+                                .center_offset(font_sz as f64, FontStyle::Regular),
                         content: label,
                         size: font_sz,
                         anchor: TextAnchor::Middle,
@@ -22891,7 +23067,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             pos.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             nudge_bump_labels(
                 &mut pos,
-                crate::render::text_metrics::line_height(font_h, FontStyle::Regular),
+                computed.fonts.line_height(font_h, FontStyle::Regular),
             );
             pos
         };
@@ -22914,7 +23090,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             };
             scene.add(Primitive::Text {
                 x: left_px - label_gap,
-                y: py + center_offset(font_h, FontStyle::Regular),
+                y: py + computed.fonts.center_offset(font_h, FontStyle::Regular),
                 content: s.name.clone(),
                 size: computed.body_size,
                 anchor: TextAnchor::End,
@@ -22943,7 +23119,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             };
             scene.add(Primitive::Text {
                 x: right_px + label_gap,
-                y: py + center_offset(font_h, FontStyle::Regular),
+                y: py + computed.fonts.center_offset(font_h, FontStyle::Regular),
                 content: s.name.clone(),
                 size: computed.body_size,
                 anchor: TextAnchor::Start,
@@ -23049,7 +23225,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Reserve horizontal space for stage label text so the widest bar's
         // left edge never collides with the left margin.
-        let left_label_w = widest_text_width(
+        let left_label_w = computed.fonts.widest_text_width(
             fp.stages.iter().map(|s| s.label.as_str()),
             font_size as f64,
             FontStyle::Regular,
@@ -23061,7 +23237,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 .mirror
                 .as_ref()
                 .map(|m| {
-                    widest_text_width(
+                    computed.fonts.widest_text_width(
                         m.iter().map(|s| s.label.as_str()),
                         font_size as f64,
                         FontStyle::Regular,
@@ -23231,10 +23407,17 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     };
                     (rx, anc, Color::from("#333333"))
                 };
-                let label_y =
-                    bar_y + bar_h / 2.0 + center_offset(font_size as f64, FontStyle::Regular);
+                let label_y = bar_y
+                    + bar_h / 2.0
+                    + computed
+                        .fonts
+                        .center_offset(font_size as f64, FontStyle::Regular);
                 if text_fits {
-                    let label_w = measure_text_width(&label, font_size as f64, FontStyle::Regular);
+                    let label_w = computed.fonts.measure_text_width(
+                        &label,
+                        font_size as f64,
+                        FontStyle::Regular,
+                    );
                     label_bg_rect(
                         scene, computed, lx, label_y, anchor, label_w, font_size, false, None,
                     );
@@ -23260,7 +23443,11 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 };
                 scene.add(Primitive::Text {
                     x: lx,
-                    y: bar_y + bar_h / 2.0 + center_offset(font_size as f64, FontStyle::Regular),
+                    y: bar_y
+                        + bar_h / 2.0
+                        + computed
+                            .fonts
+                            .center_offset(font_size as f64, FontStyle::Regular),
                     content: stage.label.clone(),
                     size: font_size,
                     anchor,
@@ -23369,7 +23556,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             x: lx,
                             y: bar_y
                                 + bar_h / 2.0
-                                + center_offset(font_size as f64, FontStyle::Regular),
+                                + computed
+                                    .fonts
+                                    .center_offset(font_size as f64, FontStyle::Regular),
                             content: label,
                             size: font_size,
                             anchor,
@@ -23384,7 +23573,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         x: center_x + max_bar_w / 2.0 + 6.0,
                         y: bar_y
                             + bar_h / 2.0
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         content: ms.label.clone(),
                         size: font_size,
                         anchor: TextAnchor::Start,
@@ -23548,7 +23739,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         bar_x + bar_w / 2.0,
                         bar_y
                             + actual_bar_h / 2.0
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         TextAnchor::Middle,
                         Color::from("#ffffff"),
                     )
@@ -23648,7 +23841,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                                 bar_x + bar_w / 2.0,
                                 center_y
                                     + m_half_h / 2.0
-                                    + center_offset(font_size as f64, FontStyle::Regular),
+                                    + computed
+                                        .fonts
+                                        .center_offset(font_size as f64, FontStyle::Regular),
                                 TextAnchor::Middle,
                                 Color::from("#ffffff"),
                             )
@@ -24184,7 +24379,7 @@ fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout)
 
     let sunday_start = matches!(cp.week_start, WeekStart::Sunday);
     // Reserve left margin wide enough for the longest period label (or day-of-week labels).
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         periods.iter().map(|(l, _, _)| l.as_str()),
         12.0,
         FontStyle::Regular,
@@ -24293,7 +24488,9 @@ fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout)
         // ── Period label (year / "FY2023/24" / …) ────────────────────────────
         scene.add(Primitive::Text {
             x: grid_x - 4.0,
-            y: period_top + period_label_h / 2.0 + center_offset(11.0, FontStyle::Regular),
+            y: period_top
+                + period_label_h / 2.0
+                + computed.fonts.center_offset(11.0, FontStyle::Regular),
             content: label.clone(),
             size: 11,
             anchor: TextAnchor::End,
@@ -25309,7 +25506,10 @@ fn add_horizon_annots(hp: &HorizonPlot, scene: &mut Scene, computed: &ComputedLa
                     bold: false,
                     color: Some(sign_color),
                 });
-                let char_w = measure_text_width("+", font_size as f64, FontStyle::Regular);
+                let char_w =
+                    computed
+                        .fonts
+                        .measure_text_width("+", font_size as f64, FontStyle::Regular);
                 scene.add(Primitive::Text {
                     x: annot_x + char_w,
                     y: pos_y,
@@ -25350,7 +25550,10 @@ fn add_horizon_annots(hp: &HorizonPlot, scene: &mut Scene, computed: &ComputedLa
                     bold: false,
                     color: Some(sign_color),
                 });
-                let char_w = measure_text_width("-", font_size as f64, FontStyle::Regular);
+                let char_w =
+                    computed
+                        .fonts
+                        .measure_text_width("-", font_size as f64, FontStyle::Regular);
                 scene.add(Primitive::Text {
                     x: annot_x + char_w,
                     y: neg_y,
@@ -25854,11 +26057,16 @@ fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     // Inside label (white, clipped to plot area — fine because it's inside the bar)
                     if gp.show_labels {
                         let label_size = 11u32;
-                        let est_text_w =
-                            measure_text_width(&task.label, label_size as f64, FontStyle::Regular);
+                        let est_text_w = computed.fonts.measure_text_width(
+                            &task.label,
+                            label_size as f64,
+                            FontStyle::Regular,
+                        );
                         if bar_width >= gp.label_min_width && bar_width > est_text_w + 6.0 {
-                            let label_y =
-                                y_center + center_offset(label_size as f64, FontStyle::Regular);
+                            let label_y = y_center
+                                + computed
+                                    .fonts
+                                    .center_offset(label_size as f64, FontStyle::Regular);
                             label_bg_rect(
                                 scene,
                                 computed,
@@ -25955,7 +26163,10 @@ fn add_gantt_labels(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout
                 let text_color = Color::from(color_str.as_str());
                 scene.add(Primitive::Text {
                     x: cx + s + 5.0,
-                    y: y_center + center_offset(label_size as f64, FontStyle::Regular),
+                    y: y_center
+                        + computed
+                            .fonts
+                            .center_offset(label_size as f64, FontStyle::Regular),
                     content: task.label.clone(),
                     size: label_size,
                     anchor: TextAnchor::Start,
@@ -25967,13 +26178,19 @@ fn add_gantt_labels(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout
                 let x_start = computed.map_x(task.start);
                 let x_end = computed.map_x(task.end);
                 let bar_width = (x_end - x_start).max(2.0);
-                let est_text_w =
-                    measure_text_width(&task.label, label_size as f64, FontStyle::Regular);
+                let est_text_w = computed.fonts.measure_text_width(
+                    &task.label,
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 // Only draw outside label when bar is too short for inside label
                 if !(bar_width >= gp.label_min_width && bar_width > est_text_w + 6.0) {
                     scene.add(Primitive::Text {
                         x: x_end + 5.0,
-                        y: y_center + center_offset(label_size as f64, FontStyle::Regular),
+                        y: y_center
+                            + computed
+                                .fonts
+                                .center_offset(label_size as f64, FontStyle::Regular),
                         content: task.label.clone(),
                         size: label_size,
                         anchor: TextAnchor::Start,

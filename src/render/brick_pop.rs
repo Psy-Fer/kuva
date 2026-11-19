@@ -30,7 +30,7 @@ use crate::render::plots::Plot;
 use crate::render::render::{
     collect_legend_entries, render_multiple, Primitive, Scene, TextAnchor,
 };
-use crate::render::text_metrics::{center_offset, measure_text_width, FontStyle};
+use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 use crate::render::track_stack::merge_translated;
 
@@ -326,14 +326,20 @@ impl BrickPopPlot {
 
     /// Pixels reserved for the column-header band. Tall enough for the vertically-drawn
     /// metric labels; 0 when there is neither a frequency bar nor any metric column.
+    /// The fonts this plot's text is measured with (its theme's family).
+    fn fonts(&self) -> FontSet {
+        FontSet::resolve(self.theme.font_family.as_deref(), None)
+    }
+
     fn header_band(&self) -> f64 {
+        let fonts = self.fonts();
         if self.frequencies.is_empty() && self.metrics.is_empty() {
             return 0.0;
         }
         let longest = self
             .metrics
             .iter()
-            .map(|m| measure_text_width(&m.label, HEADER_SIZE as f64, FontStyle::Regular))
+            .map(|m| fonts.measure_text_width(&m.label, HEADER_SIZE as f64, FontStyle::Regular))
             .fold(0.0_f64, f64::max);
         (longest + 8.0).max(HEADER_BAND_PX)
     }
@@ -391,13 +397,14 @@ impl BrickPopPlot {
     /// (returns `(1, 0.0)` when the brick has no legend). Mirrors `LegendPlot`'s uniform
     /// grid: a fixed column width from the widest label, as many columns as fit, then rows.
     fn motif_legend_layout(&self, legend_width: f64) -> (usize, f64) {
+        let fonts = self.fonts();
         let labels = self.motif_labels();
         if labels.is_empty() || legend_width <= 0.0 {
             return (1, 0.0);
         }
         let widest = labels
             .iter()
-            .map(|l| measure_text_width(l, LABEL_SIZE, FontStyle::Regular))
+            .map(|l| fonts.measure_text_width(l, LABEL_SIZE, FontStyle::Regular))
             .fold(0.0_f64, f64::max);
         let col_w = widest + LEGEND_COL_PAD;
         let cols = ((legend_width / col_w).floor() as usize).max(1);
@@ -424,6 +431,7 @@ impl BrickPopPlot {
 
     /// Render at an explicit width and height.
     pub fn render_sized(self, width: f64, height: f64) -> Scene {
+        let fonts = self.fonts();
         let mut scene = Scene::new(width, height);
         scene.background_color = Some(self.theme.background.clone());
         scene.font_family = self.theme.font_family.clone();
@@ -449,7 +457,7 @@ impl BrickPopPlot {
         let name_w = if show_names {
             names
                 .iter()
-                .map(|s| measure_text_width(s, name_font, FontStyle::Regular))
+                .map(|s| fonts.measure_text_width(s, name_font, FontStyle::Regular))
                 .fold(0.0_f64, f64::max)
         } else {
             0.0
@@ -528,7 +536,7 @@ impl BrickPopPlot {
         for (c, metric) in self.metrics.iter().enumerate() {
             let cx = heat_x + c as f64 * heat_col_w + heat_col_w / 2.0;
             scene.add(Primitive::Text {
-                x: cx + center_offset(HEADER_SIZE as f64, FontStyle::Regular),
+                x: cx + fonts.center_offset(HEADER_SIZE as f64, FontStyle::Regular),
                 y: force_top - 4.0,
                 content: metric.label.clone(),
                 size: HEADER_SIZE,
@@ -547,7 +555,7 @@ impl BrickPopPlot {
                 }
                 scene.add(Primitive::Text {
                     x: GUTTER_PAD,
-                    y: row_center(i) + center_offset(name_font, FontStyle::Regular),
+                    y: row_center(i) + fonts.center_offset(name_font, FontStyle::Regular),
                     content: name.clone(),
                     size: name_font.round() as u32,
                     anchor: TextAnchor::Start,
@@ -652,7 +660,8 @@ impl BrickPopPlot {
                         if let Some(v) = metric.values.get(i).copied().flatten() {
                             scene.add(Primitive::Text {
                                 x: cx + cell_w / 2.0,
-                                y: row_center(i) + center_offset(value_size, FontStyle::Regular),
+                                y: row_center(i)
+                                    + fonts.center_offset(value_size, FontStyle::Regular),
                                 content: fmt_num(v),
                                 size: value_size.round() as u32,
                                 anchor: TextAnchor::Middle,
@@ -698,7 +707,9 @@ impl BrickPopPlot {
                 // bar's bottom (left-justified) so titles of different lengths still line up
                 // when the bars sit side by side.
                 scene.add(Primitive::Text {
-                    x: unit_left + 8.0 + center_offset(HEADER_SIZE as f64, FontStyle::Regular),
+                    x: unit_left
+                        + 8.0
+                        + fonts.center_offset(HEADER_SIZE as f64, FontStyle::Regular),
                     y: cb_top + COLORBAR_H,
                     content: metric.label.clone(),
                     size: HEADER_SIZE,
@@ -725,7 +736,7 @@ impl BrickPopPlot {
                     let vx = bar_x + COLORBAR_W + 4.0;
                     scene.add(Primitive::Text {
                         x: vx,
-                        y: cb_top + center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
+                        y: cb_top + fonts.center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
                         content: fmt_num(hi),
                         size: AXIS_LABEL_SIZE,
                         anchor: TextAnchor::Start,
@@ -737,7 +748,7 @@ impl BrickPopPlot {
                         x: vx,
                         y: cb_top
                             + COLORBAR_H
-                            + center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
+                            + fonts.center_offset(AXIS_LABEL_SIZE as f64, FontStyle::Regular),
                         content: fmt_num(lo),
                         size: AXIS_LABEL_SIZE,
                         anchor: TextAnchor::Start,

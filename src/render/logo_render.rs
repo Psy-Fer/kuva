@@ -16,7 +16,7 @@ use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
 use crate::render::render::{PathData, Primitive, Scene, TextAnchor};
-use crate::render::text_metrics::{ascent, line_height, FontStyle};
+use crate::render::text_metrics::FontStyle;
 
 /// Em-space bounding box of a glyph outline.
 #[derive(Clone, Copy)]
@@ -352,11 +352,11 @@ pub(crate) fn add_consensus_row(sl: &SequenceLogo, scene: &mut Scene, computed: 
     let row_px = if computed.below_ticks_extra > 0.0 {
         computed.below_ticks_extra
     } else {
-        line_height(tick_px, FontStyle::Regular)
+        computed.fonts.line_height(tick_px, FontStyle::Regular)
     };
     let baseline = computed.height - computed.margin_bottom
         + computed.tick_mark_major
-        + ascent(tick_px, FontStyle::Regular)
+        + computed.fonts.ascent(tick_px, FontStyle::Regular)
         + row_px;
     for (pos_idx, source_idx) in source_indices(n, sl.reverse_complement)
         .into_iter()
@@ -453,9 +453,13 @@ pub(crate) fn prepare_logo(plots: &[Plot], layout: &mut Layout) -> Option<Scene>
 /// label on the last, and the legend is drawn once, beside the first row.
 fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene {
     use crate::render::figure::clone_layout;
-    use crate::render::render::{collect_legend_entries, render_legend_at, render_multiple};
+    use crate::render::render::{
+        collect_legend_entries, render_legend_at_with_fonts, render_multiple,
+    };
     use crate::render::render_utils::{auto_nice_range, auto_tick_count};
 
+    let fonts = layout.fonts();
+    let legend_width = layout.legend_width_with(&fonts);
     let n = sl.n_positions();
     let n_rows = n.div_ceil(per_line);
     let chunks: Vec<SequenceLogo> = (0..n_rows)
@@ -474,7 +478,7 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
     let legend_w = if legend_entries.is_empty() {
         0.0
     } else {
-        layout.legend_width + WRAP_LEGEND_GAP
+        legend_width + WRAP_LEGEND_GAP
     };
 
     // Frequency mode has no fixed ceiling: pin every row to the whole logo's
@@ -587,7 +591,7 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
     if !legend_entries.is_empty() {
         let lx = width - margin_right + WRAP_LEGEND_GAP + 5.0;
         let ly = probes[0].margin_top;
-        render_legend_at(
+        render_legend_at_with_fonts(
             &legend_entries,
             None,
             layout.legend_title.as_deref(),
@@ -595,9 +599,10 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
             &mut master,
             lx,
             ly,
-            layout.legend_width,
+            legend_width,
             layout.body_size,
             &layout.theme,
+            &fonts,
         );
     }
     master
