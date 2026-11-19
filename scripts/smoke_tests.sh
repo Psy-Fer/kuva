@@ -1424,6 +1424,20 @@ check "heatmap no-rect-batching" \
     "$BIN" heatmap "$DATA/heatmap.tsv" --no-rect-batching
 rm -rf "$OUT_TMP"
 
+# ── fonts (--font-file/--font-dir need the custom_fonts feature, in `full`) ───
+FONTS="./tests/data/fonts"
+check "font family, tick font, mono font" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font "DejaVu Sans" --tick-font monospace --mono-font "DejaVu Sans Mono"
+check_text "font-file selects and embeds the font" "@font-face{font-family:'DejaVu Serif'" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font-file "$FONTS/DejaVuSerif.ttf" --embed-font
+check "font-dir" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count --font-dir "$FONTS"
+check_error "font-file missing" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font-file /no/such/font.ttf
+
 # ── coverage ──────────────────────────────────────────────────────────────────
 check "coverage full (depth+variants+features+locus)" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal \

@@ -7,7 +7,7 @@ use kuva::render::coverage::CoveragePlot;
 use kuva::render::track_stack::{Interval, Strand};
 
 use crate::data::{ColSpec, DataTable, HeaderMode, InputArgs};
-use crate::layout_args::{theme_from_name, BaseArgs};
+use crate::layout_args::{apply_font_args, theme_from_name, BaseArgs};
 use crate::output::write_output;
 
 /// Genomic coverage plot: stacked sequencing-depth tracks (one per sample) sharing a genomic
@@ -106,8 +106,23 @@ pub fn run(args: CoverageArgs) -> Result<(), String> {
 
     let mut cov = CoveragePlot::new();
 
-    if let Some(name) = &args.base.theme {
-        cov = cov.with_theme(theme_from_name(name));
+    // Fonts: the body family rides on the theme (the composite's text family);
+    // the tick family goes to every track's tick labels.
+    let fonts = apply_font_args(&args.base);
+    if args.base.theme.is_some() || fonts.body.is_some() {
+        let mut theme = args
+            .base
+            .theme
+            .as_deref()
+            .map(theme_from_name)
+            .unwrap_or_default();
+        if let Some(family) = fonts.body {
+            theme.font_family = Some(family);
+        }
+        cov = cov.with_theme(theme);
+    }
+    if let Some(family) = fonts.tick {
+        cov = cov.with_tick_font_family(family);
     }
     if let Some(title) = &args.base.title {
         cov = cov.with_title(title.clone());

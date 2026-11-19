@@ -133,11 +133,39 @@ pub struct BaseArgs {
     #[arg(long, value_name = "CHARS")]
     pub legend_wrap: Option<usize>,
 
-    /// Embed DejaVu Sans font directly in SVG output.
-    /// Use this when rendering SVG in environments without system fonts
-    /// (headless servers, containers, CI pipelines). Adds ~1 MB to the SVG.
-    /// Has no effect on PNG/PDF output (those backends always have the font).
-    #[arg(long, conflicts_with = "terminal")]
+    /// Font family for all text, as a CSS font-family list (e.g. "Inter, sans-serif").
+    /// The first family is the one used: a font loaded with --font-file/--font-dir is
+    /// measured, drawn and embedded exactly; any other family is named in SVG output
+    /// and spaced as DejaVu Sans.
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub font: Option<String>,
+
+    /// Font family for axis tick labels only (default: --font).
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub tick_font: Option<String>,
+
+    /// Font family for `code` spans in text (default: DejaVu Sans Mono).
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub mono_font: Option<String>,
+
+    /// Load a font file (TTF, OTF, TTC) to use by family name. Repeat for each
+    /// file, e.g. the regular and bold files of a family. Without --font, the
+    /// family of the first file becomes the font for all text.
+    #[cfg(feature = "custom_fonts")]
+    #[arg(long, value_name = "PATH", help_heading = "Fonts")]
+    pub font_file: Vec<std::path::PathBuf>,
+
+    /// Load every font file in a directory (and its subdirectories). Repeatable.
+    #[cfg(feature = "custom_fonts")]
+    #[arg(long, value_name = "DIR", help_heading = "Fonts")]
+    pub font_dir: Vec<std::path::PathBuf>,
+
+    /// Embed the fonts directly in SVG output: DejaVu Sans, plus any font loaded
+    /// with --font-file/--font-dir that the plot uses. Use this when rendering SVG
+    /// in environments without those fonts (headless servers, containers, CI
+    /// pipelines). Adds ~1 MB to the SVG, plus the loaded fonts' size.
+    /// Has no effect on PNG/PDF output (those backends always have the fonts).
+    #[arg(long, conflicts_with = "terminal", help_heading = "Fonts")]
     pub embed_font: bool,
 
     /// Write every rectangle as its own `<rect>` in SVG output. By default, runs of plain,
@@ -557,6 +585,159 @@ pub fn apply_signif_args(mut layout: Layout, args: &SignifArgs) -> Result<Layout
 }
 
 /// Apply base output/appearance args to a layout.
+/// The font families a run asked for, after loading any font files.
+#[derive(Debug, Default)]
+pub struct FontChoice {
+    pub body: Option<String>,
+    pub tick: Option<String>,
+    pub mono: Option<String>,
+}
+
+/// Load the fonts named by --font-file/--font-dir, pick the families, and warn
+/// about anything that will not render as asked: a family missing bold or italic
+/// faces (kuva never fakes them), a variable font (only its default style is
+/// used), a font whose licence forbids embedding when it will be embedded, and a
+/// --font family that is not loaded. Exits with an error when a font cannot be
+/// loaded. Call before rendering.
+pub fn apply_font_args(args: &BaseArgs) -> FontChoice {
+    #[allow(unused_mut)]
+    let mut body = args.font.clone();
+    #[cfg(feature = "custom_fonts")]
+    {
+        let loaded = load_fonts(args);
+        if body.is_none() {
+            body = loaded.first().map(|info| info.family.clone());
+        }
+        warn_font_issues(args, &loaded, body.as_deref());
+    }
+    FontChoice {
+        body,
+        tick: args.tick_font.clone(),
+        mono: args.mono_font.clone(),
+    }
+}
+
+/// Register the --font-file/--font-dir fonts, in order. Exits on an unreadable
+/// file or a directory with no usable font; a bad file inside a directory is a
+/// warning.
+#[cfg(feature = "custom_fonts")]
+fn load_fonts(args: &BaseArgs) -> Vec<kuva::fonts::FontInfo> {
+    let mut loaded = Vec::new();
+    for path in &args.font_file {
+        match kuva::fonts::register_font_file(path) {
+            Ok(infos) => loaded.extend(infos),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    for dir in &args.font_dir {
+        match kuva::fonts::register_fonts_dir(dir) {
+            Ok(report) => {
+                for (file, e) in &report.skipped {
+                    eprintln!("warning: skipped {}: {e}", file.display());
+                }
+                loaded.extend(report.registered);
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    loaded
+}
+
+/// The first family of a CSS font-family list, unquoted.
+#[cfg(feature = "custom_fonts")]
+fn first_family(list: &str) -> &str {
+    list.split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+}
+
+/// "a", "a or b", "a, b or c".
+#[cfg(feature = "custom_fonts")]
+fn join_or(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
+#[cfg(feature = "custom_fonts")]
+fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Option<&str>) {
+    for info in loaded {
+        if info.variable {
+            eprintln!(
+                "warning: {} is a variable font; only its default style (weight {}) is used. \
+                 Load the static font files for other weights.",
+                info.family, info.weight
+            );
+        }
+    }
+    let embedding = args.embed_font
+        || args
+            .output
+            .as_deref()
+            .and_then(|p| p.extension())
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    if embedding {
+        let mut warned: Vec<&str> = Vec::new();
+        for info in loaded.iter().filter(|i| i.restricted_embedding) {
+            if !warned.contains(&info.family.as_str()) {
+                warned.push(&info.family);
+                eprintln!(
+                    "warning: the licence of {} does not allow embedding it in documents; \
+                     check its licence before sharing this file.",
+                    info.family
+                );
+            }
+        }
+    }
+    let Some(body) = body else { return };
+    let family = first_family(body);
+    match kuva::fonts::family_styles(family) {
+        Some(styles) => {
+            let missing = styles.missing();
+            if !missing.is_empty() {
+                eprintln!(
+                    "warning: {family} has no {} face; that text uses the nearest face \
+                     instead (kuva never fakes bold or italic). Load the font files for \
+                     those styles with --font-file.",
+                    join_or(&missing)
+                );
+            }
+        }
+        None => {
+            const GENERIC: &[&str] = &[
+                "serif",
+                "sans-serif",
+                "monospace",
+                "cursive",
+                "fantasy",
+                "system-ui",
+                "ui-sans-serif",
+                "ui-serif",
+                "ui-monospace",
+            ];
+            let builtin = family.to_ascii_lowercase().starts_with("dejavu sans");
+            if !builtin && !GENERIC.contains(&family.to_ascii_lowercase().as_str()) {
+                eprintln!(
+                    "warning: font '{family}' is not loaded, so text is spaced for DejaVu \
+                     Sans and PNG output draws DejaVu Sans (SVG and PDF use '{family}' where \
+                     it is installed). Load it with --font-file to use it exactly."
+                );
+            }
+        }
+    }
+}
+
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     // Set on the layout (not on the finished scene) so anything drawn in the
     // background colour during rendering, such as an axis-break cover, matches.
@@ -652,6 +833,17 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     }
     if let Some(n) = args.legend_wrap {
         layout = layout.with_legend_wrap(n);
+    }
+    // Fonts after the theme, so --font wins over a theme's font family.
+    let fonts = apply_font_args(args);
+    if let Some(family) = fonts.body {
+        layout = layout.with_font_family(family);
+    }
+    if let Some(family) = fonts.tick {
+        layout = layout.with_tick_font_family(family);
+    }
+    if let Some(family) = fonts.mono {
+        layout = layout.with_mono_font_family(family);
     }
     layout
 }

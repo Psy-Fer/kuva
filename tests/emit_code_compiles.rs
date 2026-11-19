@@ -80,6 +80,36 @@ fn emit_code_snippets_compile() {
         fs::write(&path, program).unwrap_or_else(|e| panic!("failed to write {path:?}: {e}"));
         cases.pass(path);
     }
+
+    // Custom fonts: the loading statements and family settings compile and run
+    // (`custom_fonts` is in `full`). An absolute path, so the program finds the
+    // font wherever trybuild runs it.
+    let font = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fonts/DejaVuSerif.ttf");
+    let snippet = run_emit_code(&[
+        "box",
+        "examples/data/measurements.tsv",
+        "--group-col",
+        "group",
+        "--value-col",
+        "value",
+        "--font-file",
+        font.to_str().unwrap(),
+        "--tick-font",
+        "DejaVu Serif",
+        "--mono-font",
+        "DejaVu Sans Mono",
+    ]);
+    for needle in [
+        "kuva::fonts::register_font_file(",
+        r#".with_font_family("DejaVu Serif")"#,
+        r#".with_tick_font_family("DejaVu Serif")"#,
+        r#".with_mono_font_family("DejaVu Sans Mono")"#,
+    ] {
+        assert!(snippet.contains(needle), "missing {needle}:\n{snippet}");
+    }
+    let path = dir.join("custom_fonts.rs");
+    fs::write(&path, representative::wrap_as_program(&snippet)).unwrap();
+    cases.pass(path);
 }
 
 /// `--emit-code` validates `--signif` exactly like a real run: a malformed

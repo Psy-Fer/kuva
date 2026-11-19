@@ -28,7 +28,8 @@ use kuva::plot::{
 };
 
 use crate::layout_args::{
-    parse_signif_format, parse_signif_spec, AxisArgs, BaseArgs, LogArgs, SignifArgs,
+    apply_font_args, parse_signif_format, parse_signif_spec, AxisArgs, BaseArgs, LogArgs,
+    SignifArgs,
 };
 use kuva::plot::annotations::{BracketAnchor, BracketLabel};
 use kuva::plot::logo::{Alphabet, LogoUnits, PalettePreset, SequenceLogo};
@@ -226,7 +227,52 @@ pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     if let Some(n) = args.legend_wrap {
         frags.push(format!(".with_legend_wrap({n})"));
     }
+    // Font families last, as in `apply_base_args`. Without --font the family of the
+    // first --font-file is used, which needs the files read: `apply_font_args` does
+    // that (and warns, as a normal run would).
+    let fonts = apply_font_args(args);
+    if let Some(ref family) = fonts.body {
+        frags.push(format!(".with_font_family({})", str_lit(family)));
+    }
+    if let Some(ref family) = fonts.tick {
+        frags.push(format!(".with_tick_font_family({})", str_lit(family)));
+    }
+    if let Some(ref family) = fonts.mono {
+        frags.push(format!(".with_mono_font_family({})", str_lit(family)));
+    }
     frags
+}
+
+/// Statements that load the --font-file/--font-dir fonts, emitted before the
+/// layout is built (the snippet then needs kuva's `custom_fonts` feature).
+fn emit_font_loading(args: &BaseArgs) -> String {
+    #[allow(unused_mut)]
+    let mut out = String::new();
+    #[cfg(feature = "custom_fonts")]
+    {
+        let path_lit = |p: &std::path::Path| str_lit(&p.to_string_lossy());
+        if !args.font_file.is_empty() || !args.font_dir.is_empty() {
+            out.push_str("// Load the fonts (needs kuva's `custom_fonts` feature).\n");
+        }
+        for path in &args.font_file {
+            out.push_str(&format!(
+                "kuva::fonts::register_font_file({}).unwrap();\n",
+                path_lit(path)
+            ));
+        }
+        for dir in &args.font_dir {
+            out.push_str(&format!(
+                "kuva::fonts::register_fonts_dir({}).unwrap();\n",
+                path_lit(dir)
+            ));
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+    }
+    #[cfg(not(feature = "custom_fonts"))]
+    let _ = args;
+    out
 }
 
 /// Emit `.with_x(...)` fragments for `AxisArgs` — mirrors `apply_axis_args`.
@@ -490,6 +536,7 @@ fn assemble_impl(
         out.push_str("];\n\n");
     }
 
+    out.push_str(&emit_font_loading(base));
     out.push_str(&chain(
         "let layout = Layout::auto_from_plots(&plots)",
         frags,
