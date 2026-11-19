@@ -334,3 +334,101 @@ fn pdf_embeds_a_registered_font() {
     );
     common::write_test_output("test_outputs/custom_font_serif.pdf", pdf).unwrap();
 }
+
+// ── SVG: font-synthesis, embedding, mono family (#134 step 6) ────────────────
+
+fn svg_of(plots: Vec<Plot>, layout: Layout, embed: bool) -> String {
+    let scene = kuva::render::render::render_multiple(plots, layout);
+    let backend = kuva::backend::svg::SvgBackend::new();
+    #[cfg(feature = "embed_font")]
+    let backend = backend.with_embedded_font(embed);
+    #[cfg(not(feature = "embed_font"))]
+    let _ = embed;
+    backend.render_scene(&scene)
+}
+
+#[test]
+fn registered_fonts_turn_off_style_synthesis() {
+    register_serif();
+    let plain = svg_of(
+        scatter_with_legend(),
+        Layout::auto_from_plots(&scatter_with_legend()),
+        false,
+    );
+    assert!(
+        !plain.contains("font-synthesis"),
+        "default output unchanged"
+    );
+    let serif = svg_of(
+        scatter_with_legend(),
+        Layout::auto_from_plots(&scatter_with_legend()).with_font_family("DejaVu Serif"),
+        false,
+    );
+    let root = &serif[..serif.find('>').unwrap()];
+    assert!(root.contains(r#"style="font-synthesis:none""#), "{root}");
+}
+
+#[cfg(feature = "embed_font")]
+#[test]
+fn embedding_adds_exactly_the_registered_faces_drawn() {
+    register_serif();
+    let rules = |svg: &str| -> Vec<String> {
+        svg.match_indices("@font-face{font-family:'DejaVu Serif'")
+            .map(|(i, _)| {
+                let end = i + svg[i..].find('}').unwrap();
+                svg[i..end].to_string()
+            })
+            .collect()
+    };
+    // No bold text: only the regular face is embedded.
+    let regular_only = svg_of(
+        scatter_with_legend(),
+        Layout::auto_from_plots(&scatter_with_legend()).with_font_family("DejaVu Serif"),
+        true,
+    );
+    let r = rules(&regular_only);
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert!(r[0].contains("font-weight:400") && r[0].contains("font/ttf"));
+    // A bold legend title adds the bold face.
+    let with_bold = svg_of(
+        scatter_with_legend(),
+        Layout::auto_from_plots(&scatter_with_legend())
+            .with_font_family("DejaVu Serif")
+            .with_legend_title("Series"),
+        true,
+    );
+    let r = rules(&with_bold);
+    assert_eq!(r.len(), 2, "{r:?}");
+    assert!(r.iter().any(|rule| rule.contains("font-weight:700")));
+    // Not embedding: no rules, though the family is still named.
+    let not_embedded = svg_of(
+        scatter_with_legend(),
+        Layout::auto_from_plots(&scatter_with_legend()).with_font_family("DejaVu Serif"),
+        false,
+    );
+    assert!(rules(&not_embedded).is_empty());
+    common::write_test_output("test_outputs/custom_font_serif_embedded.svg", with_bold).unwrap();
+}
+
+#[test]
+fn code_spans_use_the_mono_family() {
+    register_serif();
+    let note = || -> Vec<Plot> {
+        vec![kuva::plot::TextPlot::new()
+            .with_body("Run `kuva clustermap` on the table")
+            .into()]
+    };
+    let default = svg_of(note(), Layout::new((0.0, 1.0), (0.0, 1.0)), false);
+    assert!(default.contains(r#"font-family="DejaVu Sans Mono,monospace""#));
+    let custom = svg_of(
+        note(),
+        Layout::new((0.0, 1.0), (0.0, 1.0)).with_mono_font_family("DejaVu Serif"),
+        false,
+    );
+    assert!(
+        custom.contains(r#"font-family="DejaVu Serif,DejaVu Sans Mono,monospace""#),
+        "{custom}"
+    );
+    // The registered mono family is a registered face in use.
+    assert!(custom.contains("font-synthesis:none"));
+}

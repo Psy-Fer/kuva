@@ -19,6 +19,7 @@ use fontdue::{Font, FontSettings, Metrics};
 use std::sync::OnceLock;
 
 use crate::plot::FillPattern;
+use crate::render::axis::tick_group_family;
 use crate::render::color::Color as KColor;
 use crate::render::render::{Primitive, Scene, TextAnchor, TextSpan};
 use crate::render::text_metrics::{FaceSource, FontSet, FontStyle, ResolvedFace};
@@ -1313,11 +1314,13 @@ fn raster_font(face: &ResolvedFace, style: FontStyle) -> &Font {
 /// tick-label group), resolved once per family per scene.
 fn font_set<'a>(
     sets: &'a mut HashMap<Option<String>, FontSet>,
-    body: Option<&str>,
+    scene: &Scene,
     tick: &Option<String>,
 ) -> &'a FontSet {
-    sets.entry(tick.clone())
-        .or_insert_with(|| FontSet::resolve(body, tick.as_deref()))
+    sets.entry(tick.clone()).or_insert_with(|| {
+        FontSet::resolve(scene.font_family.as_deref(), tick.as_deref())
+            .with_mono(scene.mono_font_family.as_deref())
+    })
 }
 
 /// The glyph cache for one font. Fonts are keyed by address: every font drawn in
@@ -1329,36 +1332,6 @@ fn glyph_cache_for<'a>(
     caches
         .entry(font as *const Font as usize)
         .or_insert_with(GlyphCache::new)
-}
-
-/// The `font-family` a group sets on its text (the tick-label groups), unescaped.
-fn group_font_family(extra_attrs: Option<&str>) -> Option<String> {
-    let attrs = extra_attrs?;
-    let start = attrs.find("font-family=\"")? + "font-family=\"".len();
-    let len = attrs[start..].find('"')?;
-    let value = attrs[start..start + len]
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&");
-    Some(value)
-}
-
-/// The style a rich-text span is drawn in: bold first, then code, then italic,
-/// then plain text (the tick face inside a tick-label group).
-fn span_style(sp: &TextSpan, in_tick_group: bool) -> FontStyle {
-    if sp.bold {
-        FontStyle::from_flags(true, sp.italic)
-    } else if sp.code {
-        FontStyle::Mono
-    } else if sp.italic {
-        FontStyle::Italic
-    } else if in_tick_group {
-        FontStyle::Tick
-    } else {
-        FontStyle::Regular
-    }
 }
 
 // ── SVG path parsing ──────────────────────────────────────────────────────────
@@ -1961,7 +1934,6 @@ impl RasterBackend {
         // Text is drawn in the faces layout measured: the scene's family, and
         // inside a tick-label group (a `font-family` attribute) that group's family
         // as the tick font.
-        let body_family = scene.font_family.as_deref();
         let mut font_sets: HashMap<Option<String>, FontSet> = HashMap::new();
         let mut font_groups: Vec<Option<String>> = Vec::new();
         let mut tick_family: Option<String> = None;
@@ -2008,7 +1980,7 @@ impl RasterBackend {
                         .unwrap_or((0.0, 0.0));
                     tx_stack.push((tx + dx, ty + dy));
                     clip_stack.push(clip);
-                    font_groups.push(group_font_family(extra_attrs.as_deref()));
+                    font_groups.push(tick_group_family(extra_attrs.as_deref()));
                     tick_family = font_groups.iter().rev().find_map(Clone::clone);
                 }
                 Primitive::GroupEnd => {
@@ -2387,7 +2359,7 @@ impl RasterBackend {
                     } else {
                         FontStyle::Regular
                     };
-                    let fonts = font_set(&mut font_sets, body_family, &tick_family);
+                    let fonts = font_set(&mut font_sets, scene, &tick_family);
                     let font = raster_font(fonts.resolved(style), style);
                     canvas.draw_text(
                         sx!(*x),
@@ -2445,10 +2417,10 @@ impl RasterBackend {
                     let lowered_math = |sp: &crate::render::render::TextSpan| {
                         crate::render::math::to_unicode(&format!("${}$", sp.text))
                     };
-                    let fonts = font_set(&mut font_sets, body_family, &tick_family);
+                    let fonts = font_set(&mut font_sets, scene, &tick_family);
                     let in_tick_group = tick_family.is_some();
                     let span_font = |sp: &TextSpan| {
-                        let style = span_style(sp, in_tick_group);
+                        let style = FontStyle::for_span(sp, in_tick_group);
                         raster_font(fonts.resolved(style), style)
                     };
                     let math_font =
@@ -2565,35 +2537,41 @@ mod font_tests {
     #[test]
     fn group_font_family_reads_the_escaped_attribute() {
         assert_eq!(
-            group_font_family(Some(r#"font-family="DejaVu Sans Mono""#)).as_deref(),
+            tick_group_family(Some(r#"font-family="DejaVu Sans Mono""#)).as_deref(),
             Some("DejaVu Sans Mono")
         );
         assert_eq!(
-            group_font_family(Some(r#"font-family="&quot;Fira Code&quot;, monospace""#)).as_deref(),
+            tick_group_family(Some(r#"font-family="&quot;Fira Code&quot;, monospace""#)).as_deref(),
             Some("\"Fira Code\", monospace")
         );
-        assert_eq!(group_font_family(Some(r#"class="x""#)), None);
-        assert_eq!(group_font_family(None), None);
+        assert_eq!(tick_group_family(Some(r#"class="x""#)), None);
+        assert_eq!(tick_group_family(None), None);
     }
 
     #[test]
     fn span_styles_follow_bold_then_code_then_italic() {
         assert_eq!(
-            span_style(&span(true, true, false), false),
+            FontStyle::for_span(&span(true, true, false), false),
             FontStyle::BoldItalic
         );
-        assert_eq!(span_style(&span(true, false, true), false), FontStyle::Bold);
-        assert_eq!(span_style(&span(false, true, true), false), FontStyle::Mono);
         assert_eq!(
-            span_style(&span(false, true, false), false),
+            FontStyle::for_span(&span(true, false, true), false),
+            FontStyle::Bold
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, true, true), false),
+            FontStyle::Mono
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, true, false), false),
             FontStyle::Italic
         );
         assert_eq!(
-            span_style(&span(false, false, false), true),
+            FontStyle::for_span(&span(false, false, false), true),
             FontStyle::Tick
         );
         assert_eq!(
-            span_style(&span(false, false, false), false),
+            FontStyle::for_span(&span(false, false, false), false),
             FontStyle::Regular
         );
     }

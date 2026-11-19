@@ -32,6 +32,23 @@ pub(crate) fn start_tick_font_family(scene: &mut Scene, family: Option<&str>) {
     }
 }
 
+/// The tick family a group opened by [`start_tick_font_family`] sets on its text
+/// (its `font-family` attribute, unescaped), for backends that draw or embed
+/// fonts themselves.
+#[cfg_attr(not(any(feature = "png", feature = "custom_fonts")), allow(dead_code))]
+pub(crate) fn tick_group_family(extra_attrs: Option<&str>) -> Option<String> {
+    let attrs = extra_attrs?;
+    let start = attrs.find("font-family=\"")? + "font-family=\"".len();
+    let len = attrs[start..].find('"')?;
+    let value = attrs[start..start + len]
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    Some(value)
+}
+
 /// Closes the group opened by [`start_tick_font_family`].
 pub(crate) fn end_tick_font_family(scene: &mut Scene, family: Option<&str>) {
     if family.is_some() {

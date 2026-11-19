@@ -1043,6 +1043,7 @@ mod tests {
             background_color: Some("white".into()),
             text_color: None,
             font_family: Some("DejaVu Sans, Arial".into()),
+            mono_font_family: None,
             elements: Vec::new(),
             defs: Vec::new(),
             has_tooltips: false,

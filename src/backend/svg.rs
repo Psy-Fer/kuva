@@ -138,6 +138,15 @@ impl SvgBackend {
 
         let estimated_capacity = 200 + scene.elements.len() * 80;
         let mut svg = String::with_capacity(estimated_capacity);
+        // The `font-family` attribute for code spans: the scene's mono family, with
+        // the bundled DejaVu Sans Mono and generic monospace as fallbacks.
+        let code_family = match &scene.mono_font_family {
+            Some(family) => format!(
+                r#" font-family="{},DejaVu Sans Mono,monospace""#,
+                crate::render::render_utils::escape_attr(family)
+            ),
+            None => r#" font-family="DejaVu Sans Mono,monospace""#.to_string(),
+        };
 
         svg.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" width=""#);
         write_float(&mut svg, scene.width);
@@ -153,6 +162,15 @@ impl SvgBackend {
             svg.push_str(r#" fill=""#);
             write_escaped(&mut svg, color);
             svg.push('"');
+        }
+        // A scene drawn in registered fonts asks viewers not to fake a missing bold
+        // or italic: kuva measured (and the PNG/PDF backends draw) the nearest real
+        // face, so a synthesised one would not match.
+        #[cfg(feature = "custom_fonts")]
+        let used_faces = registered_faces_used(scene);
+        #[cfg(feature = "custom_fonts")]
+        if !used_faces.is_empty() {
+            svg.push_str(r#" style="font-synthesis:none""#);
         }
         // Emit axis metadata as data-* attrs when interactive.
         if scene.interactive {
@@ -189,6 +207,21 @@ impl SvgBackend {
             write_indent(&mut svg, 1, p);
             svg.push_str(crate::fonts::dejavu_sans_style_block());
             write_newline(&mut svg, p);
+            // Registered fonts the scene draws, so it renders the same anywhere.
+            #[cfg(feature = "custom_fonts")]
+            {
+                let rules: String = used_faces
+                    .iter()
+                    .filter_map(|face| face.font_face_css())
+                    .collect();
+                if !rules.is_empty() {
+                    write_indent(&mut svg, 1, p);
+                    svg.push_str("<style>");
+                    svg.push_str(&rules);
+                    svg.push_str("</style>");
+                    write_newline(&mut svg, p);
+                }
+            }
         }
 
         if let Some(color) = &scene.background_color {
@@ -394,7 +427,9 @@ impl SvgBackend {
                             &crate::render::text_metrics::FontSet::resolve(
                                 scene.font_family.as_deref(),
                                 None,
-                            ),
+                            )
+                            .with_mono(scene.mono_font_family.as_deref()),
+                            &code_family,
                         );
                         continue;
                     }
@@ -425,7 +460,7 @@ impl SvgBackend {
                         if styled {
                             svg.push_str("<tspan");
                             if span.code {
-                                svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                                svg.push_str(&code_family);
                             }
                             if span.bold {
                                 svg.push_str(r#" font-weight="bold""#);
@@ -1126,6 +1161,62 @@ pub const SvgBackend: SvgBackend = SvgBackend::new();
 /// width (math), all sharing the baseline `y`. Anchoring shifts the whole
 /// line by its total width. A fragment that fails to compile degrades to its
 /// lookup-tier text in place.
+/// The registered faces a scene draws text in: for each piece of text, the face
+/// its style resolves to under the scene's fonts (the body family, a tick-label
+/// group's family, the mono family), deduplicated in first-use order.
+#[cfg(feature = "custom_fonts")]
+fn registered_faces_used(scene: &Scene) -> Vec<std::sync::Arc<crate::fonts::Face>> {
+    use crate::render::axis::tick_group_family;
+    use crate::render::text_metrics::{FaceSource, FontSet, FontStyle};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    let mut sets: HashMap<Option<String>, FontSet> = HashMap::new();
+    let mut groups: Vec<Option<String>> = Vec::new();
+    let mut tick: Option<String> = None;
+    let mut out: Vec<Arc<crate::fonts::Face>> = Vec::new();
+    let mut note = |tick: &Option<String>, style: FontStyle| {
+        let set = sets.entry(tick.clone()).or_insert_with(|| {
+            FontSet::resolve(scene.font_family.as_deref(), tick.as_deref())
+                .with_mono(scene.mono_font_family.as_deref())
+        });
+        if let FaceSource::Registered(face) = &set.resolved(style).source {
+            if !out.iter().any(|f| Arc::ptr_eq(f, face)) {
+                out.push(Arc::clone(face));
+            }
+        }
+    };
+    for element in &scene.elements {
+        match element {
+            Primitive::GroupStart { extra_attrs, .. } => {
+                groups.push(tick_group_family(extra_attrs.as_deref()));
+                tick = groups.iter().rev().find_map(Clone::clone);
+            }
+            Primitive::GroupEnd => {
+                groups.pop();
+                tick = groups.iter().rev().find_map(Clone::clone);
+            }
+            Primitive::Text { bold, .. } => {
+                let style = if *bold {
+                    FontStyle::Bold
+                } else if tick.is_some() {
+                    FontStyle::Tick
+                } else {
+                    FontStyle::Regular
+                };
+                note(&tick, style);
+            }
+            Primitive::RichText { spans, .. } => {
+                for span in spans {
+                    note(&tick, FontStyle::for_span(span, tick.is_some()));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 #[cfg(feature = "typst-math")]
 #[allow(clippy::too_many_arguments)]
 fn rich_text_with_math(
@@ -1140,6 +1231,7 @@ fn rich_text_with_math(
     pretty: bool,
     math_uid: &mut usize,
     fonts: &crate::render::text_metrics::FontSet,
+    code_family: &str,
 ) {
     use crate::render::math;
     use crate::render::text_metrics::FontStyle;
@@ -1199,7 +1291,7 @@ fn rich_text_with_math(
                 let _ = write!(svg, "{size}");
                 svg.push_str(r#"" text-anchor="start""#);
                 if sp.code {
-                    svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                    svg.push_str(code_family);
                 }
                 if sp.bold {
                     svg.push_str(r#" font-weight="bold""#);

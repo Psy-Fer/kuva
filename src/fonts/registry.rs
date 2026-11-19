@@ -50,6 +50,9 @@ pub(crate) struct Face {
     /// fontdue cannot read a face ttf-parser could (it then draws as DejaVu).
     #[cfg(feature = "png")]
     raster: OnceLock<Option<fontdue::Font>>,
+    /// The `@font-face` rule embedding this face in SVG output, built on first use.
+    #[cfg(feature = "embed_font")]
+    css: OnceLock<Option<String>>,
 }
 
 impl fmt::Debug for Face {
@@ -63,6 +66,45 @@ impl fmt::Debug for Face {
 }
 
 impl Face {
+    /// The `@font-face` rule that embeds this face in an SVG (base64 data URL),
+    /// built once. `None` for a face inside a collection (TTC/OTC): a web font
+    /// cannot pick one face out of a collection file.
+    #[cfg(feature = "embed_font")]
+    pub(crate) fn font_face_css(&self) -> Option<&str> {
+        self.css
+            .get_or_init(|| {
+                if ttf_parser::fonts_in_collection(&self.bytes).is_some() {
+                    return None;
+                }
+                let (mime, format) = if self.bytes.starts_with(b"OTTO") {
+                    ("font/otf", "opentype")
+                } else {
+                    ("font/ttf", "truetype")
+                };
+                let stretch = match self.info.stretch {
+                    1 => "50%",
+                    2 => "62.5%",
+                    3 => "75%",
+                    4 => "87.5%",
+                    6 => "112.5%",
+                    7 => "125%",
+                    8 => "150%",
+                    9 => "200%",
+                    _ => "100%",
+                };
+                Some(format!(
+                    "@font-face{{font-family:'{family}';src:url('data:{mime};base64,{data}') \
+                     format('{format}');font-weight:{weight};font-style:{style};\
+                     font-stretch:{stretch};}}",
+                    family = css_string(&self.info.family),
+                    data = crate::encoding::base64_encode(&self.bytes),
+                    weight = self.info.weight,
+                    style = if self.info.italic { "italic" } else { "normal" },
+                ))
+            })
+            .as_deref()
+    }
+
     /// The face as a fontdue font for the PNG backend, parsed once.
     #[cfg(feature = "png")]
     pub(crate) fn raster_font(&self) -> Option<&fontdue::Font> {
@@ -350,6 +392,23 @@ fn closest_stretch(widths: impl Iterator<Item = u16>) -> Option<u16> {
         .or_else(|| widths.iter().copied().filter(|&w| w > NORMAL).min())
 }
 
+/// A font family name made safe inside a single-quoted CSS string in an SVG
+/// `<style>` block. The name comes from the font file, so anything beyond
+/// letters, digits, space, `-`, `_` and `.` is written as a CSS hex escape: no
+/// quote, backslash, `<` or `&` reaches the output.
+#[cfg(feature = "embed_font")]
+fn css_string(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') {
+            out.push(c);
+        } else {
+            out.push_str(&format!("\\{:x} ", c as u32));
+        }
+    }
+    out
+}
+
 fn same_family(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
 }
@@ -410,6 +469,8 @@ fn parse_faces(data: &Arc<[u8]>, origin: &str) -> Result<Vec<Face>, FontError> {
             metrics: Arc::new(FontMetrics::from_face(&face)),
             #[cfg(feature = "png")]
             raster: OnceLock::new(),
+            #[cfg(feature = "embed_font")]
+            css: OnceLock::new(),
         });
     }
     Ok(faces)
@@ -534,6 +595,17 @@ mod tests {
         assert_eq!(closest_stretch([2, 3, 7].into_iter()), Some(3));
         assert_eq!(closest_stretch([6, 8].into_iter()), Some(6));
         assert_eq!(closest_stretch(std::iter::empty()), None);
+    }
+
+    #[cfg(feature = "embed_font")]
+    #[test]
+    fn css_string_escapes_everything_that_could_break_out() {
+        assert_eq!(css_string("DejaVu Serif"), "DejaVu Serif");
+        let nasty = css_string("x'</style><script>&\\");
+        for bad in ['\'', '<', '>', '&'] {
+            assert!(!nasty.contains(bad), "{nasty}");
+        }
+        assert!(nasty.starts_with("x\\27 "), "{nasty}");
     }
 
     #[test]

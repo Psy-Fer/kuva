@@ -758,6 +758,9 @@ impl Figure {
             .and_then(|l| l.font_family.clone())
             .or(figure_theme.font_family.clone())
             .or(Some(DEFAULT_FONT_FAMILY.to_string()));
+        master.mono_font_family = user_layouts
+            .first()
+            .and_then(|l| l.mono_font_family.clone());
         master.background_color = Some(figure_theme.background.clone());
         master.text_color = Some(figure_theme.text_color.clone());
 
@@ -999,6 +1002,7 @@ pub(crate) fn clone_layout(l: &Layout) -> Layout {
     new.suppress_y_ticks = l.suppress_y_ticks;
     new.font_family = l.font_family.clone();
     new.tick_font_family = l.tick_font_family.clone();
+    new.mono_font_family = l.mono_font_family.clone();
     new.title_size = l.title_size;
     new.subtitle_size = l.subtitle_size;
     new.label_size = l.label_size;

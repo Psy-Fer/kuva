@@ -556,6 +556,8 @@ pub struct Scene {
     pub background_color: Option<String>,
     pub text_color: Option<String>,
     pub font_family: Option<String>,
+    /// Font family for code spans (backtick text). `None` means DejaVu Sans Mono.
+    pub mono_font_family: Option<String>,
     pub elements: Vec<Primitive>,
     /// Raw SVG strings to emit inside a `<defs>` block (e.g. linearGradients).
     ///
@@ -592,6 +594,7 @@ impl Scene {
             background_color: Some("white".to_string()),
             text_color: None,
             font_family: None,
+            mono_font_family: None,
             elements: Vec::new(),
             defs: Vec::new(),
             has_tooltips: false,
@@ -610,6 +613,7 @@ impl Scene {
             background_color: Some("white".to_string()),
             text_color: None,
             font_family: None,
+            mono_font_family: None,
             elements: Vec::with_capacity(capacity),
             defs: Vec::new(),
             has_tooltips: false,
@@ -5308,6 +5312,7 @@ pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -5504,6 +5509,7 @@ pub fn render_lollipop(lp: &crate::plot::lollipop::LollipopPlot, layout: &Layout
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -5820,6 +5826,7 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -10825,6 +10832,7 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -10887,6 +10895,7 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -10907,6 +10916,7 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -10929,6 +10939,7 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -10951,6 +10962,7 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -10973,6 +10985,7 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -10995,6 +11008,7 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -11017,6 +11031,7 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -11039,6 +11054,7 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -11111,6 +11127,7 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -11133,6 +11150,7 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -11896,6 +11914,7 @@ pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -11914,6 +11933,7 @@ pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
@@ -15869,6 +15889,7 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -16243,6 +16264,7 @@ pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -17097,6 +17119,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         + 64;
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -17769,6 +17792,7 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
     let computed_y2 = computed.for_y2();
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, &layout);
 
@@ -18400,6 +18424,7 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -18618,6 +18643,7 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
 
@@ -19818,6 +19844,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     let scene_width = width + legend_extra_w;
 
     let mut scene = Scene::new(scene_width, height);
+    scene.mono_font_family = layout.mono_font_family.clone();
     if let Some(ref font) = layout.font_family {
         scene.font_family = Some(font.clone());
     }
@@ -19884,6 +19911,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     // renders (`scene.font_family` comes from `layout` above).
     stub_layout.font_family = layout.font_family.clone();
     stub_layout.tick_font_family = layout.tick_font_family.clone();
+    stub_layout.mono_font_family = layout.mono_font_family.clone();
     let computed = ComputedLayout::from_layout(&stub_layout);
 
     add_jointplot(
@@ -25716,6 +25744,7 @@ pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Sc
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
     apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);

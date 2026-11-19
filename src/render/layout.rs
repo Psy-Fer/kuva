@@ -404,6 +404,9 @@ pub struct Layout {
     pub font_family: Option<String>,
     /// Font family for axis tick labels. `None` uses `font_family`.
     pub tick_font_family: Option<String>,
+    /// Font family for code spans (backtick text in rich labels). `None` uses
+    /// DejaVu Sans Mono.
+    pub mono_font_family: Option<String>,
     pub title_size: u32,
     pub label_size: u32,
     pub tick_size: u32,
@@ -649,6 +652,7 @@ impl Layout {
             suppress_y_ticks: false,
             font_family: None,
             tick_font_family: None,
+            mono_font_family: None,
             title_size: 18,
             label_size: 14,
             tick_size: 12,
@@ -2258,6 +2262,7 @@ impl Layout {
                 .or(self.theme.font_family.as_deref()),
             self.tick_font_family.as_deref(),
         )
+        .with_mono(self.mono_font_family.as_deref())
     }
 
     /// Records the needs for a set of entry labels: swatch + gap + text, with no
@@ -2670,6 +2675,15 @@ impl Layout {
     /// Sans.
     pub fn with_tick_font_family<S: Into<String>>(mut self, family: S) -> Self {
         self.tick_font_family = Some(family.into());
+        self
+    }
+
+    /// Set the font family for code spans (backtick text in rich-text labels),
+    /// which otherwise use DejaVu Sans Mono. A font registered with
+    /// `kuva::fonts::register_font_file` (feature `custom_fonts`) is measured
+    /// with its own metrics; any other family is measured as DejaVu Sans Mono.
+    pub fn with_mono_font_family<S: Into<String>>(mut self, family: S) -> Self {
+        self.mono_font_family = Some(family.into());
         self
     }
 
@@ -3145,6 +3159,8 @@ pub struct ComputedLayout {
     pub font_family: Option<String>,
     /// Font family for axis tick labels. `None` inherits `font_family`.
     pub tick_font_family: Option<String>,
+    /// Font family for code spans. `None` means DejaVu Sans Mono.
+    pub mono_font_family: Option<String>,
     /// The faces all text is measured with, resolved once from the font families.
     pub(crate) fonts: FontSet,
     pub title_size: u32,
@@ -4555,6 +4571,7 @@ impl ComputedLayout {
                 .or(layout.theme.font_family.clone())
                 .or(Some(DEFAULT_FONT_FAMILY.to_string())),
             tick_font_family: layout.tick_font_family.clone(),
+            mono_font_family: layout.mono_font_family.clone(),
             fonts: fonts.clone(),
             title_size: (layout.title_size as f64 * s).round().max(1.0) as u32,
             subtitle_size: subtitle_size as u32,

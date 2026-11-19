@@ -59,13 +59,33 @@ pub(crate) enum FontStyle {
 
 impl FontStyle {
     /// Builds a style from independent bold/italic flags (the common call-site shape).
-    #[cfg_attr(not(any(feature = "png", feature = "typst-math")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(feature = "png", feature = "typst-math", feature = "custom_fonts")),
+        allow(dead_code)
+    )]
     pub(crate) fn from_flags(bold: bool, italic: bool) -> Self {
         match (bold, italic) {
             (false, false) => FontStyle::Regular,
             (false, true) => FontStyle::Italic,
             (true, false) => FontStyle::Bold,
             (true, true) => FontStyle::BoldItalic,
+        }
+    }
+
+    /// The style a rich-text span is drawn in: bold first, then code, then
+    /// italic, then plain text (the tick face inside a tick-label group).
+    #[cfg_attr(not(any(feature = "png", feature = "custom_fonts")), allow(dead_code))]
+    pub(crate) fn for_span(span: &crate::render::render::TextSpan, in_tick_group: bool) -> Self {
+        if span.bold {
+            FontStyle::from_flags(true, span.italic)
+        } else if span.code {
+            FontStyle::Mono
+        } else if span.italic {
+            FontStyle::Italic
+        } else if in_tick_group {
+            FontStyle::Tick
+        } else {
+            FontStyle::Regular
         }
     }
 
@@ -428,7 +448,8 @@ impl FontSet {
     /// - Otherwise the bundled DejaVu faces are used, with tick labels measured
     ///   as DejaVu Sans Mono when their family is monospace.
     ///
-    /// Code spans always use DejaVu Sans Mono for now.
+    /// Code spans use DejaVu Sans Mono unless [`FontSet::with_mono`] names a
+    /// registered family.
     pub(crate) fn resolve(body: Option<&str>, tick: Option<&str>) -> FontSet {
         let body_face = |weight: u16, italic: bool, fallback: FontStyle| {
             registered_face(body, weight, italic).unwrap_or_else(|| ResolvedFace::builtin(fallback))
@@ -444,6 +465,16 @@ impl FontSet {
             mono: ResolvedFace::builtin(FontStyle::Mono),
             tick: tick_face,
         }
+    }
+
+    /// Set the face code spans (`FontStyle::Mono`) use: the regular face of a
+    /// registered `family`, else the bundled DejaVu Sans Mono (an unregistered
+    /// family is measured as that, as before).
+    pub(crate) fn with_mono(mut self, family: Option<&str>) -> Self {
+        if let Some(face) = registered_face(family, 400, false) {
+            self.mono = face;
+        }
+        self
     }
 
     /// The resolved face for a `style`: its metrics and where it comes from.
