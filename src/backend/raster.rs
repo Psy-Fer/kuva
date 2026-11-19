@@ -20,7 +20,8 @@ use std::sync::OnceLock;
 
 use crate::plot::FillPattern;
 use crate::render::color::Color as KColor;
-use crate::render::render::{Primitive, Scene, TextAnchor};
+use crate::render::render::{Primitive, Scene, TextAnchor, TextSpan};
+use crate::render::text_metrics::{FaceSource, FontSet, FontStyle, ResolvedFace};
 
 // ── RGBA ──────────────────────────────────────────────────────────────────────
 
@@ -1284,6 +1285,82 @@ fn shared_font_mono() -> &'static Font {
     })
 }
 
+/// The bundled DejaVu font a built-in face's metrics were taken from. There is no
+/// bold-oblique file, so bold italic draws (and is measured) as bold.
+fn builtin_raster_font(style: FontStyle) -> &'static Font {
+    match style {
+        FontStyle::Regular | FontStyle::Tick => shared_font(),
+        FontStyle::Bold | FontStyle::BoldItalic => shared_font_bold(),
+        FontStyle::Italic => shared_font_oblique(),
+        FontStyle::Mono => shared_font_mono(),
+    }
+}
+
+/// The font to draw a resolved face with: exactly the face layout measured. A
+/// registered face fontdue cannot parse falls back to the DejaVu face for `style`.
+#[cfg_attr(not(feature = "custom_fonts"), allow(unused_variables))]
+fn raster_font(face: &ResolvedFace, style: FontStyle) -> &Font {
+    match &face.source {
+        FaceSource::Builtin(builtin) => builtin_raster_font(*builtin),
+        #[cfg(feature = "custom_fonts")]
+        FaceSource::Registered(registered) => registered
+            .raster_font()
+            .unwrap_or_else(|| builtin_raster_font(style)),
+    }
+}
+
+/// The fonts for text under the current tick-label family (`None` outside a
+/// tick-label group), resolved once per family per scene.
+fn font_set<'a>(
+    sets: &'a mut HashMap<Option<String>, FontSet>,
+    body: Option<&str>,
+    tick: &Option<String>,
+) -> &'a FontSet {
+    sets.entry(tick.clone())
+        .or_insert_with(|| FontSet::resolve(body, tick.as_deref()))
+}
+
+/// The glyph cache for one font. Fonts are keyed by address: every font drawn in
+/// a scene lives for the whole render (statics, or faces held by `font_set`).
+fn glyph_cache_for<'a>(
+    caches: &'a mut HashMap<usize, GlyphCache>,
+    font: &Font,
+) -> &'a mut GlyphCache {
+    caches
+        .entry(font as *const Font as usize)
+        .or_insert_with(GlyphCache::new)
+}
+
+/// The `font-family` a group sets on its text (the tick-label groups), unescaped.
+fn group_font_family(extra_attrs: Option<&str>) -> Option<String> {
+    let attrs = extra_attrs?;
+    let start = attrs.find("font-family=\"")? + "font-family=\"".len();
+    let len = attrs[start..].find('"')?;
+    let value = attrs[start..start + len]
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    Some(value)
+}
+
+/// The style a rich-text span is drawn in: bold first, then code, then italic,
+/// then plain text (the tick face inside a tick-label group).
+fn span_style(sp: &TextSpan, in_tick_group: bool) -> FontStyle {
+    if sp.bold {
+        FontStyle::from_flags(true, sp.italic)
+    } else if sp.code {
+        FontStyle::Mono
+    } else if sp.italic {
+        FontStyle::Italic
+    } else if in_tick_group {
+        FontStyle::Tick
+    } else {
+        FontStyle::Regular
+    }
+}
+
 // ── SVG path parsing ──────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
@@ -1881,11 +1958,14 @@ impl RasterBackend {
             .unwrap_or(Rgba::opaque(255, 255, 255));
         canvas.fill_background(bg);
 
-        let font = shared_font();
-        let mut glyph_cache = GlyphCache::new();
-        let mut glyph_cache_bold = GlyphCache::new();
-        let mut glyph_cache_oblique = GlyphCache::new();
-        let mut glyph_cache_mono = GlyphCache::new();
+        // Text is drawn in the faces layout measured: the scene's family, and
+        // inside a tick-label group (a `font-family` attribute) that group's family
+        // as the tick font.
+        let body_family = scene.font_family.as_deref();
+        let mut font_sets: HashMap<Option<String>, FontSet> = HashMap::new();
+        let mut font_groups: Vec<Option<String>> = Vec::new();
+        let mut tick_family: Option<String> = None;
+        let mut glyph_caches: HashMap<usize, GlyphCache> = HashMap::new();
         let s = self.scale;
 
         let default_text = scene
@@ -1917,13 +1997,19 @@ impl RasterBackend {
             }
 
             match elem {
-                Primitive::GroupStart { transform, .. } => {
+                Primitive::GroupStart {
+                    transform,
+                    extra_attrs,
+                    ..
+                } => {
                     let (dx, dy) = transform
                         .as_deref()
                         .map(parse_translate)
                         .unwrap_or((0.0, 0.0));
                     tx_stack.push((tx + dx, ty + dy));
                     clip_stack.push(clip);
+                    font_groups.push(group_font_family(extra_attrs.as_deref()));
+                    tick_family = font_groups.iter().rev().find_map(Clone::clone);
                 }
                 Primitive::GroupEnd => {
                     if tx_stack.len() > 1 {
@@ -1932,6 +2018,8 @@ impl RasterBackend {
                     if clip_stack.len() > 1 {
                         clip_stack.pop();
                     }
+                    font_groups.pop();
+                    tick_family = font_groups.iter().rev().find_map(Clone::clone);
                 }
                 Primitive::ClipStart {
                     x,
@@ -2232,7 +2320,7 @@ impl RasterBackend {
                     size,
                     anchor,
                     rotate,
-                    bold: _,
+                    bold,
                     color,
                 } => {
                     let rgba = color
@@ -2292,6 +2380,15 @@ impl RasterBackend {
                     } else {
                         content
                     };
+                    let style = if *bold {
+                        FontStyle::Bold
+                    } else if tick_family.is_some() {
+                        FontStyle::Tick
+                    } else {
+                        FontStyle::Regular
+                    };
+                    let fonts = font_set(&mut font_sets, body_family, &tick_family);
+                    let font = raster_font(fonts.resolved(style), style);
                     canvas.draw_text(
                         sx!(*x),
                         sy!(*y),
@@ -2301,7 +2398,7 @@ impl RasterBackend {
                         *anchor,
                         rotate.map(|r| r as f32),
                         font,
-                        &mut glyph_cache,
+                        glyph_cache_for(&mut glyph_caches, font),
                         clip,
                     );
                 }
@@ -2348,6 +2445,14 @@ impl RasterBackend {
                     let lowered_math = |sp: &crate::render::render::TextSpan| {
                         crate::render::math::to_unicode(&format!("${}$", sp.text))
                     };
+                    let fonts = font_set(&mut font_sets, body_family, &tick_family);
+                    let in_tick_group = tick_family.is_some();
+                    let span_font = |sp: &TextSpan| {
+                        let style = span_style(sp, in_tick_group);
+                        raster_font(fonts.resolved(style), style)
+                    };
+                    let math_font =
+                        raster_font(fonts.resolved(FontStyle::Regular), FontStyle::Regular);
 
                     // Compute total width for anchor alignment using metrics (no cache needed).
                     // (the index is only read when `typst-math` is compiled in)
@@ -2367,18 +2472,9 @@ impl RasterBackend {
                                         * s;
                                     return (pm.width_px as f32 - 2.0 * margin).max(1.0);
                                 }
-                                return measure_text_direct(&lowered_math(sp), sz, font);
+                                return measure_text_direct(&lowered_math(sp), sz, math_font);
                             }
-                            let f = if sp.bold {
-                                shared_font_bold()
-                            } else if sp.code {
-                                shared_font_mono()
-                            } else if sp.italic {
-                                shared_font_oblique()
-                            } else {
-                                font
-                            };
-                            measure_text_direct(&sp.text, sz, f)
+                            measure_text_direct(&sp.text, sz, span_font(sp))
                         })
                         .sum();
 
@@ -2410,7 +2506,7 @@ impl RasterBackend {
                             }
                             // Fallback: draw the lookup-tier form as text.
                             let lowered = lowered_math(sp);
-                            let w = measure_text_direct(&lowered, sz, font);
+                            let w = measure_text_direct(&lowered, sz, math_font);
                             canvas.draw_text(
                                 pen_x,
                                 sy!(*y),
@@ -2419,75 +2515,28 @@ impl RasterBackend {
                                 rgba,
                                 TextAnchor::Start,
                                 None,
-                                font,
-                                &mut glyph_cache,
+                                math_font,
+                                glyph_cache_for(&mut glyph_caches, math_font),
                                 clip,
                             );
                             pen_x += w;
                             continue;
                         }
-                        // Draw with the appropriate font/cache; advance pen by span width.
-                        let w = if sp.bold {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_bold());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_bold(),
-                                &mut glyph_cache_bold,
-                                clip,
-                            );
-                            w
-                        } else if sp.code {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_mono());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_mono(),
-                                &mut glyph_cache_mono,
-                                clip,
-                            );
-                            w
-                        } else if sp.italic {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_oblique());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_oblique(),
-                                &mut glyph_cache_oblique,
-                                clip,
-                            );
-                            w
-                        } else {
-                            let w = measure_text_direct(&sp.text, sz, font);
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                font,
-                                &mut glyph_cache,
-                                clip,
-                            );
-                            w
-                        };
+                        // Draw in the span's face; advance the pen by its width.
+                        let f = span_font(sp);
+                        let w = measure_text_direct(&sp.text, sz, f);
+                        canvas.draw_text(
+                            pen_x,
+                            sy!(*y),
+                            &sp.text,
+                            sz,
+                            rgba,
+                            TextAnchor::Start,
+                            None,
+                            f,
+                            glyph_cache_for(&mut glyph_caches, f),
+                            clip,
+                        );
                         pen_x += w;
                     }
                 }
@@ -2495,5 +2544,88 @@ impl RasterBackend {
         }
 
         canvas.encode_png()
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    fn span(bold: bool, italic: bool, code: bool) -> TextSpan {
+        TextSpan {
+            text: "x".into(),
+            bold,
+            italic,
+            code,
+            underline: false,
+            math: false,
+        }
+    }
+
+    #[test]
+    fn group_font_family_reads_the_escaped_attribute() {
+        assert_eq!(
+            group_font_family(Some(r#"font-family="DejaVu Sans Mono""#)).as_deref(),
+            Some("DejaVu Sans Mono")
+        );
+        assert_eq!(
+            group_font_family(Some(r#"font-family="&quot;Fira Code&quot;, monospace""#)).as_deref(),
+            Some("\"Fira Code\", monospace")
+        );
+        assert_eq!(group_font_family(Some(r#"class="x""#)), None);
+        assert_eq!(group_font_family(None), None);
+    }
+
+    #[test]
+    fn span_styles_follow_bold_then_code_then_italic() {
+        assert_eq!(
+            span_style(&span(true, true, false), false),
+            FontStyle::BoldItalic
+        );
+        assert_eq!(span_style(&span(true, false, true), false), FontStyle::Bold);
+        assert_eq!(span_style(&span(false, true, true), false), FontStyle::Mono);
+        assert_eq!(
+            span_style(&span(false, true, false), false),
+            FontStyle::Italic
+        );
+        assert_eq!(
+            span_style(&span(false, false, false), true),
+            FontStyle::Tick
+        );
+        assert_eq!(
+            span_style(&span(false, false, false), false),
+            FontStyle::Regular
+        );
+    }
+
+    #[test]
+    fn builtin_faces_draw_the_dejavu_file_their_metrics_came_from() {
+        let fonts = FontSet::default();
+        let same = |style| {
+            std::ptr::eq(
+                raster_font(fonts.resolved(style), style),
+                builtin_raster_font(style),
+            )
+        };
+        for style in [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+            FontStyle::Mono,
+            FontStyle::Tick,
+        ] {
+            assert!(same(style), "{style:?}");
+        }
+        assert!(std::ptr::eq(
+            builtin_raster_font(FontStyle::BoldItalic),
+            shared_font_bold()
+        ));
+        // A monospace tick family draws its labels in DejaVu Sans Mono.
+        let mono_ticks = FontSet::resolve(None, Some("monospace"));
+        assert!(std::ptr::eq(
+            raster_font(mono_ticks.resolved(FontStyle::Tick), FontStyle::Tick),
+            shared_font_mono()
+        ));
     }
 }

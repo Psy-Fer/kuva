@@ -59,7 +59,7 @@ pub(crate) enum FontStyle {
 
 impl FontStyle {
     /// Builds a style from independent bold/italic flags (the common call-site shape).
-    #[allow(dead_code)]
+    #[cfg_attr(not(any(feature = "png", feature = "typst-math")), allow(dead_code))]
     pub(crate) fn from_flags(bold: bool, italic: bool) -> Self {
         match (bold, italic) {
             (false, false) => FontStyle::Regular,
@@ -372,12 +372,41 @@ impl FontMetrics {
 /// metrics, and the bundled DejaVu faces are simply the default entries.
 #[derive(Clone, Debug)]
 pub(crate) struct FontSet {
-    regular: Arc<FontMetrics>,
-    bold: Arc<FontMetrics>,
-    italic: Arc<FontMetrics>,
-    bold_italic: Arc<FontMetrics>,
-    mono: Arc<FontMetrics>,
-    tick: Arc<FontMetrics>,
+    regular: ResolvedFace,
+    bold: ResolvedFace,
+    italic: ResolvedFace,
+    bold_italic: ResolvedFace,
+    mono: ResolvedFace,
+    tick: ResolvedFace,
+}
+
+/// Where a resolved face comes from, so a backend that draws glyphs itself (PNG)
+/// draws exactly the face layout measured.
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "png"), allow(dead_code))]
+pub(crate) enum FaceSource {
+    /// A bundled DejaVu face, by the style its built-in table was taken from.
+    Builtin(FontStyle),
+    /// A face registered at runtime.
+    #[cfg(feature = "custom_fonts")]
+    Registered(Arc<crate::fonts::Face>),
+}
+
+/// One slot of a [`FontSet`]: the metrics layout measures with and their source.
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedFace {
+    pub(crate) metrics: Arc<FontMetrics>,
+    #[cfg_attr(not(feature = "png"), allow(dead_code))]
+    pub(crate) source: FaceSource,
+}
+
+impl ResolvedFace {
+    fn builtin(style: FontStyle) -> Self {
+        ResolvedFace {
+            metrics: Arc::clone(FontMetrics::builtin(style)),
+            source: FaceSource::Builtin(style),
+        }
+    }
 }
 
 impl Default for FontSet {
@@ -401,25 +430,25 @@ impl FontSet {
     ///
     /// Code spans always use DejaVu Sans Mono for now.
     pub(crate) fn resolve(body: Option<&str>, tick: Option<&str>) -> FontSet {
-        let builtin = |style| Arc::clone(FontMetrics::builtin(style));
         let body_face = |weight: u16, italic: bool, fallback: FontStyle| {
-            registered_face(body, weight, italic).unwrap_or_else(|| builtin(fallback))
+            registered_face(body, weight, italic).unwrap_or_else(|| ResolvedFace::builtin(fallback))
         };
         let tick_family = tick.or(body);
         let tick_face = registered_face(tick_family, 400, false)
-            .unwrap_or_else(|| builtin(FontStyle::for_family(tick_family)));
+            .unwrap_or_else(|| ResolvedFace::builtin(FontStyle::for_family(tick_family)));
         FontSet {
             regular: body_face(400, false, FontStyle::Regular),
             bold: body_face(700, false, FontStyle::Bold),
             italic: body_face(400, true, FontStyle::Italic),
             bold_italic: body_face(700, true, FontStyle::BoldItalic),
-            mono: builtin(FontStyle::Mono),
+            mono: ResolvedFace::builtin(FontStyle::Mono),
             tick: tick_face,
         }
     }
 
-    /// The face a `style` is measured with.
-    pub(crate) fn face(&self, style: FontStyle) -> &FontMetrics {
+    /// The resolved face for a `style`: its metrics and where it comes from.
+    #[cfg_attr(not(feature = "png"), allow(dead_code))]
+    pub(crate) fn resolved(&self, style: FontStyle) -> &ResolvedFace {
         match style {
             FontStyle::Regular => &self.regular,
             FontStyle::Bold => &self.bold,
@@ -428,6 +457,11 @@ impl FontSet {
             FontStyle::Mono => &self.mono,
             FontStyle::Tick => &self.tick,
         }
+    }
+
+    /// The face a `style` is measured with.
+    pub(crate) fn face(&self, style: FontStyle) -> &FontMetrics {
+        &self.resolved(style).metrics
     }
 
     /// Rendered width of a single line of `text`; see [`FontMetrics::text_width`].
@@ -447,7 +481,7 @@ impl FontSet {
 
     /// Mean width of one character of body text, for inverse estimates.
     pub(crate) fn mean_char_width(&self, font_size: f64) -> f64 {
-        self.regular.mean_char_width(font_size)
+        self.regular.metrics.mean_char_width(font_size)
     }
 
     pub(crate) fn line_height(&self, font_size: f64, style: FontStyle) -> f64 {
@@ -484,17 +518,16 @@ impl FontSet {
 /// The registered face CSS matching picks in the first family of `family_list`,
 /// or `None` when that family is not registered (or `custom_fonts` is off).
 #[cfg(feature = "custom_fonts")]
-fn registered_face(
-    family_list: Option<&str>,
-    weight: u16,
-    italic: bool,
-) -> Option<Arc<FontMetrics>> {
+fn registered_face(family_list: Option<&str>, weight: u16, italic: bool) -> Option<ResolvedFace> {
     let first = first_family(family_list?)?;
-    crate::fonts::match_face(&first, weight, italic).map(|face| Arc::clone(&face.metrics))
+    crate::fonts::match_face(&first, weight, italic).map(|face| ResolvedFace {
+        metrics: Arc::clone(&face.metrics),
+        source: FaceSource::Registered(face),
+    })
 }
 
 #[cfg(not(feature = "custom_fonts"))]
-fn registered_face(_: Option<&str>, _: u16, _: bool) -> Option<Arc<FontMetrics>> {
+fn registered_face(_: Option<&str>, _: u16, _: bool) -> Option<ResolvedFace> {
     None
 }
 

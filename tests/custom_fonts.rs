@@ -271,3 +271,43 @@ fn write_serif_and_sans_layouts_for_inspection() {
     common::write_test_output("test_outputs/custom_font_sans.svg", sans).unwrap();
     common::write_test_output("test_outputs/custom_font_serif.svg", serif).unwrap();
 }
+
+// ── PNG draws registered fonts (#134 step 4) ─────────────────────────────────
+
+#[cfg(feature = "png")]
+fn genotype_png(family: Option<&str>) -> Vec<u8> {
+    let plots = || -> Vec<Plot> {
+        vec![BoxPlot::new()
+            .with_group("Wild type control", vec![1.0, 2.0, 3.0, 2.5])
+            .with_group("Knock-out, replicate 2", vec![2.0, 3.0, 4.0, 3.2])
+            .with_horizontal(true)
+            .into()]
+    };
+    let mut layout = Layout::auto_from_plots(&plots())
+        .with_title("Expression by genotype")
+        .with_legend_entries(legend_entries())
+        .with_legend_title("Genotype");
+    if let Some(family) = family {
+        layout = layout.with_font_family(family);
+    }
+    let scene = kuva::render::render::render_multiple(plots(), layout);
+    kuva::backend::png::PngBackend::new()
+        .render_scene(&scene)
+        .unwrap()
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_draws_a_registered_font() {
+    register_serif();
+    let sans = genotype_png(None);
+    let serif = genotype_png(Some("DejaVu Serif"));
+    assert_ne!(sans, serif, "the PNG should be drawn in DejaVu Serif");
+    // An unregistered family is drawn (and measured) as the bundled DejaVu Sans.
+    assert_eq!(
+        sans,
+        genotype_png(Some("Nobody Registered This, sans-serif"))
+    );
+    common::write_test_output("test_outputs/custom_font_serif.png", serif).unwrap();
+    common::write_test_output("test_outputs/custom_font_sans.png", sans).unwrap();
+}

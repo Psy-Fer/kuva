@@ -38,13 +38,45 @@ pub struct FontInfo {
 /// its measured metrics.
 pub(crate) struct Face {
     pub(crate) info: FontInfo,
-    // Read by the PNG/PDF backends and SVG embedding (#134 steps 4-6).
+    // Read by the PDF backend and SVG embedding (#134 steps 5-6).
     #[allow(dead_code)]
     pub(crate) bytes: Arc<[u8]>,
     #[allow(dead_code)]
     pub(crate) index: u32,
-    #[allow(dead_code)]
     pub(crate) metrics: Arc<FontMetrics>,
+    /// The face parsed for the PNG rasteriser, built on first use. `None` when
+    /// fontdue cannot read a face ttf-parser could (it then draws as DejaVu).
+    #[cfg(feature = "png")]
+    raster: OnceLock<Option<fontdue::Font>>,
+}
+
+impl fmt::Debug for Face {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Face")
+            .field("info", &self.info)
+            .field("index", &self.index)
+            .field("bytes", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Face {
+    /// The face as a fontdue font for the PNG backend, parsed once.
+    #[cfg(feature = "png")]
+    pub(crate) fn raster_font(&self) -> Option<&fontdue::Font> {
+        self.raster
+            .get_or_init(|| {
+                fontdue::Font::from_bytes(
+                    &self.bytes[..],
+                    fontdue::FontSettings {
+                        collection_index: self.index,
+                        ..fontdue::FontSettings::default()
+                    },
+                )
+                .ok()
+            })
+            .as_ref()
+    }
 }
 
 /// Why a font could not be registered.
@@ -331,6 +363,8 @@ fn parse_faces(data: &Arc<[u8]>, origin: &str) -> Result<Vec<Face>, FontError> {
             bytes: Arc::clone(data),
             index,
             metrics: Arc::new(FontMetrics::from_face(&face)),
+            #[cfg(feature = "png")]
+            raster: OnceLock::new(),
         });
     }
     Ok(faces)
