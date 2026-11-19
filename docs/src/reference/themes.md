@@ -92,7 +92,7 @@ Warm cream background based on Ethan Schoonover's Solarized palette.
 
 ## Fonts and portability
 
-The default font stack — `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif` — is resolved by the viewer or renderer at display time. This works on any desktop system but can fail in minimal environments (containers, CI pipelines, bioconda recipes) where no system fonts are installed.
+The default font stack, `DejaVu Sans, Verdana, Liberation Sans, Arial, sans-serif`, is resolved by the viewer or renderer at display time. This works on any desktop system but can fail in minimal environments (containers, CI pipelines, bioconda recipes) where no system fonts are installed.
 
 kuva handles this in two ways depending on output format:
 
@@ -111,6 +111,8 @@ let svg = SvgBackend::new()
 ```
 
 This injects a base64 `@font-face` block into the SVG, making it self-contained at the cost of roughly 1 MB of added file size. Leave it off (the default) for normal SVG output where smaller files are preferable.
+
+To use your own font files, see [Fonts](./fonts.md).
 
 ---
 

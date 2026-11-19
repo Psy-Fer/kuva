@@ -540,7 +540,9 @@ let layout = Layout::auto_from_plots(&plots)
     .with_body_size(12);                    // default: 12  (legend, annotations)
 ```
 
-These can also be set via a `Theme` — see the [Themes](./themes.md) reference.
+These can also be set via a `Theme` (see the [Themes](./themes.md) reference). To load and use your own font files, see [Fonts](./fonts.md).
+
+`with_mono_font_family` sets the font for `code` spans (backtick text in rich-text labels), which otherwise use DejaVu Sans Mono.
 
 For greyscale/print-safe or color-vision-deficient-accessible rendering, see [Black & White / Accessibility Mode](./bw_mode.md) — `Layout::with_bw_mode()` replaces palette colors with grey shades, hatch patterns, dash styles, and marker shapes.
 

@@ -114,6 +114,7 @@
 - [Axis Breaks](./reference/axis_break.md)
 - [Legends](./reference/legends.md)
 - [Themes](./reference/themes.md)
+- [Fonts](./reference/fonts.md)
 - [Color Palettes](./reference/palettes.md)
 - [Colormaps](./reference/colormap.md)
 - [Black & White / Accessibility Mode](./reference/bw_mode.md)

@@ -234,11 +234,24 @@ These flags are available on every subcommand.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--embed-font` | off | Embed DejaVu Sans directly in SVG output (mutually exclusive with `--terminal`) |
+| `--font <FAMILY>` | DejaVu Sans | Font family for all text, as a CSS font-family list |
+| `--tick-font <FAMILY>` | `--font` | Font family for axis tick labels only |
+| `--mono-font <FAMILY>` | DejaVu Sans Mono | Font family for `code` spans in text |
+| `--font-file <PATH>` | | Load a font file (TTF, OTF, TTC) to use by family name. Repeatable. Without `--font`, the first file's family is used for all text |
+| `--font-dir <DIR>` | | Load every font file in a directory and its subdirectories. Repeatable |
+| `--embed-font` | off | Embed the fonts in SVG output: DejaVu Sans, plus any loaded font the plot uses (mutually exclusive with `--terminal`) |
 
-By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Verdana, Liberation Sans, or Arial is installed. In environments with no system fonts — headless servers, containers, CI pipelines — text may be missing or fall back to an unexpected face.
+A font loaded with `--font-file` or `--font-dir` is measured, drawn and embedded exactly in SVG, PNG and PDF output. A `--font` family that isn't loaded is named in the SVG but spaced as DejaVu Sans, and the CLI warns about it. The CLI also warns when a loaded family has no bold or italic face (kuva never fakes them), when a font is variable (only its default style is used), and when a font whose licence forbids embedding is about to be embedded. `--font-file` and `--font-dir` need the `custom_fonts` feature, which `full` includes. See [Fonts](../reference/fonts.md).
 
-`--embed-font` bakes DejaVu Sans as a base64 `@font-face` block into the SVG `<style>` element, making the file fully self-contained at the cost of roughly 1 MB of extra size. PNG and PDF output is unaffected: those backends always have the font available regardless of this flag.
+```bash
+# Inter for all text, from its regular and bold files
+kuva bar data.tsv --label-col gene --value-col count \
+    --font-file fonts/Inter-Regular.ttf --font-file fonts/Inter-Bold.ttf
+```
+
+By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Verdana, Liberation Sans, or Arial is installed. In environments with no system fonts (headless servers, containers, CI pipelines), text may be missing or fall back to an unexpected face.
+
+`--embed-font` bakes DejaVu Sans, and any loaded font the plot uses, into the SVG as base64 `@font-face` rules, making the file fully self-contained at the cost of roughly 1 MB of extra size plus the loaded fonts. PNG and PDF output is unaffected: those backends always have the fonts available regardless of this flag.
 
 ```bash
 # Self-contained SVG for use with rsvg-convert or similar tools in containers

@@ -55,7 +55,8 @@ kuva = "0.6"
 # Optional backends
 kuva = { version = "0.6", features = ["png"] }   # PNG output
 kuva = { version = "0.6", features = ["pdf"] }   # PDF output — requires Rust >= 1.92 (higher than kuva's own MSRV; see below)
-kuva = { version = "0.6", features = ["full"] }  # PNG + PDF
+kuva = { version = "0.6", features = ["custom_fonts"] }  # load your own font files (TTF/OTF/TTC)
+kuva = { version = "0.6", features = ["full"] }  # PNG + PDF + custom fonts + .svgz/HTML output
 
 # Opt-in extras (deliberately not in `full`)
 kuva = { version = "0.6", features = ["typst-math"] }  # typeset $...$ math via the Typst compiler — requires Rust >= 1.89
