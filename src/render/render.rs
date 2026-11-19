@@ -3311,6 +3311,110 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
 /// Distinct per operation so the bar stays readable without colour; the
 /// indices are separate from the motif bricks' own pattern assignment, which
 /// is keyed on the motif letter.
+/// Draw a CIGAR bar's deletion lengths (`65D`) above their carets.
+///
+/// `x_shift` maps a span's read position to data x (`bar_x0 - eff_offset`),
+/// `apex_y` is the carets' tip (the top of the bar's allocation) and `band_px`
+/// the height of the label band above it. Labels are sized so their digits fit
+/// the band, spread apart when they would overlap (each moves at most about its
+/// own width), and when that is not enough, the smallest deletions lose their
+/// labels first. Rows too short for a legible (5 px) label get none.
+#[allow(clippy::too_many_arguments)]
+fn add_deletion_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    brickplot: &crate::plot::brick::BrickPlot,
+    spans: &[crate::plot::brick::CigarSpan],
+    x_shift: f64,
+    apex_y: f64,
+    band_px: f64,
+) {
+    const GAP_PX: f64 = 2.0;
+    const MIN_SIZE: f64 = 5.0;
+    let fonts = &computed.fonts;
+    // Digits and `D` are capitals: fit the cap height (plus a pixel of air) in
+    // the band. Capped below the tick size so labels stay small.
+    let cap_per_px = fonts.cap_height(1.0, FontStyle::Regular);
+    let max_size = (computed.tick_size as f64 - 2.0).max(MIN_SIZE);
+    let size = ((band_px - 1.5) / cap_per_px).min(max_size).floor();
+    // Rows too short for a legible label get none, rather than labels that
+    // reach into the row above.
+    if size < MIN_SIZE {
+        return;
+    }
+    let baseline = apex_y - 1.0;
+    let colour = Color::from(brickplot.cigar_color(CigarOp::Deletion));
+
+    struct Label {
+        text: String,
+        x: f64,
+        width: f64,
+        len: f64,
+    }
+    let mut labels: Vec<Label> = spans
+        .iter()
+        .filter(|sp| sp.op == CigarOp::Deletion && sp.ref_len > 0.0)
+        .map(|sp| {
+            let len = if sp.ref_len.fract() == 0.0 {
+                format!("{:.0}", sp.ref_len)
+            } else {
+                sp.ref_len.to_string()
+            };
+            let text = format!("{len}D");
+            let width = fonts.measure_text_width(&text, size, FontStyle::Regular);
+            Label {
+                x: computed.map_x(sp.start + x_shift),
+                text,
+                width,
+                len: sp.ref_len,
+            }
+        })
+        .collect();
+
+    let lo = computed.margin_left;
+    let hi = computed.width - computed.margin_right;
+    loop {
+        let items: Vec<(f64, f64)> = labels.iter().map(|l| (l.x, l.width)).collect();
+        let (centres, group_of) = render_utils::spread_labels(&items, GAP_PX, lo, hi);
+        // The label pushed furthest from its caret, if any went too far.
+        let worst = (0..labels.len())
+            .filter(|&k| (centres[k] - labels[k].x).abs() > labels[k].width.max(8.0))
+            .max_by(|&a, &b| {
+                (centres[a] - labels[a].x)
+                    .abs()
+                    .total_cmp(&(centres[b] - labels[b].x).abs())
+            });
+        let Some(worst) = worst else {
+            for (label, centre) in labels.iter().zip(centres) {
+                scene.add(Primitive::Text {
+                    x: centre,
+                    y: baseline,
+                    content: label.text.clone(),
+                    size: size as u32,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: Some(colour.clone()),
+                });
+            }
+            return;
+        };
+        // Drop the smallest deletion in that crowded group (the leftmost on a
+        // tie) and lay the rest out again.
+        let group = group_of[worst];
+        let drop = (0..labels.len())
+            .filter(|&k| group_of[k] == group)
+            .min_by(|&a, &b| {
+                labels[a]
+                    .len
+                    .total_cmp(&labels[b].len)
+                    .then(labels[a].x.total_cmp(&labels[b].x))
+            })
+            .expect("the worst label is in its own group");
+        labels.remove(drop);
+    }
+}
+
 fn cigar_bw_idx(op: CigarOp) -> usize {
     match op {
         CigarOp::Match => 0,
@@ -3640,6 +3744,21 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 })));
             }
 
+            // Deletion lengths (`65D`) in the band `cigar_layout` reserved above
+            // the bar, so they never reach the row above.
+            if cl.label_units[pos] > 0.0 {
+                add_deletion_labels(
+                    scene,
+                    computed,
+                    brickplot,
+                    spans,
+                    bar_x0 - eff_offset,
+                    alloc_top,
+                    (computed.map_y(y_row_top + BAR_ROW_UNITS + cl.label_units[pos]) - alloc_top)
+                        .abs(),
+                );
+            }
+
             // Run bracket: shows that this one bar speaks for every row in the
             // run beneath it, so a row with no bar reads as "same as above"
             // rather than "no CIGAR for this read".
@@ -3859,11 +3978,7 @@ fn brickplot_notation_rows(
         // in the allowance above the bricks. Every other row stacks downward
         // from its own top edge instead, so its labels stay on its own band.
         let upward = pos == 0;
-        let bar_allowance = if cl.draws_bar[pos] {
-            crate::plot::brick::BAR_ROW_UNITS
-        } else {
-            0.0
-        };
+        let bar_allowance = cl.bar_allowance(pos);
         let band_top_px = computed.map_y(row_top);
         let band_h = (computed.map_y(row_top - 1.0) - band_top_px).abs();
         let anchor_y = if upward {

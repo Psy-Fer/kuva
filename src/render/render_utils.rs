@@ -1749,8 +1749,123 @@ pub fn probit(p: f64) -> f64 {
     }
 }
 
+/// Spread labels along one line so none overlap, moving each as little as possible.
+///
+/// `items` are `(ideal_centre, width)` pairs. Labels keep their left-to-right
+/// order and end at least `gap` apart, inside `[lo, hi]`. Labels that would
+/// overlap form a group, centred on the mean of its members' ideal positions
+/// (the least-squares placement), so close neighbours push apart symmetrically.
+/// Returns each label's centre and the index of the group it ended up in.
+pub(crate) fn spread_labels(
+    items: &[(f64, f64)],
+    gap: f64,
+    lo: f64,
+    hi: f64,
+) -> (Vec<f64>, Vec<usize>) {
+    struct Group {
+        members: Vec<usize>,
+        /// Each member's centre, relative to the group's left edge.
+        offsets: Vec<f64>,
+        start: f64,
+        width: f64,
+    }
+    let place = |g: &mut Group| {
+        let n = g.members.len() as f64;
+        let ideal: f64 = g
+            .members
+            .iter()
+            .zip(&g.offsets)
+            .map(|(&m, off)| items[m].0 - off)
+            .sum::<f64>()
+            / n;
+        g.start = if g.width >= hi - lo {
+            lo + (hi - lo - g.width) / 2.0
+        } else {
+            ideal.clamp(lo, hi - g.width)
+        };
+    };
+
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|&a, &b| items[a].0.total_cmp(&items[b].0));
+    let mut groups: Vec<Group> = Vec::new();
+    for idx in order {
+        let w = items[idx].1;
+        let mut g = Group {
+            members: vec![idx],
+            offsets: vec![w / 2.0],
+            start: 0.0,
+            width: w,
+        };
+        place(&mut g);
+        groups.push(g);
+        while groups.len() >= 2 {
+            let last = groups.len() - 1;
+            let (prev, cur) = (&groups[last - 1], &groups[last]);
+            if prev.start + prev.width + gap <= cur.start {
+                break;
+            }
+            let cur = groups.pop().expect("two groups");
+            let prev = groups.last_mut().expect("two groups");
+            let shift = prev.width + gap;
+            prev.offsets
+                .extend(cur.offsets.iter().map(|off| off + shift));
+            prev.members.extend(cur.members);
+            prev.width += gap + cur.width;
+            place(prev);
+        }
+    }
+
+    let mut centres = vec![0.0; items.len()];
+    let mut group_of = vec![0; items.len()];
+    for (gi, g) in groups.iter().enumerate() {
+        for (&m, off) in g.members.iter().zip(&g.offsets) {
+            centres[m] = g.start + off;
+            group_of[m] = gi;
+        }
+    }
+    (centres, group_of)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::spread_labels;
+
+    #[test]
+    fn spread_labels_leaves_separate_labels_alone() {
+        let (c, g) = spread_labels(&[(10.0, 6.0), (50.0, 6.0)], 2.0, 0.0, 100.0);
+        assert_eq!(c, vec![10.0, 50.0]);
+        assert_ne!(g[0], g[1]);
+    }
+
+    #[test]
+    fn spread_labels_pushes_close_labels_apart_symmetrically() {
+        // Ideal centres 2 apart, each 10 wide with a 2 px gap: they end 12 apart,
+        // centred on their mean.
+        let (c, g) = spread_labels(&[(52.0, 10.0), (50.0, 10.0)], 2.0, 0.0, 100.0);
+        assert!(
+            (c[1] - 45.0).abs() < 1e-9 && (c[0] - 57.0).abs() < 1e-9,
+            "{c:?}"
+        );
+        assert_eq!(g[0], g[1]);
+    }
+
+    #[test]
+    fn spread_labels_keeps_order_and_chains_groups() {
+        let (c, _) = spread_labels(&[(10.0, 8.0), (12.0, 8.0), (14.0, 8.0)], 1.0, -100.0, 100.0);
+        assert!(c[0] < c[1] && c[1] < c[2]);
+        assert!(c[1] - c[0] >= 9.0 - 1e-9 && c[2] - c[1] >= 9.0 - 1e-9);
+        assert!((c[1] - 12.0).abs() < 1e-9, "middle stays put: {c:?}");
+    }
+
+    #[test]
+    fn spread_labels_stays_inside_the_bounds() {
+        let (c, _) = spread_labels(&[(1.0, 10.0), (99.0, 10.0)], 2.0, 0.0, 100.0);
+        assert!(
+            (c[0] - 5.0).abs() < 1e-9 && (c[1] - 95.0).abs() < 1e-9,
+            "{c:?}"
+        );
+    }
+
     use super::*;
 
     #[test]
