@@ -41,6 +41,8 @@ pub(crate) use bundled::*;
 
 #[cfg(feature = "custom_fonts")]
 mod registry;
+#[cfg(all(feature = "custom_fonts", feature = "pdf"))]
+pub(crate) use registry::registered_sources;
 #[cfg(feature = "custom_fonts")]
 pub use registry::{
     family_styles, register_font_bytes, register_font_file, register_fonts_dir, registered_fonts,

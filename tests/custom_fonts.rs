@@ -311,3 +311,26 @@ fn png_draws_a_registered_font() {
     common::write_test_output("test_outputs/custom_font_serif.png", serif).unwrap();
     common::write_test_output("test_outputs/custom_font_sans.png", sans).unwrap();
 }
+
+// ── PDF embeds registered fonts (#134 step 5) ────────────────────────────────
+
+#[cfg(feature = "pdf")]
+#[test]
+fn pdf_embeds_a_registered_font() {
+    register_serif();
+    let plots = || -> Vec<Plot> { scatter_with_legend() };
+    let layout = Layout::auto_from_plots(&plots())
+        .with_title("Expression by genotype")
+        .with_font_family("DejaVu Serif");
+    let scene = kuva::render::render::render_multiple(plots(), layout);
+    let pdf = kuva::backend::pdf::PdfBackend::new()
+        .render_scene(&scene)
+        .unwrap();
+    // krilla subsets the font and names it in the font dictionary.
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(
+        text.contains("DejaVuSerif"),
+        "PDF should embed DejaVu Serif"
+    );
+    common::write_test_output("test_outputs/custom_font_serif.pdf", pdf).unwrap();
+}

@@ -24,6 +24,8 @@ pub struct FontInfo {
     pub weight: u16,
     /// Italic or oblique.
     pub italic: bool,
+    /// Width class, 1 (ultra-condensed) to 9 (ultra-expanded). Normal is 5.
+    pub stretch: u16,
     /// Every glyph has the same advance.
     pub monospace: bool,
     /// A variable font. Only its default instance is used: other weights in the
@@ -239,6 +241,24 @@ pub fn registered_fonts() -> Vec<FontInfo> {
     read_registry().iter().map(|f| f.info.clone()).collect()
 }
 
+/// Every registered font's data, once per file, with the face indices still
+/// registered from it (a face replaced by a later registration is left out).
+/// For backends that load fonts into their own database (PDF).
+#[cfg_attr(not(feature = "pdf"), allow(dead_code))]
+pub(crate) fn registered_sources() -> Vec<(Arc<[u8]>, Vec<u32>)> {
+    let mut out: Vec<(Arc<[u8]>, Vec<u32>)> = Vec::new();
+    for face in read_registry().iter() {
+        match out
+            .iter_mut()
+            .find(|(bytes, _)| Arc::ptr_eq(bytes, &face.bytes))
+        {
+            Some((_, indices)) => indices.push(face.index),
+            None => out.push((Arc::clone(&face.bytes), vec![face.index])),
+        }
+    }
+    out
+}
+
 /// The face each of kuva's four text styles resolves to in a registered family
 /// (matched case-insensitively), or `None` when no face of that family is
 /// registered. Use [`FamilyStyles::missing`] to warn about styles the family lacks.
@@ -255,13 +275,20 @@ pub fn family_styles(family: &str) -> Option<FamilyStyles> {
 /// The registered face of `family` that CSS font matching picks for `weight` and
 /// `italic`, or `None` when the family is not registered.
 ///
-/// Style first: faces with the requested italic flag, or the others when there are
-/// none (italic and oblique count as one). Then weight, by CSS's nearest-weight rule.
+/// The CSS order, the same one fontdb (the PDF backend) applies: width first (kuva
+/// always asks for normal width), then style (faces with the requested italic
+/// flag, or the others when there are none; italic and oblique count as one), then
+/// weight by CSS's nearest-weight rule.
 pub(crate) fn match_face(family: &str, weight: u16, italic: bool) -> Option<Arc<Face>> {
     let reg = read_registry();
     let in_family: Vec<&Arc<Face>> = reg
         .iter()
         .filter(|f| same_family(&f.info.family, family))
+        .collect();
+    let width = closest_stretch(in_family.iter().map(|f| f.info.stretch))?;
+    let in_family: Vec<&Arc<Face>> = in_family
+        .into_iter()
+        .filter(|f| f.info.stretch == width)
         .collect();
     let styled: Vec<&Arc<Face>> = in_family
         .iter()
@@ -307,6 +334,22 @@ fn closest_weight(weights: impl Iterator<Item = u16>, desired: u16) -> Option<us
         .map(|(i, _)| i)
 }
 
+/// The width CSS font matching picks for a normal-width request: normal (5) when
+/// present, else the nearest narrower, else the nearest wider.
+fn closest_stretch(widths: impl Iterator<Item = u16>) -> Option<u16> {
+    const NORMAL: u16 = 5;
+    let widths: Vec<u16> = widths.collect();
+    if widths.contains(&NORMAL) {
+        return Some(NORMAL);
+    }
+    widths
+        .iter()
+        .copied()
+        .filter(|&w| w < NORMAL)
+        .max()
+        .or_else(|| widths.iter().copied().filter(|&w| w > NORMAL).min())
+}
+
 fn same_family(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
 }
@@ -325,7 +368,8 @@ fn register(data: Arc<[u8]>, origin: &str) -> Result<Vec<FontInfo>, FontError> {
         reg.retain(|old| {
             !(same_family(&old.info.family, &face.info.family)
                 && old.info.weight == face.info.weight
-                && old.info.italic == face.info.italic)
+                && old.info.italic == face.info.italic
+                && old.info.stretch == face.info.stretch)
         });
         reg.push(Arc::new(face));
     }
@@ -351,6 +395,7 @@ fn parse_faces(data: &Arc<[u8]>, origin: &str) -> Result<Vec<Face>, FontError> {
             family,
             weight: face.weight().to_number(),
             italic: face.is_italic() || face.is_oblique() || face.italic_angle() != 0.0,
+            stretch: face.width().to_number(),
             monospace: face.is_monospaced(),
             variable: face.is_variable(),
             restricted_embedding: matches!(
@@ -484,6 +529,14 @@ mod tests {
     }
 
     #[test]
+    fn normal_width_wins_then_narrower_then_wider() {
+        assert_eq!(closest_stretch([3, 5, 7].into_iter()), Some(5));
+        assert_eq!(closest_stretch([2, 3, 7].into_iter()), Some(3));
+        assert_eq!(closest_stretch([6, 8].into_iter()), Some(6));
+        assert_eq!(closest_stretch(std::iter::empty()), None);
+    }
+
+    #[test]
     fn family_names_compare_case_insensitively() {
         assert!(same_family("DejaVu Serif", " dejavu serif "));
         assert!(!same_family("DejaVu Serif", "DejaVu Sans"));
@@ -503,6 +556,7 @@ mod tests {
             family: "X".into(),
             weight,
             italic,
+            stretch: 5,
             monospace: false,
             variable: false,
             restricted_embedding: false,
