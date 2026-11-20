@@ -279,3 +279,21 @@ fn clip_region_becomes_clipped_box() {
     assert_eq!(typst_src.matches("#cetz.canvas(").count(), 3);
     assert!(typst_src.contains("after clip"));
 }
+
+/// Security regression: the .typ document is compiled by whoever opens it, so
+/// label math that could run Typst code is lowered to escaped plain text.
+#[test]
+fn typst_backend_does_not_emit_code_from_label_math() {
+    let plot = ScatterPlot::new().with_data(vec![(1.0_f64, 1.0)]);
+    let layout = Layout::new((0.0, 2.0), (0.0, 5.0))
+        .with_x_label("A $#read(\"/etc/passwd\")$ B")
+        .with_y_label("$std.eval(\"1\")$");
+    let scene = render_scatter(&plot, layout);
+    let typst_src = TypstBackend::default().render_scene(&scene);
+    assert!(!typst_src.contains("$#read"), "got: {typst_src}");
+    assert!(
+        typst_src.contains("\\#read"),
+        "`#` should be escaped: {typst_src}"
+    );
+    assert!(!typst_src.contains("$std"), "got: {typst_src}");
+}

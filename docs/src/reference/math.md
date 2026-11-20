@@ -147,6 +147,15 @@ $E = m c^2$      ✓
 $E = mc^2$       ✗  (lookup tier + a one-time warning)
 ```
 
+**Labels can't run Typst code.** Labels often come from data files, so the
+`$...$` body is limited to math. A label is shown through the lookup tier
+instead of being typeset (with a one-time warning) when its math contains
+Typst code (`#`), the `std` module, a named argument (any `:` after a `(`,
+such as `mat(gap: 2em, ...)`) or a comment, or when the whole label is longer
+than 1024 bytes. Strings such as `x_"max"` are fine. The same rule applies to
+the `.typ` documents `TypstBackend` writes (below), since whoever compiles one
+would run that code.
+
 ### Math in TextPlot bodies
 
 `$...$` inside a markdown `TextPlot` body is spliced into the wrapped

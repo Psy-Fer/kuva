@@ -261,3 +261,33 @@ fn tall_math_x_label_stays_inside_the_canvas() {
         );
     }
 }
+
+/// Security regression: label math must not run Typst code or reach size knobs.
+/// Such labels fall back to the lookup tier instead of being compiled.
+#[test]
+fn label_math_cannot_run_typst_code() {
+    for label in [
+        "$#range(100000000).map(x => x).len()$",
+        "$#while true {}$",
+        "$std.image(\"x.png\")$",
+        "$mat(gap: #10000em, 1, 2)$",
+        "$f([ ) size: 1000em)$",
+    ] {
+        let start = std::time::Instant::now();
+        assert!(
+            render_label_svg(label, 14.0, None).is_none(),
+            "compiled {label:?}"
+        );
+        assert!(start.elapsed().as_secs() < 2, "{label:?} took too long");
+    }
+    // Ordinary math still typesets.
+    assert!(render_label_svg("$\\frac{a}{b} + x_\"max\"$", 14.0, None).is_some());
+
+    // And the whole plot renders, with the label lowered to plain text.
+    let plot = ScatterPlot::new().with_data(vec![(1.0_f64, 1.0), (2.0, 4.0)]);
+    let layout = Layout::new((0.0, 3.0), (0.0, 10.0))
+        .with_x_label("$#rect(width: 100000pt)$")
+        .with_y_label("Y");
+    let svg = SvgBackend::default().render_scene(&render_scatter(&plot, layout));
+    assert!(!svg.contains("typst-text"), "refused label was typeset");
+}

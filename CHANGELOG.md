@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release workflow hardened.** The workflow that builds the downloadable CLI binaries ran a third-party action by a movable tag (`@v1`) while holding a token that could rewrite any release asset, so whoever controlled that tag could swap the binaries and their checksums. Every action is now pinned to a full commit SHA, and the musl and aarch64 Linux builds pin `cross` to an exact release and its Docker images by digest. The build jobs run read-only, with no stored credentials, and build with `--locked`. A separate job holding only the write permissions it needs uploads the archives. Each archive also gets a signed build-provenance attestation made outside the build step (`gh attestation verify <archive> --repo Psy-Fer/kuva`).
 
+- **Label math can't run Typst code (`typst-math`, `typst`).** A `$...$` region was handed to Typst unchanged, so a label from a data file could use `#` to run Typst code (an endless loop, a huge allocation, a page-sized shape in the figure) or reach size knobs through named arguments. Math regions containing `#`, `std`, a named argument, a comment, or more than 64 bracket groups, and labels over 1024 bytes, are now shown through the Unicode lookup tier instead, with a one-time warning. Typeset fragments larger than 400 by 40 em are refused too. `TypstBackend` applies the same rule to the `.typ` documents it writes.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

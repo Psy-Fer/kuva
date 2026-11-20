@@ -510,9 +510,15 @@ fn emit_text(
     // (Typst's own typesetter handles the rendering, with real math fonts).
     // Plain text between math regions is escaped so Typst markup specials
     // don't trigger.
-    use crate::render::math::{contains_math, split_segments, to_typst_math, Segment};
+    use crate::render::math::{
+        contains_math, split_segments, to_typst_math, to_unicode, typst_math_allowed, Segment,
+    };
     let mut markup = String::with_capacity(content.len() + 8);
-    if contains_math(content) {
+    // Math that could run Typst code (or is too large) is not emitted as math:
+    // the document is compiled by whoever opens it. It is lowered to plain
+    // Unicode text instead, as the SVG and PNG backends do.
+    let math = contains_math(content);
+    if math && typst_math_allowed(content) {
         for seg in split_segments(content) {
             match seg {
                 Segment::Text(s) => write_typst_escaped(&mut markup, s),
@@ -525,6 +531,11 @@ fn emit_text(
         }
         emit_typst_content(
             out, x, y, &markup, size, anchor, rotate, bold, italic, color, scene_h, true,
+        );
+    } else if math {
+        write_typst_escaped(&mut markup, &to_unicode(content));
+        emit_typst_content(
+            out, x, y, &markup, size, anchor, rotate, bold, italic, color, scene_h, false,
         );
     } else {
         write_typst_escaped(&mut markup, content);
