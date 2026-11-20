@@ -3306,11 +3306,6 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     }
 }
 
-/// Pattern index for a CIGAR operation in black-and-white mode.
-///
-/// Distinct per operation so the bar stays readable without colour; the
-/// indices are separate from the motif bricks' own pattern assignment, which
-/// is keyed on the motif letter.
 /// Draw a CIGAR bar's deletion lengths (`65D`) above their carets.
 ///
 /// `x_shift` maps a span's read position to data x (`bar_x0 - eff_offset`),
@@ -3331,6 +3326,9 @@ fn add_deletion_labels(
 ) {
     const GAP_PX: f64 = 2.0;
     const MIN_SIZE: f64 = 5.0;
+    // Upper bound on labels laid out per bar, whatever the canvas width: the
+    // drop loop below reruns the layout once per dropped label.
+    const MAX_LABELS: usize = 2000;
     let fonts = &computed.fonts;
     // Digits and `D` are capitals: fit the cap height (plus a pixel of air) in
     // the band. Capped below the tick size so labels stay small.
@@ -3373,6 +3371,24 @@ fn add_deletion_labels(
 
     let lo = computed.margin_left;
     let hi = computed.width - computed.margin_right;
+    // Bound the loop's work by the plot's width instead of by how many `D`s the
+    // CIGAR holds. A label survives only within `tol` of its caret, and carets
+    // lie inside the plot, so survivors fit side by side in the plot widened by
+    // `tol` on each side: k labels need (k - 1) pitches between the first and
+    // last centre. While there are more labels than that, they all form
+    // one crowded group and the loop drops the smallest (the leftmost on a tie)
+    // each pass, so cutting straight to that many, largest kept, gives the same
+    // labels without the passes.
+    let narrowest = labels.iter().map(|l| l.width).fold(f64::INFINITY, f64::min);
+    let tol = labels.iter().map(|l| l.width.max(8.0)).fold(0.0, f64::max);
+    let room = (hi - lo).max(0.0) + 2.0 * tol;
+    let fit = ((room / (narrowest + GAP_PX)).floor() as usize)
+        .saturating_add(1)
+        .min(MAX_LABELS);
+    if labels.len() > fit {
+        labels.sort_by(|a, b| b.len.total_cmp(&a.len).then(b.x.total_cmp(&a.x)));
+        labels.truncate(fit);
+    }
     loop {
         let items: Vec<(f64, f64)> = labels.iter().map(|l| (l.x, l.width)).collect();
         let (centres, group_of) = render_utils::spread_labels(&items, GAP_PX, lo, hi);
@@ -3415,6 +3431,11 @@ fn add_deletion_labels(
     }
 }
 
+/// Pattern index for a CIGAR operation in black-and-white mode.
+///
+/// Distinct per operation so the bar stays readable without colour; the
+/// indices are separate from the motif bricks' own pattern assignment, which
+/// is keyed on the motif letter.
 fn cigar_bw_idx(op: CigarOp) -> usize {
     match op {
         CigarOp::Match => 0,

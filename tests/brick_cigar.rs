@@ -885,6 +885,39 @@ fn crowded_deletions_drop_the_smallest_labels() {
     common::write_test_output("test_outputs/brick_cigar_deletion_labels_crowded.svg", svg).unwrap();
 }
 
+/// Security regression: label layout used to take cubic time in the number of
+/// deletions, so one CIGAR with tens of thousands of `D`s pinned a core for
+/// hours. All at one read position is the worst case: every label collides.
+#[test]
+fn many_deletions_at_one_position_render_quickly() {
+    let mut cigar = String::from("40M");
+    cigar.push_str(&"1D".repeat(20_000));
+    cigar.push_str("99D68M");
+    let start = std::time::Instant::now();
+    let svg = render_rows(deletion_plot(&[cigar.as_str()]));
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_secs() < 20, "took {elapsed:?}");
+    let mut labels = deletion_labels(&svg);
+    assert!(
+        !labels.is_empty() && labels.len() < 100,
+        "{} labels",
+        labels.len()
+    );
+    assert!(
+        labels.iter().any(|l| l.text == "99D"),
+        "the largest keeps its label"
+    );
+    labels.sort_by(|a, b| a.x.total_cmp(&b.x));
+    for pair in labels.windows(2) {
+        assert!(
+            !overlaps(pair[0].bbox(), pair[1].bbox()),
+            "{:?} / {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
 #[test]
 fn deletion_labels_can_be_turned_off() {
     let plot = build(BrickSort::Cigar).with_cigar_deletion_labels(false);

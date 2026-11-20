@@ -1756,6 +1756,9 @@ pub fn probit(p: f64) -> f64 {
 /// overlap form a group, centred on the mean of its members' ideal positions
 /// (the least-squares placement), so close neighbours push apart symmetrically.
 /// Returns each label's centre and the index of the group it ended up in.
+///
+/// Runs in O(n log n): a group is a contiguous run of the x-sorted labels, so it
+/// only needs its range, total width and a running sum, and each merge is O(1).
 pub(crate) fn spread_labels(
     items: &[(f64, f64)],
     gap: f64,
@@ -1763,21 +1766,17 @@ pub(crate) fn spread_labels(
     hi: f64,
 ) -> (Vec<f64>, Vec<usize>) {
     struct Group {
-        members: Vec<usize>,
-        /// Each member's centre, relative to the group's left edge.
-        offsets: Vec<f64>,
+        /// Index into `order` of the group's first label.
+        first: usize,
+        len: usize,
+        /// Sum over members of (ideal centre - centre relative to the group's
+        /// left edge): `sum / len` is the least-squares left edge.
+        sum: f64,
         start: f64,
         width: f64,
     }
     let place = |g: &mut Group| {
-        let n = g.members.len() as f64;
-        let ideal: f64 = g
-            .members
-            .iter()
-            .zip(&g.offsets)
-            .map(|(&m, off)| items[m].0 - off)
-            .sum::<f64>()
-            / n;
+        let ideal = g.sum / g.len as f64;
         g.start = if g.width >= hi - lo {
             lo + (hi - lo - g.width) / 2.0
         } else {
@@ -1788,11 +1787,12 @@ pub(crate) fn spread_labels(
     let mut order: Vec<usize> = (0..items.len()).collect();
     order.sort_by(|&a, &b| items[a].0.total_cmp(&items[b].0));
     let mut groups: Vec<Group> = Vec::new();
-    for idx in order {
-        let w = items[idx].1;
+    for (pos, &idx) in order.iter().enumerate() {
+        let (x, w) = items[idx];
         let mut g = Group {
-            members: vec![idx],
-            offsets: vec![w / 2.0],
+            first: pos,
+            len: 1,
+            sum: x - w / 2.0,
             start: 0.0,
             width: w,
         };
@@ -1806,10 +1806,10 @@ pub(crate) fn spread_labels(
             }
             let cur = groups.pop().expect("two groups");
             let prev = groups.last_mut().expect("two groups");
+            // Every member of `cur` now sits `shift` further from the left edge.
             let shift = prev.width + gap;
-            prev.offsets
-                .extend(cur.offsets.iter().map(|off| off + shift));
-            prev.members.extend(cur.members);
+            prev.sum += cur.sum - cur.len as f64 * shift;
+            prev.len += cur.len;
             prev.width += gap + cur.width;
             place(prev);
         }
@@ -1818,9 +1818,12 @@ pub(crate) fn spread_labels(
     let mut centres = vec![0.0; items.len()];
     let mut group_of = vec![0; items.len()];
     for (gi, g) in groups.iter().enumerate() {
-        for (&m, off) in g.members.iter().zip(&g.offsets) {
-            centres[m] = g.start + off;
+        let mut left = g.start;
+        for &m in &order[g.first..g.first + g.len] {
+            let w = items[m].1;
+            centres[m] = left + w / 2.0;
             group_of[m] = gi;
+            left += w + gap;
         }
     }
     (centres, group_of)
@@ -1855,6 +1858,21 @@ mod tests {
         assert!(c[0] < c[1] && c[1] < c[2]);
         assert!(c[1] - c[0] >= 9.0 - 1e-9 && c[2] - c[1] >= 9.0 - 1e-9);
         assert!((c[1] - 12.0).abs() < 1e-9, "middle stays put: {c:?}");
+    }
+
+    #[test]
+    fn spread_labels_is_fast_and_centred_when_all_labels_collide() {
+        // Used to re-sum every member on each merge (quadratic). 200,000 labels
+        // at one point form one group centred on that point.
+        let n = 200_000;
+        let items = vec![(0.0, 1.0); n];
+        let start = std::time::Instant::now();
+        let (c, g) = spread_labels(&items, 1.0, -1e9, 1e9);
+        assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+        assert!(g.iter().all(|&gi| gi == 0));
+        let mean = c.iter().sum::<f64>() / n as f64;
+        assert!(mean.abs() < 1e-3, "centred: {mean}");
+        assert!(c.windows(2).all(|w| (w[1] - w[0] - 2.0).abs() < 1e-6));
     }
 
     #[test]
