@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Raster backend: multi-contour paths could not render holes.** Filled paths were rasterised one sub-path at a time, so an inner contour was painted as another solid polygon in the same color rather than cancelling the outer contour's winding — glyph counters (the bowl of a `D`, the hole in an `A`) filled shut. All contours of a path now go through a single nonzero-winding pass via `fill_contours`; single-contour callers are unaffected.
 - **Terminal backend: sequence-logo letters can keep their colour.** Terminal text always uses the theme text colour, because many plots draw fixed-colour labels (black values inside cells) that would vanish on a dark terminal. Text inside a group marked with the internal `TERM_TEXT_COLOR_ATTR` now keeps its own `color`; only logo letters use it, so every other plot's terminal output is unchanged.
 
+### Security
+
+- **Sankey `neighbornet` ordering no longer runs Python.** `SankeyNodeOrder::Neighbornet` (`with_neighbornet()`, `--node-order neighbornet`) started `python3` while rendering, and Python searched the working directory first for the modules it imported. A module planted in that directory (for example in a downloaded dataset) ran with the user's privileges. The Python backend is removed. `Neighbornet` is now an alias for `CrossingReduction`, which is what it already fell back to whenever Python, numpy or splitspy was missing. Rendering never starts another program.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

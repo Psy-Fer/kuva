@@ -16113,7 +16113,6 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             &sankey.links,
             sankey.node_order_seed,
             Some(&node_sort_keys),
-            sankey.node_order == SankeyNodeOrder::Neighbornet,
         );
         col = ordered.col;
         nodes_in_col = ordered.nodes_in_col;

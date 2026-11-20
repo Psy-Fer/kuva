@@ -202,10 +202,10 @@ Internally, the algorithm:
 |---|---|
 | `.with_node_order(SankeyNodeOrder::Input)` | Preserve insertion order within each column (default) |
 | `.with_crossing_reduction()` | TSP-based weighted crossing reduction |
-| `.with_neighbornet()` | Use the neighbornet cycle backend instead of the TSP heuristic |
+| `.with_neighbornet()` | Alias for `.with_crossing_reduction()`, kept for compatibility |
 | `.with_node_order_seed(seed)` | Fix the RNG seed for reproducible results (default `42`) |
 
-`CrossingReduction` is a good general-purpose choice. `Neighbornet` can produce different orderings on data with tree-like co-occurrence structure; try both when the default layout is cluttered.
+`CrossingReduction` is a good general-purpose choice. `Neighbornet` is now the same as `CrossingReduction`: it used to try an external Python program, and that was removed because running a program while rendering a plot was unsafe.
 
 ### Coloring modes
 
@@ -281,7 +281,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 | `.with_per_link_colors()` | Use per-link color set by `.with_link_colored()` |
 | `.with_node_order(order)` | Choose `Input`, `CrossingReduction`, or `Neighbornet` node ordering |
 | `.with_crossing_reduction()` | Use the default weighted crossing-reduction ordering |
-| `.with_neighbornet()` | Use neighbornet ordering |
+| `.with_neighbornet()` | Alias for `.with_crossing_reduction()` |
 | `.with_node_order_seed(seed)` | Set the ordering RNG seed |
 | `.with_node_coloring(mode)` | Choose `Label` or `Left` coloring |
 | `.with_left_coloring()` | Propagate colors left-to-right from dominant parents |
@@ -304,7 +304,7 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 |---------|----------|
 | `Input` | Preserve insertion order within each column **(default)** |
 | `CrossingReduction` | Reduce weighted crossings using the default alluvial ordering backend |
-| `Neighbornet` | Use the neighbornet backend for cycle generation |
+| `Neighbornet` | Same as `CrossingReduction` (kept for compatibility) |
 
 ### `SankeyNodeColoring` variants
 
@@ -335,7 +335,7 @@ Sankey / alluvial flow diagram.
 | `--link-gradient` | off | Fill each link with a gradient from source node colour to target node colour |
 | `--opacity <F>` | `0.5` | Link opacity |
 | `--legend <LABEL>` | — | Show legend |
-| `--node-order <MODE>` | `input` | Node ordering within columns: `input`, `crossings`, or `neighbornet` |
+| `--node-order <MODE>` | `input` | Node ordering within columns: `input` or `crossings` (`neighbornet` is accepted as an alias for `crossings`) |
 | `--node-order-seed <N>` | `42` | RNG seed for crossing-reduction ordering |
 | `--coloring <MODE>` | `label` | Node coloring mode: `label` or `left` |
 | `--flow-labels` | off | Show absolute flow values on ribbons |
@@ -373,14 +373,14 @@ kuva sankey alluvium.tsv \
 kuva sankey alluvium.tsv \
     --axis-col tissue --axis-col cluster --axis-col sex \
     --value-col count \
-    --node-order neighbornet \
+    --node-order crossings \
     --coloring label \
-    --title "NeighborNet Alluvium"
+    --title "Label Colouring"
 ```
 
 `--node-order crossings` uses a TSP-based weighted crossing-reduction algorithm: it builds a co-occurrence distance matrix, finds a node cycle via nearest-neighbour + 2-opt, then tries every rotation to minimise the weighted ribbon-crossing count. The axis column order you specify with `--axis-col` is always preserved exactly — only the vertical stacking of nodes within each column is changed.
 
-`--node-order neighbornet` switches to the neighbornet backend for cycle generation; try it when the default layout is still cluttered, especially on data with tree-like co-occurrence structure.
+`--node-order neighbornet` is accepted as an alias for `crossings`.
 
 `--coloring left` propagates colors from dominant parents left-to-right; `--coloring label` assigns one palette color per visible label.
 
