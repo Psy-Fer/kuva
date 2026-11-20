@@ -63,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sankey `neighbornet` ordering no longer runs Python.** `SankeyNodeOrder::Neighbornet` (`with_neighbornet()`, `--node-order neighbornet`) started `python3` while rendering, and Python searched the working directory first for the modules it imported. A module planted in that directory (for example in a downloaded dataset) ran with the user's privileges. The Python backend is removed. `Neighbornet` is now an alias for `CrossingReduction`, which is what it already fell back to whenever Python, numpy or splitspy was missing. Rendering never starts another program.
 
+- **Release workflow hardened.** The workflow that builds the downloadable CLI binaries ran a third-party action by a movable tag (`@v1`) while holding a token that could rewrite any release asset, so whoever controlled that tag could swap the binaries and their checksums. Every action is now pinned to a full commit SHA. The build jobs run read-only, with no stored credentials, and build with `--locked`. A separate job holding only the write permissions it needs uploads the archives. Each archive also gets a signed build-provenance attestation made outside the build step (`gh attestation verify <archive> --repo Psy-Fer/kuva`).
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

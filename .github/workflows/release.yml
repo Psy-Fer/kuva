@@ -16,16 +16,26 @@ on:
         description: "Existing tag to build and release (e.g. v0.2.0)"
         required: true
 
-# Needed to create the Release and upload assets.
+# Read-only by default. Only `create-release` and `publish` get write access, and
+# neither runs build code or third-party actions other than GitHub's own, so nothing
+# that runs during compilation (actions, toolchain setup, dependency build scripts)
+# holds a token that can change releases or the repository.
+#
+# Every action is pinned to a full commit SHA (version in the trailing comment), so
+# moving an upstream tag cannot change what a release run executes. To update one,
+# look up the new tag's commit (`git ls-remote --tags https://github.com/OWNER/REPO`)
+# and replace both the SHA and the comment.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # taiki-e/upload-rust-binary-action uploads to an *existing* Release; a tag
-  # push alone does not create one. Create it first (idempotently) so the
-  # matrix below has somewhere to attach the binaries.
+  # `gh release upload` in `publish` needs an *existing* Release; a tag push
+  # alone does not create one. Create it first (idempotently) so there is
+  # somewhere to attach the binaries.
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Create GitHub Release if it does not exist
         env:
@@ -36,7 +46,9 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "$TAG" --generate-notes
 
-  upload-assets:
+  # Builds and packs each binary with no write access. The archives go to the
+  # `publish` job as workflow artifacts.
+  build:
     needs: create-release
     name: ${{ matrix.target }}${{ matrix.variant.suffix }}
     runs-on: ${{ matrix.os }}
@@ -97,23 +109,28 @@ jobs:
             os: macos-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          # Don't leave the token in .git/config for the rest of the job.
+          persist-credentials: false
 
       # Cross-compiles where needed (musl tooling, `cross` for aarch64-linux),
-      # builds a release binary, packs it into an archive named below, writes a
-      # SHA-256 checksum, and uploads everything to the Release for this tag
-      # (creating the Release if it does not exist yet). Uploads use
-      # `gh release upload --clobber`, so re-running over an existing tag
-      # replaces same-named assets in place.
-      - name: Build and upload kuva binary
-        uses: taiki-e/upload-rust-binary-action@v1
+      # builds a release binary, packs it into an archive named below and writes
+      # a SHA-256 checksum next to it in the workspace. `dry-run` means the action
+      # gets no token and uploads nothing; `publish` does the upload.
+      - name: Build kuva binary
+        id: build
+        uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
         with:
           bin: kuva
           features: ${{ matrix.variant.features }}
           target: ${{ matrix.target }}
+          # Fail instead of re-resolving dependencies when Cargo.lock is stale.
+          locked: true
           # Asset name, e.g. kuva-v0.2.0-x86_64-unknown-linux-gnu.tar.gz for
           # the lean build and kuva-v0.2.0-x86_64-unknown-linux-gnu-typst.tar.gz
           # for the math one (.zip on Windows).
@@ -122,4 +139,51 @@ jobs:
           # On manual runs there is no tag ref; tell the action which tag to use.
           # On tag pushes this is empty and the action falls back to github.ref.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || '' }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: true
+          dry-run-intended: true
+
+      # The archive (.tar.gz or .zip) and its .sha256 file.
+      - name: Keep the archive for publishing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kuva-${{ matrix.target }}${{ matrix.variant.suffix }}
+          path: ${{ steps.build.outputs.archive }}.*
+          if-no-files-found: error
+          # Long enough to re-run a failed `publish` without rebuilding.
+          retention-days: 7
+
+  # Attaches the built archives to the Release, with a signed build-provenance
+  # attestation for each one. The attestation is made here, not by the build step,
+  # and ties each file to this workflow and commit; check a download with
+  # `gh attestation verify <file> --repo Psy-Fer/kuva`.
+  publish:
+    needs: [create-release, build]
+    # Like `fail-fast: false` above: publish whichever targets built, so a single
+    # broken target doesn't hold back the rest.
+    if: ${{ !cancelled() && needs.create-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: kuva-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      # `--clobber` replaces same-named assets, so re-running over an existing tag
+      # updates them in place.
+      - name: Upload to the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" dist/* --clobber
