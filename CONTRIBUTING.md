@@ -135,7 +135,7 @@ Nothing below is checked by CI — each step is easy to miss because the crate s
 - [ ] **`src/lib.rs`** — the `VERSION` doc comment carries an `e.g. "X.Y.Z"` example that goes stale silently; bump it too.
 - [ ] **`rust-toolchain.toml`** — confirm its pinned `channel` is still >= `[package.metadata.msrv] pdf_feature` in `Cargo.toml`. The release workflow's pre-built binaries (`features: cli,full,typst-math`) build with whatever toolchain this file resolves to — if it ever drops below the `pdf` feature's real MSRV (e.g. a future krilla bump), the release binaries silently stop including working PDF support even though this file isn't checked by CI.
 - [ ] Run `cargo ci-fmt && cargo ci-clippy && cargo test --features cli,full` — confirm clean before tagging.
-- [ ] Merge `dev` → `main`, then tag `vX.Y.Z` on `main` and push the tag — this triggers `.github/workflows/release.yml`, which builds and attaches cross-platform CLI binaries to the GitHub Release.
+- [ ] Merge `dev` → `main`, then tag `vX.Y.Z` on `main` and push the tag — this triggers `.github/workflows/release.yml`, which builds and attaches cross-platform CLI binaries to the GitHub Release. Each archive gets a signed build-provenance attestation; spot-check one with `gh attestation verify <archive> --repo Psy-Fer/kuva`. The build fails if `Cargo.lock` is out of date.
 - [ ] `cargo publish` once the tag is pushed.
 
 ---
