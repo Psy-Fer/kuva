@@ -1023,8 +1023,11 @@ pub fn to_typst_math(body: &str) -> String {
             i += 1;
             continue;
         }
-        out.push(c);
-        i += 1;
+        // Copy the whole character: `c` is only its first byte, and `i` is
+        // always on a character boundary here.
+        let ch = body[i..].chars().next().unwrap_or(c);
+        out.push(ch);
+        i += ch.len_utf8();
     }
     out
 }
@@ -1034,9 +1037,11 @@ pub fn to_typst_math(body: &str) -> String {
 #[cfg(any(feature = "typst-math", feature = "typst"))]
 pub(crate) const MAX_TYPST_LABEL_BYTES: usize = 1024;
 
-/// Most opening brackets one `$...$` region may contain once translated. Bounds
-/// nesting (the Typst parser recurses per level) without needing to know how
-/// Typst pairs mismatched delimiters such as `[0, 1)`.
+/// Most nesting structures one `$...$` region may contain once translated:
+/// opening brackets, `/`, `^`, `_` and the root signs `√∛∜`. Typst recurses
+/// once per level of each, and a chain of a few hundred (`x/x/x/...`) overflows
+/// a 2 MB thread stack. Counting them all, rather than tracking depth, needs no
+/// knowledge of how Typst pairs mismatched delimiters such as `[0, 1)`.
 #[cfg(any(feature = "typst-math", feature = "typst"))]
 const MAX_TYPST_MATH_GROUPS: usize = 64;
 
@@ -1054,7 +1059,7 @@ const MAX_TYPST_MATH_GROUPS: usize = 64;
 /// - the identifier `std`,
 /// - a `:` after any `(` (a named argument needs a call's parentheses; the
 ///   check doesn't try to pair brackets, so it can't be fooled by them),
-/// - more than [`MAX_TYPST_MATH_GROUPS`] opening brackets,
+/// - more than [`MAX_TYPST_MATH_GROUPS`] brackets, fractions, scripts and roots,
 ///
 /// or the label is longer than [`MAX_TYPST_LABEL_BYTES`]. Strings (`"..."`)
 /// are inert text in math and are skipped. A refused label is shown through
@@ -1090,8 +1095,15 @@ fn typst_math_body_allowed(src: &str) -> bool {
             },
             b'#' | b'$' | b'\\' => return false,
             b'/' if matches!(b.get(i + 1), Some(b'/' | b'*')) => return false,
-            b'(' | b'[' | b'{' => {
-                seen_paren |= b[i] == b'(';
+            // `√` `∛` `∜` are U+221A..U+221C: E2 88 9A..9C in UTF-8.
+            c @ (b'(' | b'[' | b'{' | b'/' | b'^' | b'_' | 0xE2) => {
+                if c == 0xE2
+                    && !(b.get(i + 1) == Some(&0x88) && matches!(b.get(i + 2), Some(0x9A..=0x9C)))
+                {
+                    i += 1;
+                    continue;
+                }
+                seen_paren |= c == b'(';
                 groups += 1;
                 if groups > MAX_TYPST_MATH_GROUPS {
                     return false;
@@ -1355,6 +1367,14 @@ mod tests {
         assert_eq!(to_typst_math("\\foo"), "foo"); // unknown: drop backslash
     }
 
+    #[test]
+    fn typst_translation_keeps_unicode() {
+        // Each byte used to be pushed as its own char, garbling non-ASCII.
+        assert_eq!(to_typst_math("α √x ≤ 2"), "α √x ≤ 2");
+        assert_eq!(to_typst_math("d = \"µm\""), "d = \"µm\"");
+        assert_eq!(to_typst_math("{β}^{γ}"), "(β)^(γ)");
+    }
+
     #[cfg(any(feature = "typst-math", feature = "typst"))]
     #[test]
     fn typst_math_allows_ordinary_labels() {
@@ -1373,11 +1393,49 @@ mod tests {
         }
     }
 
+    /// `typst_math_body_allowed` skips strings by finding the next `"`, which is
+    /// only right if the translation never emits `\` (a Typst escape).
+    #[test]
+    fn typst_translation_never_emits_backslash() {
+        for body in [
+            "\\",
+            "\\\\",
+            "\\\"",
+            "a\\\"b",
+            "\\#",
+            "\\$",
+            "\\{x\\}",
+            "\\frac{\\}{\\\\}",
+            "\\sqrt[\\]{\\",
+            "x^{\\}",
+            "\\, \\; \\! \\ ",
+            "\\unknown\\",
+            "\"\\\"\"",
+        ] {
+            assert!(
+                !to_typst_math(body).contains('\\'),
+                "{body:?} -> {:?}",
+                to_typst_math(body)
+            );
+        }
+    }
+
+    #[cfg(any(feature = "typst-math", feature = "typst"))]
+    #[test]
+    fn typst_math_structure_cap_boundary() {
+        assert!(typst_math_allowed(&format!("${}x$", "x/".repeat(64))));
+        assert!(!typst_math_allowed(&format!("${}x$", "x/".repeat(65))));
+    }
+
     #[cfg(any(feature = "typst-math", feature = "typst"))]
     #[test]
     fn typst_math_refuses_code_and_resource_knobs() {
         let long = format!("${}$", "x + ".repeat(300));
         let groups = format!("${}$", "(x) ".repeat(65));
+        // A few hundred of these overflow a 2 MB stack inside Typst.
+        let fracs = format!("${}x$", "x/".repeat(65));
+        let roots = format!("${}x$", "√".repeat(65));
+        let mixed = format!("${}x$", "x/√x^".repeat(22));
         for label in [
             "$#while true {}$",
             "$#range(100000000).len()$",
@@ -1395,6 +1453,9 @@ mod tests {
             "$\"unterminated$",
             long.as_str(),
             groups.as_str(),
+            fracs.as_str(),
+            roots.as_str(),
+            mixed.as_str(),
         ] {
             assert!(!typst_math_allowed(label), "should refuse {label:?}");
         }

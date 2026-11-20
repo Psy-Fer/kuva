@@ -152,7 +152,7 @@ $E = mc^2$       ✗  (lookup tier + a one-time warning)
 instead of being typeset (with a one-time warning) when its math contains
 Typst code (`#`), the `std` module, a named argument (any `:` after a `(`,
 such as `mat(gap: 2em, ...)`) or a comment, or when the whole label is longer
-than 1024 bytes. Strings such as `x_"max"` are fine. The same rule applies to
+than 1024 bytes. Quoted text such as `"SNR"` is fine. The same rule applies to
 the `.typ` documents `TypstBackend` writes (below), since whoever compiles one
 would run that code.
 
