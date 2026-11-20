@@ -101,8 +101,10 @@ jobs:
             os: ubuntu-latest
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+            cross: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+            cross: true
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: aarch64-apple-darwin
@@ -118,13 +120,28 @@ jobs:
           # Don't leave the token in .git/config for the rest of the job.
           persist-credentials: false
 
-      # Cross-compiles where needed (musl tooling, `cross` for aarch64-linux),
+      # The action builds these two targets with `cross`, in a Docker image of an
+      # older Linux so the binaries run on older distros. Left alone it installs
+      # whatever `cross` is newest and pulls the image by a movable tag, so pin
+      # both: an exact crates.io release (immutable) built with its own lockfile,
+      # and each image by digest via `CROSS_TARGET_<TRIPLE>_IMAGE` on the build
+      # step below. The action skips its own install when `cross` is on PATH.
+      # The digests are the `:0.2.5` tags `cross` 0.2.5 would pull; to update,
+      # bump the version here and look up the new tags' digests.
+      - name: Install pinned cross
+        if: ${{ matrix.cross }}
+        run: cargo install cross --version 0.2.5 --locked
+
+      # Cross-compiles where needed (`cross` for the musl and aarch64-linux targets),
       # builds a release binary, packs it into an archive named below and writes
       # a SHA-256 checksum next to it in the workspace. `dry-run` means the action
       # gets no token and uploads nothing; `publish` does the upload.
       - name: Build kuva binary
         id: build
         uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
+        env:
+          CROSS_TARGET_AARCH64_UNKNOWN_LINUX_GNU_IMAGE: ghcr.io/cross-rs/aarch64-unknown-linux-gnu@sha256:7f8308a8734d9fcd2ebbe9a3e4bdea74af293f0799d80c3cc341e340cda49a4c
+          CROSS_TARGET_X86_64_UNKNOWN_LINUX_MUSL_IMAGE: ghcr.io/cross-rs/x86_64-unknown-linux-musl@sha256:77db671d8356a64ae72a3e1415e63f547f26d374fbe3c4762c1cd36c7eac7b99
         with:
           bin: kuva
           features: ${{ matrix.variant.features }}
