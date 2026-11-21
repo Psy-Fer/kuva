@@ -238,3 +238,31 @@ fn test_percent_clamp_at_100() {
         "clamp_axis must not extend beyond 100% for 0-1 data"
     );
 }
+
+#[test]
+fn test_auto_preserves_precision_for_small_ranges() {
+    use kuva::plot::LinePlot;
+
+    // Issue #143: data spanning 0.001 at 3.141..3.142 produced duplicate "3.141" / "3.142"
+    // tick labels when TickFormat::Auto truncated everything to 3 decimal places.
+    assert_eq!(TickFormat::Auto.format(3.1412), "3.1412");
+    assert_eq!(TickFormat::Auto.format(3.1414), "3.1414");
+    assert_eq!(TickFormat::Auto.format(100.0001), "100.0001");
+    // Float representation noise from arithmetic (e.g. 0.1 + 0.2) should still strip cleanly.
+    assert_eq!(TickFormat::Auto.format(0.1 + 0.2), "0.3");
+    assert_eq!(TickFormat::Auto.format(3.141 + 0.0002), "3.1412");
+
+    let x = [3.141, 3.142];
+    let plot = LinePlot::new().with_data(x.iter().copied().map(|v| (v, v)));
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout).with_background(Some("white"));
+    let svg = SvgBackend.render_scene(&scene);
+
+    for expected in ["3.1412", "3.1414", "3.1416", "3.1418"] {
+        assert!(
+            svg.contains(&format!(">{expected}<")),
+            "expected tick label {expected} in SVG:\n{svg}"
+        );
+    }
+}
