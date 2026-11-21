@@ -116,12 +116,23 @@ fn tick_format_degree(v: f64) -> String {
 }
 
 fn tick_format_auto(v: f64) -> String {
+    if !v.is_finite() {
+        return v.to_string();
+    }
     if v == 0.0 || (v.abs() >= 1.0 && v.fract().abs() < 1e-9) {
         format!("{:.0}", v)
     } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {
         tick_format_sci(v)
     } else {
-        let s = format!("{:.3}", v);
+        // Round to 10 significant digits (well inside f64's ~15-17 digits) so
+        // IEEE-754 arithmetic noise strips cleanly without truncating small ranges.
+        let int_digits = if v.abs() >= 1.0 {
+            (v.abs().log10().floor() as usize) + 1
+        } else {
+            0
+        };
+        let decimals = 10usize.saturating_sub(int_digits);
+        let s = format!("{:.*}", decimals, v);
         let s = s.trim_end_matches('0');
         let s = s.trim_end_matches('.');
         s.to_string()
