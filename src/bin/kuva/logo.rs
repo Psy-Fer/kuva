@@ -106,7 +106,7 @@ pub fn run(mut args: LogoArgs) -> Result<(), String> {
     };
 
     if is_matrix && (args.respect_case || args.include_gaps) {
-        eprintln!(
+        eprintln_safe!(
             "kuva logo: --respect-case / --include-gaps have no effect on matrix input \
              (case and gap information is already gone from a matrix)"
         );
@@ -360,7 +360,7 @@ fn orientation_from_shape(rows: &[Vec<String>], n_letters: usize) -> MatrixOrien
     match (n_rows == n_letters, n_cols == n_letters) {
         (true, false) => MatrixOrientation::RowsAreLetters,
         (true, true) => {
-            eprintln!(
+            eprintln_safe!(
                 "kuva logo: the {n_rows}x{n_cols} matrix has no letter header, so its orientation \
                  is ambiguous; reading rows as positions (pass --orientation cols if rows are letters)"
             );

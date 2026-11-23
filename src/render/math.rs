@@ -770,6 +770,11 @@ mod typst_tier {
                             s
                         })
                         .unwrap_or_else(|| "unknown error".into());
+                    // Typst can quote the label back, so keep control characters off stderr.
+                    let detail: String = detail
+                        .chars()
+                        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+                        .collect();
                     eprintln!(
                         "kuva: could not typeset math in label {label:?}: {detail}. \
                          Note: this is Typst math syntax, not LaTeX — \
@@ -810,11 +815,24 @@ mod typst_tier {
 
     /// `Some(", fill: rgb(\"#rrggbb\")")` for a concrete color, else `None`
     /// (default black).
+    ///
+    /// The colour lands inside Typst code, so a `Css` string is only used
+    /// when it is a plain hex colour (`#` then 3, 4, 6 or 8 hex digits).
+    /// Anything else falls back to the default colour.
     fn typst_fill(c: &Color) -> Option<String> {
         match c {
             Color::Rgb(..) => Some(format!(", fill: rgb(\"{}\")", c.to_svg_string())),
-            Color::Css(s) if s.starts_with('#') => Some(format!(", fill: rgb(\"{s}\")")),
+            Color::Css(s) if is_hex_color(s) => Some(format!(", fill: rgb(\"{s}\")")),
             _ => None,
+        }
+    }
+
+    fn is_hex_color(s: &str) -> bool {
+        match s.strip_prefix('#') {
+            Some(hex) => {
+                matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+            }
+            None => false,
         }
     }
 
@@ -916,6 +934,50 @@ mod typst_tier {
         }
         fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
             Datetime::from_ymd(2024, 1, 1)
+        }
+    }
+
+    #[cfg(test)]
+    mod fill_tests {
+        use super::*;
+
+        const HOSTILE: &[&str] = &[
+            "#fff\"), size: 99pt) #for i in range(9) { } #text(\"",
+            "#ff0000\")\n#loop",
+            "#12(34)",
+            "#abc\\",
+            "#abcdef\r\n",
+            "#",
+            "#abcde",
+        ];
+
+        fn set_text_line(src: &str) -> &str {
+            src.lines().nth(1).unwrap()
+        }
+
+        #[test]
+        fn only_hex_colours_reach_the_typst_source() {
+            for good in ["#abc", "#abcd", "#a1b2c3", "#A1B2C3ff"] {
+                let src = build_source("$x$", 10.0, Some(&Color::Css(good.into())));
+                assert_eq!(
+                    set_text_line(&src),
+                    format!("#set text(font: \"DejaVu Sans\", size: 10pt, fill: rgb(\"{good}\"))")
+                );
+            }
+            let plain = build_source("$x$", 10.0, None);
+            for bad in HOSTILE {
+                let src = build_source("$x$", 10.0, Some(&Color::Css((*bad).into())));
+                assert_eq!(src, plain, "colour {bad:?} changed the Typst source");
+            }
+        }
+
+        #[test]
+        fn hostile_colours_still_render_with_the_default_fill() {
+            for bad in HOSTILE {
+                let c = Color::Css((*bad).into());
+                assert!(render_label_svg("$x^2$", 12.0, Some(&c)).is_some());
+                assert!(render_label_pixmap("$x^2$", 12.0, Some(&c), 1.0).is_some());
+            }
         }
     }
 }

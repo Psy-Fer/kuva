@@ -18,8 +18,15 @@
 //! - [`standalone_page`]: a complete self-contained `.html` file holding one figure.
 //!
 //! Each figure is shown through an `<img>`, so figures can't interfere with each other or with
-//! the page, and right-click "Save image as" saves the full SVG. The download link saves it
-//! under the name you give.
+//! the page, and scripts inside an SVG (interactive figures carry some) don't run. The
+//! image's URL is revoked once it has loaded, so it can't be opened in a new tab as a document
+//! of your page's origin. The download link saves the full SVG under the name you give, and
+//! opening that link in a tab downloads the file rather than showing it. Use the download link
+//! to save a figure: "Save image as" may fail once the image URL is revoked.
+//!
+//! These helpers don't sanitise the SVG. Whatever kuva wrote is what the download contains,
+//! including the tooltip script of an interactive figure, so a saved file opened directly in a
+//! browser runs that script like any other SVG file.
 //!
 //! ```rust
 //! use kuva::backend::svg::SvgBackend;
@@ -90,11 +97,18 @@ const LOADER: &str = r#"<script>
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       var svg = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
       new Response(svg).blob().then(function (blob) {
+        // The SVG is only shown through the <img>. Its URL is revoked once the image has
+        // loaded, so "open image in new tab" can't render it as a document in this page's
+        // origin (where any script in the SVG would run).
         var url = URL.createObjectURL(new Blob([blob], { type: "image/svg+xml" }));
-        img.onerror = fail;
+        img.onload = function () { URL.revokeObjectURL(url); };
+        img.onerror = function () { URL.revokeObjectURL(url); fail(); };
         img.src = url;
+        // Downloads get their own URL typed as plain bytes, so opening a download link in a
+        // tab saves the file instead of rendering it.
+        var file = URL.createObjectURL(new Blob([blob], { type: "application/octet-stream" }));
         var links = fig.querySelectorAll("a.kuva-download");
-        for (var k = 0; k < links.length; k++) links[k].href = url;
+        for (var k = 0; k < links.length; k++) links[k].href = file;
         fig.setAttribute("data-kuva-state", "ready");
       }).catch(fail);
     } catch (e) {
@@ -381,5 +395,26 @@ mod tests {
         let bare = figure_with_caption(&gz, "RFC1", "");
         assert!(!bare.contains("figcaption"), "{bare}");
         assert!(!bare.contains("kuva-download"));
+    }
+
+    /// The loader runs in a browser, so this only checks its structure: the `image/svg+xml`
+    /// URL (the only one a browser renders as a script-capable document) goes to the `<img>`
+    /// alone and is revoked, and download links get a separate `application/octet-stream` URL.
+    #[test]
+    fn loader_never_hands_out_a_renderable_svg_url() {
+        let js = loader_script();
+        let svg_url = js
+            .lines()
+            .find(|l| l.contains("type: \"image/svg+xml\""))
+            .expect("svg blob");
+        assert!(svg_url.trim_start().starts_with("var url = "), "{svg_url}");
+        assert!(js.contains("img.src = url;"));
+        assert!(js.contains("img.onload = function () { URL.revokeObjectURL(url); };"));
+        assert!(js.contains("URL.revokeObjectURL(url); fail();"));
+        assert!(js.contains(
+            "var file = URL.createObjectURL(new Blob([blob], { type: \"application/octet-stream\" }));"
+        ));
+        assert!(js.contains("links[k].href = file;"));
+        assert!(!js.contains(".href = url"));
     }
 }

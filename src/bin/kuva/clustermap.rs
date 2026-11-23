@@ -194,7 +194,7 @@ fn read_annotation(
         })
         .collect();
     if missing > 0 {
-        eprintln!(
+        eprintln_safe!(
             "warning: annotation '{}': {missing} of {} labels not found in {}; shown as NA",
             label,
             keys.len(),

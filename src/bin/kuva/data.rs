@@ -207,10 +207,12 @@ impl DataTable {
                     .unwrap_or(false)
                 {
                     if header != HeaderMode::Auto {
-                        eprintln!("warning: --header/--no-header is ignored for parquet input");
+                        eprintln_safe!(
+                            "warning: --header/--no-header is ignored for parquet input"
+                        );
                     }
                     if delim_override.is_some() {
-                        eprintln!("warning: --delimiter is ignored for parquet input");
+                        eprintln_safe!("warning: --delimiter is ignored for parquet input");
                     }
                     let file = std::fs::File::open(p)
                         .map_err(|e| format!("Cannot open {}: {e}", p.display()))?;
@@ -229,10 +231,12 @@ impl DataTable {
                 #[cfg(feature = "parquet")]
                 if sniff_parquet(&buf) {
                     if header != HeaderMode::Auto {
-                        eprintln!("warning: --header/--no-header is ignored for parquet input");
+                        eprintln_safe!(
+                            "warning: --header/--no-header is ignored for parquet input"
+                        );
                     }
                     if delim_override.is_some() {
-                        eprintln!("warning: --delimiter is ignored for parquet input");
+                        eprintln_safe!("warning: --delimiter is ignored for parquet input");
                     }
                     return from_parquet_projected(bytes::Bytes::from(buf), project);
                 }
@@ -1001,7 +1005,7 @@ pub fn apply_na(
                 .collect();
             let dropped = n - keep.len();
             if dropped > 0 {
-                eprintln!(
+                eprintln_safe!(
                     "note: dropped {dropped} row(s) with missing or non-finite values \
                      (use --na-strategy zero to keep them as 0, or error to fail)"
                 );
@@ -1193,7 +1197,7 @@ pub fn colormap_from_name(name: &str) -> Option<kuva::plot::ColorMap> {
 
 pub fn parse_colormap(name: &str) -> kuva::plot::ColorMap {
     colormap_from_name(name).unwrap_or_else(|| {
-        eprintln!(
+        eprintln_safe!(
             "warning: unknown colormap '{name}', using viridis. \
             Run `kuva palettes --colormaps` to see the available names."
         );

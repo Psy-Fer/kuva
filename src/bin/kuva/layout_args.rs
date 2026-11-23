@@ -566,7 +566,7 @@ pub fn parse_signif_spec(
             } else {
                 format!("no group named '{s}'")
             };
-            eprintln!(
+            eprintln_safe!(
                 "warning: --signif '{spec}': {what}; the bracket is skipped (groups: {})",
                 groups.join(", ")
             );
@@ -644,7 +644,7 @@ fn load_fonts(args: &BaseArgs) -> Vec<kuva::fonts::FontInfo> {
         match kuva::fonts::register_font_file(path) {
             Ok(infos) => loaded.extend(infos),
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln_safe!("error: {e}");
                 std::process::exit(1);
             }
         }
@@ -653,12 +653,12 @@ fn load_fonts(args: &BaseArgs) -> Vec<kuva::fonts::FontInfo> {
         match kuva::fonts::register_fonts_dir(dir) {
             Ok(report) => {
                 for (file, e) in &report.skipped {
-                    eprintln!("warning: skipped {}: {e}", file.display());
+                    eprintln_safe!("warning: skipped {}: {e}", file.display());
                 }
                 loaded.extend(report.registered);
             }
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln_safe!("error: {e}");
                 std::process::exit(1);
             }
         }
@@ -691,10 +691,11 @@ fn join_or(items: &[&str]) -> String {
 fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Option<&str>) {
     for info in loaded {
         if info.variable {
-            eprintln!(
+            eprintln_safe!(
                 "warning: {} is a variable font; only its default style (weight {}) is used. \
                  Load the static font files for other weights.",
-                info.family, info.weight
+                info.family,
+                info.weight
             );
         }
     }
@@ -709,7 +710,7 @@ fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Opt
         for info in loaded.iter().filter(|i| i.restricted_embedding) {
             if !warned.contains(&info.family.as_str()) {
                 warned.push(&info.family);
-                eprintln!(
+                eprintln_safe!(
                     "warning: the licence of {} does not allow embedding it in documents; \
                      check its licence before sharing this file.",
                     info.family
@@ -723,7 +724,7 @@ fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Opt
         Some(styles) => {
             let missing = styles.missing();
             if !missing.is_empty() {
-                eprintln!(
+                eprintln_safe!(
                     "warning: {family} has no {} face; that text uses the nearest face \
                      instead (kuva never fakes bold or italic). Load the font files for \
                      those styles with --font-file.",
@@ -745,7 +746,7 @@ fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Opt
             ];
             let builtin = family.to_ascii_lowercase().starts_with("dejavu sans");
             if !builtin && !GENERIC.contains(&family.to_ascii_lowercase().as_str()) {
-                eprintln!(
+                eprintln_safe!(
                     "warning: font '{family}' is not loaded, so text is spaced for DejaVu \
                      Sans and PNG output draws DejaVu Sans (SVG and PDF use '{family}' where \
                      it is installed). Load it with --font-file to use it exactly."
@@ -801,7 +802,7 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if let Some(ref name) = args.palette {
         match palette_from_name(name) {
             Some(pal) => layout = layout.with_palette(pal),
-            None => eprintln!(
+            None => eprintln_safe!(
                 "warning: unknown palette '{name}', using the default. \
                 Run `kuva palettes` to see the available names."
             ),
@@ -811,7 +812,7 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     if let Some(ref condition) = args.cvd_palette {
         match colourblind_palette(condition) {
             Some(pal) => layout = layout.with_palette(pal),
-            None => eprintln!(
+            None => eprintln_safe!(
                 "warning: unknown --cvd-palette '{condition}'. \
                 Expected deuteranopia, protanopia or tritanopia."
             ),

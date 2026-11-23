@@ -17,7 +17,7 @@ pub fn run(args: DoomArgs) -> Result<(), String> {
     let svg = generate_svg(DOOM_WAD, DOOM_WASM, DOOM_JS);
     std::fs::write(&args.output, &svg)
         .map_err(|e| format!("failed to write {}: {e}", args.output))?;
-    eprintln!(
+    eprintln_safe!(
         "wrote {} ({:.1} MB) — open in any browser to play",
         args.output,
         svg.len() as f64 / 1_048_576.0

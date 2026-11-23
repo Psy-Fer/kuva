@@ -109,10 +109,7 @@ impl PdfBackend {
 
         for scene in scenes {
             let svg_str = SvgBackend::new().render_scene(scene);
-            let opts = usvg::Options {
-                fontdb: Arc::clone(&fontdb),
-                ..Default::default()
-            };
+            let opts = usvg_options(Arc::clone(&fontdb));
             let tree = usvg::Tree::from_str(&svg_str, &opts).map_err(|e| e.to_string())?;
 
             let (page_w, page_h, draw_w, draw_h, tx, ty) = self.place(scene.width, scene.height);
@@ -130,7 +127,7 @@ impl PdfBackend {
                 // background color. Reuses `draw_svg` rather than needing
                 // krilla's lower-level path/fill primitives for one rect.
                 let bg_svg = background_svg(page_w, page_h, scene);
-                let bg_tree = usvg::Tree::from_str(&bg_svg, &usvg::Options::default())
+                let bg_tree = usvg::Tree::from_str(&bg_svg, &usvg_options(Arc::clone(&fontdb)))
                     .map_err(|e| e.to_string())?;
                 surface.draw_svg(&bg_tree, page_size, SvgSettings::default());
             }
@@ -245,10 +242,26 @@ fn load_registered_fonts(db: &mut usvg::fontdb::Database) {
     }
 }
 
+/// Parse options for kuva's own SVG. `<image>` hrefs that name a file or
+/// URL are never loaded: kuva only emits inline `data:` images, so the
+/// default resolver (which reads local files) would only ever serve
+/// injected markup.
+fn usvg_options(fontdb: Arc<usvg::fontdb::Database>) -> usvg::Options<'static> {
+    let mut opts = usvg::Options {
+        fontdb,
+        ..Default::default()
+    };
+    opts.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    opts
+}
+
 /// A minimal one-rect SVG covering `w`×`h`, filled with `scene`'s background
-/// color (or white if unset) — the letterbox fill for `PageSize::Fixed`.
+/// color (or white if unset), the letterbox fill for `PageSize::Fixed`.
+/// The colour is caller-supplied, so it is attribute-escaped.
 fn background_svg(w: f64, h: f64, scene: &Scene) -> String {
-    let color = scene.background_color.as_deref().unwrap_or("white");
+    let color = crate::render::render_utils::escape_attr(
+        scene.background_color.as_deref().unwrap_or("white"),
+    );
     format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"><rect width="100%" height="100%" fill="{color}"/></svg>"#
     )
@@ -309,5 +322,64 @@ mod font_tests {
             registered,
             "first DejaVu Serif face should be the registered font"
         );
+    }
+}
+
+#[cfg(test)]
+mod injection_tests {
+    use super::*;
+
+    fn count(group: &usvg::Group, images: &mut usize, paths: &mut usize) {
+        for node in group.children() {
+            match node {
+                usvg::Node::Group(g) => count(g, images, paths),
+                usvg::Node::Image(_) => *images += 1,
+                usvg::Node::Path(_) => *paths += 1,
+                usvg::Node::Text(_) => {}
+            }
+        }
+    }
+
+    fn png_path() -> String {
+        format!(
+            "{}/docs/src/assets/overview/all_plots_complex.png",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    #[test]
+    fn hostile_background_colour_stays_inside_the_fill_attribute() {
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.background_color = Some(format!(
+            r#"red"/><image href="{}" width="50" height="50"/><rect fill="blue"#,
+            png_path()
+        ));
+        let svg = background_svg(100.0, 100.0, &scene);
+        let tree = usvg::Tree::from_str(&svg, &usvg_options(PdfBackend::fontdb())).unwrap();
+        let (mut images, mut paths) = (0, 0);
+        count(tree.root(), &mut images, &mut paths);
+        assert_eq!(images, 0);
+        assert!(
+            paths <= 1,
+            "expected at most the one background rect, got {paths}"
+        );
+    }
+
+    #[test]
+    fn image_hrefs_to_local_files_are_not_loaded() {
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><image href="{}" width="50" height="50"/></svg>"#,
+            png_path()
+        );
+        // The default resolver does read the file, which is what this guards against.
+        let default_tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
+        let (mut images, mut paths) = (0, 0);
+        count(default_tree.root(), &mut images, &mut paths);
+        assert_eq!(images, 1, "default usvg options should load the file");
+
+        let tree = usvg::Tree::from_str(&svg, &usvg_options(PdfBackend::fontdb())).unwrap();
+        let (mut images, mut paths) = (0, 0);
+        count(tree.root(), &mut images, &mut paths);
+        assert_eq!(images, 0);
     }
 }

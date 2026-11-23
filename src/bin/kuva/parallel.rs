@@ -173,7 +173,7 @@ pub fn run(args: ParallelArgs) -> Result<(), String> {
         }
     }
     if dropped > 0 {
-        eprintln!(
+        eprintln_safe!(
             "note: dropped {dropped} row(s) with missing or non-finite values \
              (use --na-strategy zero to keep them as 0, or error to fail)"
         );

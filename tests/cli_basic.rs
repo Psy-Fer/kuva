@@ -2754,3 +2754,43 @@ fn test_no_rect_batching_flag() {
         "nine cells in two colours"
     );
 }
+
+/// Data cells with terminal control characters must not reach stdout (SVG) or stderr (errors).
+#[test]
+fn control_characters_in_data_never_reach_the_terminal() {
+    let unsafe_char = |s: &str| {
+        s.chars()
+            .find(|&c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+    };
+    let label = "x\u{1b}]0;pwned\u{7}\u{9b}2J\u{7f}";
+
+    let input = format!("category\tcount\n{label}\t3\nb\t4\n");
+    let (stdout, stderr, code) = run_with_stdin(
+        &["bar", "--label-col", "category", "--value-col", "count"],
+        &input,
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("<svg"));
+    assert_eq!(
+        unsafe_char(&stdout),
+        None,
+        "control character in SVG on stdout"
+    );
+
+    let input = format!("category\tcount\na\t{label}\n");
+    let (_, stderr, code) = run_with_stdin(
+        &["bar", "--label-col", "category", "--value-col", "count"],
+        &input,
+    );
+    assert_ne!(code, 0);
+    assert!(stderr.contains("cannot parse"), "{stderr}");
+    assert_eq!(
+        unsafe_char(&stderr),
+        None,
+        "control character in error: {stderr:?}"
+    );
+    assert!(
+        stderr.contains(r"\u{1b}"),
+        "expected a visible escape: {stderr}"
+    );
+}

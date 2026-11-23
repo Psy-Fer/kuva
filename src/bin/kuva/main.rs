@@ -1,3 +1,30 @@
+/// `eprintln!` for the CLI: messages often quote cells, headers and labels from the input
+/// file, so control characters (other than newline and tab) are written as visible escapes
+/// such as `\u{1b}` instead of reaching the terminal as escape sequences. Every CLI message
+/// to stderr goes through this.
+macro_rules! eprintln_safe {
+    ($($arg:tt)*) => {
+        eprintln!("{}", $crate::terminal_safe(&format!($($arg)*)))
+    };
+}
+
+/// Replace control characters (except newline and tab) with their `\u{..}` escape.
+fn terminal_safe(s: &str) -> std::borrow::Cow<'_, str> {
+    let unsafe_char = |c: char| c.is_control() && c != '\n' && c != '\t';
+    if !s.chars().any(unsafe_char) {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        if unsafe_char(c) {
+            out.extend(c.escape_unicode());
+        } else {
+            out.push(c);
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 mod bar;
 mod boxplot;
 mod bump;
@@ -270,7 +297,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("error: {e}");
+        eprintln_safe!("error: {e}");
         std::process::exit(1);
     }
 }

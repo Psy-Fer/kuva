@@ -76,7 +76,12 @@ disk or from a server, with no libraries.
 
 `name` is the image's alt text and the download's file name (`name.svg`). Each figure is shown
 through an `<img>`, so figures cannot interfere with each other or with your page's styles, and
-right-click "Save image as" saves the full SVG. The figure's size is read from the SVG and its
+scripts inside an SVG (interactive figures carry a tooltip script) don't run. The image's URL is
+revoked once it has loaded, so it can't be opened in a new tab as a document of your page's
+origin. To save a figure, use the download link: it saves the full SVG, and opening it in a tab
+downloads the file rather than showing it. "Save image as" may not work once the image URL is
+revoked. The helpers don't sanitise the SVG, so a downloaded interactive figure still carries
+its script when opened directly. The figure's size is read from the SVG and its
 space reserved straight away, so the page doesn't jump as figures load, and figures decompress
 only as they come near the screen. A page of many large figures stays fast.
 

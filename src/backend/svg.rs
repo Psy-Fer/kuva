@@ -22,21 +22,27 @@ fn write_float(buf: &mut String, v: f64) {
 }
 
 /// Single-pass XML-escape that avoids allocating when the input is clean.
+///
+/// Control characters (C0 other than tab, newline and carriage return, DEL and C1) and the
+/// XML non-characters U+FFFE/U+FFFF are replaced with U+FFFD. Most are illegal in XML 1.0,
+/// and all of them would reach a terminal as escape sequences when the CLI writes the SVG
+/// to stdout. The `--terminal` backend makes the same replacement.
 #[inline]
 fn write_escaped(buf: &mut String, s: &str) {
     let mut start = 0;
-    for (i, b) in s.bytes().enumerate() {
-        let esc: &str = match b {
-            b'&' => "&amp;",
-            b'<' => "&lt;",
-            b'>' => "&gt;",
-            b'"' => "&quot;",
-            b'\'' => "&apos;",
+    for (i, c) in s.char_indices() {
+        let esc: &str = match c {
+            '&' => "&amp;",
+            '<' => "&lt;",
+            '>' => "&gt;",
+            '"' => "&quot;",
+            '\'' => "&apos;",
+            c if crate::render::render_utils::is_unsafe_text_char(c) => "\u{FFFD}",
             _ => continue,
         };
         buf.push_str(&s[start..i]);
         buf.push_str(esc);
-        start = i + 1;
+        start = i + c.len_utf8();
     }
     buf.push_str(&s[start..]);
 }
@@ -232,8 +238,8 @@ impl SvgBackend {
             write_newline(&mut svg, p);
         }
 
-        // Clip ids come from a process-wide counter (so merged Figure panels never collide);
-        // renumber them per SVG, in order of first use, so the same scene always writes the
+        // Clip and gradient ids come from process-wide counters (so merged Figure panels
+        // never collide); renumber them per SVG, in order of first use, so the same scene always writes the
         // same bytes.
         let mut clip_ids = ClipIdRenamer::default();
         if !scene.defs.is_empty() || scene.has_tooltips || scene.interactive {
@@ -556,7 +562,13 @@ impl SvgBackend {
                     svg.push('"');
                     if let Some(ref fill) = pd.fill {
                         svg.push_str(r#" fill=""#);
-                        fill.write_svg(&mut svg);
+                        match fill {
+                            // A gradient reference: renumber it like its <defs> entry.
+                            Color::Css(c) if c.starts_with("url(#kuva-grad-") => {
+                                clip_ids.write_renamed(&mut svg, &fill.to_svg_string())
+                            }
+                            _ => fill.write_svg(&mut svg),
+                        }
                         svg.push('"');
                     } else {
                         svg.push_str(r#" fill="none""#);
@@ -787,35 +799,45 @@ impl SvgBackend {
     }
 }
 
-/// Renumbers `kuva-clip-N` ids within one SVG: the first id seen becomes `kuva-clip-0`, the
-/// next new one `kuva-clip-1`, and so on, and every later mention of an id gets the same new
-/// number. The renderer takes `N` from a process-wide counter so the panels of a merged
-/// [`Figure`](crate::render::figure::Figure) never share an id; renumbering at write time keeps
-/// that while making the output depend only on the scene, not on what the process drew before.
+/// Renumbers `kuva-clip-N` and `kuva-grad-N` ids within one SVG: for each prefix, the first
+/// id seen becomes `<prefix>0`, the next new one `<prefix>1`, and so on, and every later
+/// mention of an id gets the same new number. The renderer takes `N` from process-wide
+/// counters so the panels of a merged [`Figure`](crate::render::figure::Figure) never share
+/// an id; renumbering at write time keeps that while making the output depend only on the
+/// scene, not on what the process drew before.
 #[derive(Default)]
 struct ClipIdRenamer {
-    map: std::collections::HashMap<u64, usize>,
+    maps: [std::collections::HashMap<u64, usize>; 2],
 }
 
 impl ClipIdRenamer {
-    const PREFIX: &'static str = "kuva-clip-";
+    const PREFIXES: [&'static str; 2] = ["kuva-clip-", "kuva-grad-"];
 
-    /// Append `text` to `svg` with every `kuva-clip-<digits>` id renumbered.
+    /// Append `text` to `svg` with every `kuva-clip-<digits>` and `kuva-grad-<digits>` id
+    /// renumbered.
     fn write_renamed(&mut self, svg: &mut String, text: &str) {
         let mut rest = text;
-        while let Some(pos) = rest.find(Self::PREFIX) {
-            let after = &rest[pos + Self::PREFIX.len()..];
+        loop {
+            let next = Self::PREFIXES
+                .iter()
+                .enumerate()
+                .filter_map(|(k, pre)| rest.find(pre).map(|pos| (pos, k)))
+                .min();
+            let Some((pos, k)) = next else { break };
+            let prefix = Self::PREFIXES[k];
+            let after = &rest[pos + prefix.len()..];
             let digits = after.bytes().take_while(u8::is_ascii_digit).count();
             match after[..digits].parse::<u64>() {
                 Ok(old) => {
-                    let next = self.map.len();
-                    let new = *self.map.entry(old).or_insert(next);
+                    let map = &mut self.maps[k];
+                    let next = map.len();
+                    let new = *map.entry(old).or_insert(next);
                     svg.push_str(&rest[..pos]);
-                    svg.push_str(Self::PREFIX);
+                    svg.push_str(prefix);
                     let _ = write!(svg, "{new}");
                 }
                 // Not followed by a number: not one of ours, copy it unchanged.
-                Err(_) => svg.push_str(&rest[..pos + Self::PREFIX.len()]),
+                Err(_) => svg.push_str(&rest[..pos + prefix.len()]),
             }
             rest = &after[digits..];
         }
@@ -1492,6 +1514,9 @@ mod tests {
             "a kuva-clip-41 b kuva-clip-7 c kuva-clip-41 kuva-clip-x",
         );
         assert_eq!(out, "a kuva-clip-0 b kuva-clip-1 c kuva-clip-0 kuva-clip-x");
+        let mut out = String::new();
+        r.write_renamed(&mut out, "kuva-grad-9 kuva-clip-7 kuva-grad-3 kuva-grad-9");
+        assert_eq!(out, "kuva-grad-0 kuva-clip-1 kuva-grad-1 kuva-grad-0");
     }
 
     /// Edges that touch (or overlap by less than the 0.01 px written precision) are not an

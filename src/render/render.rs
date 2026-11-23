@@ -28,6 +28,14 @@ fn next_clip_id() -> String {
     format!("kuva-clip-{n}")
 }
 
+static GRADIENT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// A process-unique gradient id, renumbered per SVG like the clip ids.
+fn next_grad_id() -> String {
+    let n = GRADIENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("kuva-grad-{n}")
+}
+
 /// Round to 2 decimal places for compact SVG output.
 #[inline(always)]
 fn round2(v: f64) -> f64 {
@@ -16243,7 +16251,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
         (col[tgt], pos_in_col[tgt], pos_in_col[src])
     });
 
-    for (link_i, &li) in link_order.iter().enumerate() {
+    for &li in link_order.iter() {
         let link = &sankey.links[li];
         let src = link.source;
         let tgt = link.target;
@@ -16297,9 +16305,13 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
                 SankeyLinkColor::Source => node_color(src),
                 SankeyLinkColor::PerLink => link.color.clone().unwrap_or_else(|| node_color(src)),
                 SankeyLinkColor::Gradient => {
-                    let grad_id = format!("grad_{link_i}");
-                    let src_color = node_color(src);
-                    let tgt_color = node_color(tgt);
+                    // The ids come from a process-wide counter so two Sankey panels in
+                    // one Figure don't share gradients (the SVG backend renumbers them
+                    // per document). Colours are caller-supplied, so they go through
+                    // `Color`, which escapes anything that isn't a plain colour.
+                    let grad_id = next_grad_id();
+                    let src_color = Color::from(node_color(src).as_str()).to_svg_string();
+                    let tgt_color = Color::from(node_color(tgt).as_str()).to_svg_string();
                     scene.defs.push(format!(
                         r#"<linearGradient id="{grad_id}" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="{src_color}"/><stop offset="100%" stop-color="{tgt_color}"/></linearGradient>"#
                     ));

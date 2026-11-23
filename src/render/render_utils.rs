@@ -7,7 +7,8 @@ pub(crate) use crate::plot::nan_cmp::NanCmp;
 ///
 /// Values reaching these call sites (group names, legend labels, category
 /// labels) originate from user data files, not from code, so they must never
-/// be trusted to be free of `"`, `<`, `>`, or `&`.
+/// be trusted to be free of `"`, `<`, `>`, or `&`. Control characters are
+/// replaced with U+FFFD (see [`is_unsafe_text_char`]).
 pub(crate) fn escape_attr(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -17,10 +18,20 @@ pub(crate) fn escape_attr(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
+            c if is_unsafe_text_char(c) => out.push('\u{FFFD}'),
             _ => out.push(c),
         }
     }
     out
+}
+
+/// Characters that must not reach SVG output: control characters other than
+/// tab, newline and carriage return (C0, DEL and C1), and the XML
+/// non-characters U+FFFE and U+FFFF. Most are illegal in XML 1.0, and all of
+/// them act as terminal escape sequences when the CLI prints SVG to stdout.
+#[inline]
+pub(crate) fn is_unsafe_text_char(c: char) -> bool {
+    (c.is_control() && !matches!(c, '\t' | '\n' | '\r')) || matches!(c, '\u{FFFE}' | '\u{FFFF}')
 }
 
 /// Build an SVG path string for a filled arrow-head triangle.
