@@ -1,3 +1,5 @@
+use crate::plot::nan_cmp::NanCmp;
+
 /// One group of survival observations for a Kaplan-Meier curve.
 ///
 /// Each subject contributes one `time` (time to event or last follow-up) and
@@ -229,8 +231,15 @@ pub(crate) fn km_curve(times: &[f64], events: &[bool]) -> Vec<KMPoint> {
         return result;
     }
 
-    let mut pairs: Vec<(f64, bool)> = times.iter().zip(events).map(|(&t, &e)| (t, e)).collect();
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // A NaN time carries no information, and `NaN == NaN` is false, so the tie
+    // scan below would never advance past it: drop those observations.
+    let mut pairs: Vec<(f64, bool)> = times
+        .iter()
+        .zip(events)
+        .filter(|(t, _)| !t.is_nan())
+        .map(|(&t, &e)| (t, e))
+        .collect();
+    pairs.sort_by(|a, b| a.0.nan_cmp(&b.0));
 
     let n_total = pairs.len();
     let mut survival = 1.0_f64;
@@ -275,7 +284,7 @@ pub(crate) fn km_curve(times: &[f64], events: &[bool]) -> Vec<KMPoint> {
 pub(crate) fn censoring_levels(times: &[f64], events: &[bool], km: &[KMPoint]) -> Vec<(f64, f64)> {
     let mut out = Vec::new();
     for (&t, &ev) in times.iter().zip(events) {
-        if ev {
+        if ev || t.is_nan() {
             continue;
         }
         // Find survival at t: last KM point with km.t <= t
@@ -319,7 +328,7 @@ pub(crate) fn logrank_chi2(groups: &[KMGroup]) -> Option<(f64, usize)> {
                 .map(|(&t, _)| t)
         })
         .collect();
-    event_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    event_times.sort_by(|a, b| a.nan_cmp(b));
     event_times.dedup();
     if event_times.is_empty() {
         return None;

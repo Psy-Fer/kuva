@@ -85,6 +85,21 @@ check_error() {
     fi
 }
 
+# Passes when the command succeeds and its stdout contains PATTERN
+# (for subcommands that print text rather than an SVG).
+check_text() {
+    local name="$1"
+    local pattern="$2"
+    shift 2
+    if "$@" 2>/dev/null | grep -q -- "$pattern"; then
+        echo "PASS  $name"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL  $name"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 # ── scatter ───────────────────────────────────────────────────────────────────
 check "scatter basic" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
@@ -191,6 +206,9 @@ check "parallel missing values (drop)" \
     "$BIN" parallel "$DATA/missing.tsv" --value-cols x y
 
 # ── line ──────────────────────────────────────────────────────────────────────
+check "line x-axis break" \
+    "$BIN" line "$DATA/measurements.tsv" --x time --y value --x-break 2,8
+
 check "line color-by" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value --color-by group \
         --title "Growth Curves" --subtitle "coloured by group" --x-label "Time" --y-label "Value"
@@ -219,6 +237,17 @@ check_error "line multi-y color-by conflict" \
     "$BIN" line "$DATA/measurements.tsv" --x time --y value,time --color-by group
 
 # ── bar ───────────────────────────────────────────────────────────────────────
+check "bar y-axis break" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60 --title "Broken Y axis" --y-label "Percentage"
+
+check "bar y-axis break explicit share" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage \
+        --y-break 20,60,0.5 --axis-line box
+
+check_error "bar y-axis break reversed" \
+    "$BIN" bar "$DATA/pie.tsv" --label-col feature --value-col percentage --y-break 60,20
+
 check "bar basic" \
     "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
         --title "Category Counts" --x-label "Category" --y-label "Count"
@@ -250,7 +279,18 @@ check "histogram bins" \
 
 check "histogram normalize" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --normalize \
+        --title "Value Distribution" --x-label "Value" --y-label "Relative frequency"
+
+check "histogram density" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --density \
         --title "Value Distribution" --x-label "Value" --y-label "Density"
+
+check "histogram density stacked" \
+    "$BIN" histogram "$DATA/measurements.tsv" --y time,value --density --stacked --legend \
+        --title "Stacked Density" --y-label "Density"
+
+check_error "histogram density with normalize" \
+    "$BIN" histogram "$DATA/histogram.tsv" --value-col value --density --normalize
 
 check "histogram bin-aligned 6 bins" \
     "$BIN" histogram "$DATA/histogram.tsv" --value-col value --bins 6 \
@@ -288,6 +328,18 @@ check "box basic" \
 check "box overlay-points" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-points \
         --title "Expression by Group" --x-label "Group" --y-label "Expression"
+
+check "box significance brackets" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression \
+        --signif Control,Drug_A,0.0003 --signif Drug_A,Drug_B,0.04 --signif '#0,#4,n.s.' \
+        --title "Expression by Group" --y-label "Expression"
+
+check "box significance brackets horizontal p-values" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --horizontal \
+        --signif Control,Drug_C,0.012 --signif-format p --x-label "Expression"
+
+check_error "box significance bad spec" \
+    "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --signif Control,Drug_A
 
 check "box overlay-swarm" \
     "$BIN" box "$DATA/samples.tsv" --group-col group --value-col expression --overlay-swarm \
@@ -451,6 +503,34 @@ check "heatmap long-format" \
     "$BIN" heatmap "$DATA/stacked_area.tsv" --long-format \
         --row-col species --col-col week --value-col abundance \
         --title "Abundance by Species and Week" --x-label "Week" --y-label "Species"
+
+# ── clustermap ────────────────────────────────────────────────────────────────
+check "clustermap basic" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --legend "log2 expr"
+
+check "clustermap row z-score, no col clustering" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --normalize row --no-cluster-cols \
+        --colormap inferno --legend "z-score"
+
+check "clustermap annotated, labels top/left" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --normalize row \
+        --col-annot "$DATA/clustermap_samples.tsv:condition" \
+        --col-annot "$DATA/clustermap_samples.tsv:batch" \
+        --row-annot "$DATA/clustermap_genes.tsv" \
+        --category-colors "ctrl=#999999" --category-labels "treat=Treated (10 uM)" \
+        --col-labels-top --row-labels-left --legend "z-score"
+
+check "clustermap categorical genotypes" \
+    "$BIN" clustermap "$DATA/clustermap_genotypes.tsv" --categorical \
+        --col-annot "$DATA/clustermap_populations.tsv:population" \
+        --category-colors "ref=#eeeeee,het=#4c9be8,hom=#1a3d6e" \
+        --legend Genotype --col-labels-top --col-label-rotation 90 --cell-size 22
+
+check "clustermap cell size and gap" \
+    "$BIN" clustermap "$DATA/clustermap_expr.tsv" --cell-size 18x14 --cell-gap 2 --values
+
+check_error "clustermap text cells without --categorical" \
+    "$BIN" clustermap "$DATA/clustermap_genotypes.tsv"
 
 # ── hist2d ────────────────────────────────────────────────────────────────────
 check "hist2d basic" \
@@ -779,6 +859,33 @@ check "surface3d alternate view" \
     "$BIN" surface3d "$DATA/surface3d.tsv" --x x --y y --z z \
         --z-color viridis --azimuth 45 --elevation 45 \
         --title "3D Surface Alt View"
+
+# ── quiver3d ──────────────────────────────────────────────────────────────────
+check "quiver3d basic" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --title "3D Quiver" --x-label "x" --y-label "y" --z-label "z"
+
+check "quiver3d colormap pivot middle" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --colormap viridis --colorbar-label "Speed" --pivot middle \
+        --title "3D Quiver Magnitude"
+
+check "quiver3d depth-shade alternate view" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --depth-shade --azimuth -120 --elevation 20 \
+        --title "3D Quiver Depth Shade"
+
+check "quiver3d fixed scale and head, tight bounds, no grid no box" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --arrow-scale 0.3 --head-length 10 --head-width 4 --shaft-width 2 \
+        --no-grid --no-box --tight-bounds \
+        --title "3D Quiver Styled"
+
+check "quiver3d named columns legend z-axis-left pivot tip" \
+    "$BIN" quiver3d "$DATA/quiver3d.tsv" \
+        --x-col x --y-col y --z-col z --u-col u --v-col v --w-col w \
+        --legend "flow" --z-axis-left --pivot tip --auto-scale 0.7 \
+        --title "3D Quiver Legend"
 
 # ── qq ───────────────────────────────────────────────────────────────────────
 check "qq normal basic" \
@@ -1307,6 +1414,30 @@ check_error "twin-y unsupported plot type" \
 
 rm -f "$TWIN_Y_DATA"
 
+# ── compressed output (.svgz / .html) and --no-rect-batching ─────────────────
+OUT_TMP="$(mktemp -d)"
+check_text "svgz output gunzips to SVG" "<svg" \
+    sh -c "\"$BIN\" heatmap \"$DATA/heatmap.tsv\" -o \"$OUT_TMP/hm.svgz\" && gzip -dc \"$OUT_TMP/hm.svgz\""
+check_text "html output is a standalone page" "DecompressionStream" \
+    sh -c "\"$BIN\" heatmap \"$DATA/heatmap.tsv\" --title Expression -o \"$OUT_TMP/hm.html\" && cat \"$OUT_TMP/hm.html\""
+check "heatmap no-rect-batching" \
+    "$BIN" heatmap "$DATA/heatmap.tsv" --no-rect-batching
+rm -rf "$OUT_TMP"
+
+# ── fonts (--font-file/--font-dir need the custom_fonts feature, in `full`) ───
+FONTS="./tests/data/fonts"
+check "font family, tick font, mono font" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font "DejaVu Sans" --tick-font monospace --mono-font "DejaVu Sans Mono"
+check_text "font-file selects and embeds the font" "@font-face{font-family:'DejaVu Serif'" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font-file "$FONTS/DejaVuSerif.ttf" --embed-font
+check "font-dir" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count --font-dir "$FONTS"
+check_error "font-file missing" \
+    "$BIN" bar "$DATA/bar.tsv" --label-col category --value-col count \
+        --font-file /no/such/font.ttf
+
 # ── coverage ──────────────────────────────────────────────────────────────────
 check "coverage full (depth+variants+features+locus)" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour,normal \
@@ -1329,6 +1460,10 @@ check "coverage variants only" \
 check "coverage features only" \
     "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
         --features "$DATA/coverage_features.tsv" --feature-name amplicons
+
+check "coverage stranded genes (+/-/. strand column)" \
+    "$BIN" coverage "$DATA/coverage_depth.tsv" --samples tumour \
+        --regions "$DATA/coverage_genes.tsv" --region-name genes --x-label "chr7 position"
 
 check "coverage real CoVarPlot ARTIC data" \
     "$BIN" coverage "$DATA/covar_depth.tsv" --x pos --samples pool1,pool2 \
@@ -1355,6 +1490,88 @@ check "typst sqrt + sum" \
 check "typst quadratic in rotated y-label" \
     "$BIN" scatter "$DATA/scatter.tsv" --x x --y y \
         --y-label '$x = \frac{-b \pm \sqrt{b^2 - 4 a c}}{2 a}$'
+# ── logo ──────────────────────────────────────────────────────────────────────
+check "logo fasta" \
+    "$BIN" logo "$DATA/logo.fasta" \
+        --title "Sequence Logo — Kozak-like"
+
+check "logo fasta probability" \
+    "$BIN" logo "$DATA/logo.fasta" --units probability \
+        --title "Sequence Logo — Probability"
+
+check "logo fasta reverse-complement" \
+    "$BIN" logo "$DATA/logo.fasta" --reverse-complement \
+        --title "Sequence Logo — Reverse Complement"
+
+check "logo per-line wrap" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --per-line 10 --consensus \
+        --title "Sequence Logo, 10 per line"
+
+check "logo fasta consensus" \
+    "$BIN" logo "$DATA/logo.fasta" --consensus --consensus-threshold 0.6 \
+        --title "Sequence Logo — Consensus"
+
+check "logo fasta start offset" \
+    "$BIN" logo "$DATA/logo.fasta" --start 500 \
+        --title "Sequence Logo — Genomic Coordinates"
+
+check "logo fasta mono" \
+    "$BIN" logo "$DATA/logo.fasta" --palette mono \
+        --title "Sequence Logo — Mono"
+
+check "logo fasta include gaps" \
+    "$BIN" logo "$DATA/logo.fasta" --include-gaps \
+        --title "Sequence Logo — Gaps Included"
+
+check "logo fasta respect case" \
+    "$BIN" logo "$DATA/logo.fasta" --respect-case \
+        --title "Sequence Logo — Soft-masked Dropped"
+
+check "logo pwm" \
+    "$BIN" logo "$DATA/logo.pwm" \
+        --title "Sequence Logo — PWM Input"
+
+check "logo pwm no correction" \
+    "$BIN" logo "$DATA/logo.pwm" --no-correction \
+        --title "Sequence Logo — No Correction"
+
+check "logo colors override" \
+    "$BIN" logo "$DATA/logo.fasta" --colors "A=#008800,C=#000088,G=#886600,T=#880000" \
+        --title "Sequence Logo — Custom Colors"
+
+check "logo protein default muted palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein \
+        --title "Zinc Finger — Muted Default"
+
+check "logo protein taylor palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --palette taylor \
+        --title "Zinc Finger — Taylor Palette"
+
+check "logo protein shapely palette" \
+    "$BIN" logo "$DATA/logo_protein.fasta" --alphabet protein --palette shapely \
+        --title "Zinc Finger — Shapely Palette"
+
+check_error "logo unknown palette" \
+    "$BIN" logo "$DATA/logo.fasta" --palette notapreset
+
+check_error "logo reverse-complement on protein" \
+    "$BIN" logo "$DATA/logo.pwm" --alphabet protein --reverse-complement
+
+# ── palettes ──────────────────────────────────────────────────────────────────
+check_text "palettes list" "casa-natal" \
+    "$BIN" palettes
+
+check_text "palettes all" "sinebow" \
+    "$BIN" palettes --all
+
+check_text "palettes named colormap hex" "#440154" \
+    "$BIN" palettes viridis
+
+check_text "palettes truecolor swatches" $'\e\\[38;2;' \
+    "$BIN" palettes wong --color always
+
+check_error "palettes unknown name" \
+    "$BIN" palettes notapalette
 
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""

@@ -51,6 +51,8 @@ kuva treemap data.tsv --color-by value --colormap plasma
 
 Accepted names are case-insensitive and accept either a bare word or a hyphenated ColorBrewer-style alias (e.g. `yellow-green-blue`, `yellowgreenblue`, and `ylgnbu` all resolve to the same colormap). An unrecognized name falls back to `viridis` with a warning rather than failing.
 
+`kuva palettes --colormaps` draws every colormap as a gradient bar in the terminal with its aliases, and `kuva palettes viridis` shows one with five sampled hex stops.
+
 ---
 
 ## Custom colormaps

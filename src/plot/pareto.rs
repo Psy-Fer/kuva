@@ -1,3 +1,5 @@
+use crate::plot::nan_cmp::NanCmp;
+
 /// Builder for a Pareto chart: a bar chart of category values, sorted descending
 /// by default, with a superimposed cumulative-percentage line on a secondary
 /// Y-axis (fixed 0-100%). Common in QC, variant analysis, and error-categorisation
@@ -266,11 +268,7 @@ impl ParetoPlot {
     pub fn ordered_categories(&self) -> Vec<&ParetoCategory> {
         let mut ordered: Vec<&ParetoCategory> = self.categories.iter().collect();
         if self.sorted {
-            ordered.sort_by(|a, b| {
-                b.value
-                    .partial_cmp(&a.value)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            ordered.sort_by(|a, b| b.value.nan_cmp(&a.value));
         }
         ordered
     }

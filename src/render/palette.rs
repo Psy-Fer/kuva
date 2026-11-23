@@ -1,5 +1,6 @@
 use std::ops::Index;
 
+#[derive(Clone, Debug)]
 pub struct Palette {
     pub name: &'static str,
     colors: Vec<String>,
@@ -340,6 +341,12 @@ impl<'a> Iterator for PaletteCycleIter<'a> {
         let color = &self.palette[self.index];
         self.index += 1;
         Some(color)
+    }
+}
+
+impl From<Palette> for crate::plot::clustermap::CategoryPalette {
+    fn from(p: Palette) -> Self {
+        crate::plot::clustermap::CategoryPalette(p.colors().to_vec())
     }
 }
 

@@ -1,8 +1,29 @@
-/// Strand orientation of a collinear block.
-#[derive(Debug, Clone, PartialEq)]
+/// Strand orientation: which way a sequence feature reads along its axis. Used for collinear
+/// blocks in [`SyntenyPlot`] (a reverse block is an inversion, drawn crossed) and for stranded
+/// intervals in a [`TrackStack`](crate::render::track_stack::TrackStack) gene lane (drawn as
+/// arrows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strand {
+    /// `+`: reads towards larger coordinates.
     Forward,
+    /// `-`: reads towards smaller coordinates.
     Reverse,
+}
+
+impl Strand {
+    /// Parse a strand token as written in BED/GFF files: `+` is forward, `-` is reverse, and `.`,
+    /// `?` or an empty cell mean "no strand" (`Ok(None)`). The words `forward`/`reverse`/`fwd`/`rev`
+    /// are accepted too, case-insensitively. Anything else is an error.
+    pub fn parse(token: &str) -> Result<Option<Strand>, String> {
+        match token.trim().to_ascii_lowercase().as_str() {
+            "+" | "forward" | "fwd" => Ok(Some(Strand::Forward)),
+            "-" | "reverse" | "rev" => Ok(Some(Strand::Reverse)),
+            "." | "?" | "" => Ok(None),
+            other => Err(format!(
+                "invalid strand '{other}': expected '+', '-' or '.'"
+            )),
+        }
+    }
 }
 
 /// A labelled sequence represented as a horizontal bar.

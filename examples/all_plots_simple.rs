@@ -1,4 +1,4 @@
-//! Compact showcase of all 64 kuva plot types in a 11×6 Figure grid.
+//! Compact showcase of all 66 kuva plot types in a 12×6 Figure grid.
 //! Each cell uses minimal inline data — see all_plots_complex for larger
 //! datasets with axes, legends, and titles.
 //!
@@ -9,13 +9,14 @@
 
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::brick::BrickTemplate;
+use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::{
     BandPlot, BarPlot, BoxPlot, BrickPlot, BumpPlot, CalendarPlot, CandlestickPlot, ChordPlot,
     Clustermap, ContourPlot, DensityPlot, DicePlot, DotPlot, EcdfPlot, ForestPlot, FunnelPlot,
     GanttPlot, Heatmap, HexbinPlot, Histogram, Histogram2D, HorizonPlot, JointPlot, LegendEntry,
     LegendPlot, LegendShape, LinePlot, LollipopPlot, ManhattanPlot, MosaicPlot, NetworkPlot,
     ParallelPlot, ParetoPlot, PhyloTree, PieLabelPosition, PiePlot, PolarMode, PolarPlot,
-    PopulationPyramid, PrGroup, PrPlot, QQPlot, QuiverPlot, RadarPlot, RaincloudPlot,
+    PopulationPyramid, PrGroup, PrPlot, QQPlot, Quiver3DPlot, QuiverPlot, RadarPlot, RaincloudPlot,
     RidgelinePlot, RocGroup, RocPlot, RosePlot, SankeyPlot, Scatter3DPlot, ScatterPlot, SeriesPlot,
     SlopePlot, StackedAreaPlot, StreamgraphPlot, StripPlot, SunburstPlot, Surface3DPlot,
     SurvivalPlot, SyntenyPlot, TernaryPlot, TextPlot, TreemapNode, TreemapPlot, UpSetPlot,
@@ -696,7 +697,28 @@ fn main() {
             dasharray: None,
         });
 
-    // ── Assemble 11×6 Figure (row-major, 66 cells) ───────────────────────────
+    // ── Row 11: Quiver3D ─────────────────────────────────────────────────────
+
+    // 66: Quiver3DPlot (vortex with updraft)
+    let quiver3d =
+        Quiver3DPlot::from_function((-1.0, 1.0, 4), (-1.0, 1.0, 4), (0.0, 2.0, 4), |x, y, _| {
+            (-y * 0.4, x * 0.4, 0.3)
+        });
+
+    // 67: SequenceLogo (small DNA motif)
+    let logo = SequenceLogo::from_sequences(
+        [
+            "GCCACCATGG",
+            "CCCACCATGG",
+            "GCCGCCATGG",
+            "ACCACCATGC",
+            "GCCACCATGA",
+        ],
+        Alphabet::Dna,
+    )
+    .unwrap();
+
+    // ── Assemble 12×6 Figure (row-major, 68 cells; row 11: Quiver3D, Logo) ────
 
     let all_plots: Vec<Vec<Plot>> = vec![
         // Row 0: Scatter, Line, Bar, Histogram, Histogram2D, Hexbin
@@ -780,6 +802,9 @@ fn main() {
         vec![Plot::Pareto(pareto)],
         vec![Plot::Band(ribbon_band), Plot::Line(ribbon_line)],
         vec![Plot::LegendPlot(legend)],
+        // Row 11: Quiver3D, SequenceLogo
+        vec![Plot::Quiver3D(quiver3d)],
+        vec![Plot::SequenceLogo(logo)],
     ];
 
     let layouts: Vec<Layout> = all_plots
@@ -787,7 +812,7 @@ fn main() {
         .map(|cell| Layout::auto_from_plots(cell))
         .collect();
 
-    let fig = Figure::new(11, 6)
+    let fig = Figure::new(12, 6)
         .with_cell_size(500.0, 380.0)
         .with_plots(all_plots)
         .with_layouts(layouts);

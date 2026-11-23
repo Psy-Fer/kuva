@@ -42,7 +42,8 @@ pub struct SankeyArgs {
     pub legend: Option<String>,
 
     /// Node ordering within columns: input (default) or crossings
-    /// (wompwomp-style TSP/Fenwick ordering).
+    /// (wompwomp-style TSP/Fenwick ordering). neighbornet is accepted as an
+    /// alias for crossings.
     #[arg(long, default_value = "input")]
     pub node_order: String,
 

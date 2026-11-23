@@ -27,7 +27,12 @@ use kuva::plot::{
     BarPlot, ColorMap, DotPlot, EcdfPlot, MarkerShape, MosaicPlot, ParetoPlot, QQPlot, ScatterPlot,
 };
 
-use crate::layout_args::{AxisArgs, BaseArgs, LogArgs};
+use crate::layout_args::{
+    apply_font_args, parse_signif_format, parse_signif_spec, AxisArgs, BaseArgs, LogArgs,
+    SignifArgs,
+};
+use kuva::plot::annotations::{BracketAnchor, BracketLabel};
+use kuva::plot::logo::{Alphabet, LogoUnits, PalettePreset, SequenceLogo};
 
 // Tier 2 additions (line/histogram/violin/roc/survival) — kept as a separate
 // `use` block so concurrent edits to the Tier-1 import list above don't
@@ -40,7 +45,7 @@ use kuva::plot::{
 // Uncategorized-triage additions (pr/horizon/quiver) — own `use` block, same
 // reasoning as the Tier 2 block above.
 use kuva::plot::pr::{PrGroup, PrPlot};
-use kuva::plot::{HorizonPlot, HorizonSeries, QuiverArrow, QuiverPivot, QuiverPlot};
+use kuva::plot::{HorizonPlot, HorizonSeries, Quiver3DPlot, QuiverArrow, QuiverPivot, QuiverPlot};
 
 // Tier 3 additions (heatmap, and later matrix/graph/hierarchical plot types)
 // — own `use` block, same reasoning as above.
@@ -101,28 +106,15 @@ fn theme_ctor(name: &str) -> &'static str {
     }
 }
 
-fn palette_ctor(name: &str) -> Option<&'static str> {
-    match name {
-        "category10" => Some("Palette::category10()"),
-        "wong" => Some("Palette::wong()"),
-        "okabe-ito" | "okabe_ito" => Some("Palette::okabe_ito()"),
-        "pastel" => Some("Palette::pastel()"),
-        "bold" => Some("Palette::bold()"),
-        "tol-bright" | "tol_bright" => Some("Palette::tol_bright()"),
-        "tol-muted" | "tol_muted" => Some("Palette::tol_muted()"),
-        "tol-light" | "tol_light" => Some("Palette::tol_light()"),
-        "ibm" => Some("Palette::ibm()"),
-        _ => None,
-    }
+/// `Palette::<ctor>()` for a `--palette` name, read from the same table the
+/// renderer uses. Constructor names are the canonical names with `_` for `-`.
+fn palette_ctor(name: &str) -> Option<String> {
+    crate::layout_args::find_named_palette(name)
+        .map(|p| format!("Palette::{}()", p.name.replace('-', "_")))
 }
 
-fn cvd_palette_ctor(condition: &str) -> Option<&'static str> {
-    match condition {
-        "deuteranopia" | "deuter" => Some("Palette::deuteranopia()"),
-        "protanopia" | "protan" => Some("Palette::protanopia()"),
-        "tritanopia" | "tritan" => Some("Palette::tritanopia()"),
-        _ => None,
-    }
+fn cvd_palette_ctor(condition: &str) -> Option<String> {
+    crate::layout_args::find_cvd_palette(condition).map(|c| format!("Palette::{}()", c.name))
 }
 
 fn axis_line_ctor(s: &str) -> Option<&'static str> {
@@ -174,11 +166,14 @@ fn tick_format_ctor(s: &str) -> Option<String> {
 }
 
 /// Emit `.with_x(...)` fragments for `BaseArgs` — mirrors `apply_base_args`.
-/// Terminal-only fields (`terminal`/`term_bg`/`term_width`/`term_height`) and
-/// `embed_font` are intentionally skipped: the emitted snippet always targets
+/// Terminal-only fields (`terminal`/`term_bg`/`term_width`/`term_height`),
+/// `embed_font` and `no_rect_batching` are intentionally skipped: the emitted snippet always targets
 /// `SvgBackend`, and those flags only affect the CLI's own output dispatch.
 pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     let mut frags = Vec::new();
+    if let Some(ref bg) = args.background {
+        frags.push(format!(".with_background({})", str_lit(bg)));
+    }
     if let Some(w) = args.width {
         frags.push(format!(".with_width({})", f64_lit(w)));
     }
@@ -232,7 +227,52 @@ pub fn emit_base_args(args: &BaseArgs) -> Vec<String> {
     if let Some(n) = args.legend_wrap {
         frags.push(format!(".with_legend_wrap({n})"));
     }
+    // Font families last, as in `apply_base_args`. Without --font the family of the
+    // first --font-file is used, which needs the files read: `apply_font_args` does
+    // that (and warns, as a normal run would).
+    let fonts = apply_font_args(args);
+    if let Some(ref family) = fonts.body {
+        frags.push(format!(".with_font_family({})", str_lit(family)));
+    }
+    if let Some(ref family) = fonts.tick {
+        frags.push(format!(".with_tick_font_family({})", str_lit(family)));
+    }
+    if let Some(ref family) = fonts.mono {
+        frags.push(format!(".with_mono_font_family({})", str_lit(family)));
+    }
     frags
+}
+
+/// Statements that load the --font-file/--font-dir fonts, emitted before the
+/// layout is built (the snippet then needs kuva's `custom_fonts` feature).
+fn emit_font_loading(args: &BaseArgs) -> String {
+    #[allow(unused_mut)]
+    let mut out = String::new();
+    #[cfg(feature = "custom_fonts")]
+    {
+        let path_lit = |p: &std::path::Path| str_lit(&p.to_string_lossy());
+        if !args.font_file.is_empty() || !args.font_dir.is_empty() {
+            out.push_str("// Load the fonts (needs kuva's `custom_fonts` feature).\n");
+        }
+        for path in &args.font_file {
+            out.push_str(&format!(
+                "kuva::fonts::register_font_file({}).unwrap();\n",
+                path_lit(path)
+            ));
+        }
+        for dir in &args.font_dir {
+            out.push_str(&format!(
+                "kuva::fonts::register_fonts_dir({}).unwrap();\n",
+                path_lit(dir)
+            ));
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+    }
+    #[cfg(not(feature = "custom_fonts"))]
+    let _ = args;
+    out
 }
 
 /// Emit `.with_x(...)` fragments for `AxisArgs` — mirrors `apply_axis_args`.
@@ -304,6 +344,19 @@ pub fn emit_axis_args(args: &AxisArgs) -> Vec<String> {
             frags.push(format!(".with_x_label_overlap({ctor})"));
         }
     }
+    for (axis, brk) in [("x", args.x_break), ("y", args.y_break)] {
+        if let Some((lo, hi, share)) = brk {
+            frags.push(match share {
+                None => format!(".with_{axis}_break({}, {})", f64_lit(lo), f64_lit(hi)),
+                Some(f) => format!(
+                    ".with_{axis}_break_config(kuva::plot::AxisBreak::new({}, {}).with_share({}))",
+                    f64_lit(lo),
+                    f64_lit(hi),
+                    f64_lit(f)
+                ),
+            });
+        }
+    }
     frags
 }
 
@@ -319,6 +372,41 @@ pub fn emit_log_args(args: &LogArgs) -> Vec<String> {
     frags
 }
 
+/// Emit `.with_bracket(...)` fragments for `SignifArgs` — mirrors
+/// `apply_signif_args`, including its errors, so a bad spec fails
+/// `--emit-code` the same way it fails a real run.
+pub fn emit_signif_args(args: &SignifArgs, groups: &[String]) -> Result<Vec<String>, String> {
+    fn anchor_lit(a: &BracketAnchor) -> String {
+        match a {
+            BracketAnchor::Index(i) => format!("{i}usize"),
+            BracketAnchor::Label(l) => str_lit(l),
+            BracketAnchor::Value(v) => f64_lit(*v),
+        }
+    }
+    let format = parse_signif_format(&args.signif_format)?;
+    args.signif
+        .iter()
+        .map(|spec| {
+            let b = parse_signif_spec(spec, &format, groups)?;
+            let (a, c) = (anchor_lit(&b.a), anchor_lit(&b.b));
+            let p = f64_lit(b.p_value.unwrap_or(1.0));
+            let expr = match &b.format {
+                BracketLabel::Text(t) => {
+                    format!("SignificanceBracket::text({a}, {c}, {})", str_lit(t))
+                }
+                BracketLabel::Stars => format!("SignificanceBracket::new({a}, {c}, {p})"),
+                BracketLabel::PValue => {
+                    format!("SignificanceBracket::new({a}, {c}, {p}).with_p_value_label()")
+                }
+                BracketLabel::Both => {
+                    format!("SignificanceBracket::new({a}, {c}, {p}).with_both_labels()")
+                }
+            };
+            Ok(format!(".with_bracket({expr})"))
+        })
+        .collect()
+}
+
 // ── Snippet assembly ──────────────────────────────────────────────────────────
 
 /// Assemble the full printable snippet: imports, plot construction, layout
@@ -332,12 +420,104 @@ pub fn assemble(
     axis: Option<&AxisArgs>,
     log: Option<&LogArgs>,
 ) -> String {
+    assemble_impl(plot_uses, variant, plot_exprs, base, axis, log, None)
+}
+
+/// Group labels of a categorical plot, as `apply_signif_args` sees them, so
+/// `--emit-code` splits `--signif` specs the same way a real run does.
+pub fn signif_groups(plot: kuva::render::plots::Plot) -> Vec<String> {
+    let layout = kuva::render::layout::Layout::auto_from_plots(&[plot]);
+    layout
+        .x_categories
+        .or(layout.y_categories)
+        .unwrap_or_default()
+}
+
+/// [`assemble`] for the categorical subcommands that also take `--signif`:
+/// appends the `.with_bracket(...)` fragments (and their `use`) and fails on
+/// a bad spec exactly like the real run.
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_with_signif(
+    plot_uses: &[&str],
+    variant: &str,
+    plot_exprs: &[String],
+    base: &BaseArgs,
+    axis: Option<&AxisArgs>,
+    log: Option<&LogArgs>,
+    signif: &SignifArgs,
+    groups: &[String],
+) -> Result<String, String> {
+    let frags = emit_signif_args(signif, groups)?;
+    let extra = (!frags.is_empty()).then_some(("kuva::plot::SignificanceBracket", frags));
+    Ok(assemble_impl(
+        plot_uses, variant, plot_exprs, base, axis, log, extra,
+    ))
+}
+
+/// Types the layout-chain emitters name unqualified (`Theme::dark()`,
+/// `TickFormat::Integer`, ...), with the path to import each from.
+const LAYOUT_CHAIN_TYPES: &[(&str, &str)] = &[
+    ("Palette", "kuva::Palette"),
+    ("Theme", "kuva::Theme"),
+    ("AxisLine", "kuva::AxisLine"),
+    ("TickAlign", "kuva::TickAlign"),
+    ("TickPos", "kuva::TickPos"),
+    ("TickFormat", "kuva::TickFormat"),
+    ("AxisLabelOverlap", "kuva::AxisLabelOverlap"),
+];
+
+/// The `use` paths the layout chain needs, skipping any type the plot's own
+/// imports already bring in (matched on the last path segment).
+fn layout_chain_uses(frags: &[String], existing: &[&str]) -> Vec<&'static str> {
+    LAYOUT_CHAIN_TYPES
+        .iter()
+        .filter(|(ty, _)| {
+            let needle = format!("{ty}::");
+            frags.iter().any(|f| {
+                f.match_indices(&needle).any(|(i, _)| {
+                    // Not part of a longer identifier or a qualified path.
+                    f[..i]
+                        .chars()
+                        .next_back()
+                        .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == ':'))
+                })
+            })
+        })
+        .filter(|(ty, _)| !existing.iter().any(|u| u.rsplit("::").next() == Some(ty)))
+        .map(|(_, path)| *path)
+        .collect()
+}
+
+fn assemble_impl(
+    plot_uses: &[&str],
+    variant: &str,
+    plot_exprs: &[String],
+    base: &BaseArgs,
+    axis: Option<&AxisArgs>,
+    log: Option<&LogArgs>,
+    extra: Option<(&str, Vec<String>)>,
+) -> String {
+    let (extra_use, extra_frags) = extra.unzip();
+
+    let mut frags = emit_base_args(base);
+    if let Some(a) = axis {
+        frags.extend(emit_axis_args(a));
+    }
+    if let Some(l) = log {
+        frags.extend(emit_log_args(l));
+    }
+    frags.extend(extra_frags.unwrap_or_default());
+
+    let mut uses: Vec<&str> = plot_uses.to_vec();
+    uses.extend(extra_use);
+    uses.extend(layout_chain_uses(&frags, &uses));
+
     let mut out = String::new();
     out.push_str("use kuva::backend::svg::SvgBackend;\n");
     out.push_str("use kuva::render::render::render_multiple;\n");
     out.push_str("use kuva::render::layout::Layout;\n");
     out.push_str("use kuva::render::plots::Plot;\n");
-    for u in plot_uses {
+    for u in &uses {
         out.push_str(&format!("use {u};\n"));
     }
     out.push('\n');
@@ -356,32 +536,14 @@ pub fn assemble(
         out.push_str("];\n\n");
     }
 
-    let mut frags = emit_base_args(base);
-    if let Some(a) = axis {
-        frags.extend(emit_axis_args(a));
-    }
-    if let Some(l) = log {
-        frags.extend(emit_log_args(l));
-    }
-
+    out.push_str(&emit_font_loading(base));
     out.push_str(&chain(
         "let layout = Layout::auto_from_plots(&plots)",
         frags,
     ));
     out.push_str(";\n\n");
 
-    if let Some(ref bg) = base.background {
-        out.push_str("let mut scene = render_multiple(plots, layout);\n");
-        out.push_str(&format!(
-            "scene.background_color = Some({}.to_string());\n",
-            str_lit(bg)
-        ));
-        out.push_str("let svg = SvgBackend::new().render_scene(&scene);\n");
-    } else {
-        out.push_str(
-            "let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n",
-        );
-    }
+    out.push_str("let svg = SvgBackend::new().render_scene(&render_multiple(plots, layout));\n");
     out.push_str("std::fs::write(\"output.svg\", svg).unwrap();\n");
     out
 }
@@ -1912,7 +2074,9 @@ pub fn emit_histogram_plot(p: &Histogram) -> String {
     if p.color != "black" {
         frags.push(format!(".with_color({})", str_lit(&p.color)));
     }
-    if p.normalize {
+    if p.density {
+        frags.push(".with_density()".to_string());
+    } else if p.normalize {
         frags.push(".with_normalize()".to_string());
     }
     if let Some(ref label) = p.legend_label {
@@ -3649,6 +3813,91 @@ pub fn emit_quiver_plot(p: &QuiverPlot) -> String {
     chain("QuiverPlot::new()", frags)
 }
 
+/// Serialize a `Quiver3DPlot`'s *final* resolved state. Like `emit_quiver_plot`,
+/// per-arrow colors are never set by the CLI, so `.with_arrows()` suffices;
+/// the shared `Box3DConfig` goes through `emit_box3d_frags`.
+pub fn emit_quiver3d_plot(p: &Quiver3DPlot) -> String {
+    let mut frags: Vec<String> = Vec::new();
+    if !p.arrows.is_empty() {
+        let tuples = p
+            .arrows
+            .iter()
+            .map(|a| {
+                format!(
+                    "({}, {}, {}, {}, {}, {})",
+                    f64_lit(a.x),
+                    f64_lit(a.y),
+                    f64_lit(a.z),
+                    f64_lit(a.u),
+                    f64_lit(a.v),
+                    f64_lit(a.w)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_arrows(vec![{tuples}])"));
+    }
+    if p.color != "steelblue" {
+        frags.push(format!(".with_color({})", str_lit(&p.color)));
+    }
+    if let Some(s) = p.scale {
+        frags.push(format!(".with_scale({})", f64_lit(s)));
+    } else if (p.auto_scale_fraction - 0.9).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_auto_scale({})",
+            f64_lit(p.auto_scale_fraction)
+        ));
+    }
+    if (p.shaft_width - 1.2).abs() > f64::EPSILON {
+        frags.push(format!(".with_shaft_width({})", f64_lit(p.shaft_width)));
+    }
+    match (p.head_length, p.head_width) {
+        (Some(l), Some(w)) => frags.push(format!(".with_head({}, {})", f64_lit(l), f64_lit(w))),
+        (Some(l), None) => frags.push(format!(".with_head_length({})", f64_lit(l))),
+        (None, Some(w)) => frags.push(format!(".with_head_width({})", f64_lit(w))),
+        (None, None) => {}
+    }
+    if (p.head_ratio - 0.28).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_ratio({})", f64_lit(p.head_ratio)));
+    }
+    if (p.head_aspect - 0.45).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_aspect({})", f64_lit(p.head_aspect)));
+    }
+    if (p.head_min_px - 4.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_min_px({})", f64_lit(p.head_min_px)));
+    }
+    if (p.head_max_px - 14.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_head_max_px({})", f64_lit(p.head_max_px)));
+    }
+    if let Some(ref cmap) = p.color_map {
+        frags.push(format!(".with_color_map({})", color_map_ctor(cmap)));
+    }
+    if let Some((lo, hi)) = p.color_range {
+        frags.push(format!(
+            ".with_color_range({}, {})",
+            f64_lit(lo),
+            f64_lit(hi)
+        ));
+    }
+    if let Some(ref label) = p.color_legend_label {
+        frags.push(format!(".with_color_legend_label({})", str_lit(label)));
+    }
+    if let Some(ref label) = p.legend_label {
+        frags.push(format!(".with_legend({})", str_lit(label)));
+    }
+    if !matches!(p.pivot, QuiverPivot::Tail) {
+        frags.push(format!(".with_pivot({})", quiver_pivot_ctor(&p.pivot)));
+    }
+    if p.depth_shade {
+        frags.push(".with_depth_shade()".to_string());
+    }
+    if p.tight_bounds {
+        frags.push(".with_tight_bounds()".to_string());
+    }
+    frags.extend(emit_box3d_frags(&p.box3d));
+    chain("Quiver3DPlot::new()", frags)
+}
+
 // ── Tier 3 emitters ───────────────────────────────────────────────────────────
 
 /// Serialize a `Vec<Vec<f64>>` matrix as a Rust literal, e.g.
@@ -3682,6 +3931,202 @@ fn emit_owned_string_vec(labels: &[String]) -> String {
         .map(|l| format!("{}.to_string()", str_lit(l)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// `use` paths a `Clustermap` snippet needs.
+pub fn clustermap_uses(cm: &kuva::plot::clustermap::Clustermap) -> Vec<&'static str> {
+    let mut uses = vec!["kuva::plot::clustermap::Clustermap"];
+    if !cm.row_annotations.is_empty() || !cm.col_annotations.is_empty() {
+        uses.push("kuva::plot::clustermap::AnnotationTrack");
+    }
+    if !matches!(
+        cm.normalization,
+        kuva::plot::clustermap::ClustermapNorm::None
+    ) {
+        uses.push("kuva::plot::clustermap::ClustermapNorm");
+    }
+    if cm.categorical_data.is_none() && !matches!(cm.color_map, ColorMap::Viridis) {
+        uses.push("kuva::plot::ColorMap");
+    }
+    if cm.col_label_side != kuva::plot::ColLabelSide::Bottom {
+        uses.push("kuva::plot::ColLabelSide");
+    }
+    if cm.row_label_side != kuva::plot::RowLabelSide::Right {
+        uses.push("kuva::plot::RowLabelSide");
+    }
+    if cm.annotation_placement != kuva::plot::AnnotationPlacement::OutsideLabels {
+        uses.push("kuva::plot::AnnotationPlacement");
+    }
+    uses
+}
+
+fn emit_string_vec(values: &[String]) -> String {
+    format!(
+        "vec![{}]",
+        values
+            .iter()
+            .map(|v| str_lit(v))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn emit_pairs(pairs: &[(String, String)]) -> String {
+    format!(
+        "[{}]",
+        pairs
+            .iter()
+            .map(|(k, v)| format!("({}, {})", str_lit(k), str_lit(v)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn emit_annotation_track(t: &kuva::plot::clustermap::AnnotationTrack) -> String {
+    let mut frags = Vec::new();
+    let ctor = match t.categories {
+        Some(ref values) => format!("AnnotationTrack::categorical({})", emit_string_vec(values)),
+        None => format!("AnnotationTrack::new({})", emit_string_vec(&t.colors)),
+    };
+    if let Some(ref label) = t.label {
+        frags.push(format!(".with_label({})", str_lit(label)));
+    }
+    for (k, v) in &t.style.colors {
+        frags.push(format!(
+            ".with_category_color({}, {})",
+            str_lit(k),
+            str_lit(v)
+        ));
+    }
+    for (k, v) in &t.style.labels {
+        frags.push(format!(
+            ".with_category_label({}, {})",
+            str_lit(k),
+            str_lit(v)
+        ));
+    }
+    if !t.style.order.is_empty() {
+        frags.push(format!(
+            ".with_category_order({})",
+            emit_string_vec(&t.style.order)
+        ));
+    }
+    if let Some(ref na) = t.style.na_label {
+        frags.push(format!(".with_na_label({})", str_lit(na)));
+    }
+    if (t.width - 15.0).abs() > f64::EPSILON {
+        frags.push(format!(".with_width({})", f64_lit(t.width)));
+    }
+    chain(&ctor, frags)
+}
+
+pub fn emit_clustermap_plot(cm: &kuva::plot::clustermap::Clustermap) -> String {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let mut frags: Vec<String> = Vec::new();
+    match cm.categorical_data {
+        Some(ref d) => frags.push(format!(
+            ".with_categorical_data(vec![{}])",
+            d.iter()
+                .map(|r| emit_string_vec(r))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        None => frags.push(format!(".with_data({})", emit_matrix(&cm.data))),
+    }
+    if let Some(ref l) = cm.row_labels {
+        frags.push(format!(".with_row_labels({})", emit_string_vec(l)));
+    }
+    if let Some(ref l) = cm.col_labels {
+        frags.push(format!(".with_col_labels({})", emit_string_vec(l)));
+    }
+    if cm.categorical_data.is_none() {
+        if !cm.cluster_rows {
+            frags.push(".with_cluster_rows(false)".to_string());
+        }
+        if !cm.cluster_cols {
+            frags.push(".with_cluster_cols(false)".to_string());
+        }
+        match cm.normalization {
+            ClustermapNorm::None => {}
+            ClustermapNorm::RowZScore => {
+                frags.push(".with_normalization(ClustermapNorm::RowZScore)".to_string())
+            }
+            ClustermapNorm::ColZScore => {
+                frags.push(".with_normalization(ClustermapNorm::ColZScore)".to_string())
+            }
+        }
+        if !matches!(cm.color_map, ColorMap::Viridis) {
+            frags.push(format!(
+                ".with_color_map({})",
+                color_map_ctor(&cm.color_map)
+            ));
+        }
+    } else {
+        if !cm.cell_style.colors.is_empty() {
+            frags.push(format!(
+                ".with_category_colors({})",
+                emit_pairs(&cm.cell_style.colors)
+            ));
+        }
+        if !cm.cell_style.labels.is_empty() {
+            frags.push(format!(
+                ".with_category_labels({})",
+                emit_pairs(&cm.cell_style.labels)
+            ));
+        }
+        if !cm.cell_style.order.is_empty() {
+            frags.push(format!(
+                ".with_category_order({})",
+                emit_string_vec(&cm.cell_style.order)
+            ));
+        }
+    }
+    for t in &cm.col_annotations {
+        frags.push(format!(
+            ".with_col_annotation({})",
+            emit_annotation_track(t)
+        ));
+    }
+    for t in &cm.row_annotations {
+        frags.push(format!(
+            ".with_row_annotation({})",
+            emit_annotation_track(t)
+        ));
+    }
+    if let Some(ref na) = cm.cell_style.na_label {
+        frags.push(format!(".with_na_label({})", str_lit(na)));
+    }
+    if cm.annotation_placement != kuva::plot::AnnotationPlacement::OutsideLabels {
+        frags.push(".with_annotation_placement(AnnotationPlacement::NextToCells)".to_string());
+    }
+    if !cm.annotation_legend {
+        frags.push(".with_annotation_legend(false)".to_string());
+    }
+    if cm.show_values {
+        frags.push(".with_values()".to_string());
+    }
+    if let Some(ref label) = cm.legend_label {
+        frags.push(format!(".with_legend({})", str_lit(label)));
+    }
+    if cm.col_label_side != kuva::plot::ColLabelSide::Bottom {
+        frags.push(".with_col_labels_position(ColLabelSide::Top)".to_string());
+    }
+    if cm.row_label_side != kuva::plot::RowLabelSide::Right {
+        frags.push(".with_row_labels_position(RowLabelSide::Left)".to_string());
+    }
+    if (cm.col_label_rotation - 45.0).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_col_label_rotation({})",
+            f64_lit(cm.col_label_rotation)
+        ));
+    }
+    if let Some((w, h)) = cm.cell_size {
+        frags.push(format!(".with_cell_size({}, {})", f64_lit(w), f64_lit(h)));
+    }
+    if let Some(g) = cm.cell_gap {
+        frags.push(format!(".with_cell_gap({})", f64_lit(g)));
+    }
+    chain("Clustermap::new()", frags)
 }
 
 pub fn emit_heatmap_plot(p: &Heatmap) -> String {
@@ -4835,4 +5280,135 @@ pub fn emit_scatter3d_plot(p: &Scatter3DPlot) -> String {
     }
     frags.extend(emit_box3d_frags(&p.box3d));
     chain("Scatter3DPlot::new()", frags)
+}
+
+// ── Sequence logo (feature `logo`) ───────────────────────────────────────────
+
+fn alphabet_ctor(alphabet: &Alphabet) -> String {
+    match alphabet {
+        Alphabet::Dna => "Alphabet::Dna".to_string(),
+        Alphabet::Rna => "Alphabet::Rna".to_string(),
+        Alphabet::Protein => "Alphabet::Protein".to_string(),
+        Alphabet::Custom(letters) => {
+            let letters = letters
+                .iter()
+                .map(|c| format!("{c:?}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Alphabet::Custom(vec![{letters}])")
+        }
+    }
+}
+
+fn palette_preset_ctor(preset: PalettePreset) -> &'static str {
+    match preset {
+        PalettePreset::Classic => "PalettePreset::Classic",
+        PalettePreset::WebLogo => "PalettePreset::WebLogo",
+        PalettePreset::Shapely => "PalettePreset::Shapely",
+        PalettePreset::Clustal => "PalettePreset::Clustal",
+        PalettePreset::Taylor => "PalettePreset::Taylor",
+        PalettePreset::Muted => "PalettePreset::Muted",
+        PalettePreset::Mono => "PalettePreset::Mono",
+    }
+}
+
+fn logo_units_ctor(units: LogoUnits) -> &'static str {
+    match units {
+        LogoUnits::Bits => "LogoUnits::Bits",
+        LogoUnits::Probability => "LogoUnits::Probability",
+        LogoUnits::Frequency => "LogoUnits::Frequency",
+    }
+}
+
+/// `preset` and `overrides` come from the CLI rather than the plot: the plot
+/// only stores the resolved per-letter palette, and emitting twenty `[u8; 3]`
+/// entries would bury the one `--palette` the user actually typed.
+///
+/// FASTA-built logos keep their sequences (`source_sequences`), so they are
+/// emitted through `from_sequences` and reproduce the small-sample correction
+/// and case/gap handling exactly; matrix-built logos emit the matrix.
+pub fn emit_sequence_logo(
+    p: &SequenceLogo,
+    preset: PalettePreset,
+    overrides: &[(char, [u8; 3])],
+) -> String {
+    let alphabet = alphabet_ctor(&p.alphabet);
+    let ctor = match &p.source_sequences {
+        Some(seqs) => {
+            let seqs = seqs
+                .iter()
+                .map(|s| str_lit(s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("SequenceLogo::from_sequences(vec![{seqs}], {alphabet}).unwrap()")
+        }
+        None => {
+            let rows = p
+                .matrix
+                .iter()
+                .map(|row| {
+                    let vals = row
+                        .iter()
+                        .map(|v| f64_lit(*v))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("vec![{vals}]")
+                })
+                .collect::<Vec<_>>()
+                .join(",\n            ");
+            format!("SequenceLogo::from_matrix(\n        vec![\n            {rows},\n        ],\n        {alphabet},\n    )")
+        }
+    };
+
+    let mut frags: Vec<String> = Vec::new();
+    if preset != PalettePreset::default_for(&p.alphabet) {
+        frags.push(format!(".with_preset({})", palette_preset_ctor(preset)));
+    }
+    if !overrides.is_empty() {
+        let entries = overrides
+            .iter()
+            .map(|(c, [r, g, b])| format!("({c:?}, [{r}, {g}, {b}])"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        frags.push(format!(".with_colors([{entries}])"));
+    }
+    if p.units != LogoUnits::Bits {
+        frags.push(format!(".with_units({})", logo_units_ctor(p.units)));
+    }
+    if p.start != 1 {
+        frags.push(format!(".with_start({})", p.start));
+    }
+    if p.show_consensus {
+        frags.push(".with_consensus()".to_string());
+    }
+    if (p.consensus_threshold - 0.5).abs() > f64::EPSILON {
+        frags.push(format!(
+            ".with_consensus_threshold({})",
+            f64_lit(p.consensus_threshold)
+        ));
+    }
+    if p.respect_case {
+        frags.push(".with_respect_case()".to_string());
+    }
+    if p.include_gaps {
+        frags.push(".with_include_gaps()".to_string());
+    }
+    if !p.apply_correction {
+        frags.push(".with_no_correction()".to_string());
+    }
+    if let Some(n) = p.per_line {
+        frags.push(format!(".with_per_line({n})"));
+    }
+    if p.reverse_complement {
+        frags.push(".with_reverse_complement().unwrap()".to_string());
+    }
+    match p.show_legend {
+        Some(true) => frags.push(".with_legend()".to_string()),
+        Some(false) => frags.push(".with_no_legend()".to_string()),
+        None => {}
+    }
+    if let Some(ref title) = p.title {
+        frags.push(format!(".with_title({})", str_lit(title)));
+    }
+    chain(&ctor, frags)
 }

@@ -1,3 +1,4 @@
+use crate::plot::nan_cmp::NanCmp;
 use crate::plot::volcano::LabelStyle;
 use crate::render::palette::Palette;
 
@@ -492,11 +493,7 @@ impl ManhattanPlot {
                     x_end: xe,
                 })
                 .collect();
-            extra.sort_by(|a, b| {
-                a.x_start
-                    .partial_cmp(&b.x_start)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            extra.sort_by(|a, b| a.x_start.nan_cmp(&b.x_start));
             spans.extend(extra);
         }
 
@@ -569,11 +566,7 @@ impl ManhattanPlot {
                 }
             })
             .collect();
-        spans.sort_by(|a, b| {
-            a.x_start
-                .partial_cmp(&b.x_start)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        spans.sort_by(|a, b| a.x_start.nan_cmp(&b.x_start));
 
         self.points = points;
         self.spans = spans;

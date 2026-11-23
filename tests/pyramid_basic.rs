@@ -15,7 +15,10 @@ fn render_size(pp: PopulationPyramid, title: &str, w: f64, h: f64) -> String {
         .with_title(title)
         .with_width(w)
         .with_height(h);
-    SvgBackend.render_scene(&render_multiple(plots, layout))
+    // Geometry checks parse individual `<rect>`s, so rect batching is off.
+    SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout))
 }
 
 /// Build a typical 5-band single-series pyramid.

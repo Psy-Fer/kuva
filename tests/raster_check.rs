@@ -177,4 +177,49 @@ mod checks {
             "raster_test/heatmap.png",
         );
     }
+
+    /// A filled path with two contours must render the inner one as a hole.
+    ///
+    /// Contours used to be filled one at a time, which cannot produce holes —
+    /// an inner contour filled on its own is just another solid polygon in the
+    /// same color. This asserts the centre of a square-with-a-square-hole stays
+    /// background-colored while the ring around it is painted.
+    #[test]
+    fn nested_contours_render_as_a_hole() {
+        use kuva::render::color::Color;
+        use kuva::render::render::{PathData, Primitive, Scene};
+
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.background_color = Some("white".to_string());
+        // Outer square 10..90 clockwise; inner square 40..60 counter-clockwise.
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: "M10 10 L90 10 L90 90 L10 90 Z M40 40 L40 60 L60 60 L60 40 Z".to_string(),
+            fill: Some(Color::from("#000000")),
+            stroke: Color::from("none"),
+            stroke_width: 0.0,
+            opacity: None,
+            stroke_dasharray: None,
+        })));
+
+        let png = kuva::RasterBackend::new().render_scene(&scene).unwrap();
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        // Sample in scene-relative terms so the backend's scale factor
+        // doesn't matter: the scene is 100×100 units.
+        let (w, h) = (img.width() as f32, img.height() as f32);
+        let at =
+            |sx: f32, sy: f32| *img.get_pixel(((sx / 100.0) * w) as u32, ((sy / 100.0) * h) as u32);
+
+        // Centre of the hole should be background, not fill.
+        let hole = at(50.0, 50.0);
+        assert!(
+            hole[0] > 200 && hole[1] > 200 && hole[2] > 200,
+            "inner contour should be a hole, got {hole:?}"
+        );
+        // A point in the ring between the two squares must be filled.
+        let ring = at(20.0, 50.0);
+        assert!(
+            ring[0] < 50 && ring[1] < 50 && ring[2] < 50,
+            "ring should be filled, got {ring:?}"
+        );
+    }
 }

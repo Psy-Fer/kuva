@@ -165,11 +165,18 @@ impl PdfBackend {
     }
 
     /// Build the font database used to parse kuva SVGs into `usvg` trees. Loads
-    /// the bundled DejaVu variants (so text metrics match kuva's layout) plus
-    /// any system fonts, and maps the generic `monospace` family to the bundled
+    /// the fonts registered with `kuva::fonts` (feature `custom_fonts`), then the
+    /// bundled DejaVu variants (so text metrics match kuva's layout), then any
+    /// system fonts, and maps the generic `monospace` family to the bundled
     /// DejaVu Sans Mono so it renders the same on every system.
-    fn fontdb() -> Arc<usvg::fontdb::Database> {
+    ///
+    /// Order matters: fontdb breaks ties between equally good faces by load
+    /// order, so a registered family wins over a system font of the same name,
+    /// and the PDF draws the face layout measured.
+    pub(crate) fn fontdb() -> Arc<usvg::fontdb::Database> {
         let mut db = usvg::fontdb::Database::new();
+        #[cfg(feature = "custom_fonts")]
+        load_registered_fonts(&mut db);
         db.load_font_data(crate::fonts::dejavu_sans().to_vec());
         db.load_font_data(crate::fonts::dejavu_sans_bold().to_vec());
         db.load_font_data(crate::fonts::dejavu_sans_oblique().to_vec());
@@ -180,6 +187,35 @@ impl PdfBackend {
     }
 }
 
+/// Font data shared with the registry, viewed as bytes for fontdb (which needs a
+/// sized `AsRef<[u8]>` behind its `Arc`).
+#[cfg(feature = "custom_fonts")]
+struct SharedFontData(Arc<[u8]>);
+
+#[cfg(feature = "custom_fonts")]
+impl AsRef<[u8]> for SharedFontData {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Load every registered face. fontdb loads all faces of a collection, so faces
+/// the registry no longer holds (replaced by a later registration) are removed.
+#[cfg(feature = "custom_fonts")]
+fn load_registered_fonts(db: &mut usvg::fontdb::Database) {
+    for (bytes, indices) in crate::fonts::registered_sources() {
+        let source = usvg::fontdb::Source::Binary(Arc::new(SharedFontData(bytes)));
+        for id in db.load_font_source(source) {
+            let keep = db
+                .face(id)
+                .is_some_and(|face| indices.contains(&face.index));
+            if !keep {
+                db.remove_face(id);
+            }
+        }
+    }
+}
+
 /// A minimal one-rect SVG covering `w`×`h`, filled with `scene`'s background
 /// color (or white if unset) — the letterbox fill for `PageSize::Fixed`.
 fn background_svg(w: f64, h: f64, scene: &Scene) -> String {
@@ -187,4 +223,29 @@ fn background_svg(w: f64, h: f64, scene: &Scene) -> String {
     format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"><rect width="100%" height="100%" fill="{color}"/></svg>"#
     )
+}
+
+#[cfg(all(test, feature = "custom_fonts"))]
+mod font_tests {
+    use super::*;
+
+    #[test]
+    fn registered_fonts_come_first_in_the_font_database() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/data/fonts/DejaVuSerif.ttf"
+        );
+        crate::fonts::register_font_file(path).unwrap();
+        let db = PdfBackend::fontdb();
+        // The first DejaVu Serif face fontdb sees is the registered one (in-memory
+        // data), ahead of any system-installed copy, so ties resolve to it.
+        let first = db
+            .faces()
+            .find(|f| f.families.iter().any(|(name, _)| name == "DejaVu Serif"))
+            .expect("registered family is in the database");
+        assert!(
+            matches!(first.source, usvg::fontdb::Source::Binary(_)),
+            "first DejaVu Serif face should be the registered data"
+        );
+    }
 }

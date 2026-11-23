@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OutputFormat {
     Svg,
+    Svgz,
+    Html,
     Png,
     Pdf,
 }
@@ -20,6 +22,8 @@ impl OutputFormat {
 
         match extension.to_ascii_lowercase().as_str() {
             "svg" => Ok(Self::Svg),
+            "svgz" => Ok(Self::Svgz),
+            "html" | "htm" => Ok(Self::Html),
             "png" => Ok(Self::Png),
             "pdf" => Ok(Self::Pdf),
             _ => Err(unsupported_output_path(path)),
@@ -29,7 +33,7 @@ impl OutputFormat {
 
 fn unsupported_output_path(path: &Path) -> String {
     format!(
-        "unsupported output path '{}': expected an extension of .svg, .png, or .pdf",
+        "unsupported output path '{}': expected an extension of .svg, .svgz, .html, .png, or .pdf",
         path.display()
     )
 }
@@ -69,7 +73,9 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
         return Ok(());
     }
 
-    let svg_backend = SvgBackend::new().with_embedded_font(args.embed_font);
+    let svg_backend = SvgBackend::new()
+        .with_embedded_font(args.embed_font)
+        .with_rect_batching(!args.no_rect_batching);
 
     match &args.output {
         None => {
@@ -79,6 +85,35 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
         Some(path) => match OutputFormat::from_path(path)? {
             OutputFormat::Svg => {
                 fs::write(path, svg_backend.render_scene(&scene)).map_err(|e| e.to_string())
+            }
+            OutputFormat::Svgz => {
+                #[cfg(feature = "svgz")]
+                {
+                    fs::write(path, svg_backend.render_scene_svgz(&scene))
+                        .map_err(|e| e.to_string())
+                }
+                #[cfg(not(feature = "svgz"))]
+                Err(svgz_feature_missing(".svgz"))
+            }
+            OutputFormat::Html => {
+                #[cfg(feature = "svgz")]
+                {
+                    // One self-contained page holding the gzipped figure; it opens from disk in
+                    // any current browser. Named after the file, titled by --title if given.
+                    let name = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("figure");
+                    let title = args.title.as_deref().unwrap_or(name);
+                    let page = kuva::html::standalone_page(
+                        title,
+                        &svg_backend.render_scene_svgz(&scene),
+                        name,
+                    );
+                    fs::write(path, page).map_err(|e| e.to_string())
+                }
+                #[cfg(not(feature = "svgz"))]
+                Err(svgz_feature_missing(".html"))
             }
             OutputFormat::Png => {
                 #[cfg(feature = "png")]
@@ -106,6 +141,14 @@ pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
     }
 }
 
+#[cfg(not(feature = "svgz"))]
+fn svgz_feature_missing(ext: &str) -> String {
+    format!(
+        "{ext} output requires the 'svgz' feature. \
+         Rebuild with: cargo build --bin kuva --features cli,svgz"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::OutputFormat;
@@ -116,6 +159,10 @@ mod tests {
         let cases = [
             ("plot.svg", OutputFormat::Svg),
             ("plot.SvG", OutputFormat::Svg),
+            ("plot.svgz", OutputFormat::Svgz),
+            ("plot.SVGZ", OutputFormat::Svgz),
+            ("plot.html", OutputFormat::Html),
+            ("plot.htm", OutputFormat::Html),
             ("plot.png", OutputFormat::Png),
             ("plot.PnG", OutputFormat::Png),
             ("plot.pdf", OutputFormat::Pdf),
@@ -132,6 +179,8 @@ mod tests {
         for path in ["plot", "plot.", "plot.txt", ".svg"] {
             let error = OutputFormat::from_path(Path::new(path)).unwrap_err();
             assert!(error.contains(".svg"), "unexpected error: {error}");
+            assert!(error.contains(".svgz"), "unexpected error: {error}");
+            assert!(error.contains(".html"), "unexpected error: {error}");
             assert!(error.contains(".png"), "unexpected error: {error}");
             assert!(error.contains(".pdf"), "unexpected error: {error}");
         }

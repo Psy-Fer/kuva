@@ -19,7 +19,10 @@ pub enum SankeyNodeOrder {
     /// Reduce weighted link crossings using a wompwomp-style TSP cycle and
     /// Fenwick-scored objective evaluation.
     CrossingReduction,
-    /// Use wompwomp's neighbornet backend for node/column cycle generation.
+    /// Same as [`CrossingReduction`](Self::CrossingReduction). Kept so existing code and CLI
+    /// commands still work. It used to try an external Python NeighborNet backend; that was
+    /// removed because running a program while rendering was unsafe (a module planted in the
+    /// working directory could run as the user). Ordering is always done in Rust.
     Neighbornet,
 }
 
@@ -319,7 +322,8 @@ impl SankeyPlot {
         self
     }
 
-    /// Use the neighbornet backend for alluvium/Sankey ordering.
+    /// Same as [`with_crossing_reduction`](Self::with_crossing_reduction); see
+    /// [`SankeyNodeOrder::Neighbornet`].
     pub fn with_neighbornet(mut self) -> Self {
         self.node_order = SankeyNodeOrder::Neighbornet;
         self

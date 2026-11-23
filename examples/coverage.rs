@@ -12,13 +12,14 @@
 
 use kuva::backend::svg::SvgBackend;
 use kuva::render::coverage::CoveragePlot;
-use kuva::render::track_stack::Interval;
+use kuva::render::track_stack::{Interval, Strand};
 
 const OUT: &str = "docs/src/assets/coverage";
 
 fn main() {
     std::fs::create_dir_all(OUT).expect("could not create docs/src/assets/coverage");
     basic();
+    strands();
     covarplot(false);
     covarplot(true);
 }
@@ -57,6 +58,44 @@ fn basic() {
 
     let svg = SvgBackend::new().render_scene(&scene);
     std::fs::write(format!("{OUT}/basic.svg"), svg).unwrap();
+}
+
+/// Gene direction (#126): stranded regions draw as arrows (matches the "Gene direction" doc snippet).
+fn strands() {
+    let depth: Vec<(f64, f64)> = (0..=200)
+        .map(|i| {
+            let x = 1_000_000.0 + i as f64 / 200.0 * 40_000.0;
+            let d = ((x / 2500.0).sin().abs() + 0.3 * (x / 900.0).cos().abs()) * 300.0 + 15.0;
+            (x, d)
+        })
+        .collect();
+
+    let genes = vec![
+        Interval::new(1_001_500.0, 1_009_000.0)
+            .with_label("GENE1")
+            .with_strand(Strand::Forward),
+        Interval::new(1_010_500.0, 1_018_500.0)
+            .with_label("GENE2")
+            .with_strand(Strand::Reverse),
+        Interval::new(1_017_000.0, 1_021_000.0)
+            .with_label("GENE3")
+            .with_strand(Strand::Forward),
+        Interval::new(1_023_000.0, 1_031_500.0)
+            .with_label("GENE4")
+            .with_strand(Strand::Reverse),
+        Interval::new(1_034_500.0, 1_039_000.0).with_label("lncRNA"),
+    ];
+
+    let scene = CoveragePlot::new()
+        .with_title("Gene direction")
+        .with_locus(1_000_000.0, 1_040_000.0)
+        .with_sample("tumour", depth)
+        .with_regions(genes)
+        .with_x_label("chr7 position")
+        .render_sized(820.0, 280.0);
+
+    let svg = SvgBackend::new().render_scene(&scene);
+    std::fs::write(format!("{OUT}/strands.svg"), svg).unwrap();
 }
 
 /// The real ARTIC SARS-CoV-2 figure, stacked or overlaid, from the CoVarPlot example data.
@@ -115,7 +154,11 @@ fn covarplot(overlaid: bool) {
         if f.len() < 3 {
             continue;
         }
-        genes.push(Interval::new(f[0].parse().unwrap(), f[1].parse().unwrap()).with_label(f[2]));
+        let mut gene = Interval::new(f[0].parse().unwrap(), f[1].parse().unwrap()).with_label(f[2]);
+        if let Some(Some(strand)) = f.get(3).map(|t| Strand::parse(t).unwrap()) {
+            gene = gene.with_strand(strand);
+        }
+        genes.push(gene);
     }
     cov = cov.with_regions(genes);
 

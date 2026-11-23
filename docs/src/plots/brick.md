@@ -446,6 +446,19 @@ reference, so they appear as a zero-width caret at the junction rather than
 opening a gap in the row: a contraction relative to the reference is often the
 most informative thing on an STR plot, and gaps would break the brick grid.
 
+### Deletion lengths
+
+Each deletion caret is labelled with the number of deleted reference bases,
+such as `65D`, in small text in the deletion colour just above the caret. The
+labels sit in a band reserved above the bar, so they never reach into the row
+above; only bars that have a deletion get the band.
+
+When two deletions are too close for both labels, the labels are spread apart,
+each moving as little as possible. If even that would move them too far from
+their carets, the smallest deletions lose their labels first. Rows too short
+for a legible label (under about 9 px) get no labels. Turn them off with
+`with_cigar_deletion_labels(false)`.
+
 ### Deduplication and run brackets
 
 Consecutive rows sharing a CIGAR draw a single bar, bracketed in the gutter

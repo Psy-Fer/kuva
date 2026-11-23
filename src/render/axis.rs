@@ -1,3 +1,4 @@
+use crate::plot::axis_break::AxisBreak;
 use crate::render::color::Color;
 use crate::render::datetime::DateTimeAxis;
 use crate::render::layout::{
@@ -6,9 +7,7 @@ use crate::render::layout::{
 };
 use crate::render::render::{Primitive, Scene, TextAnchor};
 use crate::render::render_utils::{self, escape_attr};
-use crate::render::text_metrics::{
-    ascent, center_offset, line_height, measure_text_width, FontStyle,
-};
+use crate::render::text_metrics::{FontSet, FontStyle};
 
 /// Opens a group that applies the tick-label font family, when one is set, to
 /// the tick labels drawn before the matching [`end_tick_font`].
@@ -31,6 +30,23 @@ pub(crate) fn start_tick_font_family(scene: &mut Scene, family: Option<&str>) {
             extra_attrs: Some(format!(r#"font-family="{}""#, escape_attr(family))),
         });
     }
+}
+
+/// The tick family a group opened by [`start_tick_font_family`] sets on its text
+/// (its `font-family` attribute, unescaped), for backends that draw or embed
+/// fonts themselves.
+#[cfg_attr(not(any(feature = "png", feature = "custom_fonts")), allow(dead_code))]
+pub(crate) fn tick_group_family(extra_attrs: Option<&str>) -> Option<String> {
+    let attrs = extra_attrs?;
+    let start = attrs.find("font-family=\"")? + "font-family=\"".len();
+    let len = attrs[start..].find('"')?;
+    let value = attrs[start..start + len]
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    Some(value)
 }
 
 /// Closes the group opened by [`start_tick_font_family`].
@@ -142,6 +158,8 @@ pub(crate) struct XLabelPlacer {
     /// monospace tick family must be measured as one or labels are thinned
     /// against widths they do not have.
     style: FontStyle,
+    /// The layout's fonts, which `style` is looked up in.
+    fonts: FontSet,
     rotate: Option<f64>,
     last_right: f64,
     row_right: [f64; 2],
@@ -152,12 +170,14 @@ impl XLabelPlacer {
         strategy: AxisLabelOverlap,
         tick_size: f64,
         style: FontStyle,
+        fonts: &FontSet,
         rotate: Option<f64>,
     ) -> Self {
         Self {
             strategy,
             tick_size,
             style,
+            fonts: fonts.clone(),
             rotate,
             last_right: f64::NEG_INFINITY,
             row_right: [f64::NEG_INFINITY; 2],
@@ -165,7 +185,9 @@ impl XLabelPlacer {
     }
 
     fn footprint(&self, x: f64, label: &str, anchor: &TextAnchor) -> (f64, f64) {
-        let text_w = measure_text_width(label, self.tick_size, self.style);
+        let text_w = self
+            .fonts
+            .measure_text_width(label, self.tick_size, self.style);
         let h_extent = match self.rotate {
             Some(angle) => text_w * angle.to_radians().cos().abs(),
             None => text_w,
@@ -195,7 +217,7 @@ impl XLabelPlacer {
                 let (left, right) = self.footprint(x, label, anchor);
                 // Second row sits one real line height below the first; layout.rs
                 // reserves the same so the lower row never clips the axis title.
-                let row_h = line_height(self.tick_size, FontStyle::Regular);
+                let row_h = self.fonts.line_height(self.tick_size, FontStyle::Regular);
                 for row in 0..2usize {
                     if left >= self.row_right[row] + GAP {
                         self.row_right[row] = right;
@@ -362,16 +384,67 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         layout.log_y,
         computed.y_ticks,
     );
+    // A broken axis gets its own ticks per segment (so a short segment is
+    // not left with a single tick), or just drops the ticks inside the gap
+    // when the ticks came from an explicit step, a calendar or a log rule.
+    let (mut x_ticks, x_spacing, x_broken) = break_ticks(
+        x_ticks,
+        x_spacing,
+        computed.x_break,
+        computed.x_range,
+        computed.x_tick_step.is_none()
+            && computed.x_bin_width.is_none()
+            && layout.x_datetime.is_none()
+            && !layout.log_x,
+        computed.x_ticks,
+    );
+    let (mut y_ticks, y_spacing, y_broken) = break_ticks(
+        y_ticks,
+        y_spacing,
+        computed.y_break,
+        computed.y_range,
+        computed.y_tick_step.is_none() && layout.y_datetime.is_none() && !layout.log_y,
+        computed.y_ticks,
+    );
+    // A tick label right at a gap edge would sit under the break mark.
+    let edge_px = computed.tick_size as f64 * 0.6;
+    if let Some(b) = computed.x_break_px {
+        x_ticks.retain(|t| {
+            let px = map_x(*t);
+            (px - b.lo_px).abs() > edge_px && (px - b.hi_px).abs() > edge_px
+        });
+    }
+    if let Some(b) = computed.y_break_px {
+        y_ticks.retain(|t| {
+            let py = map_y(*t);
+            (py - b.lo_px).abs() > edge_px && (py - b.hi_px).abs() > edge_px
+        });
+    }
 
     // Generate minors as if one more major existed just beyond each end so the
     // bands past the outer majors get filled, then drop any that fall outside the
     // axis range. The filtered lists feed both the gridlines and the tick marks.
-    let x_minor = computed
-        .minor_ticks
-        .map(|n| compute_minor_ticks(&x_ticks, &x_spacing, computed.x_range, n));
-    let y_minor = computed
-        .minor_ticks
-        .map(|n| compute_minor_ticks(&y_ticks, &y_spacing, computed.y_range, n));
+    // On a broken axis each segment extrapolates with its own step.
+    let x_minor = computed.minor_ticks.map(|n| {
+        minor_ticks_for(
+            &x_ticks,
+            &x_spacing,
+            x_broken.as_ref(),
+            computed.x_break,
+            computed.x_range,
+            n,
+        )
+    });
+    let y_minor = computed.minor_ticks.map(|n| {
+        minor_ticks_for(
+            &y_ticks,
+            &y_spacing,
+            y_broken.as_ref(),
+            computed.y_break,
+            computed.y_range,
+            n,
+        )
+    });
 
     // Draw minor gridlines (before major so major renders on top)
     if computed.show_minor_grid && layout.x_categories.is_none() {
@@ -459,27 +532,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     }
 
     // Draw axes on top of grid lines so grid never bleeds over the axis borders.
-    // X axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.height - computed.margin_bottom,
-        x2: computed.width - computed.margin_right,
-        y2: computed.height - computed.margin_bottom,
-        stroke: Color::from(&theme.axis_color),
-        stroke_width: computed.axis_line_width,
-        stroke_dasharray: None,
-    });
-
-    // Y axis
-    scene.add(Primitive::Line {
-        x1: computed.margin_left,
-        y1: computed.margin_top,
-        x2: computed.margin_left,
-        y2: computed.height - computed.margin_bottom,
-        stroke: Color::from(&theme.axis_color),
-        stroke_width: computed.axis_line_width,
-        stroke_dasharray: None,
-    });
+    // A broken axis is drawn in two segments with slanted marks at the gap.
+    add_x_axis_line(scene, computed, computed.height - computed.margin_bottom);
+    add_y_axis_line(scene, computed, computed.margin_left);
 
     // Draw tick marks and labels
     start_tick_font(scene, computed);
@@ -497,7 +552,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y_pos + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y_pos
+                        + computed
+                            .fonts
+                            .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label.clone(),
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -515,7 +573,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
-                    computed.tick_font_style(),
+                    FontStyle::Tick,
+                    &computed.fonts,
                     layout.x_tick_rotate,
                 );
                 for (i, label) in x_cats.iter().enumerate() {
@@ -528,7 +587,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     };
                     let base_y = computed.height - computed.margin_bottom
                         + computed.tick_mark_major
-                        + ascent(computed.tick_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .ascent(computed.tick_size as f64, FontStyle::Regular);
                     if let Some(y_off) = placer.place(x_pos, label, &anchor) {
                         scene.add(Primitive::Text {
                             x: x_pos,
@@ -548,7 +609,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 let mut placer = XLabelPlacer::new(
                     computed.x_label_overlap.clone(),
                     computed.tick_size as f64,
-                    computed.tick_font_style(),
+                    FontStyle::Tick,
+                    &computed.fonts,
                     layout.x_tick_rotate,
                 );
                 for tx in x_ticks.iter() {
@@ -569,7 +631,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     };
                     let base_y = computed.height - computed.margin_bottom
                         + computed.tick_mark_major
-                        + ascent(computed.tick_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .ascent(computed.tick_size as f64, FontStyle::Regular);
                     if let Some(y_off) = placer.place(x, &label, &anchor) {
                         scene.add(Primitive::Text {
                             x,
@@ -590,7 +654,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
-                computed.tick_font_style(),
+                FontStyle::Tick,
+                &computed.fonts,
                 layout.x_tick_rotate,
             );
             for (i, label) in categories.iter().enumerate() {
@@ -603,7 +668,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 let base_y = computed.height - computed.margin_bottom
                     + computed.tick_mark_major
-                    + ascent(computed.tick_size as f64, FontStyle::Regular);
+                    + computed
+                        .fonts
+                        .ascent(computed.tick_size as f64, FontStyle::Regular);
                 if let Some(y_off) = placer.place(x_pos, label, &anchor) {
                     scene.add(Primitive::Text {
                         x: x_pos,
@@ -635,7 +702,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y + computed
+                        .fonts
+                        .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label,
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -652,7 +721,8 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             let mut placer = XLabelPlacer::new(
                 computed.x_label_overlap.clone(),
                 computed.tick_size as f64,
-                computed.tick_font_style(),
+                FontStyle::Tick,
+                &computed.fonts,
                 layout.x_tick_rotate,
             );
             for tx in x_ticks.iter() {
@@ -674,7 +744,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 let base_y = computed.height - computed.margin_bottom
                     + computed.tick_mark_major
-                    + ascent(computed.tick_size as f64, FontStyle::Regular);
+                    + computed
+                        .fonts
+                        .ascent(computed.tick_size as f64, FontStyle::Regular);
                 if let Some(y_off) = placer.place(x, &label, &anchor) {
                     scene.add(Primitive::Text {
                         x,
@@ -705,7 +777,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
-                    y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+                    y: y + computed
+                        .fonts
+                        .center_offset(computed.tick_size as f64, FontStyle::Regular),
                     content: label,
                     size: computed.tick_size,
                     anchor: TextAnchor::End,
@@ -738,28 +812,213 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
 
     if layout.axis_line == AxisLine::Box || layout.tick_pos == TickPos::Both {
         // Top axis
-        scene.add(Primitive::Line {
-            x1: computed.margin_left,
-            y1: computed.margin_top,
-            x2: computed.width - computed.margin_right,
-            y2: computed.margin_top,
-            stroke: Color::from(&theme.axis_color),
-            stroke_width: computed.axis_line_width,
-            stroke_dasharray: None,
-        });
+        add_x_axis_line(scene, computed, computed.margin_top);
 
         // Right axis (drawn here only if y2 axis is NOT present)
         if layout.y2_range.is_none() {
-            scene.add(Primitive::Line {
-                x1: computed.width - computed.margin_right,
-                y1: computed.margin_top,
-                x2: computed.width - computed.margin_right,
-                y2: computed.height - computed.margin_bottom,
-                stroke: Color::from(&theme.axis_color),
-                stroke_width: computed.axis_line_width,
-                stroke_dasharray: None,
-            });
+            add_y_axis_line(scene, computed, computed.width - computed.margin_right);
         }
+    }
+}
+
+/// Per-segment tick data for a broken axis with automatic ticks, kept so
+/// minor ticks can extrapolate each segment with its own step.
+struct BrokenTicks {
+    lower: Vec<f64>,
+    lower_step: f64,
+    upper: Vec<f64>,
+    upper_step: f64,
+}
+
+/// Ticks for a possibly broken axis. With `auto` ticks each segment gets its
+/// own clean step, budgeted by its pixel share (at least two ticks each);
+/// otherwise the given ticks are kept minus those inside the gap.
+fn break_ticks<'a>(
+    ticks: Vec<f64>,
+    spacing: TickSpacing<'a>,
+    brk: Option<AxisBreak>,
+    range: (f64, f64),
+    auto: bool,
+    target: usize,
+) -> (Vec<f64>, TickSpacing<'a>, Option<BrokenTicks>) {
+    let Some(b) = brk else {
+        return (ticks, spacing, None);
+    };
+    if !auto {
+        return (
+            ticks.into_iter().filter(|t| !b.contains(*t)).collect(),
+            spacing,
+            None,
+        );
+    }
+    let before = b.share_before(range);
+    let budget = |frac: f64| ((target as f64 * frac).round() as usize).max(2);
+    let (n_lo, n_hi) = (budget(before), budget(1.0 - before));
+    let lower = render_utils::generate_ticks(range.0, b.lo, n_lo);
+    let upper = render_utils::generate_ticks(b.hi, range.1, n_hi);
+    let lower_step = arithmetic_step(&lower, || {
+        render_utils::compute_tick_step(range.0, b.lo, n_lo)
+    });
+    let upper_step = arithmetic_step(&upper, || {
+        render_utils::compute_tick_step(b.hi, range.1, n_hi)
+    });
+    let mut all = lower.clone();
+    all.extend(upper.iter().copied());
+    all.retain(|t| !b.contains(*t));
+    (
+        all,
+        TickSpacing::Arithmetic(lower_step),
+        Some(BrokenTicks {
+            lower,
+            lower_step,
+            upper,
+            upper_step,
+        }),
+    )
+}
+
+/// Minor ticks for an axis that may be broken: per segment with that
+/// segment's own step when the majors were generated per segment, otherwise
+/// over the whole range minus the gap.
+fn minor_ticks_for(
+    ticks: &[f64],
+    spacing: &TickSpacing,
+    broken: Option<&BrokenTicks>,
+    brk: Option<AxisBreak>,
+    range: (f64, f64),
+    n: u32,
+) -> Vec<f64> {
+    match (broken, brk) {
+        (Some(bt), Some(b)) => {
+            let mut m = compute_minor_ticks(
+                &bt.lower,
+                &TickSpacing::Arithmetic(bt.lower_step),
+                (range.0, b.lo),
+                n,
+            );
+            m.extend(compute_minor_ticks(
+                &bt.upper,
+                &TickSpacing::Arithmetic(bt.upper_step),
+                (b.hi, range.1),
+                n,
+            ));
+            m
+        }
+        (None, Some(b)) => {
+            let mut m = compute_minor_ticks(ticks, spacing, range, n);
+            m.retain(|t| !b.contains(*t));
+            m
+        }
+        (_, None) => compute_minor_ticks(ticks, spacing, range, n),
+    }
+}
+
+fn axis_segment(scene: &mut Scene, computed: &ComputedLayout, x1: f64, y1: f64, x2: f64, y2: f64) {
+    scene.add(Primitive::Line {
+        x1,
+        y1,
+        x2,
+        y2,
+        stroke: Color::from(&computed.theme.axis_color),
+        stroke_width: computed.axis_line_width,
+        stroke_dasharray: None,
+    });
+}
+
+/// Slanted break mark across an axis line at one gap edge: a short `/`
+/// centred on the line, the usual broken-axis glyph.
+fn break_mark(scene: &mut Scene, computed: &ComputedLayout, x: f64, y: f64, vertical_axis: bool) {
+    let m = computed.tick_mark_major.max(4.0);
+    let (x1, y1, x2, y2) = if vertical_axis {
+        (x - m, y + m * 0.5, x + m, y - m * 0.5)
+    } else {
+        (x - m * 0.5, y + m, x + m * 0.5, y - m)
+    };
+    scene.add(Primitive::Line {
+        x1,
+        y1,
+        x2,
+        y2,
+        stroke: Color::from(&computed.theme.axis_color),
+        stroke_width: computed.axis_line_width,
+        stroke_dasharray: None,
+    });
+}
+
+/// Horizontal axis line at pixel `y`, split around an x break.
+fn add_x_axis_line(scene: &mut Scene, computed: &ComputedLayout, y: f64) {
+    let (left, right) = (computed.margin_left, computed.width - computed.margin_right);
+    match computed.x_break_px {
+        Some(b) => {
+            axis_segment(scene, computed, left, y, b.lo_px, y);
+            axis_segment(scene, computed, b.hi_px, y, right, y);
+            if computed.x_break.is_some_and(|xb| xb.marks) {
+                break_mark(scene, computed, b.lo_px, y, false);
+                break_mark(scene, computed, b.hi_px, y, false);
+            }
+        }
+        None => axis_segment(scene, computed, left, y, right, y),
+    }
+}
+
+/// Vertical axis line at pixel `x`, split around a y break.
+fn add_y_axis_line(scene: &mut Scene, computed: &ComputedLayout, x: f64) {
+    let (top, bottom) = (
+        computed.margin_top,
+        computed.height - computed.margin_bottom,
+    );
+    match computed.y_break_px {
+        Some(b) => {
+            axis_segment(scene, computed, x, bottom, x, b.lo_px);
+            axis_segment(scene, computed, x, b.hi_px, x, top);
+            if computed.y_break.is_some_and(|yb| yb.marks) {
+                break_mark(scene, computed, x, b.lo_px, true);
+                break_mark(scene, computed, x, b.hi_px, true);
+            }
+        }
+        None => axis_segment(scene, computed, x, top, x, bottom),
+    }
+}
+
+/// Hide whatever crosses an axis gap: a band in the canvas background colour
+/// over the plot area between the gap edges, drawn after the data and
+/// annotations. On a transparent canvas (`background_color == None`) there
+/// is nothing to paint with, so the gap is left unmasked.
+pub fn add_axis_break_cover(scene: &mut Scene, computed: &ComputedLayout) {
+    if computed.x_break_px.is_none() && computed.y_break_px.is_none() {
+        return;
+    }
+    let Some(fill) = scene.background_color.clone() else {
+        return;
+    };
+    let (left, right) = (computed.margin_left, computed.width - computed.margin_right);
+    let (top, bottom) = (
+        computed.margin_top,
+        computed.height - computed.margin_bottom,
+    );
+    if let Some(b) = computed.y_break_px {
+        scene.add(Primitive::Rect {
+            x: left,
+            y: b.hi_px,
+            width: right - left,
+            height: b.lo_px - b.hi_px,
+            fill: Color::from(&fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
+    }
+    if let Some(b) = computed.x_break_px {
+        scene.add(Primitive::Rect {
+            x: b.lo_px,
+            y: top,
+            width: b.hi_px - b.lo_px,
+            height: bottom - top,
+            fill: Color::from(&fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        });
     }
 }
 
@@ -821,7 +1080,9 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         };
         scene.add(Primitive::Text {
             x: axis_x + computed.tick_label_margin,
-            y: y + center_offset(computed.tick_size as f64, FontStyle::Regular),
+            y: y + computed
+                .fonts
+                .center_offset(computed.tick_size as f64, FontStyle::Regular),
             content: label,
             size: computed.tick_size,
             anchor: TextAnchor::Start,
@@ -835,7 +1096,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     if let Some(ref label) = layout.y2_label {
         let lines = render_utils::wrap_or_single(label, computed.y2_label_wrap);
         let ls = computed.label_size as f64;
-        let lh = line_height(ls, FontStyle::Regular);
+        let lh = computed.fonts.line_height(ls, FontStyle::Regular);
         let (dx, dy) = layout.y2_label_offset;
         // Base x for the rightmost (first) line; additional lines shift left.
         let base_x = axis_x + computed.y2_axis_width - ls * 0.5 + dx;
@@ -931,7 +1192,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
     if let Some(ref label) = layout.x2_label {
         let lines = render_utils::wrap_or_single(label, computed.x2_label_wrap);
         let ls = computed.label_size as f64;
-        let lh = line_height(ls, FontStyle::Regular);
+        let lh = computed.fonts.line_height(ls, FontStyle::Regular);
         let (dx, dy) = layout.x2_label_offset;
         let base_x = computed.margin_left + computed.plot_width() / 2.0 + dx;
         let base_y = axis_y - computed.x2_axis_height + ls * 0.5 + dy;
@@ -953,7 +1214,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
 pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout) {
     let ls = computed.label_size as f64;
     // Real line height for stacking wrapped label lines (1.0em let them overlap).
-    let lh = line_height(ls, FontStyle::Regular);
+    let lh = computed.fonts.line_height(ls, FontStyle::Regular);
 
     // X-axis title. Drawn whenever an x_label is set, even when the numeric ticks are
     // suppressed — Manhattan draws its own chromosome labels but still wants the
@@ -1032,12 +1293,13 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         // Stack wrapped title lines by the real line height (was 1.0em, which let
         // adjacent lines' ascenders/descenders touch) and drop the first baseline by
         // the real ascent.
-        let tlh = line_height(ts, FontStyle::Regular);
+        let tlh = computed.fonts.line_height(ts, FontStyle::Regular);
         let total_height = lines.len() as f64 * tlh;
         let cx = computed.margin_left + computed.plot_width() / 2.0;
         // Use title_y (derived from base margin before notation tiers) so that
         // BrickPlot notation labels don't push the title into the annotation zone.
-        let start_y = computed.title_y - total_height / 2.0 + ascent(ts, FontStyle::Regular);
+        let start_y =
+            computed.title_y - total_height / 2.0 + computed.fonts.ascent(ts, FontStyle::Regular);
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
                 x: cx,
@@ -1060,16 +1322,18 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
         let lines = render_utils::wrap_or_single(subtitle, computed.subtitle_wrap);
         let ts = computed.title_size as f64;
         let sts = computed.subtitle_size as f64;
-        let slh = line_height(sts, FontStyle::Regular);
+        let slh = computed.fonts.line_height(sts, FontStyle::Regular);
         let cx = computed.margin_left + computed.plot_width() / 2.0;
         // The title occupies `title_lines · line_height(ts)` centred on `title_y`,
         // so its bottom edge is `title_y + that / 2`. Drop the first subtitle
         // baseline by its ascent so the line clears the title. `title_lines` is
         // computed once in `from_layout` and reused here to stay in lockstep with
         // the height it reserved.
-        let title_block_h = computed.title_lines as f64 * line_height(ts, FontStyle::Regular);
-        let start_y = computed.title_y + title_block_h / 2.0 + ascent(sts, FontStyle::Regular);
-        let color = muted_subtitle_color(scene);
+        let title_block_h =
+            computed.title_lines as f64 * computed.fonts.line_height(ts, FontStyle::Regular);
+        let start_y =
+            computed.title_y + title_block_h / 2.0 + computed.fonts.ascent(sts, FontStyle::Regular);
+        let color = muted_subtitle_color(scene, &computed.theme.background);
         for (i, line) in lines.iter().enumerate() {
             scene.add(Primitive::Text {
                 x: cx,
@@ -1086,25 +1350,23 @@ pub fn add_labels_and_title(scene: &mut Scene, computed: &ComputedLayout, layout
 }
 
 /// The subtitle colour: the effective title colour (the scene's text colour, or
-/// black) blended `SUBTITLE_MUTE` of the way toward the background (the scene's
-/// background, or white), so it reads as a muted version of the title in both
+/// black) blended `SUBTITLE_MUTE` of the way toward the theme background, so it reads as a muted version of the title in both
 /// light and dark themes rather than a fixed grey.
 ///
 /// Muting needs both colours as solid RGB. If either is a CSS colour kuva can't
 /// resolve (e.g. an `hsl()`/functional-notation theme), fall back to the title's
 /// own colour un-muted — correct hue and readable, just not dimmed — rather than
 /// fabricating a wrong grey.
-pub(crate) fn muted_subtitle_color(scene: &Scene) -> Color {
+///
+/// It deliberately ignores `scene.background_color`: a `Layout::with_background`
+/// override (including `"none"`, which clears it) must not change the subtitle colour.
+pub(crate) fn muted_subtitle_color(scene: &Scene, theme_background: &str) -> Color {
     let title_color = scene
         .text_color
         .as_deref()
         .map(Color::from)
         .unwrap_or(Color::Rgb(0, 0, 0));
-    let background = scene
-        .background_color
-        .as_deref()
-        .map(Color::from)
-        .unwrap_or(Color::Rgb(255, 255, 255));
+    let background = Color::from(theme_background);
     match (&title_color, &background) {
         (Color::Rgb(tr, tg, tb), Color::Rgb(br, bg, bb)) => {
             let mix = |from: u8, to: u8| {

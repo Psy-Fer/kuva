@@ -3,6 +3,7 @@ pub mod annotations;
 pub mod axis;
 pub mod brick_pop;
 pub mod bw;
+pub mod clustermap_legend;
 pub mod color;
 pub mod coverage;
 pub mod datetime;
@@ -10,6 +11,8 @@ pub mod figure;
 pub mod layout;
 // Always compiled: the lookup tier (`to_unicode`) is zero-dep and used by all
 // backends. The high-fidelity typst tier inside is `#[cfg(feature = "typst-math")]`.
+pub(crate) mod logo_glyphs;
+pub mod logo_render;
 pub mod math;
 pub mod palette;
 pub mod plots;

@@ -1,3 +1,7 @@
+// Lives in the plot layer (plot modules sort with it too, and plot must not
+// import from render); re-exported so render code can keep this path.
+pub(crate) use crate::plot::nan_cmp::NanCmp;
+
 /// XML/attribute-escape a data-derived string before it is interpolated into
 /// a raw SVG attribute string (e.g. `data-group="{value}"`).
 ///
@@ -590,7 +594,12 @@ pub fn auto_nice_range_capped(
 }
 
 /// Compute a nice log-scale range that fully includes the data.
-/// Rounds to powers of 10 so boundaries always align with generated ticks.
+///
+/// The bounds always land on a generated tick. A wide range (more than three decades, where only
+/// powers of ten are ticked) rounds out to powers of ten. A narrow range, which is ticked at
+/// `1, 2, 5 × 10^n`, rounds out only to the nearest of those ticks, so data just past a power of
+/// ten (say a maximum of `1.05`) gets an axis ending at `2`, not a whole extra decade at `10`
+/// (#136). The data is never snapped: every value stays inside the returned range.
 pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
     let clamped_max = if data_max <= 0.0 {
         eprintln!(
@@ -614,10 +623,88 @@ pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
 
     // Ensure at least one decade of range
     if (nice_max / nice_min - 1.0).abs() < 1e-8 {
-        (nice_min / 10.0, nice_max * 10.0)
-    } else {
-        (nice_min, nice_max)
+        return (nice_min / 10.0, nice_max * 10.0);
     }
+
+    // Narrow range: tighten each decade bound to the nearest 1-2-5 tick that still contains the
+    // data. Tightening can only shrink the decade span, so the axis keeps the 1-2-5 tick pattern.
+    let multipliers = log_multipliers(nice_min, nice_max);
+    if multipliers.len() > 1 {
+        let lo = log_tick_at_or_below(clamped_min, multipliers);
+        let hi = log_tick_at_or_above(clamped_max, multipliers);
+        if lo < hi {
+            return (lo, hi);
+        }
+    }
+    (nice_min, nice_max)
+}
+
+/// Re-widen auto-chosen log-axis bounds once the final range is known. [`auto_nice_range_log`]
+/// may tighten a narrow range to `1, 2, 5 × 10^n` ticks, but a later step can stretch the axis
+/// past three decades (room for significance brackets, or an explicit override on the other end),
+/// and such an axis is ticked at powers of ten only. A tightened bound would then sit between
+/// ticks, so each bound the caller marks as `auto` is widened out to its power of ten. Bounds
+/// that are explicit, or that the axis is still ticked at, are returned unchanged.
+pub(crate) fn widen_log_bounds_to_ticks(
+    (min, max): (f64, f64),
+    (auto_min, auto_max): (bool, bool),
+) -> (f64, f64) {
+    if min <= 0.0 || max <= min || log_multipliers(min, max).len() > 1 {
+        return (min, max);
+    }
+    let min = if auto_min {
+        10f64.powf(min.log10().floor())
+    } else {
+        min
+    };
+    let max = if auto_max {
+        10f64.powf(max.log10().ceil())
+    } else {
+        max
+    };
+    (min, max)
+}
+
+/// `mult × 10^exp`, computed by dividing for negative exponents so ticks like `0.2` or `0.05`
+/// come out as the same doubles as the literals (`0.1 * 5.0` is fine, but `0.01` from
+/// `10f64.powi(-2)` is not exactly `0.01`).
+fn log_tick_value(mult: f64, exp: i32) -> f64 {
+    if exp < 0 {
+        mult / 10f64.powi(-exp)
+    } else {
+        mult * 10f64.powi(exp)
+    }
+}
+
+/// The smallest tick in the `multipliers × 10^n` pattern that is `>= v`. Exact comparison, no
+/// tolerance: a value a hair past a tick moves on to the next one, so it is never left outside
+/// the axis.
+fn log_tick_at_or_above(v: f64, multipliers: &[f64]) -> f64 {
+    let exp = v.log10().floor() as i32;
+    for e in exp - 1..=exp + 1 {
+        for &mult in multipliers {
+            let candidate = log_tick_value(mult, e);
+            if candidate >= v {
+                return candidate;
+            }
+        }
+    }
+    log_tick_value(1.0, exp + 2)
+}
+
+/// The largest tick in the `multipliers × 10^n` pattern that is `<= v`. See
+/// [`log_tick_at_or_above`].
+fn log_tick_at_or_below(v: f64, multipliers: &[f64]) -> f64 {
+    let exp = v.log10().floor() as i32;
+    for e in (exp - 1..=exp + 1).rev() {
+        for &mult in multipliers.iter().rev() {
+            let candidate = log_tick_value(mult, e);
+            if candidate <= v {
+                return candidate;
+            }
+        }
+    }
+    log_tick_value(1.0, exp - 1)
 }
 
 /// Selects the log-tick multiplier set for a given axis span: `[1, 2, 5]` per
@@ -735,7 +822,7 @@ pub fn silverman_bandwidth(values: &[f64]) -> f64 {
     let std_dev = (values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt();
 
     let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| a.nan_cmp(b));
     let iqr = percentile(&sorted, 75.0) - percentile(&sorted, 25.0);
 
     let a = if iqr > 0.0 {
@@ -758,13 +845,12 @@ pub fn silverman_bandwidth(values: &[f64]) -> f64 {
 /// within 4*bandwidth contribute (Gaussian contribution beyond that is < 0.003%).
 /// This gives O(window × samples) instead of O(n × samples).
 pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
-    use std::cmp::Ordering;
     if values.is_empty() || samples == 0 {
         return Vec::new();
     }
 
     let mut sorted = values.to_vec();
-    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    sorted.sort_unstable_by(|a, b| a.nan_cmp(b));
 
     let lo = sorted[0] - 3.0 * bandwidth;
     let hi = sorted[sorted.len() - 1] + 3.0 * bandwidth;
@@ -813,7 +899,6 @@ pub fn simple_kde_reflect(
     reflect_lo: bool,
     reflect_hi: bool,
 ) -> Vec<(f64, f64)> {
-    use std::cmp::Ordering;
     if values.is_empty() || samples == 0 || lo >= hi {
         return Vec::new();
     }
@@ -829,7 +914,7 @@ pub fn simple_kde_reflect(
             aug.push(2.0 * hi - v);
         }
     }
-    aug.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    aug.sort_unstable_by(|a, b| a.nan_cmp(b));
 
     let step = (hi - lo) / (samples - 1).max(1) as f64;
     let cutoff = 4.0 * bandwidth;
@@ -1237,11 +1322,7 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
 
     let mut result = vec![0.0f64; n];
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        y_screen[a]
-            .partial_cmp(&y_screen[b])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| y_screen[a].nan_cmp(&y_screen[b]));
 
     let mut placed: Vec<(f64, f64)> = Vec::with_capacity(n);
     let min_dist_sq = (2.0 * point_r) * (2.0 * point_r);
@@ -1472,6 +1553,54 @@ pub fn linkage_to_nodes(
     (nodes, root)
 }
 
+// ── Legend columns ───────────────────────────────────────────────────────────
+
+/// Split a flat legend into columns, filled top to bottom and then left to right.
+///
+/// `lines[i]` is the number of text lines entry `i` occupies (a wrapped label
+/// takes more than one). A column holds at most `budget` lines; an entry taller
+/// than the budget gets a column to itself. When more than one column is needed
+/// the columns are balanced: the per-column cap is lowered to the smallest value
+/// that still needs no extra column, so the last column is not left nearly empty.
+///
+/// Returns one entry-index range per column. A list that fits returns a single
+/// range, so callers can treat `len() > 1` as "reflowed". Shared by the margin
+/// reservation (`ComputedLayout::from_layout`) and the legend renderer so the two
+/// always agree on the column count.
+pub(crate) fn legend_columns(lines: &[usize], budget: usize) -> Vec<std::ops::Range<usize>> {
+    fn greedy(lines: &[usize], cap: usize) -> Vec<std::ops::Range<usize>> {
+        let mut cols = Vec::new();
+        let (mut start, mut used) = (0, 0);
+        for (i, &l) in lines.iter().enumerate() {
+            if used > 0 && used + l > cap {
+                cols.push(start..i);
+                start = i;
+                used = 0;
+            }
+            used += l;
+        }
+        cols.push(start..lines.len());
+        cols
+    }
+    let budget = budget.max(1);
+    let base = greedy(lines, budget);
+    if base.len() <= 1 {
+        return base;
+    }
+    let k = base.len();
+    let total: usize = lines.iter().sum();
+    let tallest = lines.iter().copied().max().unwrap_or(1);
+    let mut cap = total.div_ceil(k).max(tallest);
+    while cap < budget {
+        let cols = greedy(lines, cap);
+        if cols.len() <= k {
+            return cols;
+        }
+        cap += 1;
+    }
+    base
+}
+
 // ── Text utilities ───────────────────────────────────────────────────────────
 
 /// Wrap `text` if `max_chars` is `Some`, otherwise return the text as a single-element vec.
@@ -1618,8 +1747,141 @@ pub fn probit(p: f64) -> f64 {
     }
 }
 
+/// Spread labels along one line so none overlap, moving each as little as possible.
+///
+/// `items` are `(ideal_centre, width)` pairs. Labels keep their left-to-right
+/// order and end at least `gap` apart, inside `[lo, hi]`. Labels that would
+/// overlap form a group, centred on the mean of its members' ideal positions
+/// (the least-squares placement), so close neighbours push apart symmetrically.
+/// Returns each label's centre and the index of the group it ended up in.
+///
+/// Runs in O(n log n): a group is a contiguous run of the x-sorted labels, so it
+/// only needs its range, total width and a running sum, and each merge is O(1).
+pub(crate) fn spread_labels(
+    items: &[(f64, f64)],
+    gap: f64,
+    lo: f64,
+    hi: f64,
+) -> (Vec<f64>, Vec<usize>) {
+    struct Group {
+        /// Index into `order` of the group's first label.
+        first: usize,
+        len: usize,
+        /// Sum over members of (ideal centre - centre relative to the group's
+        /// left edge): `sum / len` is the least-squares left edge.
+        sum: f64,
+        start: f64,
+        width: f64,
+    }
+    let place = |g: &mut Group| {
+        let ideal = g.sum / g.len as f64;
+        g.start = if g.width >= hi - lo {
+            lo + (hi - lo - g.width) / 2.0
+        } else {
+            ideal.clamp(lo, hi - g.width)
+        };
+    };
+
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|&a, &b| items[a].0.total_cmp(&items[b].0));
+    let mut groups: Vec<Group> = Vec::new();
+    for (pos, &idx) in order.iter().enumerate() {
+        let (x, w) = items[idx];
+        let mut g = Group {
+            first: pos,
+            len: 1,
+            sum: x - w / 2.0,
+            start: 0.0,
+            width: w,
+        };
+        place(&mut g);
+        groups.push(g);
+        while groups.len() >= 2 {
+            let last = groups.len() - 1;
+            let (prev, cur) = (&groups[last - 1], &groups[last]);
+            if prev.start + prev.width + gap <= cur.start {
+                break;
+            }
+            let cur = groups.pop().expect("two groups");
+            let prev = groups.last_mut().expect("two groups");
+            // Every member of `cur` now sits `shift` further from the left edge.
+            let shift = prev.width + gap;
+            prev.sum += cur.sum - cur.len as f64 * shift;
+            prev.len += cur.len;
+            prev.width += gap + cur.width;
+            place(prev);
+        }
+    }
+
+    let mut centres = vec![0.0; items.len()];
+    let mut group_of = vec![0; items.len()];
+    for (gi, g) in groups.iter().enumerate() {
+        let mut left = g.start;
+        for &m in &order[g.first..g.first + g.len] {
+            let w = items[m].1;
+            centres[m] = left + w / 2.0;
+            group_of[m] = gi;
+            left += w + gap;
+        }
+    }
+    (centres, group_of)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::spread_labels;
+
+    #[test]
+    fn spread_labels_leaves_separate_labels_alone() {
+        let (c, g) = spread_labels(&[(10.0, 6.0), (50.0, 6.0)], 2.0, 0.0, 100.0);
+        assert_eq!(c, vec![10.0, 50.0]);
+        assert_ne!(g[0], g[1]);
+    }
+
+    #[test]
+    fn spread_labels_pushes_close_labels_apart_symmetrically() {
+        // Ideal centres 2 apart, each 10 wide with a 2 px gap: they end 12 apart,
+        // centred on their mean.
+        let (c, g) = spread_labels(&[(52.0, 10.0), (50.0, 10.0)], 2.0, 0.0, 100.0);
+        assert!(
+            (c[1] - 45.0).abs() < 1e-9 && (c[0] - 57.0).abs() < 1e-9,
+            "{c:?}"
+        );
+        assert_eq!(g[0], g[1]);
+    }
+
+    #[test]
+    fn spread_labels_keeps_order_and_chains_groups() {
+        let (c, _) = spread_labels(&[(10.0, 8.0), (12.0, 8.0), (14.0, 8.0)], 1.0, -100.0, 100.0);
+        assert!(c[0] < c[1] && c[1] < c[2]);
+        assert!(c[1] - c[0] >= 9.0 - 1e-9 && c[2] - c[1] >= 9.0 - 1e-9);
+        assert!((c[1] - 12.0).abs() < 1e-9, "middle stays put: {c:?}");
+    }
+
+    #[test]
+    fn spread_labels_is_fast_and_centred_when_all_labels_collide() {
+        // Used to re-sum every member on each merge (quadratic). 200,000 labels
+        // at one point form one group centred on that point.
+        let n = 200_000;
+        let items = vec![(0.0, 1.0); n];
+        let start = std::time::Instant::now();
+        let (c, g) = spread_labels(&items, 1.0, -1e9, 1e9);
+        assert!(start.elapsed().as_secs() < 5, "took {:?}", start.elapsed());
+        assert!(g.iter().all(|&gi| gi == 0));
+        let mean = c.iter().sum::<f64>() / n as f64;
+        assert!(mean.abs() < 1e-3, "centred: {mean}");
+        assert!(c.windows(2).all(|w| (w[1] - w[0] - 2.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn spread_labels_stays_inside_the_bounds() {
+        let (c, _) = spread_labels(&[(1.0, 10.0), (99.0, 10.0)], 2.0, 0.0, 100.0);
+        assert!(
+            (c[0] - 5.0).abs() < 1e-9 && (c[1] - 95.0).abs() < 1e-9,
+            "{c:?}"
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -2123,6 +2385,75 @@ mod tests {
     // tick pair, which is wrong for the `[1,2,5]` per-decade pattern (ratios
     // alternate 2x/2.5x, not constant). `log_tick_after`/`log_tick_before`
     // must instead walk the actual pattern.
+
+    /// #136: data a hair past a power of ten must not add a whole decade to a narrow log axis.
+    #[test]
+    fn log_range_narrow_rounds_to_1_2_5_ticks() {
+        assert_eq!(auto_nice_range_log(0.1, 1.0), (0.1, 1.0));
+        assert_eq!(auto_nice_range_log(0.1, 1.0 + f64::EPSILON), (0.1, 2.0));
+        assert_eq!(auto_nice_range_log(0.1, 1.05), (0.1, 2.0));
+        assert_eq!(auto_nice_range_log(0.1, 3.0), (0.1, 5.0));
+        assert_eq!(auto_nice_range_log(0.1, 6.0), (0.1, 10.0));
+        assert_eq!(auto_nice_range_log(0.3, 40.0), (0.2, 50.0));
+        assert_eq!(auto_nice_range_log(0.012, 0.9), (0.01, 1.0));
+        assert_eq!(auto_nice_range_log(0.05, 0.2), (0.05, 0.2));
+        // A single value tightens to the ticks either side of it.
+        assert_eq!(auto_nice_range_log(3.0, 3.0), (2.0, 5.0));
+    }
+
+    /// Never snaps: the data always stays inside the range, including values one ulp past a tick.
+    #[test]
+    fn log_range_always_contains_the_data() {
+        for &(lo, hi) in &[
+            (0.1, 1.0 + f64::EPSILON),
+            (0.2 - 1e-17, 5.0 + 1e-15),
+            (0.013, 0.0499),
+            (1.5, 1.8),
+            (3.0, 4.0),
+            (7.0, 700.0),
+            (0.5, 2.0e6),
+        ] {
+            let (a, b) = auto_nice_range_log(lo, hi);
+            assert!(a <= lo && b >= hi, "({lo}, {hi}) -> ({a}, {b})");
+            // Both bounds sit on a tick the axis will actually draw.
+            let ticks = generate_ticks_log(a, b);
+            assert_eq!(ticks.first().copied(), Some(a), "({lo}, {hi})");
+            assert_eq!(ticks.last().copied(), Some(b), "({lo}, {hi})");
+        }
+    }
+
+    /// A tightened bound goes back to its power of ten once the final axis is too wide for 1-2-5
+    /// ticks; explicit bounds, and axes still ticked at 1-2-5, are left alone.
+    #[test]
+    fn widen_log_bounds_only_when_ticks_are_decades() {
+        // 20..20000 spans four decades: powers of ten only, so the auto 20 widens to 10.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (true, false)),
+            (10.0, 20000.0)
+        );
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (true, true)),
+            (10.0, 100000.0)
+        );
+        // Explicit bounds are never moved.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 20000.0), (false, false)),
+            (20.0, 20000.0)
+        );
+        // Narrow axis: 20 is a drawn 1-2-5 tick, nothing changes.
+        assert_eq!(
+            widen_log_bounds_to_ticks((20.0, 500.0), (true, true)),
+            (20.0, 500.0)
+        );
+    }
+
+    /// Wide ranges (ticked at powers of ten only) still round out to whole decades.
+    #[test]
+    fn log_range_wide_keeps_decades() {
+        assert_eq!(auto_nice_range_log(0.5, 2.0e6), (0.1, 1.0e7));
+        // A value on an exact power of ten still gets a decade either side.
+        assert_eq!(auto_nice_range_log(10.0, 10.0), (1.0, 100.0));
+    }
 
     #[test]
     fn log_tick_after_crosses_a_5x_to_next_decade_1x() {

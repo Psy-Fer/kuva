@@ -199,10 +199,14 @@ Column selection (`--x`, `--y`, `--value-col`, etc.) works identically to CSV/TS
 |---|---|
 | *(omitted)* | SVG to stdout |
 | `-o out.svg` | SVG to file |
+| `-o out.svgz` | Gzipped SVG (requires `--features svgz`, included in `full`) |
+| `-o out.html` | A self-contained web page holding the figure compressed, which opens from disk in any current browser (requires `--features svgz`). See [Compressed Output & HTML](../reference/compressed_output.md) |
 | `-o out.png` | PNG (requires `--features png`) |
 | `-o out.pdf` | PDF (requires `--features pdf`; needs Rust >= 1.92 to build — higher than kuva's own MSRV, see [Installation](#installation)) |
 
-Format is inferred from the file extension case-insensitively. Output paths must end in `.svg`, `.png`, or `.pdf`; other or missing extensions are rejected before input is read.
+Format is inferred from the file extension case-insensitively. Output paths must end in `.svg`, `.svgz`, `.html`, `.png`, or `.pdf`; other or missing extensions are rejected before input is read.
+
+SVG output writes runs of plain, non-overlapping rectangles (bricks, heatmap cells, bars) as one `<path>` per colour. It renders the same and is roughly half the size for rectangle-heavy plots. Pass `--no-rect-batching` to get one `<rect>` per rectangle instead, e.g. to restyle single cells by hand.
 
 ---
 
@@ -214,13 +218,14 @@ These flags are available on every subcommand.
 
 | Flag | Default | Description |
 |---|---|---|
-| `-o`, `--output <FILE>` | stdout (SVG) | `.svg`, `.png`, or `.pdf` output path, case-insensitive (mutually exclusive with `--terminal`) |
+| `-o`, `--output <FILE>` | stdout (SVG) | `.svg`, `.svgz`, `.html`, `.png`, or `.pdf` output path, case-insensitive (mutually exclusive with `--terminal`) |
+| `--no-rect-batching` | off | Write every rectangle as its own `<rect>` instead of one `<path>` per colour (SVG output only) |
 | `--title <TEXT>` | — | Title displayed above the chart |
 | `--subtitle <TEXT>` | — | Secondary line under the title, smaller and muted ([Reference → Layout](../reference/layout.md)) |
 | `--width <PX>` | `800` | Canvas width in pixels |
 | `--height <PX>` | `500` | Canvas height in pixels |
 | `--theme <NAME>` | `light` | Theme: `light`, `dark`, `solarized`, `minimal` |
-| `--palette <NAME>` | `category10` | Color palette for multi-series plots |
+| `--palette <NAME>` | `category10` | Color palette for multi-series plots. `kuva palettes` lists them |
 | `--cvd-palette <NAME>` | — | Colour-vision-deficiency palette: `deuteranopia`, `protanopia`, `tritanopia`. Overrides `--palette`. |
 | `--bw` | off | [Black & white / accessibility mode](../reference/bw_mode.md) — replaces colors with grey shades, hatch patterns, dash styles, and marker shapes so the plot stays legible in greyscale |
 | `--background <COLOR>` | *(theme default)* | SVG background color (any CSS color string) |
@@ -229,11 +234,24 @@ These flags are available on every subcommand.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--embed-font` | off | Embed DejaVu Sans directly in SVG output (mutually exclusive with `--terminal`) |
+| `--font <FAMILY>` | DejaVu Sans | Font family for all text, as a CSS font-family list |
+| `--tick-font <FAMILY>` | `--font` | Font family for axis tick labels only |
+| `--mono-font <FAMILY>` | DejaVu Sans Mono | Font family for `code` spans in text |
+| `--font-file <PATH>` | | Load a font file (TTF, OTF, TTC) to use by family name. Repeatable. Without `--font`, the first file's family is used for all text |
+| `--font-dir <DIR>` | | Load every font file in a directory and its subdirectories. Repeatable |
+| `--embed-font` | off | Embed the fonts in SVG output: DejaVu Sans, plus any loaded font the plot uses (mutually exclusive with `--terminal`) |
 
-By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Verdana, Liberation Sans, or Arial is installed. In environments with no system fonts — headless servers, containers, CI pipelines — text may be missing or fall back to an unexpected face.
+A font loaded with `--font-file` or `--font-dir` is measured, drawn and embedded exactly in SVG, PNG and PDF output. A `--font` family that isn't loaded is named in the SVG but spaced as DejaVu Sans, and the CLI warns about it. The CLI also warns when a loaded family has no bold or italic face (kuva never fakes them), when a font is variable (only its default style is used), and when a font whose licence forbids embedding is about to be embedded. `--font-file` and `--font-dir` need the `custom_fonts` feature, which `full` includes. See [Fonts](../reference/fonts.md).
 
-`--embed-font` bakes DejaVu Sans as a base64 `@font-face` block into the SVG `<style>` element, making the file fully self-contained at the cost of roughly 1 MB of extra size. PNG and PDF output is unaffected: those backends always have the font available regardless of this flag.
+```bash
+# Inter for all text, from its regular and bold files
+kuva bar data.tsv --label-col gene --value-col count \
+    --font-file fonts/Inter-Regular.ttf --font-file fonts/Inter-Bold.ttf
+```
+
+By default, SVG output references fonts by name and relies on the viewer to resolve them. This works fine in browsers and on any system where DejaVu Sans, Verdana, Liberation Sans, or Arial is installed. In environments with no system fonts (headless servers, containers, CI pipelines), text may be missing or fall back to an unexpected face.
+
+`--embed-font` bakes DejaVu Sans, and any loaded font the plot uses, into the SVG as base64 `@font-face` rules, making the file fully self-contained at the cost of roughly 1 MB of extra size plus the loaded fonts. PNG and PDF output is unaffected: those backends always have the fonts available regardless of this flag.
 
 ```bash
 # Self-contained SVG for use with rsvg-convert or similar tools in containers
@@ -298,6 +316,8 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--y-label <TEXT>` | — | Y-axis label |
 | `--ticks <N>` | `5` | Hint for number of tick marks |
 | `--no-grid` | off | Disable background grid |
+| `--y-break <LO,HI[,SHARE]>` | — | Skip the values between LO and HI on the Y axis: a short gap with slanted marks, each segment to its own scale. SHARE is the fraction of the axis for the segment below the break (default follows the data, clamped to 0.3–0.7). Linear numeric axes only ([Reference → Axis Breaks](../reference/axis_break.md)) |
+| `--x-break <LO,HI[,SHARE]>` | — | Same for the X axis |
 
 ### Log scale *(scatter, line, histogram, density, hist2d)*
 
@@ -305,6 +325,13 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 |---|---|
 | `--log-x` | Logarithmic X axis |
 | `--log-y` | Logarithmic Y axis |
+
+### Significance brackets *(bar, box, violin, strip, raincloud)*
+
+| Flag | Default | Description |
+|---|---|---|
+| `--signif <A,B,P>` | — | Bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P (`n.s.`) is drawn verbatim. Repeatable; brackets stack above the data and follow `--horizontal` ([Reference → Significance Brackets](../reference/significance.md)) |
+| `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 
 ### Date/time X axis *(scatter, line)*
 
@@ -363,7 +390,7 @@ See [Reference → Date & Time Axes](../reference/datetime.md) for the underlyin
 
 ## Subcommands
 
-All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
+All 58 subcommands, grouped the same way plot pages are grouped in the sidebar. Each link goes straight to that subcommand's **CLI** section at the bottom of its library-equivalent page, right next to the Rust API it wraps — so full per-flag documentation, usage examples, and the builder reference live together on one page instead of two.
 
 ### Distributions
 
@@ -381,6 +408,7 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | [raincloud](../plots/raincloud.md#cli) | Half-violin KDE cloud, box, and jittered points combined |
 | [hexbin](../plots/hexbin.md#cli) | Hexagonal-bin density plot from two numeric columns |
 | [heatmap](../plots/heatmap.md#cli) | Color-encoded matrix heatmap |
+| [clustermap](../plots/clustermap.md#cli) | Clustered heatmap with dendrograms, annotation strips and categorical cells |
 
 ### Relationships & correlation
 
@@ -453,6 +481,7 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 | [manhattan](../plots/manhattan.md#cli) | Manhattan plot for GWAS results |
 | [volcano](../plots/volcano.md#cli) | Volcano plot for differential expression |
 | [synteny](../plots/synteny.md#cli) | Genomic alignment ribbon plot |
+| [logo](../plots/logo.md#cli) | Sequence logo from a PWM or aligned FASTA set |
 
 ### 3D
 
@@ -460,12 +489,14 @@ All 57 subcommands, grouped the same way plot pages are grouped in the sidebar. 
 |---|---|
 | [scatter3d](../plots/scatter3d.md#cli) | 3D scatter plot with orthographic projection |
 | [surface3d](../plots/surface3d.md#cli) | 3D surface mesh with depth-sorted rendering |
+| [quiver3d](../plots/quiver3d.md#cli) | 3D vector field rendered as arrows in an orthographic box |
 
 ### Composite & Utility
 
 | Subcommand | Description |
 |---|---|
 | [twin-y](../plots/twin_y.md#cli) | Two series sharing an x-axis with independent primary/secondary y-scales |
+| `palettes` | Preview the named palettes, colormaps and logo colour schemes in the terminal (see below) |
 
 ---
 
@@ -487,6 +518,16 @@ kuva scatter data.tsv -o /tmp/out.png      # requires --features png
 kuva manhattan gwas.tsv --chr-col chr --pvalue-col pvalue \
     --theme dark --background "#1a1a2e" -o manhattan_dark.svg
 ```
+
+**Previewing palettes and colormaps:**
+```bash
+kuva palettes                  # --palette and --cvd-palette names, with swatches
+kuva palettes --colormaps      # --colormap names as gradient bars
+kuva palettes --logo           # kuva logo letter presets
+kuva palettes --all --hex      # everything, with hex codes
+kuva palettes wong viridis     # just these, with hex codes
+```
+Swatches use 24-bit terminal colour. When the output is piped, or `NO_COLOR` is set, names and hex codes are printed instead; `--color always|never` overrides the detection.
 
 **Colour-vision-deficiency palette:**
 ```bash

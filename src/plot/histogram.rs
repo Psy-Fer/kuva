@@ -135,8 +135,9 @@ pub struct BinnedHistogram {
     pub range: (f64, f64),
     pub bin_width: f64,
     pub bins: usize,
-    /// One heights vector per layer, bottom first. Weights and the cumulative
-    /// transform are already applied; the peak-normalize factor is `norm`.
+    /// One heights vector per layer, bottom first. Weights, the cumulative
+    /// transform and density scaling are already applied; the peak-normalize
+    /// factor is `norm`.
     pub layers: Vec<Vec<f64>>,
     pub colors: Vec<String>,
     pub labels: Vec<Option<String>>,
@@ -146,6 +147,8 @@ pub struct BinnedHistogram {
     pub stacked: bool,
     /// Final y-extent (already includes `norm`): 1.0 when normalized, else the peak.
     pub max_y: f64,
+    /// Whether `layers` hold probability densities (see [`Histogram::with_density`]).
+    pub density: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +158,9 @@ pub struct Histogram {
     pub range: Option<(f64, f64)>,
     pub color: String,
     pub normalize: bool,
+    /// Scale bar heights to a probability density so the bars' total area is
+    /// `1` (default `false`). Takes precedence over `normalize`.
+    pub density: bool,
     pub legend_label: Option<String>,
     pub precomputed: Option<(Vec<f64>, Vec<f64>)>,
     pub show_tooltips: bool,
@@ -201,6 +207,7 @@ impl Histogram {
             range: None,
             color: "black".to_string(),
             normalize: false,
+            density: false,
             legend_label: None,
             precomputed: None,
             show_tooltips: false,
@@ -325,11 +332,48 @@ impl Histogram {
 
     /// Normalize bar heights so the tallest bar equals `1.0`.
     ///
-    /// This is a peak-normalization — not a probability density. The
-    /// y-axis represents relative frequency (tallest bin = 1), not
-    /// counts or probability per unit width.
+    /// This is a peak-normalization, not a probability density: the y-axis
+    /// shows relative frequency (tallest bin = 1). For a density whose bars
+    /// have a total area of 1, use [`with_density`](Self::with_density).
+    /// Clears a previous `with_density`.
     pub fn with_normalize(mut self) -> Self {
         self.normalize = true;
+        self.density = false;
+        self
+    }
+
+    /// Scale bar heights to a probability density (matplotlib `density=True`).
+    ///
+    /// Each bar's height is `count / (total * bin_width)`, so the bars' total
+    /// area is 1 and the histogram can be compared directly with a
+    /// probability density function. `total` is the sum of counts that fall
+    /// inside the range (the sum of weights when [`with_weights`](Self::with_weights)
+    /// is set).
+    ///
+    /// - **Groups**: overlaid groups are each scaled by their own total, so
+    ///   every series has area 1; with [`with_stacked`](Self::with_stacked)
+    ///   the whole stack shares one total, so the stack has area 1.
+    /// - **Cumulative**: [`with_cumulative`](Self::with_cumulative) gives the
+    ///   empirical CDF instead, rising to 1 at the last bin.
+    /// - **KDE**: the [`with_kde`](Self::with_kde) curve is drawn as the
+    ///   density itself, on the same scale as the bars.
+    /// - **Precomputed** bins ([`from_bins`](Self::from_bins)) are scaled by
+    ///   each bin's own width, so unequal widths are handled.
+    ///
+    /// Clears a previous [`with_normalize`](Self::with_normalize).
+    ///
+    /// ```rust,no_run
+    /// # use kuva::plot::Histogram;
+    /// let samples = vec![1.1, 2.3, 2.7, 3.2, 3.8, 3.9, 4.0, 1.5, 2.1, 3.5];
+    /// let hist = Histogram::new()
+    ///     .with_data(samples)
+    ///     .with_range((0.0, 5.0))
+    ///     .with_bins(10)
+    ///     .with_density();
+    /// ```
+    pub fn with_density(mut self) -> Self {
+        self.density = true;
+        self.normalize = false;
         self
     }
 
@@ -503,18 +547,37 @@ impl Histogram {
 
         let weights = self.weights.as_ref().filter(|w| w.len() == self.data.len());
 
+        let stacked = self.stacked && !self.groups.is_empty();
         let mut layers: Vec<Vec<f64>> = Vec::with_capacity(1 + self.groups.len());
-        let mut counts = bin_series(&self.data, weights);
-        if self.cumulative {
-            counts = cumsum(counts);
-        }
-        layers.push(counts);
+        layers.push(bin_series(&self.data, weights));
         for g in &self.groups {
-            let mut c = bin_series(&g.data, None);
-            if self.cumulative {
-                c = cumsum(c);
+            layers.push(bin_series(&g.data, None));
+        }
+
+        if self.density {
+            // Overlaid series are each a density of their own; a stack shares
+            // one total so the whole stack has area 1 (matplotlib semantics).
+            let shared_total: f64 = layers.iter().flatten().sum();
+            for layer in layers.iter_mut() {
+                let total = if stacked {
+                    shared_total
+                } else {
+                    layer.iter().sum()
+                };
+                if total > 0.0 {
+                    // Cumulative density is the empirical CDF (ends at 1), so
+                    // it divides by the total only, not by the bin width.
+                    let scale = if self.cumulative {
+                        1.0 / total
+                    } else {
+                        1.0 / (total * bin_width)
+                    };
+                    layer.iter_mut().for_each(|v| *v *= scale);
+                }
             }
-            layers.push(c);
+        }
+        if self.cumulative {
+            layers = layers.into_iter().map(cumsum).collect();
         }
 
         let mut colors = vec![self.color.clone()];
@@ -523,7 +586,6 @@ impl Histogram {
         labels.extend(self.groups.iter().map(|g| g.label.clone()));
 
         // Peak (pre-normalize): stacked -> tallest per-bin total; else tallest single bar.
-        let stacked = self.stacked && !self.groups.is_empty();
         let peak = if stacked {
             (0..bins)
                 .map(|b| layers.iter().map(|l| l[b]).sum::<f64>())
@@ -534,12 +596,13 @@ impl Histogram {
                 .flat_map(|l| l.iter().copied())
                 .fold(0.0_f64, f64::max)
         };
-        let norm = if self.normalize && peak > 0.0 {
+        let peak_normalize = self.normalize && !self.density;
+        let norm = if peak_normalize && peak > 0.0 {
             1.0 / peak
         } else {
             1.0
         };
-        let max_y = if self.normalize { 1.0 } else { peak }.max(0.0);
+        let max_y = if peak_normalize { 1.0 } else { peak }.max(0.0);
 
         Some(BinnedHistogram {
             range,
@@ -551,7 +614,55 @@ impl Histogram {
             norm,
             stacked,
             max_y,
+            density: self.density,
         })
+    }
+
+    /// Bar heights for precomputed bins ([`from_bins`](Self::from_bins)), with
+    /// density or peak normalization applied. Density divides each count by
+    /// the total and by that bin's own width, so unequal widths are handled.
+    /// Returns `None` when the edges and counts can't describe any bin.
+    pub fn precomputed_heights(&self) -> Option<Vec<f64>> {
+        let (edges, counts) = self.precomputed.as_ref()?;
+        let n = counts.len().min(edges.len().saturating_sub(1));
+        if n == 0 {
+            return None;
+        }
+        let counts = &counts[..n];
+        if self.density {
+            let total: f64 = counts.iter().sum();
+            Some(
+                counts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &c)| {
+                        let width = edges[i + 1] - edges[i];
+                        if total > 0.0 && width > 0.0 {
+                            c / (total * width)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect(),
+            )
+        } else if self.normalize {
+            let peak = counts.iter().cloned().fold(0.0_f64, f64::max);
+            let scale = if peak > 0.0 { 1.0 / peak } else { 1.0 };
+            Some(counts.iter().map(|c| c * scale).collect())
+        } else {
+            Some(counts.to_vec())
+        }
+    }
+
+    /// Multiplier that turns a KDE's probability density into the units the
+    /// bars are drawn in: expected count per bin, the peak-normalized scale,
+    /// or (in density mode) the density itself.
+    pub(crate) fn kde_height_scale(&self, binned: &BinnedHistogram) -> f64 {
+        if self.density {
+            1.0
+        } else {
+            self.data.len() as f64 * binned.bin_width * binned.norm
+        }
     }
 }
 
@@ -652,6 +763,134 @@ mod tests {
         assert!(!b.stacked);
         // Peak is the tallest single bar (2), not the sum.
         assert_eq!(b.max_y, 2.0);
+    }
+
+    /// Sum of height × bin width over every bin of one layer.
+    fn area(b: &BinnedHistogram, layer: usize) -> f64 {
+        b.layers[layer]
+            .iter()
+            .map(|h| h * b.norm * b.bin_width)
+            .sum()
+    }
+
+    #[test]
+    fn density_has_unit_area() {
+        // Bin width 0.5 (not 1) so density != probability per bin.
+        let b = Histogram::new()
+            .with_data(vec![0.1, 0.2, 0.7, 1.3, 1.4, 1.9, 2.2, 2.4])
+            .with_range((0.0, 3.0))
+            .with_bins(6)
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!(b.density);
+        assert!((area(&b, 0) - 1.0).abs() < 1e-12);
+        // Bin [0, 0.5) holds 2 of 8 samples: 2 / (8 * 0.5) = 0.5.
+        assert!((b.layers[0][0] - 0.5).abs() < 1e-12);
+        assert!((b.max_y - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn density_ignores_out_of_range_samples() {
+        // numpy/matplotlib normalise by the in-range total.
+        let b = hist(vec![1.5, 2.5, 50.0, -3.0], 10)
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!((area(&b, 0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn density_uses_weights_as_total() {
+        let b = hist(vec![1.5, 5.5], 10)
+            .with_weights(vec![3.0, 1.0])
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!((area(&b, 0) - 1.0).abs() < 1e-12);
+        assert!((b.layers[0][1] - 0.75).abs() < 1e-12);
+    }
+
+    #[test]
+    fn density_overlaid_groups_each_have_unit_area() {
+        let b = hist(vec![1.5, 1.6, 2.5], 10)
+            .with_group(vec![7.5], "#f00", None)
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!((area(&b, 0) - 1.0).abs() < 1e-12);
+        assert!((area(&b, 1) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn density_stack_shares_one_total() {
+        let b = hist(vec![1.5, 1.6, 2.5], 10)
+            .with_group(vec![7.5], "#f00", None)
+            .with_stacked(true)
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!((area(&b, 0) + area(&b, 1) - 1.0).abs() < 1e-12);
+        assert!((area(&b, 1) - 0.25).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cumulative_density_is_an_ecdf() {
+        let b = hist(vec![0.5, 1.5, 1.6, 9.9], 10)
+            .with_cumulative(true)
+            .with_density()
+            .compute_bins()
+            .unwrap();
+        assert!((b.layers[0][0] - 0.25).abs() < 1e-12);
+        assert!((b.layers[0][1] - 0.75).abs() < 1e-12);
+        assert!((b.layers[0].last().unwrap() - 1.0).abs() < 1e-12);
+        assert!((b.max_y - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn density_and_normalize_last_call_wins() {
+        let h = hist(vec![1.5], 10).with_normalize().with_density();
+        assert!(h.density && !h.normalize);
+        let h = hist(vec![1.5], 10).with_density().with_normalize();
+        assert!(h.normalize && !h.density);
+        // Both set directly on the fields: density takes precedence.
+        let mut h = hist(vec![1.5, 1.6, 5.5], 10);
+        h.normalize = true;
+        h.density = true;
+        let b = h.compute_bins().unwrap();
+        assert_eq!(b.norm, 1.0);
+        assert!((area(&b, 0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn precomputed_density_handles_unequal_widths() {
+        let h = Histogram::from_bins(vec![0.0, 1.0, 3.0, 4.0], vec![2.0, 4.0, 2.0]).with_density();
+        let heights = h.precomputed_heights().unwrap();
+        // total 8: 2/(8*1), 4/(8*2), 2/(8*1).
+        assert_eq!(heights, vec![0.25, 0.25, 0.25]);
+        let area: f64 = heights
+            .iter()
+            .zip([1.0, 2.0, 1.0])
+            .map(|(h, w)| h * w)
+            .sum();
+        assert!((area - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn precomputed_normalize_peaks_at_one_even_below_one() {
+        // Counts already below 1 (e.g. fractions) still scale to a peak of 1.
+        let h = Histogram::from_bins(vec![0.0, 1.0, 2.0], vec![0.2, 0.4]).with_normalize();
+        assert_eq!(h.precomputed_heights().unwrap(), vec![0.5, 1.0]);
+    }
+
+    #[test]
+    fn density_kde_scale_is_identity() {
+        let h = hist(vec![1.5, 2.5, 3.5], 10).with_density();
+        let b = h.compute_bins().unwrap();
+        assert_eq!(h.kde_height_scale(&b), 1.0);
+        let h = hist(vec![1.5, 2.5, 3.5], 10);
+        let b = h.compute_bins().unwrap();
+        assert_eq!(h.kde_height_scale(&b), 3.0); // n * bin_width(1) * norm(1)
     }
 
     #[test]

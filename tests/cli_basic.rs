@@ -2066,6 +2066,81 @@ fn test_roc_near_scores_auc_label() {
     assert!(stdout.contains("Model  (AUC = 1.000)</text>"));
 }
 
+// ── logo ─────────────────────────────────────────────────────────────────────
+
+/// FASTA through stdin (forced with --from) renders letter glyph paths.
+#[test]
+fn test_logo_fasta_stdin() {
+    let fasta = ">s1\nACGT\n>s2\nACGT\n>s3\nACGA\n";
+    let (stdout, stderr, code) = run_with_stdin(&["logo", "--from", "fasta"], fasta);
+    assert_eq!(code, 0, "logo fasta exit code; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "should produce SVG");
+    // Letters render as vector paths, not text glyphs.
+    assert!(stdout.contains("<path"), "expected glyph outline paths");
+    // Classic palette: conserved A column is green.
+    assert!(
+        stdout.contains("#009600") || stdout.contains("rgb(0,150,0)"),
+        "expected classic-palette green for A"
+    );
+}
+
+/// PWM file input with WebLogo-style letter headers.
+#[test]
+fn test_logo_pwm_file() {
+    let (stdout, stderr, code) = run_with_file(&["logo", &data("logo.pwm")]);
+    assert_eq!(code, 0, "logo pwm exit code; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"));
+    assert!(stdout.contains("<path"));
+}
+
+/// --palette selects a logo preset; mono renders black letters.
+#[test]
+fn test_logo_palette_mono() {
+    let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--palette", "mono"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("#000000"),
+        "mono palette should render black"
+    );
+}
+
+/// An unknown --palette errors with the available preset names.
+#[test]
+fn test_logo_palette_unknown_errors() {
+    let (_, stderr, code) =
+        run_with_file(&["logo", &data("logo.fasta"), "--palette", "notapreset"]);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("classic"), "error should list presets");
+}
+
+/// --reverse-complement on a protein alphabet is an error.
+#[test]
+fn test_logo_reverse_complement_protein_errors() {
+    let (_, _, code) = run_with_file(&[
+        "logo",
+        &data("logo.pwm"),
+        "--alphabet",
+        "protein",
+        "--reverse-complement",
+    ]);
+    assert_ne!(code, 0, "RC on protein should fail");
+}
+
+/// --start shifts the displayed x-axis labels.
+#[test]
+fn test_logo_start_offset() {
+    let (stdout, _, code) = run_with_file(&["logo", &data("logo.fasta"), "--start", "500"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains(">500<"),
+        "first position label should be 500"
+    );
+    assert!(
+        stdout.contains(">509<"),
+        "last position label should be 509 (10 positions from 500)"
+    );
+}
+
 // ── misc ─────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -2185,4 +2260,497 @@ fn test_upset_rejects_more_sets_than_the_mask_holds() {
     let (stdout, stderr, code) = run_with_stdin(&["upset"], &matrix(64));
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("<svg"));
+}
+
+// ── --signif ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn box_signif_brackets_render_and_reject_bad_specs() {
+    let input = "group\tvalue\nA\t1\nA\t2\nA\t3\nB\t4\nB\t5\nB\t6\nC\t2\nC\t3\nC\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.0004",
+            "--signif",
+            "#0,#2,n.s.",
+            "--signif-format",
+            "both",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">*** (p = 0.0004)</text>"), "{out}");
+    assert!(out.contains(">n.s.</text>"));
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("three comma-separated fields"), "{err}");
+
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,0.01",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // The format is validated even when every P is verbatim text.
+    let (_, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,n.s.",
+            "--signif-format",
+            "fancy",
+        ],
+        input,
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("expected stars, p, or both"), "{err}");
+
+    // `nan` parses as f64 but is not a p-value: drawn verbatim.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "A,B,nan",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">nan</text>"), "{out}");
+
+    // Brackets follow --horizontal without any extra flag.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--horizontal",
+            "--signif",
+            "A,B,0.004",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(">**</text>"), "{out}");
+}
+
+#[test]
+fn signif_labels_may_contain_commas_and_unknown_groups_warn() {
+    let input = "group\tvalue\nDay 1, fed\t1\nDay 1, fed\t2\nDay 1, fasted\t5\nDay 1, fasted\t6\nCtrl\t3\nCtrl\t4\n";
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Day 1, fed,Day 1, fasted,0.004",
+            "--signif",
+            "Ctrl,Day 1, fed,n.s., adj.",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">**</text>"), "{out}");
+    // Verbatim P keeps its own comma.
+    assert!(out.contains(">n.s., adj.</text>"), "{out}");
+    assert!(!err.contains("warning"), "{err}");
+
+    // A typo is skipped with a warning naming the groups.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "box",
+            "--group-col",
+            "group",
+            "--value-col",
+            "value",
+            "--signif",
+            "Ctrl,Day1,0.01",
+            "--signif",
+            "#0,#7,0.01",
+        ],
+        input,
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(err.contains("no group named 'Day1'"), "{err}");
+    assert!(err.contains("index #7 is out of range (3 groups)"), "{err}");
+    assert!(err.contains("Day 1, fed"), "{err}");
+    assert!(!out.contains(">*</text>"), "{out}");
+}
+
+// ── --x-break / --y-break ─────────────────────────────────────────────────────
+
+#[test]
+fn axis_break_flags_render_and_validate() {
+    let input = "tissue\ttpm\nLiver\t8.2\nKidney\t6.9\nHeart\t5.1\nBrain\t7.4\nTestis\t940\n";
+    let base = ["bar", "--label-col", "tissue", "--value-col", "tpm"];
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880"]);
+    let (out, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">900</text>") && out.contains(">10</text>"),
+        "{out}"
+    );
+    assert!(!out.contains(">500</text>"));
+
+    let mut args = base.to_vec();
+    args.extend(["--y-break", "12,880,0.5"]);
+    let (_, err, code) = run_with_stdin(&args, input);
+    assert_eq!(code, 0, "{err}");
+
+    for (spec, needle) in [
+        ("12", "expected LO,HI"),
+        ("880,12", "LO must be less than HI"),
+        ("12,880,2", "SHARE must be between"),
+        ("a,b", "is not a number"),
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--y-break", spec]);
+        let (_, err, code) = run_with_stdin(&args, input);
+        assert_ne!(code, 0, "{spec} should fail");
+        assert!(err.contains(needle), "{spec}: {err}");
+    }
+
+    let line_input = "day\tscore\n0\t1\n5\t3\n10\t6\n100\t9\n105\t7\n110\t6\n";
+    let (out, err, code) = run_with_stdin(
+        &["line", "--x", "day", "--y", "score", "--x-break", "12,98"],
+        line_input,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains(">100</text>") && !out.contains(">50</text>"),
+        "{out}"
+    );
+}
+
+// ── quiver3d ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_quiver3d_svg() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--title",
+        "3D Quiver",
+        "--x-label",
+        "x",
+        "--y-label",
+        "y",
+        "--z-label",
+        "z",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(stdout.starts_with("<svg"), "output should start with <svg");
+    assert!(stdout.contains("3D Quiver"), "title should be rendered");
+    // 64 arrows in the sample data, one closed seven-point <path> glyph each
+    // (the box's back-pane fills are four-point paths and are excluded).
+    let arrow_paths = stdout
+        .split("<path")
+        .skip(1)
+        .filter(|c| {
+            c.split("d=\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .is_some_and(|d| d.matches(" L ").count() == 6)
+        })
+        .count();
+    assert_eq!(arrow_paths, 64, "one path per arrow");
+    assert!(
+        stdout.contains("<line"),
+        "SVG should contain line elements (box edges)"
+    );
+}
+
+#[test]
+fn test_quiver3d_named_columns_colormap_and_colorbar() {
+    let (stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--x-col",
+        "x",
+        "--y-col",
+        "y",
+        "--z-col",
+        "z",
+        "--u-col",
+        "u",
+        "--v-col",
+        "v",
+        "--w-col",
+        "w",
+        "--colormap",
+        "viridis",
+        "--colorbar-label",
+        "Speed",
+        "--pivot",
+        "middle",
+        "--depth-shade",
+    ]);
+    assert_eq!(code, 0, "exit code should be 0; stderr: {stderr}");
+    assert!(
+        stdout.contains("Speed"),
+        "colorbar label should be rendered"
+    );
+    assert!(
+        stdout.contains("fill-opacity"),
+        "--depth-shade should emit per-arrow opacity"
+    );
+}
+
+#[test]
+fn test_quiver3d_rejects_arrow_scale_with_auto_scale() {
+    let (_stdout, stderr, code) = run_with_file(&[
+        "quiver3d",
+        &data("quiver3d.tsv"),
+        "--arrow-scale",
+        "0.5",
+        "--auto-scale",
+        "0.8",
+    ]);
+    assert_ne!(code, 0, "conflicting scale flags should be rejected");
+    assert!(
+        stderr.contains("cannot be used with") || stderr.contains("conflicts"),
+        "stderr should explain the conflict: {stderr}"
+    );
+}
+
+// ── kuva palettes ──────────────────────────────────────────────────────────
+
+#[test]
+fn palettes_plain_lists_every_name_with_hex() {
+    // Piped stdout means no colour: names and hex codes only, no escapes.
+    let (out, err, code) = run_with_stdin(&["palettes"], "");
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(
+        !out.contains('\x1b'),
+        "piped output must not contain ANSI escapes"
+    );
+    for name in [
+        "category10",
+        "okabe-ito",
+        "tol-muted",
+        "casa-natal",
+        "deuteranopia",
+    ] {
+        assert!(out.contains(name), "missing {name}:\n{out}");
+    }
+    assert!(out.contains("#E69F00"), "wong's first colour as hex");
+    assert!(
+        !out.contains("viridis"),
+        "colormaps only with --colormaps/--all"
+    );
+}
+
+#[test]
+fn palettes_all_includes_colormaps_and_logo_schemes() {
+    let (out, _, code) = run_with_stdin(&["palettes", "--all"], "");
+    assert_eq!(code, 0);
+    for name in [
+        "category10",
+        "viridis",
+        "red-blue",
+        "sinebow",
+        "shapely",
+        "mono",
+    ] {
+        assert!(out.contains(name), "missing {name}");
+    }
+    // Every colormap shows sampled stops; viridis starts at #440154.
+    assert!(out.contains("#440154"));
+    assert!(out.contains("A=#009600"), "classic DNA logo colours");
+}
+
+#[test]
+fn palettes_color_always_emits_truecolor_swatches() {
+    let (out, _, code) = run_with_stdin(&["palettes", "wong", "--color", "always"], "");
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\x1b[38;2;230;159;0m"),
+        "wong orange as 24-bit colour"
+    );
+}
+
+#[test]
+fn palettes_named_lookup_across_lists() {
+    let (out, _, code) = run_with_stdin(&["palettes", "ltc-paloma", "RdBu", "taylor"], "");
+    assert_eq!(code, 0);
+    assert!(out.contains("paloma"));
+    assert!(
+        out.contains("red-blue"),
+        "ColorBrewer code resolves to its canonical name"
+    );
+    assert!(out.contains("taylor"));
+}
+
+#[test]
+fn palettes_unknown_name_fails() {
+    let (_, err, code) = run_with_stdin(&["palettes", "not-a-palette"], "");
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("not-a-palette") && err.contains("kuva palettes --all"),
+        "{err}"
+    );
+}
+
+#[test]
+fn unknown_palette_flag_warns_and_points_at_palettes() {
+    let (out, err, code) = run_with_stdin(
+        &[
+            "pie",
+            "--label-col",
+            "0",
+            "--value-col",
+            "1",
+            "--palette",
+            "nopenope",
+        ],
+        "a\t1\nb\t2\n",
+    );
+    assert_eq!(code, 0, "an unknown palette falls back to the default");
+    assert!(out.contains("<svg"));
+    assert!(
+        err.contains("unknown palette 'nopenope'") && err.contains("kuva palettes"),
+        "{err}"
+    );
+}
+
+// ── histogram --density (#133) ─────────────────────────────────────────────
+
+#[test]
+fn histogram_density_scales_to_unit_area() {
+    // 4 samples over [0, 4] in 4 bins of width 1: each bar is 1 / (4 * 1) = 0.25.
+    let (out, err, code) = run_with_stdin(
+        &[
+            "histogram",
+            "--bins",
+            "4",
+            "--density",
+            "--no-header",
+            "--y-tick-format",
+            "fixed:2",
+        ],
+        "0.5\n1.5\n2.5\n3.5\n",
+    );
+    assert_eq!(code, 0, "stderr: {err}");
+    assert!(out.contains(">0.25<"), "density tick at 0.25:\n{out}");
+}
+
+#[test]
+fn histogram_density_conflicts_with_normalize() {
+    let (_, err, code) = run_with_stdin(&["histogram", "--density", "--normalize"], "1\n2\n");
+    assert_ne!(code, 0);
+    assert!(
+        err.contains("--normalize") && err.contains("--density"),
+        "{err}"
+    );
+}
+
+/// `-o x.svgz` writes the same SVG as `-o x.svg`, gzipped.
+#[cfg(feature = "svgz")]
+#[test]
+fn test_output_svgz_is_gzipped_svg() {
+    use std::io::Read;
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let svg_path = output_path("same.svg");
+    let svgz_path = output_path("same.svgz");
+    let (_, stderr, code) = run_with_stdin(&["scatter", "-o", svg_path.to_str().unwrap()], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    let (_, stderr, code) = run_with_stdin(&["scatter", "-o", svgz_path.to_str().unwrap()], tsv);
+    assert_eq!(code, 0, "{stderr}");
+
+    let gz = fs::read(&svgz_path).unwrap();
+    assert_eq!(&gz[..2], &[0x1f, 0x8b], "gzip magic");
+    let mut inflated = String::new();
+    flate2::read::GzDecoder::new(&gz[..])
+        .read_to_string(&mut inflated)
+        .unwrap();
+    assert_eq!(inflated, fs::read_to_string(&svg_path).unwrap());
+    let _ = fs::remove_file(&svg_path);
+    let _ = fs::remove_file(&svgz_path);
+}
+
+/// `-o x.html` writes a self-contained page: one compressed figure plus the loader, titled by
+/// `--title` and with a download named after the file.
+#[cfg(feature = "svgz")]
+#[test]
+fn test_output_html_is_a_standalone_page() {
+    let tsv = "x\ty\n1\t2\n3\t4\n";
+    let path = output_path("figure.html");
+    let (_, stderr, code) = run_with_stdin(
+        &[
+            "scatter",
+            "--title",
+            "My <plot>",
+            "-o",
+            path.to_str().unwrap(),
+        ],
+        tsv,
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let page = fs::read_to_string(&path).unwrap();
+    let _ = fs::remove_file(&path);
+    assert!(page.starts_with("<!DOCTYPE html>"));
+    assert!(
+        page.contains("<title>My &lt;plot&gt;</title>"),
+        "title escaped"
+    );
+    assert_eq!(page.matches("class=\"kuva-figure\"").count(), 1);
+    assert!(page.contains("DecompressionStream"));
+    let stem = path.file_stem().unwrap().to_str().unwrap();
+    assert!(page.contains(&format!("download=\"{stem}.svg\"")));
+}
+
+/// Rect batching is on by default (heatmap cells become per-colour paths) and
+/// `--no-rect-batching` restores one `<rect>` per cell.
+#[test]
+fn test_no_rect_batching_flag() {
+    let tsv = "row\ta\tb\tc\nr1\t1\t2\t1\nr2\t2\t1\t2\nr3\t1\t2\t1\n";
+    let (batched, stderr, code) = run_with_stdin(&["heatmap"], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    let (plain, stderr, code) = run_with_stdin(&["heatmap", "--no-rect-batching"], tsv);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(batched.len() < plain.len());
+    assert!(
+        plain.matches("<rect").count() >= batched.matches("<rect").count() + 9 - 2,
+        "nine cells in two colours"
+    );
 }

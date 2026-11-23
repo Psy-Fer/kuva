@@ -133,10 +133,10 @@ pub fn run(args: Surface3DArgs) -> Result<(), String> {
 
         // Find unique sorted x and y values
         let mut xs: Vec<f64> = x_vals.clone();
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        xs.sort_by(|a, b| a.total_cmp(b));
         xs.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
         let mut ys: Vec<f64> = y_vals.clone();
-        ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        ys.sort_by(|a, b| a.total_cmp(b));
         ys.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
 
         let ncols = xs.len();

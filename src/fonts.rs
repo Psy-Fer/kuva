@@ -1,139 +1,52 @@
-//! Bundled DejaVu Sans font family — Regular, Bold, Oblique, and Mono.
+//! Fonts.
 //!
-//! Each TTF is stored on disk as a gzip stream and inflated on first use.
-//! The inflated bytes are cached for the lifetime of the process via `OnceLock`,
-//! so the decompression cost is paid at most once per variant.
+//! kuva bundles DejaVu Sans, which layout measures and the PNG/PDF backends draw.
+//! With the `custom_fonts` feature you can also load your own fonts at runtime and
+//! select them by family name:
 //!
-//! License: Bitstream Vera Fonts Copyright / public domain (see assets/fonts/LICENSE).
+//! ```no_run
+//! # fn main() -> Result<(), kuva::fonts::FontError> {
+//! use kuva::fonts;
 //!
-//! ## Regenerating compressed assets
+//! fonts::register_font_file("fonts/Inter-Regular.ttf")?;
+//! fonts::register_font_file("fonts/Inter-Bold.ttf")?;
 //!
-//! ```sh
-//! gzip -9 -k -f assets/fonts/DejaVuSans.ttf
-//! gzip -9 -k -f assets/fonts/DejaVuSans-Bold.ttf
-//! gzip -9 -k -f assets/fonts/DejaVuSans-Oblique.ttf
-//! gzip -9 -k -f assets/fonts/DejaVuSansMono.ttf
+//! // Warn about styles the family lacks: kuva never fakes a bold or italic.
+//! if let Some(styles) = fonts::family_styles("Inter") {
+//!     for style in styles.missing() {
+//!         eprintln!("Inter has no {style} face");
+//!     }
+//! }
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! Registered fonts are process-wide and are never removed. Registering a face with
+//! the same family, weight and style as an earlier one replaces it for new lookups.
 
-use std::io::Read;
-use std::sync::OnceLock;
+#[cfg(any(
+    feature = "embed_font",
+    feature = "png",
+    feature = "pdf",
+    feature = "typst-math"
+))]
+mod bundled;
+#[cfg(any(
+    feature = "embed_font",
+    feature = "png",
+    feature = "pdf",
+    feature = "typst-math"
+))]
+pub(crate) use bundled::*;
 
-use flate2::read::GzDecoder;
-
-const DEJAVU_SANS_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf.gz");
-
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-const DEJAVU_SANS_BOLD_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Bold.ttf.gz");
-
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-const DEJAVU_SANS_OBLIQUE_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Oblique.ttf.gz");
-
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-const DEJAVU_SANS_MONO_GZ: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf.gz");
-
-fn inflate(gz: &[u8], capacity: usize, label: &str) -> Vec<u8> {
-    let mut out = Vec::with_capacity(capacity);
-    GzDecoder::new(gz)
-        .read_to_end(&mut out)
-        .unwrap_or_else(|_| panic!("bundled {label} gzip stream is corrupt"));
-    out
-}
-
-/// Returns the inflated DejaVu Sans Regular TTF bytes.
-pub(crate) fn dejavu_sans() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| inflate(DEJAVU_SANS_GZ, 800_000, "DejaVu Sans"))
-}
-
-/// Returns the inflated DejaVu Sans Bold TTF bytes.
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-pub(crate) fn dejavu_sans_bold() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| inflate(DEJAVU_SANS_BOLD_GZ, 750_000, "DejaVu Sans Bold"))
-}
-
-/// Returns the inflated DejaVu Sans Oblique TTF bytes.
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-pub(crate) fn dejavu_sans_oblique() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| inflate(DEJAVU_SANS_OBLIQUE_GZ, 680_000, "DejaVu Sans Oblique"))
-}
-
-/// Returns the inflated DejaVu Sans Mono TTF bytes.
-#[cfg(any(feature = "png", feature = "pdf", feature = "embed_font"))]
-pub(crate) fn dejavu_sans_mono() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| inflate(DEJAVU_SANS_MONO_GZ, 380_000, "DejaVu Sans Mono"))
-}
-
-/// Gzip-compressed New Computer Modern Math (OFL/GUST), embedded at compile
-/// time. Used only by the `typst-math` feature, as the math font fed to the typst
-/// compiler. ~1.1 MB inflated; ~0.75 MB on disk.
-#[cfg(feature = "typst-math")]
-const NEWCM_MATH_GZ: &[u8] = include_bytes!("../assets/fonts/NewCMMath-Regular.otf.gz");
-
-/// Returns the inflated New Computer Modern Math OTF bytes. Inflated once and
-/// cached. Bundled (rather than pulled from `typst-assets`) so the typst tier
-/// ships ~1 MB of font rather than ~15 MB.
-#[cfg(feature = "typst-math")]
-pub(crate) fn newcm_math() -> &'static [u8] {
-    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
-    BYTES.get_or_init(|| inflate(NEWCM_MATH_GZ, 1_200_000, "NewCM Math"))
-}
-
-// Used only by `dejavu_sans_style_block` (the `embed_font` SVG path); the
-// `fonts` module is also compiled for `png`/`pdf`/`math`, where this is dead.
-#[cfg(feature = "embed_font")]
-fn base64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 {
-            chunk[1] as usize
-        } else {
-            0
-        };
-        let b2 = if chunk.len() > 2 {
-            chunk[2] as usize
-        } else {
-            0
-        };
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[(n >> 18) & 0x3f] as char);
-        out.push(TABLE[(n >> 12) & 0x3f] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) & 0x3f] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[n & 0x3f] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
-/// Returns a `<style>` block with `@font-face` rules for all four DejaVu variants.
-/// The result is computed once and cached for the lifetime of the process.
-#[cfg(feature = "embed_font")]
-pub(crate) fn dejavu_sans_style_block() -> &'static str {
-    static BLOCK: OnceLock<String> = OnceLock::new();
-    BLOCK.get_or_init(|| {
-        let reg = base64_encode(dejavu_sans());
-        let bold = base64_encode(dejavu_sans_bold());
-        let oblique = base64_encode(dejavu_sans_oblique());
-        let mono = base64_encode(dejavu_sans_mono());
-        let url = "data:font/truetype;base64,";
-        format!(
-            "<style>\
-             @font-face{{font-family:'DejaVu Sans';src:url('{url}{reg}') format('truetype');font-weight:normal;font-style:normal;}}\
-             @font-face{{font-family:'DejaVu Sans';src:url('{url}{bold}') format('truetype');font-weight:bold;font-style:normal;}}\
-             @font-face{{font-family:'DejaVu Sans';src:url('{url}{oblique}') format('truetype');font-weight:normal;font-style:italic;}}\
-             @font-face{{font-family:'DejaVu Sans Mono';src:url('{url}{mono}') format('truetype');font-weight:normal;font-style:normal;}}\
-             </style>"
-        )
-    })
-}
+#[cfg(feature = "custom_fonts")]
+mod registry;
+#[cfg(all(feature = "custom_fonts", feature = "pdf"))]
+pub(crate) use registry::registered_sources;
+#[cfg(feature = "custom_fonts")]
+pub use registry::{
+    family_styles, register_font_bytes, register_font_file, register_fonts_dir, registered_fonts,
+    DirReport, FamilyStyles, FontError, FontInfo,
+};
+#[cfg(feature = "custom_fonts")]
+pub(crate) use registry::{match_face, Face};

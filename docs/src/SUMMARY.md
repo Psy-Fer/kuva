@@ -88,11 +88,13 @@
 - [Synteny Plot](./plots/synteny.md)
 - [Brick Plot](./plots/brick.md)
 - [Brick Pop Plot](./plots/brick_pop.md)
+- [Sequence Logo](./plots/logo.md)
 
 # 3D
 
 - [3D Scatter Plot](./plots/scatter3d.md)
 - [3D Surface Plot](./plots/surface3d.md)
+- [3D Quiver Plot](./plots/quiver3d.md)
 
 # Composite & Utility
 
@@ -109,14 +111,18 @@
 
 - [Figure (Multi-Plot)](./reference/figure.md)
 - [Layout & Axes](./reference/layout.md)
+- [Axis Breaks](./reference/axis_break.md)
 - [Legends](./reference/legends.md)
 - [Themes](./reference/themes.md)
+- [Fonts](./reference/fonts.md)
 - [Color Palettes](./reference/palettes.md)
 - [Colormaps](./reference/colormap.md)
 - [Black & White / Accessibility Mode](./reference/bw_mode.md)
 - [SVG Interactivity](./reference/interactive.md)
+- [Compressed Output & HTML](./reference/compressed_output.md)
 - [Date & Time Axes](./reference/datetime.md)
 - [Stats Box](./reference/stats_box.md)
+- [Significance Brackets](./reference/significance.md)
 - [Math in Labels](./reference/math.md)
 
 # Performance

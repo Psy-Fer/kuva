@@ -1,4 +1,5 @@
 pub mod annotations;
+pub mod axis_break;
 pub mod band;
 pub mod bar;
 pub mod boxplot;
@@ -26,6 +27,7 @@ pub mod horizon;
 pub mod jointplot;
 pub mod legend_plot;
 pub mod line;
+pub mod logo;
 pub mod lollipop;
 pub mod manhattan;
 pub mod mosaic;
@@ -40,6 +42,7 @@ pub mod pr;
 pub mod pyramid;
 pub mod qq;
 pub mod quiver;
+pub mod quiver3d;
 pub mod radar;
 pub mod raincloud;
 pub mod ridgeline;
@@ -67,10 +70,14 @@ pub mod volcano;
 pub mod waffle;
 pub mod waterfall;
 
+pub(crate) mod nan_cmp;
+
 pub mod legend;
 
 // pub mod types;
 
+pub use annotations::{BracketAnchor, BracketLabel, SignificanceBracket};
+pub use axis_break::AxisBreak;
 pub use band::BandPlot;
 pub use bar::BarPlot;
 pub use boxplot::{BoxGroup, BoxPlot};
@@ -79,7 +86,10 @@ pub use bump::{BumpPlot, BumpSeries, BumpTieBreak, CurveStyle};
 pub use calendar::{CalendarAgg, CalendarPeriod, CalendarPlot, WeekStart};
 pub use candlestick::{CandleDataPoint, CandlestickPlot};
 pub use chord::ChordPlot;
-pub use clustermap::{AnnotationTrack, Clustermap, ClustermapNorm};
+pub use clustermap::{
+    AnnotationPlacement, AnnotationTrack, Clustermap, ClustermapNorm, ColLabelSide,
+    DiscreteColorMap, RowLabelSide,
+};
 pub use colormap::ColorMap;
 pub use contour::ContourPlot;
 pub use density::DensityPlot;
@@ -98,6 +108,10 @@ pub use horizon::{HorizonPlot, HorizonSeries};
 pub use jointplot::{JointGroup, JointPlot, MarginalType};
 pub use legend_plot::LegendPlot;
 pub use line::{LinePlot, LineStyle};
+pub use logo::{
+    detect_orientation as detect_logo_orientation, parse_fasta, Alphabet, AlphabetPalette,
+    LogoUnits, MatrixOrientation, PalettePreset, SequenceLogo, GAP_LETTER,
+};
 pub use lollipop::{LollipopDomain, LollipopPlot, LollipopPoint};
 pub use manhattan::{ChromSpan, GenomeBuild, ManhattanPlot, ManhattanPoint};
 pub use mosaic::{MosaicCell, MosaicPlot};
@@ -112,6 +126,7 @@ pub use pr::{PrGroup, PrPlot};
 pub use pyramid::{PopulationPyramid, PyramidMode, PyramidSeries};
 pub use qq::{QQGroup, QQMode, QQPlot};
 pub use quiver::{QuiverArrow, QuiverPivot, QuiverPlot};
+pub use quiver3d::{Quiver3DArrow, Quiver3DPlot};
 pub use radar::{RadarPlot, RadarReference, RadarSeries};
 pub use raincloud::{RaincloudGroup, RaincloudPlot};
 pub use ridgeline::{RidgelineGroup, RidgelinePlot};

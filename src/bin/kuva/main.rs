@@ -4,6 +4,7 @@ mod bump;
 mod calendar;
 mod candlestick;
 mod chord;
+mod clustermap;
 mod contour;
 mod coverage;
 mod data;
@@ -24,11 +25,13 @@ mod histogram;
 mod horizon;
 mod layout_args;
 mod line;
+mod logo;
 mod lollipop;
 mod manhattan;
 mod mosaic;
 mod network;
 mod output;
+mod palettes;
 mod parallel;
 mod pareto;
 mod phylo;
@@ -38,6 +41,7 @@ mod pr;
 mod pyramid;
 mod qq;
 mod quiver;
+mod quiver3d;
 mod radar;
 mod raincloud;
 mod ridgeline;
@@ -95,6 +99,7 @@ enum Commands {
     Manhattan(manhattan::ManhattanArgs),
     Candlestick(candlestick::CandlestickArgs),
     Heatmap(heatmap::HeatmapArgs),
+    Clustermap(clustermap::ClustermapArgs),
     #[command(name = "hist2d")]
     Hist2d(hist2d::Hist2dArgs),
     Contour(contour::ContourArgs),
@@ -168,11 +173,18 @@ enum Commands {
     Gantt(gantt::GanttArgs),
     /// Quiver plot — 2-D vector field rendered as arrows.
     Quiver(quiver::QuiverArgs),
+    /// 3D quiver plot — vector field rendered as arrows in an orthographic 3D box.
+    #[command(name = "quiver3d")]
+    Quiver3D(quiver3d::Quiver3DArgs),
     /// Twin-Y (dual-axis) plot — two series sharing an x-axis with independent y-scales.
     #[command(name = "twin-y")]
     TwinY(twin_y::TwinYArgs),
     /// Genomic coverage plot — stacked depth tracks + variants + feature bands on a shared locus.
     Coverage(coverage::CoverageArgs),
+    /// Sequence logo — stacked-letter plot of a PWM or aligned FASTA set.
+    Logo(logo::LogoArgs),
+    /// Preview the named colour palettes, colormaps and logo schemes in the terminal.
+    Palettes(palettes::PalettesArgs),
     #[cfg(feature = "doom")]
     /// Generate a self-contained DOOM SVG playable in any browser.
     Doom(doom::DoomArgs),
@@ -204,6 +216,7 @@ fn main() {
         Commands::Manhattan(args) => manhattan::run(args),
         Commands::Candlestick(args) => candlestick::run(args),
         Commands::Heatmap(args) => heatmap::run(args),
+        Commands::Clustermap(args) => clustermap::run(args),
         Commands::Hist2d(args) => hist2d::run(args),
         Commands::Contour(args) => contour::run(args),
         Commands::Dot(args) => dot::run(args),
@@ -246,8 +259,11 @@ fn main() {
         Commands::Calendar(args) => calendar::run(args),
         Commands::Gantt(args) => gantt::run(args),
         Commands::Quiver(args) => quiver::run(args),
+        Commands::Quiver3D(args) => quiver3d::run(args),
         Commands::TwinY(args) => twin_y::run(args),
         Commands::Coverage(args) => coverage::run(args),
+        Commands::Logo(args) => logo::run(args),
+        Commands::Palettes(args) => palettes::run(args),
         #[cfg(feature = "doom")]
         Commands::Doom(args) => doom::run(args),
         Commands::Man => unreachable!(),

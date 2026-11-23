@@ -64,7 +64,44 @@ fn renders_bars_and_writes_svg_for_inspection() {
         .with_title("SCA17_TBP - CIGAR bars")
         .with_width(820.0)
         .with_height(520.0);
-    let svg = kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout));
+    let scene = render_multiple(plots, layout);
+    let svg = kuva::backend::svg::SvgBackend.render_scene(&scene);
+    // Same figure with rect batching off, to compare size and rendering side by side.
+    let unbatched = kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene);
+    assert!(
+        svg.len() < unbatched.len() * 3 / 4,
+        "batching should shrink a brick plot"
+    );
+    common::write_test_output("test_outputs/brick_cigar_bars_unbatched.svg", unbatched).unwrap();
+    // The compressed-figure HTML outputs, for checking by eye: one standalone page, and a page
+    // of several figures in <details> (the first open; the others decompress when opened).
+    #[cfg(feature = "svgz")]
+    {
+        let svgz = kuva::backend::svg::SvgBackend::new().render_scene_svgz(&scene);
+        common::write_test_output(
+            "test_outputs/brick_cigar_bars.html",
+            kuva::html::standalone_page("SCA17_TBP - CIGAR bars", &svgz, "brick_cigar_bars"),
+        )
+        .unwrap();
+        let mut body = String::from("<h1>Loci</h1>\n");
+        for (i, name) in ["SCA17_TBP", "copy_2", "copy_3"].iter().enumerate() {
+            let open = if i == 0 { " open" } else { "" };
+            body.push_str(&format!("<details{open}><summary>{name}</summary>\n"));
+            body.push_str(&kuva::html::figure(&svgz, name));
+            body.push_str("</details>\n");
+        }
+        body.push_str(kuva::html::loader_script());
+        common::write_test_output(
+            "test_outputs/brick_cigar_bars_details.html",
+            format!(
+                "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Loci</title>\n\
+                 <style>.kuva-figure img {{ max-width: 100%; }}</style></head>\n<body>\n{body}</body></html>\n"
+            ),
+        )
+        .unwrap();
+    }
 
     assert!(svg.contains("<svg"));
     // Bar fills for the ops present, and none for ops that are not.
@@ -240,7 +277,10 @@ fn render_svg(plot: BrickPlot) -> String {
     let layout = Layout::auto_from_plots(&plots)
         .with_width(700.0)
         .with_height(220.0);
-    kuva::backend::svg::SvgBackend.render_scene(&render_multiple(plots, layout))
+    // Geometry checks parse individual `<rect>`s, so rect batching is off.
+    kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout))
 }
 
 // The bar must begin at the row's first drawn base (the left flank), not at
@@ -310,34 +350,44 @@ fn row_height_sizing_accounts_for_cigar_bars() {
             _ => None,
         })
         .collect();
-    let plot = BrickPlot::new()
-        .with_strigars(rows)
-        .with_names((0..10).map(|i| format!("r{i}")))
-        .with_cigars(cigars)
-        .with_row_height(10.0);
-    assert_eq!(plot.cigar_bar_count(), 3);
-
-    let plots = vec![Plot::Brick(plot)];
-    let layout = Layout::auto_from_plots(&plots);
-    let height = layout.height.expect("row_height sizes the canvas");
+    let plot_with = |labels: bool| {
+        BrickPlot::new()
+            .with_strigars(rows.clone())
+            .with_names((0..10).map(|i| format!("r{i}")))
+            .with_cigars(cigars.clone())
+            .with_cigar_deletion_labels(labels)
+            .with_row_height(10.0)
+    };
+    assert_eq!(plot_with(true).cigar_bar_count(), 3);
+    let height_of = |plot: BrickPlot| {
+        let plots = vec![Plot::Brick(plot)];
+        Layout::auto_from_plots(&plots)
+            .height
+            .expect("row_height sizes the canvas")
+    };
 
     // Rebuild the same plot to measure the overhead the sizing used.
-    let probe_plots = vec![Plot::Brick(
+    let plain_height = height_of(
         BrickPlot::new()
             .with_strigars((0..10).map(|_| (MOTIFS, HAP1)))
             .with_names((0..10).map(|i| format!("r{i}")))
             .with_row_height(10.0),
-    )];
-    let probe = Layout::auto_from_plots(&probe_plots);
-    let plain_height = probe.height.expect("height");
+    );
 
     // 10 rows with no bars would be 10 * 10 + overhead; with 3 bars the canvas
     // must be 3 * 0.45 * 10 px taller, leaving each brick row 10px.
-    let expected_extra = 3.0 * 0.45 * 10.0;
+    let bars_extra = 3.0 * 0.45 * 10.0;
+    let extra = height_of(plot_with(false)) - plain_height;
     assert!(
-        (height - plain_height - expected_extra).abs() < 1e-6,
-        "expected {expected_extra}px extra, got {}",
-        height - plain_height
+        (extra - bars_extra).abs() < 1e-6,
+        "expected {bars_extra}px extra, got {extra}"
+    );
+    // The one bar with a deletion also reserves its 0.75-row label band.
+    let extra = height_of(plot_with(true)) - plain_height;
+    let labels_extra = bars_extra + 0.75 * 10.0;
+    assert!(
+        (extra - labels_extra).abs() < 1e-6,
+        "expected {labels_extra}px extra with deletion labels, got {extra}"
     );
 }
 
@@ -635,4 +685,260 @@ fn legend_box_fits_the_cigar_operation_labels() {
             "legend label {label:?} needs at least {need} but the box ends at {box_right}"
         );
     }
+}
+
+/// bladerunner's CPUM_TYMS case: at a narrow width a 1 bp CIGAR span is under 0.6 px, so the
+/// renderer widens it into its neighbour. That overlap used to turn rect batching off for the
+/// whole plot; now it only splits the run where the conflict is, and the plot still shrinks.
+#[test]
+fn narrow_render_with_widened_spans_still_batches() {
+    let plots = vec![Plot::Brick(build(BrickSort::Cigar))];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_width(160.0)
+        .with_height(520.0);
+    let scene = render_multiple(plots, layout);
+    let batched = kuva::backend::svg::SvgBackend::new().render_scene(&scene);
+    let plain = kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene);
+    common::write_test_output("test_outputs/brick_cigar_bars_narrow.svg", &batched).unwrap();
+    common::write_test_output("test_outputs/brick_cigar_bars_narrow_unbatched.svg", &plain)
+        .unwrap();
+    assert!(
+        batched.len() * 10 < plain.len() * 6,
+        "batched {} vs plain {}",
+        batched.len(),
+        plain.len()
+    );
+}
+
+// ── deletion length labels (`65D`) above the deletion carets ─────────────────
+
+const DELETION_RED: &str = "#c2352d";
+
+/// A deletion label as drawn: centre x, baseline y, font size, text.
+#[derive(Debug)]
+struct DelLabel {
+    x: f64,
+    y: f64,
+    size: f64,
+    text: String,
+}
+
+impl DelLabel {
+    /// Glyph box `(left, top, right, bottom)`: DejaVu Sans digits are 0.636 em
+    /// wide, `D` 0.770 em, and both stand 0.73 em tall.
+    fn bbox(&self) -> (f64, f64, f64, f64) {
+        let w: f64 = self
+            .text
+            .chars()
+            .map(|c| if c == 'D' { 0.770 } else { 0.636 })
+            .sum::<f64>()
+            * self.size;
+        (
+            self.x - w / 2.0,
+            self.y - 0.73 * self.size,
+            self.x + w / 2.0,
+            self.y,
+        )
+    }
+}
+
+fn attr(tag: &str, name: &str) -> Option<f64> {
+    tag.split(&format!(" {name}=\""))
+        .nth(1)?
+        .split('"')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn deletion_labels(svg: &str) -> Vec<DelLabel> {
+    svg.split("<text")
+        .skip(1)
+        .filter_map(|t| {
+            let (tag, rest) = t.split_once('>')?;
+            if !tag.contains(&format!("fill=\"{DELETION_RED}\"")) {
+                return None;
+            }
+            Some(DelLabel {
+                x: attr(tag, "x")?,
+                y: attr(tag, "y")?,
+                size: attr(tag, "font-size")?,
+                text: rest.split('<').next()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Every filled rect `(x, y, w, h)` with an explicit position (bricks and bars).
+fn rects(svg: &str) -> Vec<(f64, f64, f64, f64)> {
+    svg.split("<rect")
+        .skip(1)
+        .filter(|r| r.contains("fill=\""))
+        .filter_map(|r| {
+            let tag = r.split('>').next()?;
+            Some((
+                attr(tag, "x")?,
+                attr(tag, "y")?,
+                attr(tag, "width")?,
+                attr(tag, "height")?,
+            ))
+        })
+        .collect()
+}
+
+fn overlaps(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
+    a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
+}
+
+/// One 108 bp read per CIGAR, sorted so each draws its own bar.
+fn deletion_plot(cigars: &[&str]) -> BrickPlot {
+    BrickPlot::new()
+        .with_strigars(cigars.iter().map(|_| (MOTIFS, HAP1)))
+        .with_names(cigars.iter().enumerate().map(|(i, _)| format!("r{i}")))
+        .with_cigars(cigars.iter().copied())
+}
+
+/// Render at a fixed 14 px row height (the canvas sized to fit), unbatched.
+fn render_rows(plot: BrickPlot) -> String {
+    let plots = vec![Plot::Brick(plot.with_row_height(14.0))];
+    let layout = Layout::auto_from_plots(&plots).with_width(700.0);
+    kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout))
+}
+
+#[test]
+fn each_deletion_is_labelled_with_its_length() {
+    let svg = render_rows(build(BrickSort::Cigar));
+    let mut texts: Vec<String> = deletion_labels(&svg).into_iter().map(|l| l.text).collect();
+    texts.sort();
+    // 42M3D63M (one bar for its run) and 42M3D6M3D54M (two deletions).
+    assert_eq!(texts, ["3D", "3D", "3D"], "{texts:?}");
+}
+
+#[test]
+fn deletion_labels_stay_in_their_band_clear_of_bricks_and_bars() {
+    let svg = render_rows(build(BrickSort::Cigar));
+    let labels = deletion_labels(&svg);
+    assert!(!labels.is_empty());
+    let boxes = rects(&svg);
+    for label in &labels {
+        let b = label.bbox();
+        assert!(label.size >= 5.0, "legible size: {label:?}");
+        for r in &boxes {
+            let r = (r.0, r.1, r.0 + r.2, r.1 + r.3);
+            assert!(!overlaps(b, r), "{label:?} overlaps rect {r:?}");
+        }
+    }
+}
+
+#[test]
+fn close_deletion_labels_are_pushed_apart() {
+    // Deletions one read base apart: their labels would overlap at any width.
+    let svg = render_rows(deletion_plot(&["40M3D1M65D67M"]));
+    let mut labels = deletion_labels(&svg);
+    labels.sort_by(|a, b| a.x.total_cmp(&b.x));
+    let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts, ["3D", "65D"], "both kept, in caret order");
+    let (a, b) = (labels[0].bbox(), labels[1].bbox());
+    assert!(b.0 - a.2 >= 1.5, "a gap between them: {a:?} {b:?}");
+    // Moved only a little: each stays within its own width of the carets.
+    let mid = (labels[0].x + labels[1].x) / 2.0;
+    for l in &labels {
+        let (left, _, right, _) = l.bbox();
+        assert!((l.x - mid).abs() <= right - left + 4.0, "{l:?}");
+    }
+}
+
+#[test]
+fn crowded_deletions_drop_the_smallest_labels() {
+    // Twenty deletions on consecutive bases of a narrow plot: not all labels fit.
+    let mut cigar = String::from("40M");
+    for k in 1..=20 {
+        cigar.push_str(&format!("{k}D1M"));
+    }
+    cigar.push_str("48M");
+    let plots = vec![Plot::Brick(
+        deletion_plot(&[cigar.as_str()]).with_row_height(14.0),
+    )];
+    let layout = Layout::auto_from_plots(&plots).with_width(400.0);
+    let svg = kuva::backend::svg::SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&render_multiple(plots, layout));
+    let mut labels = deletion_labels(&svg);
+    assert!(labels.len() < 20, "some labels dropped: {}", labels.len());
+    assert!(
+        labels.iter().any(|l| l.text == "20D"),
+        "the largest deletion keeps its label"
+    );
+    labels.sort_by(|a, b| a.x.total_cmp(&b.x));
+    for pair in labels.windows(2) {
+        assert!(
+            !overlaps(pair[0].bbox(), pair[1].bbox()),
+            "{:?} / {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    common::write_test_output("test_outputs/brick_cigar_deletion_labels_crowded.svg", svg).unwrap();
+}
+
+/// Security regression: label layout used to take cubic time in the number of
+/// deletions, so one CIGAR with tens of thousands of `D`s pinned a core for
+/// hours. All at one read position is the worst case: every label collides.
+#[test]
+fn many_deletions_at_one_position_render_quickly() {
+    let mut cigar = String::from("40M");
+    cigar.push_str(&"1D".repeat(20_000));
+    cigar.push_str("99D68M");
+    let start = std::time::Instant::now();
+    let svg = render_rows(deletion_plot(&[cigar.as_str()]));
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_secs() < 20, "took {elapsed:?}");
+    let mut labels = deletion_labels(&svg);
+    assert!(
+        !labels.is_empty() && labels.len() < 100,
+        "{} labels",
+        labels.len()
+    );
+    assert!(
+        labels.iter().any(|l| l.text == "99D"),
+        "the largest keeps its label"
+    );
+    labels.sort_by(|a, b| a.x.total_cmp(&b.x));
+    for pair in labels.windows(2) {
+        assert!(
+            !overlaps(pair[0].bbox(), pair[1].bbox()),
+            "{:?} / {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
+#[test]
+fn deletion_labels_can_be_turned_off() {
+    let plot = build(BrickSort::Cigar).with_cigar_deletion_labels(false);
+    assert!(deletion_labels(&render_rows(plot)).is_empty());
+}
+
+#[test]
+fn rows_too_short_for_a_legible_label_get_none() {
+    // 32 rows squeezed into 220 px: about 5 px a row, too short for a label
+    // that would not reach into the row above.
+    assert!(deletion_labels(&render_svg(build(BrickSort::Cigar))).is_empty());
+}
+
+#[test]
+fn write_deletion_labels_for_inspection() {
+    let plot = deletion_plot(&["108M", "42M3D66M", "40M3D1M65D67M", "20M12D30M2D58M"])
+        .with_sort(BrickSort::Cigar)
+        .with_row_height(16.0);
+    let plots = vec![Plot::Brick(plot)];
+    let layout = Layout::auto_from_plots(&plots).with_title("Deletion lengths");
+    let svg = kuva::backend::svg::SvgBackend::new().render_scene(&render_multiple(plots, layout));
+    assert!(svg.contains(">65D<") && svg.contains(">12D<"));
+    common::write_test_output("test_outputs/brick_cigar_deletion_labels.svg", svg).unwrap();
 }

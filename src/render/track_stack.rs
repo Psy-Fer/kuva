@@ -36,9 +36,11 @@ use crate::render::color::Color;
 use crate::render::layout::{ComputedLayout, Layout};
 use crate::render::plots::Plot;
 use crate::render::render::{
-    collect_legend_entries, render_legend_at, render_multiple, Primitive, Scene, TextAnchor,
+    collect_legend_entries, render_legend_at_with_fonts, render_multiple, PathData, Primitive,
+    Scene, TextAnchor,
 };
-use crate::render::text_metrics::{measure_text_width, FontStyle};
+use crate::render::render_utils::NanCmp;
+use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 
 /// Fixed vertical band an axis element reserves (tick marks + tick labels).
@@ -441,6 +443,7 @@ impl TrackStack {
             underlays,
             overlays,
         } = self;
+        let fonts = FontSet::resolve(theme.font_family.as_deref(), tick_font_family.as_deref());
 
         // Push the tick family down before anything measures: a track's
         // `left_margin` is reserved from its own tick labels, so it has to know
@@ -502,15 +505,15 @@ impl TrackStack {
         let px_left = entries
             .iter()
             .map(|e| match e {
-                Entry::Track(t) => t.left_margin().max(label_gutter_width(t.label())),
-                Entry::Axis(s) => label_gutter_width(s.label.as_deref()),
+                Entry::Track(t) => t.left_margin().max(label_gutter_width(t.label(), &fonts)),
+                Entry::Axis(s) => label_gutter_width(s.label.as_deref(), &fonts),
             })
             .fold(0.0_f64, f64::max)
             .max(10.0);
 
         // Shared RIGHT edge reserves the widest track right_margin OR the legend block (its own
         // content width + a left gap + right padding so the box border stays clear of the canvas).
-        let legend_w = legend_groups_width(&legend_groups);
+        let legend_w = legend_groups_width(&legend_groups, &fonts);
         let legend_reserve = if legend_w > 0.0 {
             legend_w + LEGEND_LEFT_GAP + LEGEND_RIGHT_PAD
         } else {
@@ -616,7 +619,7 @@ impl TrackStack {
                 .map(|g| g.entries.len() + usize::from(!g.title.is_empty()))
                 .sum();
             let legend_h = total_rows as f64 * (LABEL_SIZE * 1.5).max(12.0);
-            render_legend_at(
+            render_legend_at_with_fonts(
                 &[],
                 Some(&legend_groups),
                 None,
@@ -627,6 +630,7 @@ impl TrackStack {
                 legend_w,
                 LABEL_SIZE as u32,
                 &theme,
+                &fonts,
             );
         }
         scene
@@ -762,11 +766,19 @@ impl Track for PlotTrack {
     }
 }
 
+/// Which way an [`Interval`] reads along the x-axis, e.g. the direction a gene is transcribed.
+/// A stranded interval is drawn as an arrow pointing in that direction. This is the same type
+/// [`SyntenyPlot`](crate::plot::SyntenyPlot) uses for block orientation, re-exported here.
+pub use crate::plot::synteny::Strand;
+
 /// A labelled band over an x-interval, in an [`IntervalTrack`] (amplicons, primers, gene models).
 pub struct Interval {
     pub start: f64,
     pub end: f64,
     pub label: Option<String>,
+    /// Direction of the interval. `Some` draws the band as an arrow; `None` (the default) draws a
+    /// plain box.
+    pub strand: Option<Strand>,
 }
 
 impl Interval {
@@ -775,10 +787,18 @@ impl Interval {
             start,
             end,
             label: None,
+            strand: None,
         }
     }
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+    /// Give the interval a direction, drawn as an arrowhead on its leading end (the right end for
+    /// [`Strand::Forward`], the left end for [`Strand::Reverse`]). Use it for genes, so the plot
+    /// shows which way each is transcribed, or for primers.
+    pub fn with_strand(mut self, strand: Strand) -> Self {
+        self.strand = Some(strand);
         self
     }
 }
@@ -848,12 +868,7 @@ impl IntervalTrack {
     /// overlap depth, so the layout uses exactly as many rows as needed.
     fn pack_rows(&self) -> (Vec<usize>, usize) {
         let mut order: Vec<usize> = (0..self.intervals.len()).collect();
-        order.sort_by(|&a, &b| {
-            self.intervals[a]
-                .start
-                .partial_cmp(&self.intervals[b].start)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        order.sort_by(|&a, &b| self.intervals[a].start.nan_cmp(&self.intervals[b].start));
         let mut row_end: Vec<f64> = Vec::new(); // end of the last interval placed in each row
         let mut row_of = vec![0usize; self.intervals.len()];
         for &i in &order {
@@ -927,7 +942,8 @@ impl Track for IntervalTrack {
             let row = row_of[i];
             let row_top = cx.y_top + row as f64 * row_h;
             let y = row_top + (row_h - bar_h) * 0.5;
-            let (x0, x1) = (cx.x.map(iv.start), cx.x.map(iv.end));
+            let (px_a, px_b) = (cx.x.map(iv.start), cx.x.map(iv.end));
+            let (x0, x1) = (px_a.min(px_b), px_a.max(px_b));
             // Per-item colours win, then per-row (pool) colours, then the single fill.
             let fill = if let Some(cs) = self.item_colors.as_ref().filter(|c| !c.is_empty()) {
                 cs[i % cs.len()].clone()
@@ -936,23 +952,50 @@ impl Track for IntervalTrack {
             } else {
                 self.fill.clone()
             };
-            scene.add(Primitive::Rect {
-                x: x0.min(x1),
-                y,
-                width: (x1 - x0).abs().max(1.0),
-                height: bar_h,
-                fill,
-                stroke: None,
-                stroke_width: None,
-                opacity: None,
-            });
+            // Which pixel end the arrowhead sits on. Strand is relative to the data axis, so a
+            // reversed x-scale (start maps right of end) flips the drawn direction with it.
+            let head_right = iv.strand.map(|s| (s == Strand::Forward) == (px_b >= px_a));
+            // The body is the part of the band left over after the arrowhead; labels centre on it.
+            let (body0, body1) = match head_right {
+                Some(right) if x1 - x0 >= 1.0 => {
+                    let head = arrow_head_len(x1 - x0, bar_h);
+                    let d = arrow_path(x0, x1, y, bar_h, head, right);
+                    scene.add(Primitive::Path(Box::new(PathData {
+                        d,
+                        fill: Some(fill),
+                        stroke: Color::None,
+                        stroke_width: 0.0,
+                        opacity: None,
+                        stroke_dasharray: None,
+                    })));
+                    if right {
+                        (x0, x1 - head)
+                    } else {
+                        (x0 + head, x1)
+                    }
+                }
+                _ => {
+                    scene.add(Primitive::Rect {
+                        x: x0,
+                        y,
+                        width: (x1 - x0).max(1.0),
+                        height: bar_h,
+                        fill,
+                        stroke: None,
+                        stroke_width: None,
+                        opacity: None,
+                    });
+                    (x0, x1)
+                }
+            };
             // Draw the label centred inside the band only if it fits; tiny bands (e.g. the small
             // 3' SARS-CoV-2 genes) stay as bare coloured boxes rather than spilling overlapping text.
             if let Some(label) = &iv.label {
-                let box_w = (x1 - x0).abs();
-                if measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
+                let box_w = body1 - body0;
+                let fonts = FontSet::resolve(cx.theme.font_family.as_deref(), None);
+                if fonts.measure_text_width(label, 9.0, FontStyle::Regular) + 4.0 <= box_w {
                     scene.add(Primitive::Text {
-                        x: (x0 + x1) / 2.0,
+                        x: (body0 + body1) / 2.0,
                         y: row_top + row_h * 0.5 + 3.0,
                         content: label.clone(),
                         size: 9,
@@ -964,6 +1007,26 @@ impl Track for IntervalTrack {
                 }
             }
         }
+    }
+}
+
+/// Arrowhead length for a stranded band `width` px wide and `bar_h` px tall: a fixed fraction of
+/// the bar height, so every arrow in a track has the same head angle, but never more than the
+/// band itself. A band narrower than the head is drawn as a plain triangle.
+fn arrow_head_len(width: f64, bar_h: f64) -> f64 {
+    (bar_h * 0.6).min(width)
+}
+
+/// SVG path for a band from `x0` to `x1` (pixels, `x0 <= x1`) whose `right` (or left) end is an
+/// arrowhead `head` px long, pointing at the band's mid-height.
+fn arrow_path(x0: f64, x1: f64, y: f64, h: f64, head: f64, right: bool) -> String {
+    let (top, mid, bot) = (y, y + h * 0.5, y + h);
+    if right {
+        let shoulder = x1 - head;
+        format!("M {x0} {top} L {shoulder} {top} L {x1} {mid} L {shoulder} {bot} L {x0} {bot} Z")
+    } else {
+        let shoulder = x0 + head;
+        format!("M {x1} {top} L {shoulder} {top} L {x0} {mid} L {shoulder} {bot} L {x1} {bot} Z")
     }
 }
 
@@ -1258,25 +1321,25 @@ fn draw_shared_x_axis(
 }
 
 /// Width to reserve in the left gutter for a track's name label (0 if none).
-fn label_gutter_width(label: Option<&str>) -> f64 {
+fn label_gutter_width(label: Option<&str>, fonts: &FontSet) -> f64 {
     match label {
-        Some(s) => measure_text_width(s, LABEL_SIZE, FontStyle::Regular) + GUTTER_PAD,
+        Some(s) => fonts.measure_text_width(s, LABEL_SIZE, FontStyle::Regular) + GUTTER_PAD,
         None => 0.0,
     }
 }
 
 /// Width of the shared-legend box: widest entry-or-title label across all groups + swatch/padding.
 /// 0 if there are no entries.
-fn legend_groups_width(groups: &[LegendGroup]) -> f64 {
+fn legend_groups_width(groups: &[LegendGroup], fonts: &FontSet) -> f64 {
     let mut widest = 0.0_f64;
     for g in groups {
         if !g.title.is_empty() {
-            widest = widest.max(measure_text_width(&g.title, LABEL_SIZE, FontStyle::Regular));
+            widest = widest.max(fonts.measure_text_width(&g.title, LABEL_SIZE, FontStyle::Regular));
         }
         for e in &g.entries {
             // Entries are inset past the swatch, so account for that in the content width.
-            widest =
-                widest.max(measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular) + 20.0);
+            widest = widest
+                .max(fonts.measure_text_width(&e.label, LABEL_SIZE, FontStyle::Regular) + 20.0);
         }
     }
     if widest == 0.0 {
@@ -1658,5 +1721,59 @@ mod tests {
             first_rect.unwrap() < first_group.unwrap(),
             "underlay must render behind (before) the track"
         );
+    }
+
+    #[test]
+    fn strand_parse_tokens() {
+        assert_eq!(Strand::parse("+"), Ok(Some(Strand::Forward)));
+        assert_eq!(Strand::parse(" - "), Ok(Some(Strand::Reverse)));
+        assert_eq!(Strand::parse("Reverse"), Ok(Some(Strand::Reverse)));
+        assert_eq!(Strand::parse("fwd"), Ok(Some(Strand::Forward)));
+        assert_eq!(Strand::parse("."), Ok(None));
+        assert_eq!(Strand::parse(""), Ok(None));
+        assert!(Strand::parse("x").is_err());
+    }
+
+    /// Pull the x coordinates out of an `M x y L x y ...` path.
+    fn path_xs(d: &str) -> Vec<f64> {
+        let nums: Vec<f64> = d
+            .split_whitespace()
+            .filter_map(|t| t.parse().ok())
+            .collect();
+        nums.chunks(2).map(|c| c[0]).collect()
+    }
+
+    #[test]
+    fn arrow_tip_is_on_the_strand_end() {
+        // Forward: the point (mid-height vertex) is at the right end, x1.
+        let fwd = arrow_path(10.0, 110.0, 0.0, 10.0, 6.0, true);
+        let xs = path_xs(&fwd);
+        assert_eq!(xs[2], 110.0);
+        assert!(xs.iter().all(|&x| (10.0..=110.0).contains(&x)));
+        // Reverse: the point is at the left end, x0.
+        let rev = arrow_path(10.0, 110.0, 0.0, 10.0, 6.0, false);
+        assert_eq!(path_xs(&rev)[2], 10.0);
+    }
+
+    #[test]
+    fn arrow_head_never_longer_than_the_band() {
+        assert_eq!(arrow_head_len(100.0, 10.0), 6.0);
+        // A band narrower than the head becomes a triangle: head == width.
+        assert_eq!(arrow_head_len(3.0, 10.0), 3.0);
+    }
+
+    #[test]
+    fn stranded_interval_renders_as_path_unstranded_as_rect() {
+        let track = IntervalTrack::new(vec![
+            Interval::new(0.0, 40.0).with_strand(Strand::Reverse),
+            Interval::new(50.0, 100.0),
+        ]);
+        let scene = TrackStack::new().track(track).render(400.0);
+        let paths = scene
+            .elements
+            .iter()
+            .filter(|p| matches!(p, Primitive::Path(_)))
+            .count();
+        assert_eq!(paths, 1, "only the stranded interval is an arrow");
     }
 }

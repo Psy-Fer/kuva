@@ -9,6 +9,7 @@
 
 // ── Plot structs ─────────────────────────────────────────────────────────────
 pub use crate::plot::{
+    AnnotationPlacement,
     AnnotationTrack,
     BandPlot,
     BarPlot,
@@ -25,6 +26,7 @@ pub use crate::plot::{
     ChromSpan,
     Clustermap,
     ClustermapNorm,
+    ColLabelSide,
     ColorMap,
     ContourPlot,
     CurveStyle as BumpCurveStyle,
@@ -61,6 +63,7 @@ pub use crate::plot::{
     LinePlot,
     LineStyle,
     LollipopDomain,
+
     LollipopPlot,
     LollipopPoint,
     ManhattanPlot,
@@ -93,6 +96,8 @@ pub use crate::plot::{
     QQGroup,
     QQMode,
     QQPlot,
+    Quiver3DArrow,
+    Quiver3DPlot,
     QuiverArrow,
     QuiverPivot,
     QuiverPlot,
@@ -109,6 +114,7 @@ pub use crate::plot::{
     RoseMode,
     RosePlot,
     RoseSeries,
+    RowLabelSide,
     SankeyAlluvium,
     SankeyLink,
     SankeyLinkColor,
@@ -165,10 +171,15 @@ pub use crate::plot::{
     ZReduce,
 };
 
+pub use crate::plot::{
+    Alphabet, AlphabetPalette, LogoUnits, MatrixOrientation, PalettePreset, SequenceLogo,
+};
+
 // ── Plot enum ────────────────────────────────────────────────────────────────
 pub use crate::render::plots::Plot;
 
 // ── Layout & rendering ───────────────────────────────────────────────────────
+pub use crate::plot::axis_break::AxisBreak;
 pub use crate::render::layout::{AxisLine, Layout, TickAlign, TickFormat, TickPos};
 pub use crate::render::render::{
     collect_legend_entries, render_bump, render_forest, render_funnel, render_gantt,
@@ -188,7 +199,9 @@ pub use crate::render::palette::Palette;
 pub use crate::render::theme::Theme;
 
 // ── Annotations ──────────────────────────────────────────────────────────────
-pub use crate::render::annotations::{ReferenceLine, ShadedRegion, TextAnnotation};
+pub use crate::render::annotations::{
+    BracketAnchor, BracketLabel, ReferenceLine, ShadedRegion, SignificanceBracket, TextAnnotation,
+};
 
 // ── Date / time axes ─────────────────────────────────────────────────────────
 pub use crate::render::datetime::{ymd, ymd_hms, DateTimeAxis, DateUnit};

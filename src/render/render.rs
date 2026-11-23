@@ -1,17 +1,17 @@
 use crate::render::alluvial_order::optimize_sankey_alluvial_order;
-use crate::render::annotations::{add_reference_lines, add_shaded_regions, add_text_annotations};
+use crate::render::annotations::{
+    add_brackets, add_reference_lines, add_shaded_regions, add_text_annotations,
+};
 use crate::render::axis::{
-    add_axes_and_grid, add_labels_and_title, add_x2_axis, add_y2_axis, end_tick_font,
-    muted_subtitle_color, start_tick_font, XLabelPlacer,
+    add_axes_and_grid, add_axis_break_cover, add_labels_and_title, add_x2_axis, add_y2_axis,
+    end_tick_font, muted_subtitle_color, start_tick_font, XLabelPlacer,
 };
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
+use crate::render::render_utils::NanCmp;
 use crate::render::render_utils::{self, linear_fit, pearson_corr, percentile};
-use crate::render::text_metrics::{
-    ascent, cap_height, center_offset, descent, line_height, mean_char_width, measure_text_width,
-    text_height, widest_text_width, FontStyle,
-};
+use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -31,7 +31,8 @@ fn next_clip_id() -> String {
 /// Round to 2 decimal places for compact SVG output.
 #[inline(always)]
 fn round2(v: f64) -> f64 {
-    (v * 100.0).round() * 0.01
+    // `/ 100.0`, not `* 0.01`: see `write_float` in backend/svg.rs.
+    (v * 100.0).round() / 100.0
 }
 
 /// Returns a tooltip string for data element `i` if tooltips are enabled.
@@ -188,8 +189,8 @@ fn label_bg_rect(
         TextAnchor::Middle => (-(text_width / 2.0 + pad_x), text_width / 2.0 + pad_x),
         TextAnchor::End => (-(text_width + pad_x), pad_x),
     };
-    let dy_lo = -ascent(size as f64, style) - pad_y;
-    let dy_hi = descent(size as f64, style) + pad_y;
+    let dy_lo = -computed.fonts.ascent(size as f64, style) - pad_y;
+    let dy_hi = computed.fonts.descent(size as f64, style) + pad_y;
     let fill = Color::from(&computed.theme.legend_bg);
 
     if let Some(angle_deg) = rotate {
@@ -317,7 +318,9 @@ use crate::plot::calendar::{
 };
 use crate::plot::candlestick::{CandleDataPoint, CandlestickPlot};
 use crate::plot::chord::ChordPlot;
-use crate::plot::clustermap::{Clustermap, ClustermapNorm};
+use crate::plot::clustermap::{
+    AnnotationPlacement, Clustermap, ClustermapNorm, ColLabelSide, RowLabelSide,
+};
 use crate::plot::contour::ContourPlot;
 use crate::plot::density::DensityPlot;
 use crate::plot::diceplot::DicePlot;
@@ -340,6 +343,7 @@ use crate::plot::pie::PieLabelPosition;
 use crate::plot::polar::{PolarMode, PolarPlot};
 use crate::plot::pr::PrPlot;
 use crate::plot::pyramid::{PopulationPyramid, PyramidMode};
+use crate::plot::quiver3d::Quiver3DPlot;
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::ridgeline::RidgelinePlot;
 use crate::plot::roc::RocPlot;
@@ -553,6 +557,8 @@ pub struct Scene {
     pub background_color: Option<String>,
     pub text_color: Option<String>,
     pub font_family: Option<String>,
+    /// Font family for code spans (backtick text). `None` means DejaVu Sans Mono.
+    pub mono_font_family: Option<String>,
     pub elements: Vec<Primitive>,
     /// Raw SVG strings to emit inside a `<defs>` block (e.g. linearGradients).
     ///
@@ -589,6 +595,7 @@ impl Scene {
             background_color: Some("white".to_string()),
             text_color: None,
             font_family: None,
+            mono_font_family: None,
             elements: Vec::new(),
             defs: Vec::new(),
             has_tooltips: false,
@@ -607,6 +614,7 @@ impl Scene {
             background_color: Some("white".to_string()),
             text_color: None,
             font_family: None,
+            mono_font_family: None,
             elements: Vec::with_capacity(capacity),
             defs: Vec::new(),
             has_tooltips: false,
@@ -632,6 +640,72 @@ impl Scene {
 fn apply_theme(scene: &mut Scene, theme: &Theme) {
     scene.background_color = Some(theme.background.clone());
     scene.text_color = Some(theme.text_color.clone());
+}
+
+/// `Layout::background` wins over the theme's background; `"none"` or
+/// `"transparent"` leaves the canvas unfilled.
+fn apply_layout_background(scene: &mut Scene, layout: &Layout) {
+    if let Some(bg) = &layout.background {
+        let transparent = bg.eq_ignore_ascii_case("none") || bg.eq_ignore_ascii_case("transparent");
+        scene.background_color = (!transparent).then(|| bg.clone());
+    }
+}
+
+/// Mark scatter points and line vertices whose value lies strictly inside an
+/// axis break. The piecewise map already places such a point inside the gap
+/// band, where the break cover hides it; draw a small cross there, on top of the
+/// cover and in the series colour, so the value is visibly "in the gap" rather
+/// than silently missing. Warns once on stderr with the count.
+fn add_in_gap_markers(plots: &[Plot], scene: &mut Scene, computed: &ComputedLayout) {
+    if computed.x_break.is_none() && computed.y_break.is_none() {
+        return;
+    }
+    let in_gap = |x: f64, y: f64| {
+        computed.x_break.is_some_and(|b| b.contains(x))
+            || computed.y_break.is_some_and(|b| b.contains(y))
+    };
+    const ARM: f64 = 3.5;
+    let mut count = 0usize;
+    let mut mark = |x: f64, y: f64, color: &str| {
+        if !(x.is_finite() && y.is_finite() && in_gap(x, y)) {
+            return;
+        }
+        count += 1;
+        let stroke = Color::from(if computed.bw_mode { "#1a1a1a" } else { color });
+        let (cx, cy) = (computed.map_x(x), computed.map_y(y));
+        for (dx, dy) in [(ARM, ARM), (ARM, -ARM)] {
+            scene.add(Primitive::Line {
+                x1: cx - dx,
+                y1: cy - dy,
+                x2: cx + dx,
+                y2: cy + dy,
+                stroke: stroke.clone(),
+                stroke_width: 1.5,
+                stroke_dasharray: None,
+            });
+        }
+    };
+    for plot in plots {
+        match plot {
+            Plot::Scatter(s) => {
+                for (i, p) in s.data.iter().enumerate() {
+                    let per_point = s.colors.as_ref().and_then(|c| c.get(i));
+                    mark(p.x, p.y, per_point.unwrap_or(&s.color));
+                }
+            }
+            Plot::Line(l) => {
+                for p in &l.data {
+                    mark(p.x, p.y, &l.color);
+                }
+            }
+            _ => {}
+        }
+    }
+    if count > 0 {
+        eprintln!(
+            "warning: {count} point(s) fall inside an axis break and are marked with a cross in the gap"
+        );
+    }
 }
 
 /// Build an SVG path string from a sequence of (x, y) screen-coordinate points.
@@ -1223,7 +1297,7 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout, bw_id
     if line.data.len() >= 2 {
         // Map data → screen coordinates once. For step lines, expand to the
         // explicit staircase polyline so backends receive the full point sequence.
-        let screen_pts: Vec<(f64, f64)> = if line.step {
+        let runs: Vec<Vec<(f64, f64)>> = if line.step {
             let mapped: Vec<(f64, f64)> = line
                 .data
                 .iter()
@@ -1238,16 +1312,17 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout, bw_id
                     step.push((x, y)); // vertical leg
                 }
             }
-            step
+            vec![step]
         } else {
-            line.data
-                .iter()
-                .map(|c| (computed.map_x(c.x), computed.map_y(c.y)))
-                .collect()
+            // Split at axis breaks so each side keeps its own segment's slope,
+            // and stroke each visible stretch on its own so the line ends
+            // squarely at the gap edges.
+            computed.map_polyline_runs(line.data.iter().map(|c| (c.x, c.y)))
         };
+        let screen_pts: Vec<(f64, f64)> = runs.iter().flatten().copied().collect();
 
         // Fill area: still uses a Path (polygon, not stroke)
-        if line.fill {
+        if line.fill && !screen_pts.is_empty() {
             let baseline_y = computed.map_y(computed.y_range.0.max(0.0));
             let first_x = screen_pts.first().unwrap().0;
             let last_x = screen_pts.last().unwrap().0;
@@ -1274,12 +1349,14 @@ fn add_line(line: &LinePlot, scene: &mut Scene, computed: &ComputedLayout, bw_id
         } else {
             (Color::from(&line.color), line.line_style.dasharray())
         };
-        scene.add(Primitive::PolyLine {
-            points: screen_pts,
-            stroke: line_stroke,
-            stroke_width: line.stroke_width,
-            stroke_dasharray: line_da,
-        });
+        for points in runs.into_iter().filter(|r| r.len() >= 2) {
+            scene.add(Primitive::PolyLine {
+                points,
+                stroke: line_stroke.clone(),
+                stroke_width: line.stroke_width,
+                stroke_dasharray: line_da.clone(),
+            });
+        }
     }
 
     // Draw error bars
@@ -1943,24 +2020,42 @@ fn add_pareto(pp: &ParetoPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
+/// A density value for a tooltip: four significant figures, so both 0.0123
+/// and 12.3 read cleanly.
+fn fmt_density(v: f64) -> String {
+    if v == 0.0 || !v.is_finite() {
+        return format!("{v}");
+    }
+    let decimals = (3 - v.abs().log10().floor() as i32).clamp(0, 12) as usize;
+    format!("{v:.decimals$}")
+}
+
 fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout, bw_idx: usize) {
     // Precomputed path
     if let Some((edges, counts)) = &hist.precomputed {
-        let max_count = counts.iter().cloned().fold(0.0_f64, f64::max).max(1.0);
-        let norm = if hist.normalize { 1.0 / max_count } else { 1.0 };
-        for (i, count) in counts.iter().enumerate() {
-            if i + 1 >= edges.len() {
-                break;
-            }
-            if *count == 0.0 {
+        let Some(heights) = hist.precomputed_heights() else {
+            return;
+        };
+        for (i, (&count, &height)) in counts.iter().zip(&heights).enumerate() {
+            if count == 0.0 {
                 continue;
             }
             let x0 = computed.map_x(edges[i]);
             let x1 = computed.map_x(edges[i + 1]);
             let y0 = computed.map_y(0.0);
-            let y1 = computed.map_y(count * norm);
+            let y1 = computed.map_y(height);
             let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-                format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i + 1], count)
+                if hist.density {
+                    format!(
+                        "[{:.2}, {:.2}): {:.2} (density {})",
+                        edges[i],
+                        edges[i + 1],
+                        count,
+                        fmt_density(height)
+                    )
+                } else {
+                    format!("[{:.2}, {:.2}): {:.2}", edges[i], edges[i + 1], count)
+                }
             });
             if let Some(ref t) = tip {
                 scene.add(Primitive::GroupStart {
@@ -2065,7 +2160,11 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
                 let yt = computed.map_y((base + count) * norm);
 
                 let tip = tooltip(hist.show_tooltips, &hist.tooltip_labels, i, || {
-                    format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                    if binned.density {
+                        format!("[{:.2}, {:.2}): {}", x, x + bin_width, fmt_density(count))
+                    } else {
+                        format!("[{:.2}, {:.2}): {}", x, x + bin_width, count)
+                    }
                 });
                 if let Some(ref t) = tip {
                     scene.add(Primitive::GroupStart {
@@ -2107,13 +2206,14 @@ fn add_histogram(hist: &Histogram, scene: &mut Scene, computed: &ComputedLayout,
             .unwrap_or_else(|| render_utils::silverman_bandwidth(&hist.data));
         let n = hist.data.len() as f64;
         let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
+        let kde_scale = hist.kde_height_scale(&binned);
         let kde = render_utils::simple_kde(&hist.data, bw, hist.kde_samples);
         if !kde.is_empty() {
             let kde_color = hist.kde_color.as_deref().unwrap_or("firebrick");
             let mut path = String::with_capacity(kde.len() * 16);
             let mut rb = ryu::Buffer::new();
             for (i, &(x, d)) in kde.iter().enumerate() {
-                let height = d * density_norm * n * bin_width * norm;
+                let height = d * density_norm * kde_scale;
                 let px = computed.map_x(x);
                 let py = computed.map_y(height);
                 path.push(if i == 0 { 'M' } else { 'L' });
@@ -3162,7 +3262,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         // Vertical fit gates legibility: when the cells are too short for even floor-size
         // text (dense grids) drop every label rather than overflow into neighbours. Check
         // this before formatting any values so a sub-floor grid skips the O(n_cells) work.
-        let v_fit = (cell0.full_h / text_height(base, FontStyle::Regular)).min(1.0);
+        let v_fit = (cell0.full_h / computed.fonts.text_height(base, FontStyle::Regular)).min(1.0);
         if base * v_fit < 5.0 {
             return;
         }
@@ -3174,16 +3274,23 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         // short-valued grid) would shrink the whole grid below the legibility floor, hold
         // the floor and drop only the individual values too wide for their own cell —
         // rather than blanking every label.
-        let widest =
-            widest_text_width(values.iter().map(|s| s.as_str()), base, FontStyle::Regular).max(1.0);
+        let widest = computed
+            .fonts
+            .widest_text_width(values.iter().map(|s| s.as_str()), base, FontStyle::Regular)
+            .max(1.0);
         let ideal = base * v_fit.min(cell0.full_w / widest);
         let fs = ideal.max(5.0);
         let drop_overflow = ideal < 5.0;
-        let off = center_offset(fs, FontStyle::Regular);
+        let off = computed.fonts.center_offset(fs, FontStyle::Regular);
         for (cd, value) in cell_data.iter().zip(values.iter()) {
             // Only the floored (outlier) path can leave a value wider than its cell; on
             // the uniform path the widest already fit, so skip the per-cell measure.
-            if drop_overflow && measure_text_width(value, fs, FontStyle::Regular) > cd.full_w {
+            if drop_overflow
+                && computed
+                    .fonts
+                    .measure_text_width(value, fs, FontStyle::Regular)
+                    > cd.full_w
+            {
                 continue;
             }
             scene.add(Primitive::Text {
@@ -3197,6 +3304,131 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                 color: None,
             });
         }
+    }
+}
+
+/// Draw a CIGAR bar's deletion lengths (`65D`) above their carets.
+///
+/// `x_shift` maps a span's read position to data x (`bar_x0 - eff_offset`),
+/// `apex_y` is the carets' tip (the top of the bar's allocation) and `band_px`
+/// the height of the label band above it. Labels are sized so their digits fit
+/// the band, spread apart when they would overlap (each moves at most about its
+/// own width), and when that is not enough, the smallest deletions lose their
+/// labels first. Rows too short for a legible (5 px) label get none.
+#[allow(clippy::too_many_arguments)]
+fn add_deletion_labels(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    brickplot: &crate::plot::brick::BrickPlot,
+    spans: &[crate::plot::brick::CigarSpan],
+    x_shift: f64,
+    apex_y: f64,
+    band_px: f64,
+) {
+    const GAP_PX: f64 = 2.0;
+    const MIN_SIZE: f64 = 5.0;
+    // Upper bound on labels laid out per bar, whatever the canvas width: the
+    // drop loop below reruns the layout once per dropped label.
+    const MAX_LABELS: usize = 2000;
+    let fonts = &computed.fonts;
+    // Digits and `D` are capitals: fit the cap height (plus a pixel of air) in
+    // the band. Capped below the tick size so labels stay small.
+    let cap_per_px = fonts.cap_height(1.0, FontStyle::Regular);
+    let max_size = (computed.tick_size as f64 - 2.0).max(MIN_SIZE);
+    let size = ((band_px - 1.5) / cap_per_px).min(max_size).floor();
+    // Rows too short for a legible label get none, rather than labels that
+    // reach into the row above.
+    if size < MIN_SIZE {
+        return;
+    }
+    let baseline = apex_y - 1.0;
+    let colour = Color::from(brickplot.cigar_color(CigarOp::Deletion));
+
+    struct Label {
+        text: String,
+        x: f64,
+        width: f64,
+        len: f64,
+    }
+    let mut labels: Vec<Label> = spans
+        .iter()
+        .filter(|sp| sp.op == CigarOp::Deletion && sp.ref_len > 0.0)
+        .map(|sp| {
+            let len = if sp.ref_len.fract() == 0.0 {
+                format!("{:.0}", sp.ref_len)
+            } else {
+                sp.ref_len.to_string()
+            };
+            let text = format!("{len}D");
+            let width = fonts.measure_text_width(&text, size, FontStyle::Regular);
+            Label {
+                x: computed.map_x(sp.start + x_shift),
+                text,
+                width,
+                len: sp.ref_len,
+            }
+        })
+        .collect();
+
+    let lo = computed.margin_left;
+    let hi = computed.width - computed.margin_right;
+    // Bound the loop's work by the plot's width instead of by how many `D`s the
+    // CIGAR holds. A label survives only within `tol` of its caret, and carets
+    // lie inside the plot, so survivors fit side by side in the plot widened by
+    // `tol` on each side: k labels need (k - 1) pitches between the first and
+    // last centre. While there are more labels than that, they all form
+    // one crowded group and the loop drops the smallest (the leftmost on a tie)
+    // each pass, so cutting straight to that many, largest kept, gives the same
+    // labels without the passes.
+    let narrowest = labels.iter().map(|l| l.width).fold(f64::INFINITY, f64::min);
+    let tol = labels.iter().map(|l| l.width.max(8.0)).fold(0.0, f64::max);
+    let room = (hi - lo).max(0.0) + 2.0 * tol;
+    let fit = ((room / (narrowest + GAP_PX)).floor() as usize)
+        .saturating_add(1)
+        .min(MAX_LABELS);
+    if labels.len() > fit {
+        labels.sort_by(|a, b| b.len.total_cmp(&a.len).then(b.x.total_cmp(&a.x)));
+        labels.truncate(fit);
+    }
+    loop {
+        let items: Vec<(f64, f64)> = labels.iter().map(|l| (l.x, l.width)).collect();
+        let (centres, group_of) = render_utils::spread_labels(&items, GAP_PX, lo, hi);
+        // The label pushed furthest from its caret, if any went too far.
+        let worst = (0..labels.len())
+            .filter(|&k| (centres[k] - labels[k].x).abs() > labels[k].width.max(8.0))
+            .max_by(|&a, &b| {
+                (centres[a] - labels[a].x)
+                    .abs()
+                    .total_cmp(&(centres[b] - labels[b].x).abs())
+            });
+        let Some(worst) = worst else {
+            for (label, centre) in labels.iter().zip(centres) {
+                scene.add(Primitive::Text {
+                    x: centre,
+                    y: baseline,
+                    content: label.text.clone(),
+                    size: size as u32,
+                    anchor: TextAnchor::Middle,
+                    rotate: None,
+                    bold: false,
+                    color: Some(colour.clone()),
+                });
+            }
+            return;
+        };
+        // Drop the smallest deletion in that crowded group (the leftmost on a
+        // tie) and lay the rest out again.
+        let group = group_of[worst];
+        let drop = (0..labels.len())
+            .filter(|&k| group_of[k] == group)
+            .min_by(|&a, &b| {
+                labels[a]
+                    .len
+                    .total_cmp(&labels[b].len)
+                    .then(labels[a].x.total_cmp(&labels[b].x))
+            })
+            .expect("the worst label is in its own group");
+        labels.remove(drop);
     }
 }
 
@@ -3534,6 +3766,21 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 })));
             }
 
+            // Deletion lengths (`65D`) in the band `cigar_layout` reserved above
+            // the bar, so they never reach the row above.
+            if cl.label_units[pos] > 0.0 {
+                add_deletion_labels(
+                    scene,
+                    computed,
+                    brickplot,
+                    spans,
+                    bar_x0 - eff_offset,
+                    alloc_top,
+                    (computed.map_y(y_row_top + BAR_ROW_UNITS + cl.label_units[pos]) - alloc_top)
+                        .abs(),
+                );
+            }
+
             // Run bracket: shows that this one bar speaks for every row in the
             // run beneath it, so a row with no bar reads as "same as above"
             // rather than "no CIGAR for this read".
@@ -3612,7 +3859,9 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
                         + ((y1 - y0).abs() / 2.0)
-                        + center_offset(computed.body_size as f64, FontStyle::Regular),
+                        + computed
+                            .fonts
+                            .center_offset(computed.body_size as f64, FontStyle::Regular),
                     content: format!("{}", value),
                     size: computed.body_size,
                     anchor: TextAnchor::Middle,
@@ -3751,11 +4000,7 @@ fn brickplot_notation_rows(
         // in the allowance above the bricks. Every other row stacks downward
         // from its own top edge instead, so its labels stay on its own band.
         let upward = pos == 0;
-        let bar_allowance = if cl.draws_bar[pos] {
-            crate::plot::brick::BAR_ROW_UNITS
-        } else {
-            0.0
-        };
+        let bar_allowance = cl.bar_allowance(pos);
         let band_top_px = computed.map_y(row_top);
         let band_h = (computed.map_y(row_top - 1.0) - band_top_px).abs();
         let anchor_y = if upward {
@@ -3843,7 +4088,11 @@ fn brickplot_notation_rows(
                     .get(&r.letter)
                     .map(|k| format!("({}){}", k, r.count))
             })
-            .map(|l| measure_text_width(&l, font_px, FontStyle::Regular))
+            .map(|l| {
+                computed
+                    .fonts
+                    .measure_text_width(&l, font_px, FontStyle::Regular)
+            })
             .sum();
 
         if total_label_px > plot_px * tier_budget as f64 {
@@ -3873,7 +4122,11 @@ fn brickplot_notation_rows(
             };
             let label = format!("({}){}", kmer, run.count);
             let center_px = computed.map_x((run.x_start + run.x_end) / 2.0 - eff_offset);
-            let text_half_w = measure_text_width(&label, font_px, FontStyle::Regular) * 0.5;
+            let text_half_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_px, FontStyle::Regular)
+                    * 0.5;
 
             // Clamp so the label never overflows onto y-axis content or past the right edge.
             let clamped_center = center_px
@@ -3984,7 +4237,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
             NotationRow::Fallback => {
                 let y = tier_baseline(&p, 0);
                 if !p.upward {
-                    let w = measure_text_width(
+                    let w = computed.fonts.measure_text_width(
                         "complex structure: see TSV",
                         font_px,
                         FontStyle::Regular,
@@ -4321,17 +4574,14 @@ fn draw_3d_box(
     // Find the front corner using only the rotation matrix (no full projection needed)
     let (fc_x, fc_y) = cfg.view.front_bottom_corner();
 
-    // Flip axis ranges so data-min is always at the open front corner
-    let x_range = if fc_x > 0.0 {
-        (x_max, x_min)
-    } else {
-        (x_min, x_max)
-    };
-    let y_range = if fc_y < 0.0 {
-        (y_max, y_min)
-    } else {
-        (y_min, y_max)
-    };
+    // Data-min always maps to the -0.5 face of the unit cube. This used to
+    // flip the x and/or y range per view to keep the data minimum at the
+    // open front corner, but a range flip is a reflection: combined with a
+    // mirrored screen frame it left half of all views (the default one
+    // included) left-handed. Which data corner sits at the open front is now
+    // decided by the view angles alone, as a rotation should.
+    let x_range = (x_min, x_max);
+    let y_range = (y_min, y_max);
 
     let proj = Projection3D::new(
         cfg.view,
@@ -4597,8 +4847,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &x_ticks {
-            let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - x_range.0 * 0.5) / (x_range.1 * 0.5 - x_range.0 * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(t, fc_y, -0.5);
@@ -4650,8 +4902,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &y_ticks {
-            let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - y_range.0 * 0.5) / (y_range.1 * 0.5 - y_range.0 * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(fc_x, t, -0.5);
@@ -4730,8 +4984,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &z_ticks {
-            let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - z_min * 0.5) / (z_max * 0.5 - z_min * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(edge_x, edge_y, t);
@@ -4774,7 +5030,7 @@ fn draw_3d_box(
     proj
 }
 
-/// Union of 3D data ranges across every `Scatter3D`/`Surface3D` instance in
+/// Union of 3D data ranges across every `Scatter3D`/`Surface3D`/`Quiver3D` instance in
 /// `plots`, so multiple 3D plots combined in one `render_multiple` call are
 /// normalized to one shared coordinate box instead of each instance computing
 /// its own independent bounding box (which projects different instances'
@@ -4785,6 +5041,7 @@ fn merged_3d_ranges(plots: &[Plot]) -> Option<DataRanges3D> {
         .filter_map(|p| match p {
             Plot::Scatter3D(s) => s.data_ranges(),
             Plot::Surface3D(s) => s.data_ranges(),
+            Plot::Quiver3D(q) => q.data_ranges(),
             _ => None,
         })
         .reduce(|a, r| DataRanges3D {
@@ -4802,6 +5059,7 @@ fn first_3d_box_config(plots: &[Plot]) -> Option<Box3DConfig> {
     plots.iter().find_map(|p| match p {
         Plot::Scatter3D(s) => Some(s.box3d.clone()),
         Plot::Surface3D(s) => Some(s.box3d.clone()),
+        Plot::Quiver3D(q) => Some(q.box3d.clone()),
         _ => None,
     })
 }
@@ -4852,11 +5110,7 @@ fn add_scatter3d(
         .collect();
 
     // Sort back-to-front (largest depth first)
-    projected.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    projected.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
 
     // Compute depth range for shading
     let (depth_min, depth_max) = if s.depth_shade {
@@ -5018,11 +5272,7 @@ fn add_surface3d(
     }
 
     // Sort back-to-front (painter's algorithm)
-    faces.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    faces.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
 
     // Pre-compute wireframe stroke
     let wire_stroke = if s.show_wireframe {
@@ -5197,13 +5447,17 @@ pub fn render_forest(forest: &ForestPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_forest(forest, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -5267,7 +5521,9 @@ fn add_lollipop(
                 // Centre on the *drawn* size (0.75×body), not the parent body_size.
                 y: y_top
                     + height / 2.0
-                    + center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular),
+                    + computed
+                        .fonts
+                        .center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular),
                 content: label.clone(),
                 size: (computed.body_size as f64 * 0.75) as u32,
                 anchor: TextAnchor::Middle,
@@ -5388,13 +5644,17 @@ pub fn render_lollipop(lp: &crate::plot::lollipop::LollipopPlot, layout: &Layout
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_lollipop(lp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -5622,7 +5882,9 @@ fn add_survival_risk_table(
         .flat_map(|g| g.times.iter().copied())
         .fold(0.0_f64, f64::max);
 
-    let rh = line_height(computed.body_size as f64, FontStyle::Regular);
+    let rh = computed
+        .fonts
+        .line_height(computed.body_size as f64, FontStyle::Regular);
     // The reserved band sits at the very bottom of the canvas.
     let table_top = computed.height - computed.risk_table_extra + rh * 0.5;
 
@@ -5699,7 +5961,9 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -5707,6 +5971,8 @@ pub fn render_survival(sp: &crate::plot::survival::SurvivalPlot, layout: &Layout
     add_survival_risk_table(sp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -6055,7 +6321,10 @@ fn add_slope(sp: &crate::plot::slope::SlopePlot, scene: &mut Scene, computed: &C
             // Whichever dot is further left gets anchor=End (label extends leftward);
             // whichever is further right gets anchor=Start (label extends rightward).
             // Centre on the *drawn* size (0.75×body), not the parent body_size.
-            let label_y = py + center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular);
+            let label_y = py
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64 * 0.75, FontStyle::Regular);
             let label_size = (computed.body_size as f64 * 0.75) as u32;
             let gap = sp.dot_radius + 3.0;
             let (before_x, before_anchor, after_x, after_anchor) = if px_before <= px_after {
@@ -6417,7 +6686,10 @@ fn add_parallel(pp: &ParallelPlot, scene: &mut Scene, computed: &ComputedLayout)
                 });
                 scene.add(Primitive::Text {
                     x: label_x,
-                    y: py + center_offset(tick_size as f64, computed.tick_font_style()),
+                    y: py
+                        + computed
+                            .fonts
+                            .center_offset(tick_size as f64, FontStyle::Tick),
                     content: format_tick_value(val),
                     size: tick_size,
                     anchor: if is_last {
@@ -6706,6 +6978,7 @@ fn draw_inline_indicators(
     label_size: u32,
     n: usize,
     bw_mode: bool,
+    fonts: &FontSet,
 ) {
     if !vp.show_set_indicators || (!vp.show_counts && !vp.show_percentages) {
         return;
@@ -6726,7 +6999,8 @@ fn draw_inline_indicators(
     } else {
         ly
     };
-    let dot_cy = first_text_y - cap_height(label_size as f64, FontStyle::Regular) - dot_r - 2.0;
+    let dot_cy =
+        first_text_y - fonts.cap_height(label_size as f64, FontStyle::Regular) - dot_r - 2.0;
 
     for (k, &set_i) in in_sets.iter().enumerate() {
         let color = vp.color_for(set_i);
@@ -7002,7 +7276,17 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
             let pct_str = format!("({:.1}%)", count as f64 / total as f64 * 100.0);
 
             // Set-indicator dots above the text block.
-            draw_inline_indicators(vp, scene, mask, lx, ly, label_size, n, computed.bw_mode);
+            draw_inline_indicators(
+                vp,
+                scene,
+                mask,
+                lx,
+                ly,
+                label_size,
+                n,
+                computed.bw_mode,
+                &computed.fonts,
+            );
 
             match (vp.show_counts, vp.show_percentages) {
                 (true, true) => {
@@ -7098,8 +7382,7 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
         } else {
             // Phase 3: sort by angle and run a spreading pass so leader-line labels
             // don't crowd each other.
-            leader_entries
-                .sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+            leader_entries.sort_by(|a, b| a.3.nan_cmp(&b.3));
             let mut angles: Vec<f64> = leader_entries.iter().map(|e| e.3).collect();
 
             // Use a common radius: the max anchor distance from the diagram centre.
@@ -7178,8 +7461,11 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 } else {
                     0.0
                 };
-                let count_text_w =
-                    measure_text_width(&count_str, label_size as f64, FontStyle::Regular);
+                let count_text_w = computed.fonts.measure_text_width(
+                    &count_str,
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 let text_gap = if vp.show_set_indicators { 4.0 } else { 0.0 };
 
                 let nx = lnx; // reuse: direction from centroid toward label
@@ -7215,7 +7501,10 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 }
 
                 let text_x = group_start_x + total_dots_w + text_gap;
-                let text_y = ly + center_offset(label_size as f64, FontStyle::Regular);
+                let text_y = ly
+                    + computed
+                        .fonts
+                        .center_offset(label_size as f64, FontStyle::Regular);
 
                 if vp.show_counts {
                     scene.add(Primitive::Text {
@@ -7277,7 +7566,17 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let pct_str = format!("({:.1}%)", count as f64 / total as f64 * 100.0);
 
                 // Set-indicator dots above the text block.
-                draw_inline_indicators(vp, scene, mask, lx, ly, label_size, n, computed.bw_mode);
+                draw_inline_indicators(
+                    vp,
+                    scene,
+                    mask,
+                    lx,
+                    ly,
+                    label_size,
+                    n,
+                    computed.bw_mode,
+                    &computed.fonts,
+                );
 
                 match (vp.show_counts, vp.show_percentages) {
                     (true, true) => {
@@ -7380,8 +7679,11 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
             let label_x = bx + nx * label_margin;
             // Small baseline adjustment so the text visual centre aligns with the point
-            let label_y =
-                by + ny * label_margin + center_offset(label_size_big as f64, FontStyle::Regular);
+            let label_y = by
+                + ny * label_margin
+                + computed
+                    .fonts
+                    .center_offset(label_size_big as f64, FontStyle::Regular);
 
             let anchor = if nx < -0.25 {
                 TextAnchor::End
@@ -7445,7 +7747,7 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let pad_x = 7.0_f64;
         let pad_y = 5.0_f64;
         let row_h = text_size as f64 * 1.4;
-        let box_w = (widest_text_width(
+        let box_w = (computed.fonts.widest_text_width(
             [label_text, value_text.as_str()],
             text_size as f64,
             FontStyle::Regular,
@@ -7958,7 +8260,7 @@ fn euclidean_dist_matrix(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     dm
 }
 
-fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) -> Vec<Vec<f64>> {
+pub(crate) fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) -> Vec<Vec<f64>> {
     match norm {
         ClustermapNorm::None => data,
         ClustermapNorm::RowZScore => data
@@ -8059,7 +8361,7 @@ fn draw_row_dendrogram(
         .filter(|&id| !nodes[id].children.is_empty())
         .map(|id| acc_dist[id])
         .collect();
-    internal_unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    internal_unique.sort_by(|a, b| a.nan_cmp(b));
     internal_unique.dedup_by(|a, b| (*a - *b).abs() < 1e-10);
     let n_int = internal_unique.len();
     if n_int == 0 {
@@ -8185,7 +8487,7 @@ fn draw_col_dendrogram(
         .filter(|&id| !nodes[id].children.is_empty())
         .map(|id| acc_dist[id])
         .collect();
-    internal_unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    internal_unique.sort_by(|a, b| a.nan_cmp(b));
     internal_unique.dedup_by(|a, b| (*a - *b).abs() < 1e-10);
     let n_int = internal_unique.len();
     if n_int == 0 {
@@ -8255,6 +8557,162 @@ fn draw_col_dendrogram(
     }
 }
 
+/// Room a [`Clustermap`] needs around its cell body inside the plot area: dendrograms,
+/// annotation strips, label bands, and padding for slanted labels that reach sideways. It
+/// depends only on the clustermap and the text size, never on the body's size, so the
+/// renderer and [`with_cell_size`](Clustermap::with_cell_size) canvas sizing agree exactly.
+pub(crate) struct ClustermapFrame {
+    pub pad_left: f64,
+    pub pad_right: f64,
+    pub row_dend_w: f64,
+    pub row_annot_w: f64,
+    pub left_label_w: f64,
+    pub right_label_w: f64,
+    pub col_dend_h: f64,
+    pub col_annot_h: f64,
+    pub top_label_h: f64,
+    pub bottom_h: f64,
+    /// Column label slant in degrees, `0..=90`.
+    pub rot: f64,
+    pub col_top: bool,
+    pub row_left: bool,
+    /// Column strips sit between the column labels and the cells (labels on top only).
+    pub col_strips_inner: bool,
+    /// Row strips sit between the row labels and the cells (labels on the left only).
+    pub row_strips_inner: bool,
+    /// How far left of the body the column-strip labels' right edge sits.
+    pub col_strip_label_inset: f64,
+}
+
+impl ClustermapFrame {
+    /// Width left of the body.
+    pub fn left(&self) -> f64 {
+        self.pad_left + self.row_dend_w + self.row_annot_w + self.left_label_w
+    }
+    /// Width right of the body.
+    pub fn right(&self) -> f64 {
+        self.right_label_w + self.pad_right
+    }
+    /// Height above the body.
+    pub fn top(&self) -> f64 {
+        self.col_dend_h + self.col_annot_h + self.top_label_h
+    }
+    /// Height below the body.
+    pub fn bottom(&self) -> f64 {
+        self.bottom_h
+    }
+}
+
+pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64, fonts: &FontSet) -> ClustermapFrame {
+    let (n_rows, n_cols) = cm.dims();
+    let numeric = cm.categorical_data.is_none();
+    // Same conditions as the tree building in `add_clustermap`.
+    let has_row_tree = cm.row_tree.is_some() || (numeric && cm.cluster_rows && n_rows >= 2);
+    let has_col_tree = cm.col_tree.is_some() || (numeric && cm.cluster_cols && n_cols >= 2);
+    let row_dend_w = if has_row_tree {
+        cm.row_dendrogram_width
+    } else {
+        0.0
+    };
+    let col_dend_h = if has_col_tree {
+        cm.col_dendrogram_height
+    } else {
+        0.0
+    };
+    let row_annot_w: f64 = cm.row_annotations.iter().map(|t| t.width + 4.0).sum();
+    let col_annot_h: f64 = cm.col_annotations.iter().map(|t| t.width + 4.0).sum();
+
+    let width = |l: &str| fonts.measure_text_width(l, tsf, FontStyle::Regular);
+    let widest = |labels: &Option<Vec<String>>| {
+        labels
+            .as_ref()
+            .map(|l| fonts.widest_text_width(l.iter().map(|s| s.as_str()), tsf, FontStyle::Regular))
+    };
+    let row_label_w = widest(&cm.row_labels)
+        .map(|w| (w + 10.0).clamp(30.0, 200.0))
+        .unwrap_or(0.0);
+    let rot = cm.col_label_rotation.abs().clamp(0.0, 90.0);
+    let (sin_r, cos_r) = rot.to_radians().sin_cos();
+    // Band for the column labels: the widest label's reach away from the body at this slant,
+    // plus the text height across it and a gap either side.
+    let col_label_w = widest(&cm.col_labels);
+    let col_label_h = col_label_w
+        .map(|w| 6.0 + w * sin_r + tsf * cos_r + 4.0)
+        .unwrap_or(0.0);
+    // Row-annotation track labels hang down below the body, rotated.
+    let row_annot_label_h = cm
+        .row_annotations
+        .iter()
+        .filter_map(|t| t.label.as_deref())
+        .map(|l| width(l) + 8.0)
+        .fold(0.0, f64::max);
+    let col_top = cm.col_label_side == ColLabelSide::Top;
+    let row_left = cm.row_label_side == RowLabelSide::Left;
+    // With column labels on top, row-track labels go up there too, reading upward from just
+    // above their strip, so every label sits on the same side.
+    let (top_label_h, bottom_h) = if col_top {
+        (col_label_h.max(row_annot_label_h), 0.0)
+    } else {
+        (0.0, col_label_h.max(row_annot_label_h))
+    };
+    let left_label_w = if row_left { row_label_w } else { 0.0 };
+    let right_label_w = if row_left { 0.0 } else { row_label_w };
+
+    // A slanted label reaches sideways past its column: to the left from the first column
+    // when labels are below, to the right from the last when above. Which label ends up first
+    // depends on clustering, so reserve for the widest, where nothing else (dendrogram,
+    // annotations, row labels) already provides the room.
+    let overhang = if rot > 0.0 && rot < 90.0 {
+        col_label_w.map_or(0.0, |w| w * cos_r + tsf * 0.5 * sin_r)
+    } else {
+        0.0
+    };
+    let left_room = row_dend_w + row_annot_w + left_label_w;
+    let inner = cm.annotation_placement == AnnotationPlacement::NextToCells;
+    let col_strips_inner = inner && col_top;
+    let row_strips_inner = inner && row_left;
+    // Column-track labels are drawn right-aligned just left of the body. With column labels on
+    // top the row-track labels stand above their strips, so when the row strips touch the body
+    // the column-track labels move left past them.
+    let row_strips_touch_body = !row_left || row_strips_inner;
+    let col_strip_label_inset = if col_top && row_strips_touch_body {
+        4.0 + row_annot_w
+    } else {
+        4.0
+    };
+    let col_annot_label_w = cm
+        .col_annotations
+        .iter()
+        .filter_map(|t| t.label.as_deref())
+        .map(|l| width(l) + col_strip_label_inset)
+        .fold(0.0, f64::max);
+    let left_overhang = if col_top { 0.0 } else { overhang };
+    let pad_left = (left_overhang.max(col_annot_label_w) - left_room).max(0.0);
+    let pad_right = if col_top {
+        (overhang - right_label_w).max(0.0)
+    } else {
+        0.0
+    };
+    ClustermapFrame {
+        pad_left,
+        pad_right,
+        row_dend_w,
+        row_annot_w,
+        left_label_w,
+        right_label_w,
+        col_dend_h,
+        col_annot_h,
+        top_label_h,
+        bottom_h,
+        rot,
+        col_top,
+        row_left,
+        col_strips_inner,
+        row_strips_inner,
+        col_strip_label_inset,
+    }
+}
+
 fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout) {
     use crate::plot::phylo::post_order_dfs;
 
@@ -8263,11 +8721,12 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     } else {
         cm.color_map.clone()
     };
-    let n_rows = cm.data.len();
-    let n_cols = cm.data.first().map_or(0, |r| r.len());
+    let (n_rows, n_cols) = cm.dims();
     if n_rows == 0 || n_cols == 0 {
         return;
     }
+    // Text cells can't be clustered by distance; only a supplied tree orders them.
+    let numeric = cm.categorical_data.is_none();
 
     // ── Step 1: Build / obtain trees ─────────────────────────────────────────
 
@@ -8292,7 +8751,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     let row_tree: Option<(Vec<crate::plot::phylo::PhyloNode>, usize)> =
         if let Some(ref tree) = cm.row_tree {
             Some((tree.nodes.clone(), tree.root))
-        } else if cm.cluster_rows && n_rows >= 2 {
+        } else if numeric && cm.cluster_rows && n_rows >= 2 {
             let dist = euclidean_dist_matrix(&cm.data);
             Some(render_utils::upgma(&row_label_strs, &dist))
         } else {
@@ -8302,7 +8761,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     let col_tree: Option<(Vec<crate::plot::phylo::PhyloNode>, usize)> =
         if let Some(ref tree) = cm.col_tree {
             Some((tree.nodes.clone(), tree.root))
-        } else if cm.cluster_cols && n_cols >= 2 {
+        } else if numeric && cm.cluster_cols && n_cols >= 2 {
             let transposed: Vec<Vec<f64>> = (0..n_cols)
                 .map(|j| (0..n_rows).map(|i| cm.data[i][j]).collect())
                 .collect();
@@ -8356,11 +8815,27 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
         (0..n_cols).collect()
     };
 
-    // Reorder data matrix
-    let data: Vec<Vec<f64>> = row_perm
-        .iter()
-        .map(|&r| col_perm.iter().map(|&c| cm.data[r][c]).collect())
-        .collect();
+    // Reorder the cell matrix: numeric values, or category text in categorical mode.
+    let data: Vec<Vec<f64>> = if numeric {
+        row_perm
+            .iter()
+            .map(|&r| col_perm.iter().map(|&c| cm.data[r][c]).collect())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let cat_data: Vec<Vec<&str>> = match cm.categorical_data {
+        Some(ref d) => row_perm
+            .iter()
+            .map(|&r| {
+                col_perm
+                    .iter()
+                    .map(|&c| d[r].get(c).map_or("", String::as_str))
+                    .collect()
+            })
+            .collect(),
+        None => Vec::new(),
+    };
 
     // Reorder labels
     let row_labels_ord: Option<Vec<String>> = cm
@@ -8387,44 +8862,59 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
     let norm_val =
         |v: f64| -> f64 { ((v - v_min) / (v_max - v_min + f64::EPSILON)).clamp(0.0, 1.0) };
+    // Colour of the cell at (row, col) in display order, by gradient, category or bin.
+    let cell_entries = cm.cell_legend_group().map(|(_, e)| e).unwrap_or_default();
+    let cell_fill = |row_k: usize, col_k: usize| -> Color {
+        if !numeric {
+            Color::from(crate::plot::clustermap::category_color(
+                &cell_entries,
+                cat_data[row_k][col_k],
+            ))
+        } else if let Some(ref map) = cm.discrete_color_map {
+            Color::from(
+                map.bin_of(data[row_k][col_k])
+                    .map_or(crate::plot::clustermap::NA_COLOR, |b| b.color.as_str()),
+            )
+        } else {
+            Color::from(cmap.map(norm_val(data[row_k][col_k])))
+        }
+    };
+    // Text for a cell's value label and tooltip.
+    let cell_text = |row_k: usize, col_k: usize| -> String {
+        if numeric {
+            format!("{:.2}", data[row_k][col_k])
+        } else {
+            cat_data[row_k][col_k].to_string()
+        }
+    };
+    let n_body_rows = row_perm.len();
+    let n_body_cols = col_perm.len();
 
     // ── Step 4: Pixel layout ──────────────────────────────────────────────────
-    let ml = computed.margin_left;
+    let ts = computed.body_size;
+    let tsf = ts as f64;
+    let f = clustermap_frame(cm, tsf, &computed.fonts);
+    let (row_dend_w, col_dend_h) = (f.row_dend_w, f.col_dend_h);
+    let (rot, sin_r, cos_r) = (f.rot, f.rot.to_radians().sin(), f.rot.to_radians().cos());
+    let (col_top, row_left) = (f.col_top, f.row_left);
+
+    let ml = computed.margin_left + f.pad_left;
     let mt = computed.margin_top;
-    let pw = computed.plot_width();
-    let ph = computed.plot_height();
-
-    let row_dend_w = if row_tree.is_some() {
-        cm.row_dendrogram_width
-    } else {
-        0.0
-    };
-    let col_dend_h = if col_tree.is_some() {
-        cm.col_dendrogram_height
-    } else {
-        0.0
-    };
-    let row_annot_w: f64 = cm.row_annotations.iter().map(|t| t.width + 4.0).sum();
-    let col_annot_h: f64 = cm.col_annotations.iter().map(|t| t.width + 4.0).sum();
-
-    let row_label_w = row_labels_ord
-        .as_ref()
-        .map(|l| {
-            let widest = widest_text_width(l.iter().map(|s| s.as_str()), 12.0, FontStyle::Regular);
-            (widest + 10.0).clamp(30.0, 200.0)
-        })
-        .unwrap_or(0.0);
-    let col_label_h = if col_labels_ord.is_some() { 80.0 } else { 0.0 };
-
-    let hm_x = ml + row_dend_w + row_annot_w;
-    let hm_y = mt + col_dend_h + col_annot_h;
-    let hm_w = (pw - row_dend_w - row_annot_w - row_label_w).max(10.0);
-    let hm_h = (ph - col_dend_h - col_annot_h - col_label_h).max(10.0);
+    let hm_x = computed.margin_left + f.left();
+    let hm_y = mt + f.top();
+    let hm_w = (computed.plot_width() - f.left() - f.right()).max(10.0);
+    let hm_h = (computed.plot_height() - f.top() - f.bottom()).max(10.0);
 
     let n_rows_ord = row_perm.len().max(1);
     let n_cols_ord = col_perm.len().max(1);
     let cell_w = hm_w / n_cols_ord as f64;
     let cell_h = hm_h / n_rows_ord as f64;
+    // Drawn size of a cell (and of an annotation strip's cell) along a pitch: the pitch less
+    // the cell gap, or 99% of it by default.
+    let inset = |pitch: f64| match cm.cell_gap {
+        Some(g) => (pitch - g).max(0.0),
+        None => pitch * 0.99,
+    };
 
     // ── Step 5: Row dendrogram ────────────────────────────────────────────────
     if let Some((ref nodes, root)) = row_tree {
@@ -8461,38 +8951,56 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     // ── Step 7: Annotation tracks ─────────────────────────────────────────────
 
     // Row annotations (between row dendrogram and heatmap body)
-    let mut x_cursor = ml + row_dend_w;
-    for track in &cm.row_annotations {
+    let (col_entries, row_entries) = cm.annotation_entries();
+    // Row strips start after the dendrogram, or after the row labels when they sit inside.
+    let mut x_cursor = ml
+        + row_dend_w
+        + if f.row_strips_inner {
+            f.left_label_w
+        } else {
+            0.0
+        };
+    // Labels on top start above the column strips when those sit inside.
+    let top_label_base = hm_y
+        - 6.0
+        - if f.col_strips_inner {
+            f.col_annot_h
+        } else {
+            0.0
+        };
+    for (track, entries) in cm.row_annotations.iter().zip(&row_entries) {
         if let Some(ref label) = track.label {
-            // anchor End + rotate(-90°): the text's "end" (anchor) is the
-            // *top* of the downward-rendering text. Placing y just below
-            // hm_y + hm_h keeps 4 px of padding from the last annotation
-            // cell and the label hangs down into the col-label margin, clear
-            // of the dendrogram and all annotation boxes above.
+            // Rotated -90 deg, centred on the strip. Below the body (labels at the bottom) the
+            // text hangs down from just under the last cell (anchor End is the text's top);
+            // with column labels on top it reads upward from just above the first cell, beside
+            // the column labels.
+            let (y, anchor) = if col_top {
+                (top_label_base, TextAnchor::Start)
+            } else {
+                (hm_y + hm_h + 4.0, TextAnchor::End)
+            };
             scene.add(Primitive::Text {
-                x: x_cursor + track.width / 2.0,
-                y: hm_y + hm_h + 4.0,
+                x: x_cursor
+                    + track.width / 2.0
+                    + computed.fonts.center_offset(tsf, FontStyle::Regular),
+                y,
                 content: label.clone(),
                 size: computed.body_size,
-                anchor: TextAnchor::End,
+                anchor,
                 rotate: Some(-90.0),
                 bold: false,
                 color: None,
             });
         }
         for (k, &orig_row) in row_perm.iter().enumerate() {
-            let color_str = track
-                .colors
-                .get(orig_row)
-                .map(|s| s.as_str())
-                .unwrap_or("#cccccc");
+            let color_str = track.color_at(orig_row, entries);
             let y = hm_y + k as f64 * cell_h;
             scene.add(Primitive::Rect {
                 x: x_cursor,
                 y,
                 width: track.width,
-                height: cell_h * 0.99,
-                fill: Color::from(color_str),
+                height: inset(cell_h),
+                fill: Color::from(color_str.as_str()),
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
@@ -8502,11 +9010,17 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // Col annotations (between col dendrogram and heatmap body)
-    let mut y_cursor = mt + col_dend_h;
-    for track in &cm.col_annotations {
+    let mut y_cursor = mt
+        + col_dend_h
+        + if f.col_strips_inner {
+            f.top_label_h
+        } else {
+            0.0
+        };
+    for (track, entries) in cm.col_annotations.iter().zip(&col_entries) {
         if let Some(ref label) = track.label {
             scene.add(Primitive::Text {
-                x: hm_x - 4.0,
+                x: hm_x - f.col_strip_label_inset,
                 y: y_cursor + track.width / 2.0,
                 content: label.clone(),
                 size: computed.body_size,
@@ -8517,18 +9031,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
             });
         }
         for (k, &orig_col) in col_perm.iter().enumerate() {
-            let color_str = track
-                .colors
-                .get(orig_col)
-                .map(|s| s.as_str())
-                .unwrap_or("#cccccc");
+            let color_str = track.color_at(orig_col, entries);
             let x = hm_x + k as f64 * cell_w;
             scene.add(Primitive::Rect {
                 x,
                 y: y_cursor,
-                width: cell_w * 0.99,
+                width: inset(cell_w),
                 height: track.width,
-                fill: Color::from(color_str),
+                fill: Color::from(color_str.as_str()),
                 stroke: None,
                 stroke_width: None,
                 opacity: None,
@@ -8538,7 +9048,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 8: Heatmap body ──────────────────────────────────────────────────
-    let n_cells = data.iter().map(|r| r.len()).sum::<usize>();
+    let n_cells = n_body_rows * n_body_cols;
     let use_batch = !cm.show_tooltips;
 
     if use_batch {
@@ -8547,13 +9057,13 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
         let mut ws = Vec::with_capacity(n_cells);
         let mut hs = Vec::with_capacity(n_cells);
         let mut fills = Vec::with_capacity(n_cells);
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for row_k in 0..n_body_rows {
+            for col_k in 0..n_body_cols {
                 xs.push(hm_x + col_k as f64 * cell_w);
                 ys.push(hm_y + row_k as f64 * cell_h);
-                ws.push(cell_w * 0.99);
-                hs.push(cell_h * 0.99);
-                fills.push(Color::from(cmap.map(norm_val(value))));
+                ws.push(inset(cell_w));
+                hs.push(inset(cell_h));
+                fills.push(cell_fill(row_k, col_k));
             }
         }
         scene.add(Primitive::RectBatch {
@@ -8564,12 +9074,10 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
             fills,
         });
     } else {
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for (row_k, &orig_row) in row_perm.iter().enumerate() {
+            for (col_k, &orig_col) in col_perm.iter().enumerate() {
                 let x = hm_x + col_k as f64 * cell_w;
                 let y = hm_y + row_k as f64 * cell_h;
-                let orig_row = row_perm.get(row_k).copied().unwrap_or(row_k);
-                let orig_col = col_perm.get(col_k).copied().unwrap_or(col_k);
                 let row_lbl = row_labels_ord
                     .as_ref()
                     .and_then(|l| l.get(row_k))
@@ -8580,11 +9088,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                     .and_then(|l| l.get(col_k))
                     .map(|s| s.as_str())
                     .unwrap_or("");
+                // The tooltip shows the raw value, before any normalization.
+                let value_text = if numeric {
+                    format!("{:.2}", cm.data[orig_row][orig_col])
+                } else {
+                    cell_text(row_k, col_k)
+                };
                 let tip = if cm.show_tooltips {
-                    Some(format!(
-                        "{}, {}: {:.2}",
-                        row_lbl, col_lbl, cm.data[orig_row][orig_col]
-                    ))
+                    Some(format!("{}, {}: {}", row_lbl, col_lbl, value_text))
                 } else {
                     None
                 };
@@ -8598,9 +9109,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 scene.add(Primitive::Rect {
                     x,
                     y,
-                    width: cell_w * 0.99,
-                    height: cell_h * 0.99,
-                    fill: Color::from(cmap.map(norm_val(value))),
+                    width: inset(cell_w),
+                    height: inset(cell_h),
+                    fill: cell_fill(row_k, col_k),
                     stroke: None,
                     stroke_width: None,
                     opacity: None,
@@ -8613,14 +9124,16 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     if cm.show_values {
-        for (row_k, row) in data.iter().enumerate() {
-            for (col_k, &value) in row.iter().enumerate() {
+        for row_k in 0..n_body_rows {
+            for col_k in 0..n_body_cols {
                 scene.add(Primitive::Text {
                     x: hm_x + (col_k as f64 + 0.5) * cell_w,
                     y: hm_y
                         + (row_k as f64 + 0.5) * cell_h
-                        + center_offset(computed.body_size as f64, FontStyle::Regular),
-                    content: format!("{:.2}", value),
+                        + computed
+                            .fonts
+                            .center_offset(computed.body_size as f64, FontStyle::Regular),
+                    content: cell_text(row_k, col_k),
                     size: computed.body_size,
                     anchor: TextAnchor::Middle,
                     rotate: None,
@@ -8632,16 +9145,29 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     // ── Step 9: Axis labels ───────────────────────────────────────────────────
-    let ts = computed.body_size;
+    let c_off = computed.fonts.center_offset(tsf, FontStyle::Regular);
 
     if let Some(ref labels) = row_labels_ord {
+        let (x, anchor) = if row_left {
+            (
+                hm_x - 6.0
+                    - if f.row_strips_inner {
+                        f.row_annot_w
+                    } else {
+                        0.0
+                    },
+                TextAnchor::End,
+            )
+        } else {
+            (hm_x + hm_w + 6.0, TextAnchor::Start)
+        };
         for (k, label) in labels.iter().enumerate() {
             scene.add(Primitive::Text {
-                x: hm_x + hm_w + 6.0,
-                y: hm_y + (k as f64 + 0.5) * cell_h + center_offset(ts as f64, FontStyle::Regular),
+                x,
+                y: hm_y + (k as f64 + 0.5) * cell_h + c_off,
                 content: label.clone(),
                 size: ts,
-                anchor: TextAnchor::Start,
+                anchor,
                 rotate: None,
                 bold: false,
                 color: None,
@@ -8650,14 +9176,38 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     }
 
     if let Some(ref labels) = col_labels_ord {
+        // The label's end (below) or start (above) sits at its column centre, `6` px off the
+        // body, and reads upward at the chosen slant. Shifting by the centring offset across
+        // the text puts the middle of the glyphs, not the baseline, on the column centre.
+        let base = if col_top {
+            top_label_base
+        } else {
+            hm_y + hm_h + 6.0
+        };
         for (k, label) in labels.iter().enumerate() {
+            let cx = hm_x + (k as f64 + 0.5) * cell_w;
+            let (x, y, anchor, rotate) = if rot <= 0.0 {
+                let y = if col_top {
+                    base - tsf * 0.5 + c_off
+                } else {
+                    base + tsf * 0.5 + c_off
+                };
+                (cx, y, TextAnchor::Middle, None)
+            } else {
+                let anchor = if col_top {
+                    TextAnchor::Start
+                } else {
+                    TextAnchor::End
+                };
+                (cx + c_off * sin_r, base + c_off * cos_r, anchor, Some(-rot))
+            };
             scene.add(Primitive::Text {
-                x: hm_x + (k as f64 + 0.5) * cell_w,
-                y: hm_y + hm_h + 6.0,
+                x,
+                y,
                 content: label.clone(),
                 size: ts,
-                anchor: TextAnchor::End,
-                rotate: Some(-45.0),
+                anchor,
+                rotate,
                 bold: false,
                 color: None,
             });
@@ -8853,7 +9403,10 @@ fn render_legend_entry(
     // space at the top and bottom edges. The text baseline sits a real cap-height
     // half-offset below swatch_cy so the glyph cap-midpoint lands on it.
     let swatch_cy = cur_y + computed.legend_swatch_size / 2.0;
-    let text_baseline = swatch_cy + center_offset(computed.body_size as f64, FontStyle::Regular);
+    let text_baseline = swatch_cy
+        + computed
+            .fonts
+            .center_offset(computed.body_size as f64, FontStyle::Regular);
     scene.add(Primitive::Text {
         x: legend_x + computed.legend_text_x,
         y: text_baseline,
@@ -9023,7 +9576,7 @@ fn add_stats_box(
     let n_rows = title_rows + layout.stats_entries.len();
     let box_height = n_rows as f64 * line_height + padding * 2.0;
 
-    let widest = widest_text_width(
+    let widest = computed.fonts.widest_text_width(
         layout
             .stats_entries
             .iter()
@@ -9193,8 +9746,11 @@ fn add_legend_at(legend: &Legend, scene: &mut Scene, computed: &ComputedLayout, 
         String::new()
     };
     let box_width = if overflow > 0 {
-        let min_w =
-            measure_text_width(&overflow_label, 12.0, FontStyle::Regular) + 18.0 + legend_padding;
+        let min_w = computed
+            .fonts
+            .measure_text_width(&overflow_label, 12.0, FontStyle::Regular)
+            + 18.0
+            + legend_padding;
         legend_width.max(min_w)
     } else {
         legend_width
@@ -9478,6 +10034,42 @@ fn add_legend_with_offset(
             - (line_height - computed.legend_swatch_size);
     let legend_height = computed.legend_height_override.unwrap_or(computed_height);
 
+    // A flat legend with more lines than one column holds reflows into columns
+    // instead of running off the canvas. `from_layout` chose the line budget and
+    // reserved the width for this many columns, so both sides agree. Sized here,
+    // before positioning, so every anchor (centred, right- and bottom-aligned)
+    // places the whole reflowed box.
+    let flat_lines: Vec<usize> = if legend.groups.is_none() {
+        legend
+            .entries
+            .iter()
+            .map(|e| wrap_lines(&e.label))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let flat_cols = if legend.groups.is_none() {
+        render_utils::legend_columns(&flat_lines, computed.legend_line_budget)
+    } else {
+        Vec::new()
+    };
+    let reflowed = flat_cols.len() > 1;
+    let col_width = computed.legend_col_width;
+    let (legend_width, legend_height) = if reflowed {
+        let tallest = flat_cols
+            .iter()
+            .map(|r| flat_lines[r.clone()].iter().sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        let h = computed.legend_height_override.unwrap_or(
+            (tallest + title_rows) as f64 * line_height + legend_padding * 2.0
+                - (line_height - computed.legend_swatch_size),
+        );
+        (legend_width.max(col_width * flat_cols.len() as f64), h)
+    } else {
+        (legend_width, legend_height)
+    };
+
     let plot_left = computed.margin_left;
     let plot_right = computed.width - computed.margin_right;
     let plot_top = computed.margin_top;
@@ -9567,46 +10159,29 @@ fn add_legend_with_offset(
     };
     let legend_y = legend_y + y_offset;
 
-    // Cap entries to fit within the canvas height (minimum 10 shown before capping).
-    let avail_height_entries = (computed.height - legend_y - legend_padding * 2.0).max(line_height);
-    let max_entries_display = ((avail_height_entries / line_height).floor() as usize).max(10);
-
-    // Pre-compute overflow for flat entries so box width can be widened to fit "… (+N more)".
-    let flat_overflow = if legend.groups.is_none() {
-        let n = legend.entries.len();
-        if n > max_entries_display {
-            n - max_entries_display.saturating_sub(1)
+    // Safety net for a reflowed legend: if the reserved margin still came up short
+    // (e.g. a layout built without `auto_from_plots`), slide the box left so its
+    // outer columns stay on the canvas. Explicit placements are left alone.
+    let legend_x = if reflowed
+        && !matches!(
+            computed.legend_position,
+            LegendPosition::Custom(..) | LegendPosition::DataCoords(..)
+        ) {
+        let box_right = legend_x - legend_padding + 5.0 + legend_width;
+        if box_right > computed.width {
+            (legend_x - (box_right - computed.width)).max(legend_padding)
         } else {
-            0
+            legend_x
         }
     } else {
-        0
-    };
-    let box_width = if flat_overflow > 0 {
-        let overflow_text = format!("… (+{flat_overflow} more)");
-        let min_w = measure_text_width(&overflow_text, 12.0, FontStyle::Regular)
-            + computed.legend_text_x
-            + legend_padding;
-        legend_width.max(min_w)
-    } else {
-        legend_width
-    };
-
-    // If entries are capped, shrink the bounding box height to match what's actually rendered.
-    let legend_height = if flat_overflow > 0 && computed.legend_height_override.is_none() {
-        // Hug the content the same way the non-overflow path does: the box ends
-        // `legend_padding` below the last row's swatch, not a full line-height below.
-        (title_rows + max_entries_display) as f64 * line_height + legend_padding * 2.0
-            - (line_height - computed.legend_swatch_size)
-    } else {
-        legend_height
+        legend_x
     };
 
     if legend.show_box {
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: Color::from(&theme.legend_bg),
             stroke: None,
@@ -9616,7 +10191,7 @@ fn add_legend_with_offset(
         scene.add(Primitive::Rect {
             x: legend_x - legend_padding + 5.0,
             y: legend_y - legend_padding,
-            width: box_width,
+            width: legend_width,
             height: legend_height,
             fill: "none".into(),
             stroke: Some(Color::from(&theme.legend_border)),
@@ -9628,7 +10203,9 @@ fn add_legend_with_offset(
     let mut cur_y = legend_y;
     let wrap_max = computed.legend_wrap;
     let text_baseline_offset = computed.legend_swatch_size / 2.0
-        + center_offset(computed.body_size as f64, FontStyle::Regular);
+        + computed
+            .fonts
+            .center_offset(computed.body_size as f64, FontStyle::Regular);
 
     // Optional top title
     if let Some(ref title) = legend.title {
@@ -9649,42 +10226,41 @@ fn add_legend_with_offset(
     }
 
     // Render a single legend entry with optional label wrapping.
-    let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, bw_idx: usize| {
-        if computed.interactive {
-            let grp_attr = format!(
-                r#"class="legend-entry" data-group="{lbl}""#,
-                lbl = render_utils::escape_attr(&entry.label)
-            );
-            scene.add(Primitive::GroupStart {
-                transform: None,
-                title: None,
-                extra_attrs: Some(grp_attr),
-            });
-        }
-        let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
-        let mut first = entry.clone();
-        first.label = lines[0].clone();
-        render_legend_entry(&first, scene, legend_x, *cur_y, computed, bw_idx);
-        *cur_y += line_height;
-        for line in &lines[1..] {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: *cur_y + text_baseline_offset,
-                content: line.clone(),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    let render_entry =
+        |entry: &LegendEntry, scene: &mut Scene, cur_y: &mut f64, entry_x: f64, bw_idx: usize| {
+            if computed.interactive {
+                let grp_attr = format!(
+                    r#"class="legend-entry" data-group="{lbl}""#,
+                    lbl = render_utils::escape_attr(&entry.label)
+                );
+                scene.add(Primitive::GroupStart {
+                    transform: None,
+                    title: None,
+                    extra_attrs: Some(grp_attr),
+                });
+            }
+            let lines = render_utils::wrap_or_single(&entry.label, wrap_max);
+            let mut first = entry.clone();
+            first.label = lines[0].clone();
+            render_legend_entry(&first, scene, entry_x, *cur_y, computed, bw_idx);
             *cur_y += line_height;
-        }
-        if computed.interactive {
-            scene.add(Primitive::GroupEnd);
-        }
-    };
-
-    // max_entries_display was already computed above after legend_y was resolved.
+            for line in &lines[1..] {
+                scene.add(Primitive::Text {
+                    x: entry_x + computed.legend_text_x,
+                    y: *cur_y + text_baseline_offset,
+                    content: line.clone(),
+                    anchor: TextAnchor::Start,
+                    size: computed.body_size,
+                    rotate: None,
+                    bold: false,
+                    color: None,
+                });
+                *cur_y += line_height;
+            }
+            if computed.interactive {
+                scene.add(Primitive::GroupEnd);
+            }
+        };
 
     if let Some(ref groups) = legend.groups {
         let mut bw_counter = 0usize;
@@ -9708,31 +10284,23 @@ fn add_legend_with_offset(
                 cur_y += line_height;
             }
             for entry in &group.entries {
-                render_entry(entry, scene, &mut cur_y, bw_counter);
+                render_entry(entry, scene, &mut cur_y, legend_x, bw_counter);
                 bw_counter += 1;
             }
         }
-    } else {
-        let overflow = flat_overflow;
-        let entries_to_show = if overflow > 0 {
-            max_entries_display.saturating_sub(1)
-        } else {
-            legend.entries.len()
-        };
-        for (i, entry) in legend.entries.iter().take(entries_to_show).enumerate() {
-            render_entry(entry, scene, &mut cur_y, i);
+    } else if reflowed {
+        // Column-major: each column starts below the title and reads top to bottom.
+        let start_y = cur_y;
+        for (c, range) in flat_cols.iter().enumerate() {
+            let mut y = start_y;
+            let x = legend_x + c as f64 * col_width;
+            for i in range.clone() {
+                render_entry(&legend.entries[i], scene, &mut y, x, i);
+            }
         }
-        if overflow > 0 {
-            scene.add(Primitive::Text {
-                x: legend_x + computed.legend_text_x,
-                y: cur_y + text_baseline_offset,
-                content: format!("… (+{overflow} more)"),
-                anchor: TextAnchor::Start,
-                size: computed.body_size,
-                rotate: None,
-                bold: false,
-                color: None,
-            });
+    } else {
+        for (i, entry) in legend.entries.iter().enumerate() {
+            render_entry(entry, scene, &mut cur_y, legend_x, i);
         }
     }
 }
@@ -9916,11 +10484,13 @@ fn draw_repel_labels(
         return;
     }
     let fs = computed.body_size as f64;
-    let half_h = text_height(fs, FontStyle::Regular) * 0.5;
+    let half_h = computed.fonts.text_height(fs, FontStyle::Regular) * 0.5;
     let mut items: Vec<render_utils::RepelItem> = anchors
         .iter()
         .map(|(cx, cy, text)| {
-            let w = measure_text_width(text, fs, FontStyle::Regular);
+            let w = computed
+                .fonts
+                .measure_text_width(text, fs, FontStyle::Regular);
             render_utils::RepelItem {
                 anchor: (*cx, *cy),
                 half_w: w * 0.5 + 2.0,
@@ -9968,7 +10538,7 @@ fn draw_repel_labels(
         });
     }
     // Text.
-    let baseline = center_offset(fs, FontStyle::Regular);
+    let baseline = computed.fonts.center_offset(fs, FontStyle::Regular);
     for (item, (_, _, text)) in items.iter().zip(anchors) {
         scene.add(Primitive::Text {
             x: item.pos.0,
@@ -10396,13 +10966,17 @@ pub fn render_volcano(vp: &VolcanoPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_volcano(vp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -10416,7 +10990,8 @@ fn add_manhattan_chr_labels(mp: &ManhattanPlot, scene: &mut Scene, computed: &Co
     let mut placer = XLabelPlacer::new(
         computed.x_label_overlap.clone(),
         computed.tick_size as f64,
-        computed.tick_font_style(),
+        FontStyle::Tick,
+        &computed.fonts,
         computed.x_tick_rotate,
     );
     start_tick_font(scene, computed);
@@ -10454,7 +11029,9 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -10462,6 +11039,8 @@ pub fn render_manhattan(mp: &ManhattanPlot, layout: &Layout) -> Scene {
     add_manhattan_chr_labels(mp, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -10471,7 +11050,9 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10481,6 +11062,8 @@ pub fn render_scatter(scatter: &ScatterPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10490,7 +11073,9 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10500,6 +11085,8 @@ pub fn render_line(line: &LinePlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10509,7 +11096,9 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10519,6 +11108,8 @@ pub fn render_bar(bar: &BarPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10528,7 +11119,9 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
     let computed = ComputedLayout::from_layout(&layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, &layout);
@@ -10538,6 +11131,8 @@ pub fn render_bar_categories(bar: &BarPlot, layout: Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(&layout, &mut scene, &computed);
 
     scene
 }
@@ -10547,7 +11142,9 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10557,6 +11154,8 @@ pub fn render_histogram(hist: &Histogram, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10566,7 +11165,9 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10576,6 +11177,8 @@ pub fn render_boxplot(boxplot: &BoxPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10585,7 +11188,9 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10595,6 +11200,8 @@ pub fn render_violin(violin: &ViolinPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10631,7 +11238,11 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
                 } else {
                     slice.label.clone()
                 };
-                measure_text_width(&label_text, computed.body_size as f64, FontStyle::Regular)
+                computed.fonts.measure_text_width(
+                    &label_text,
+                    computed.body_size as f64,
+                    FontStyle::Regular,
+                )
             })
             .fold(0.0f64, f64::max);
 
@@ -10650,7 +11261,9 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10660,6 +11273,8 @@ pub fn render_pie(pie: &PiePlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10669,7 +11284,9 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     // add_axes_and_grid(&mut scene, &computed, &layout);
     add_labels_and_title(&mut scene, &computed, layout);
@@ -10679,6 +11296,8 @@ pub fn render_brickplot(brickplot: &BrickPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -10819,7 +11438,10 @@ fn add_ecdf(ep: &crate::plot::ecdf::EcdfPlot, computed: &ComputedLayout, scene: 
             x: plot_x2 + 3.0,
             // Centre on the drawn (reduced) size, not the parent tick_size, via the
             // real cap-height offset — the *0.35/0.4 sweep missed this 0.4 factor.
-            y: py + center_offset(pct_size as f64, FontStyle::Regular),
+            y: py
+                + computed
+                    .fonts
+                    .center_offset(pct_size as f64, FontStyle::Regular),
             content: pct_str,
             size: pct_size,
             anchor: TextAnchor::Start,
@@ -11054,7 +11676,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
             for (gi, group) in qp.groups.iter().enumerate() {
                 let color = resolve_color(group, gi);
                 let mut sorted = group.data.clone();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                sorted.sort_by(|a, b| a.nan_cmp(b));
                 let n = sorted.len();
                 if n == 0 {
                     continue;
@@ -11218,7 +11840,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                     .copied()
                     .filter(|&p| p > 0.0 && p <= 1.0)
                     .collect();
-                pvals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                pvals.sort_by(|a, b| a.nan_cmp(b));
                 let n = pvals.len();
                 if n == 0 {
                     continue;
@@ -11256,7 +11878,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                             z * z
                         })
                         .collect();
-                    chi2.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    chi2.sort_by(|a, b| a.nan_cmp(b));
                     let lambda = percentile(&chi2, 50.0) / 0.4549;
 
                     let label_x = computed.margin_left + computed.plot_width() * 0.05;
@@ -11426,13 +12048,17 @@ pub fn render_waterfall(waterfall: &WaterfallPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_waterfall(waterfall, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -11441,13 +12067,17 @@ pub fn render_strip(strip: &StripPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_strip(strip, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
 
@@ -11652,7 +12282,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
             scene.add(Primitive::Text {
                 x: tx,
-                y: ty + tl + tlm + cap_height(ts as f64, FontStyle::Regular),
+                y: ty + tl + tlm + computed.fonts.cap_height(ts as f64, FontStyle::Regular),
                 content: label.clone(),
                 size: ts,
                 anchor: TextAnchor::Middle,
@@ -11675,7 +12305,7 @@ fn add_diceplot(dp: &DicePlot, scene: &mut Scene, computed: &ComputedLayout) {
             });
             scene.add(Primitive::Text {
                 x: grid_x0 - tl - tlm,
-                y: ty + center_offset(ts as f64, FontStyle::Regular),
+                y: ty + computed.fonts.center_offset(ts as f64, FontStyle::Regular),
                 content: label.clone(),
                 size: ts,
                 anchor: TextAnchor::End,
@@ -11974,7 +12604,9 @@ fn add_dice_position_legend(
             y: pip_cy
                 + die_cell_pip_h / 2.0
                 + label_area_h / 2.0
-                + center_offset(label_size as f64, FontStyle::Regular),
+                + computed
+                    .fonts
+                    .center_offset(label_size as f64, FontStyle::Regular),
             content: label.to_string(),
             size: label_size,
             anchor: TextAnchor::Middle,
@@ -12071,7 +12703,10 @@ fn add_dice_size_legend_section(
         let value = size_min + pct * (size_max - size_min);
         scene.add(Primitive::Text {
             x: swatch_cx + 14.0,
-            y: circle_cy + center_offset(computed.body_size as f64, FontStyle::Regular),
+            y: circle_cy
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64, FontStyle::Regular),
             content: format!("{:.1}", value),
             size: computed.body_size,
             anchor: TextAnchor::Start,
@@ -12221,8 +12856,10 @@ fn add_dot_stacked_legends(
         // Centre the swatch on the row. The sibling legend paths dropped the legacy
         // `- 1.0` rect nudge; this Circle path has no rect, so match them.
         let swatch_cy = legend_y + computed.legend_swatch_size / 2.0;
-        let text_baseline =
-            swatch_cy + center_offset(computed.body_size as f64, FontStyle::Regular);
+        let text_baseline = swatch_cy
+            + computed
+                .fonts
+                .center_offset(computed.body_size as f64, FontStyle::Regular);
         scene.add(Primitive::Text {
             x: legend_x + computed.legend_text_x,
             y: text_baseline,
@@ -13360,7 +13997,30 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::Text(_) => {}
+            Plot::Quiver3D(q) => {
+                if let Some(ref label) = q.legend_label {
+                    entries.push(LegendEntry {
+                        label: label.clone(),
+                        color: q.color.clone(),
+                        shape: LegendShape::Line,
+                        dasharray: None,
+                    });
+                }
+            }
             Plot::LegendPlot(_) => {}
+            Plot::SequenceLogo(sl) => {
+                // One row per distinct color, labelled with the letters
+                // sharing it — chemistry-group palettes map many letters
+                // onto one swatch.
+                for (label, rgb) in sl.legend_groups() {
+                    entries.push(LegendEntry {
+                        label,
+                        color: format!("rgb({},{},{})", rgb[0], rgb[1], rgb[2]),
+                        shape: LegendShape::Rect,
+                        dasharray: None,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -13384,6 +14044,27 @@ pub fn render_legend_at(
     width: f64,
     body_size: u32,
     theme: &Theme,
+) {
+    let fonts = FontSet::resolve(theme.font_family.as_deref(), None);
+    render_legend_at_with_fonts(
+        entries, groups, title, show_box, scene, x, y, width, body_size, theme, &fonts,
+    );
+}
+
+/// [`render_legend_at`] measuring with a layout's resolved `fonts`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_legend_at_with_fonts(
+    entries: &[LegendEntry],
+    groups: Option<&[LegendGroup]>,
+    title: Option<&str>,
+    show_box: bool,
+    scene: &mut Scene,
+    x: f64,
+    y: f64,
+    width: f64,
+    body_size: u32,
+    theme: &Theme,
+    fonts: &FontSet,
 ) {
     let legend_padding = 10.0;
     // Comfortable list leading (~1.5em) that scales with body_size — matches the main
@@ -13449,7 +14130,7 @@ pub fn render_legend_at(
     // Helper: inline entry rendering (avoids needing a full ComputedLayout)
     let render_entry = |entry: &LegendEntry, scene: &mut Scene, cur_y: f64| {
         let swatch_cy = cur_y + 5.0;
-        let text_baseline = swatch_cy + center_offset(body_size as f64, FontStyle::Regular);
+        let text_baseline = swatch_cy + fonts.center_offset(body_size as f64, FontStyle::Regular);
         scene.add(Primitive::Text {
             x: x + 25.0,
             y: text_baseline,
@@ -13573,7 +14254,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let label_size = computed.label_size as f64;
 
     // Left panel layout (left → right): [bar_area][count_gap][name_area]
-    let name_area = (widest_text_width(
+    let name_area = (computed.fonts.widest_text_width(
         up.set_names.iter().map(|n| n.as_str()),
         tick_size,
         FontStyle::Regular,
@@ -13667,7 +14348,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 // Fixed position in the count_gap zone — never encroaches on name_area.
                 scene.add(Primitive::Text {
                     x: pl + bar_area + 3.0,
-                    y: cy + center_offset(tick_size, FontStyle::Regular),
+                    y: cy + computed.fonts.center_offset(tick_size, FontStyle::Regular),
                     content: format!("{}", size),
                     size: computed.tick_size,
                     anchor: TextAnchor::Start,
@@ -13697,7 +14378,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let cy = mat_t + (j as f64 + 0.5) * dot_row_h;
         scene.add(Primitive::Text {
             x: name_x,
-            y: cy + center_offset(tick_size, FontStyle::Regular),
+            y: cy + computed.fonts.center_offset(tick_size, FontStyle::Regular),
             content: name.clone(),
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -13751,7 +14432,7 @@ fn add_upset(up: &UpSetPlot, scene: &mut Scene, computed: &ComputedLayout) {
         });
         scene.add(Primitive::Text {
             x: mat_l - 7.0,
-            y: y + center_offset(tick_size, FontStyle::Regular),
+            y: y + computed.fonts.center_offset(tick_size, FontStyle::Regular),
             content: format!("{}", val),
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -14230,12 +14911,18 @@ fn add_streamgraph(
 
             let font_size = computed.body_size as f64;
             // Half-width of the label (middle-anchored).
-            let half_text_w = measure_text_width(&label, font_size, FontStyle::Regular) * 0.5 + 4.0;
+            let half_text_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_size, FontStyle::Regular)
+                    * 0.5
+                    + 4.0;
             let plot_left_px = computed.margin_left;
             let plot_right_px = computed.width - computed.margin_right;
 
             // Minimum band height (px) for the label to fit vertically.
-            let min_h = (text_height(font_size, FontStyle::Regular) + 4.0).max(sg.min_label_height);
+            let min_h = (computed.fonts.text_height(font_size, FontStyle::Regular) + 4.0)
+                .max(sg.min_label_height);
 
             // Exclude the first and last data points (stream has no fill there),
             // and restrict to the inner 80 % of the x range so labels are never
@@ -14247,11 +14934,14 @@ fn add_streamgraph(
             let search_end = inner_hi.min(if n_pts > 2 { n_pts - 1 } else { n_pts });
 
             // Pick the index with the tallest band in that window.
-            let max_idx_opt = (search_start..search_end).max_by(|&a, &b| {
-                let ha = geom.uppers[k][a] - geom.lowers[k][a];
-                let hb = geom.uppers[k][b] - geom.lowers[k][b];
-                ha.partial_cmp(&hb).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // NaN heights would win under `nan_cmp`; skip them.
+            let max_idx_opt = (search_start..search_end)
+                .filter(|&i| !(geom.uppers[k][i] - geom.lowers[k][i]).is_nan())
+                .max_by(|&a, &b| {
+                    let ha = geom.uppers[k][a] - geom.lowers[k][a];
+                    let hb = geom.uppers[k][b] - geom.lowers[k][b];
+                    ha.nan_cmp(&hb)
+                });
             let max_idx = match max_idx_opt {
                 Some(i) => i,
                 None => continue,
@@ -14269,7 +14959,8 @@ fn add_streamgraph(
             let mid_x = raw_x
                 .max(plot_left_px + half_text_w)
                 .min(plot_right_px - half_text_w);
-            let mid_y = (lower_y + upper_y) / 2.0 + center_offset(font_size, FontStyle::Regular);
+            let mid_y = (lower_y + upper_y) / 2.0
+                + computed.fonts.center_offset(font_size, FontStyle::Regular);
 
             // Choose text color: white for dark fills, dark for light
             let txt_color = choose_label_color(sg.resolve_color(orig_idx));
@@ -14990,7 +15681,9 @@ fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let lx = cx + label_gap * mid.cos();
         let ly = cy
             + label_gap * mid.sin()
-            + center_offset(computed.body_size as f64, FontStyle::Regular);
+            + computed
+                .fonts
+                .center_offset(computed.body_size as f64, FontStyle::Regular);
 
         let label = if let Some(l) = chord.labels.get(i) {
             l.clone()
@@ -15333,7 +16026,9 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -15342,6 +16037,7 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -15439,7 +16135,6 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             &sankey.links,
             sankey.node_order_seed,
             Some(&node_sort_keys),
-            sankey.node_order == SankeyNodeOrder::Neighbornet,
         );
         col = ordered.col;
         nodes_in_col = ordered.nodes_in_col;
@@ -15626,7 +16321,11 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             let src_label_right = if col[src] == 0 {
                 x_src + edge_margin // source label is on the LEFT; right is clear
             } else {
-                let label_w = measure_text_width(&sankey.nodes[src].label, bs, FontStyle::Regular);
+                let label_w = computed.fonts.measure_text_width(
+                    &sankey.nodes[src].label,
+                    bs,
+                    FontStyle::Regular,
+                );
                 x_src + 6.0 + label_w + edge_margin
             };
             let clear_end = x_tgt - edge_margin;
@@ -15647,8 +16346,8 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             let ribbon_h_at_t = y_bot_at_t - y_top_at_t;
             if ribbon_h_at_t >= sankey.flow_label_min_height {
                 let label_x = x_src + t * (x_tgt - x_src);
-                let label_y =
-                    (y_top_at_t + y_bot_at_t) / 2.0 + center_offset(ts, FontStyle::Regular);
+                let label_y = (y_top_at_t + y_bot_at_t) / 2.0
+                    + computed.fonts.center_offset(ts, FontStyle::Regular);
                 let text = if sankey.flow_percent {
                     format!("{:.1}%", (link.value / out_flow[src]) * 100.0)
                 } else {
@@ -15684,7 +16383,9 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
             x: lx,
             y: node_y[i]
                 + node_h[i] / 2.0
-                + center_offset(computed.body_size as f64, FontStyle::Regular),
+                + computed
+                    .fonts
+                    .center_offset(computed.body_size as f64, FontStyle::Regular),
             content: sankey.nodes[i].label.clone(),
             size: computed.body_size,
             anchor,
@@ -15699,7 +16400,9 @@ pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -15708,6 +16411,7 @@ pub fn render_sankey(sankey: &SankeyPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -15896,7 +16600,12 @@ fn parse_inline_markup(text: &str) -> Vec<TextSpan> {
 /// next line. A math span is one unbreakable word whose length is the typeset
 /// fragment's width expressed in mean-character units (`font_size` sizes the
 /// fragment; it is unused without the `typst-math` feature).
-fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<Vec<TextSpan>> {
+fn wrap_rich_spans(
+    spans: &[TextSpan],
+    max_chars: usize,
+    font_size: u32,
+    fonts: &FontSet,
+) -> Vec<Vec<TextSpan>> {
     #[cfg(not(feature = "typst-math"))]
     let _ = font_size;
     struct Word {
@@ -15952,7 +16661,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
     // The wrapping length of one word, in character units.
     let word_len = |w: &Word| -> usize {
         if w.math {
-            math_word_chars(&w.text, font_size)
+            math_word_chars(&w.text, font_size, fonts)
         } else {
             w.text.chars().count()
         }
@@ -16049,7 +16758,7 @@ fn wrap_rich_spans(spans: &[TextSpan], max_chars: usize, font_size: u32) -> Vec<
 /// Falls back to the lookup tier's inline form when the fragment fails to
 /// compile (the backends will draw that same fallback).
 #[cfg(feature = "typst-math")]
-fn math_word_chars(body: &str, font_size: u32) -> usize {
+fn math_word_chars(body: &str, font_size: u32, fonts: &FontSet) -> usize {
     let label = format!("${body}$");
     let fs = font_size as f64;
     match crate::render::math::fragment_size(&label, fs) {
@@ -16057,7 +16766,7 @@ fn math_word_chars(body: &str, font_size: u32) -> usize {
             // Subtract the fragment's baked-in page margin: inline it
             // advances like a word, not a padded box.
             let w = (w - 2.0 * crate::render::math::FRAGMENT_MARGIN_EM * fs).max(1.0);
-            (w / crate::render::text_metrics::mean_char_width(fs)).ceil() as usize
+            (w / fonts.mean_char_width(fs)).ceil() as usize
         }
         None => crate::render::math::to_unicode(&label).chars().count(),
     }
@@ -16065,7 +16774,7 @@ fn math_word_chars(body: &str, font_size: u32) -> usize {
 }
 
 #[cfg(not(feature = "typst-math"))]
-fn math_word_chars(_body: &str, _font_size: u32) -> usize {
+fn math_word_chars(_body: &str, _font_size: u32, _fonts: &FontSet) -> usize {
     1
 }
 
@@ -16073,8 +16782,7 @@ fn math_word_chars(_body: &str, _font_size: u32) -> usize {
 /// overshoot) a rich-text line whose math fragments are taller than the
 /// surrounding text. Zero without the `typst-math` feature.
 #[cfg(feature = "typst-math")]
-fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
-    use crate::render::text_metrics::{ascent, descent, FontStyle};
+fn rich_line_math_extents(spans: &[TextSpan], font_size: u32, fonts: &FontSet) -> (f64, f64) {
     let fs = font_size as f64;
     let mut asc_extra = 0.0f64;
     let mut desc_extra = 0.0f64;
@@ -16085,15 +16793,15 @@ fn rich_line_math_extents(spans: &[TextSpan], font_size: u32) -> (f64, f64) {
         if let Some((_w, h, baseline)) =
             crate::render::math::fragment_size(&format!("${}$", sp.text), fs)
         {
-            asc_extra = asc_extra.max(baseline - ascent(fs, FontStyle::Regular));
-            desc_extra = desc_extra.max((h - baseline) - descent(fs, FontStyle::Regular));
+            asc_extra = asc_extra.max(baseline - fonts.ascent(fs, FontStyle::Regular));
+            desc_extra = desc_extra.max((h - baseline) - fonts.descent(fs, FontStyle::Regular));
         }
     }
     (asc_extra.max(0.0), desc_extra.max(0.0))
 }
 
 #[cfg(not(feature = "typst-math"))]
-fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32) -> (f64, f64) {
+fn rich_line_math_extents(_spans: &[TextSpan], _font_size: u32, _fonts: &FontSet) -> (f64, f64) {
     (0.0, 0.0)
 }
 
@@ -16129,7 +16837,7 @@ fn add_legend_plot(lp: &LegendPlot, scene: &mut Scene, computed: &ComputedLayout
 
     // Auto-compute columns if not set, then bump up columns to fit within cell height.
     let mut n_cols = lp.cols.unwrap_or_else(|| {
-        let label_w = widest_text_width(
+        let label_w = computed.fonts.widest_text_width(
             lp.entries.iter().map(|e| e.label.as_str()),
             computed.body_size as f64,
             FontStyle::Regular,
@@ -16257,7 +16965,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let font_size = tp.font_size.unwrap_or(computed.body_size);
     let line_height = font_size as f64 * 1.55;
     let avail_w = (pw - 2.0 * padding).max(20.0);
-    let max_chars = ((avail_w / mean_char_width(font_size as f64)) as usize).max(1);
+    let max_chars = ((avail_w / computed.fonts.mean_char_width(font_size as f64)) as usize).max(1);
 
     let (anchor, text_x) = match tp.text_align {
         TextAlign::Left => (TextAnchor::Start, px + padding),
@@ -16316,7 +17024,7 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
             }
             let fs = font_size + size_bump;
             let lh = fs as f64 * 1.55;
-            let mc = ((avail_w / mean_char_width(fs as f64)) as usize).max(1);
+            let mc = ((avail_w / computed.fonts.mean_char_width(fs as f64)) as usize).max(1);
             // Wrap heading words (plain Text, always bold)
             let words: Vec<&str> = text.split_whitespace().collect();
             let mut cur = String::new();
@@ -16365,13 +17073,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Body line — parse inline markup, word-wrap, emit RichText
         let spans = parse_inline_markup(raw);
-        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size);
+        let wrapped_lines = wrap_rich_spans(&spans, max_chars, font_size, &computed.fonts);
         for line_spans in wrapped_lines {
             // Typeset math fragments can be taller than the text line
             // (stacked fractions, radicals): grow this line's leading by the
             // fragment's overshoot above the ascent and below the descent so
             // neighbouring lines never overlap it.
-            let (asc_extra, desc_extra) = rich_line_math_extents(&line_spans, font_size);
+            let (asc_extra, desc_extra) =
+                rich_line_math_extents(&line_spans, font_size, &computed.fonts);
             cy += asc_extra;
             scene.add(Primitive::RichText {
                 x: text_x,
@@ -16389,6 +17098,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
 /// this should be the default renderer.
 /// TODO: make an alias of this for single plots, that vectorises
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
+    // Sequence logos size their canvas here (and may wrap onto rows).
+    let layout = {
+        let mut layout = layout;
+        if let Some(scene) = crate::render::logo_render::prepare_logo(&plots, &mut layout) {
+            return scene;
+        }
+        layout
+    };
     // Auto-assign palette colors to single-color plot types
     let mut plots = plots;
     let mut layout = layout;
@@ -16414,7 +17131,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::Slope(_)
                 | Plot::Ecdf(_)
                 | Plot::QQ(_)
-                | Plot::Quiver(_) => {
+                | Plot::Quiver(_)
+                | Plot::Quiver3D(_) => {
                     plot.set_color(&palette[color_idx]);
                     color_idx += 1;
                 }
@@ -16434,7 +17152,23 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
 
     // Reserve only the notation tiers the labels actually occupy, rather than
     // the worst case `Layout::auto_from_plots` had to assume.
+    // Candlestick maps prices onto its own price/volume panel rather than
+    // through `map_y`, so a y break cannot apply to it.
+    if plots.iter().any(|p| matches!(p, Plot::Candlestick(_))) {
+        layout.y_break = None;
+    }
     let mut computed = resolve_brick_notation_tiers(&plots, &mut layout);
+    for (axis, requested, kept) in [
+        ("x", layout.x_break.is_some(), computed.x_break.is_some()),
+        ("y", layout.y_break.is_some(), computed.y_break.is_some()),
+    ] {
+        if requested && !kept {
+            eprintln!(
+                "warning: {axis}-axis break ignored: it must satisfy lo < hi strictly inside the \
+                 axis range on a linear axis (not log, categorical, equal-aspect, twin-y or candlestick)"
+            );
+        }
+    }
 
     // Pie canvas-widening: when a Pie with outside labels is present, ensure the
     // canvas is wide enough to fit both the leader-line labels AND any legend in the
@@ -16474,7 +17208,11 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     } else {
                         slice.label.clone()
                     };
-                    measure_text_width(&label_text, computed.body_size as f64, FontStyle::Regular)
+                    computed.fonts.measure_text_width(
+                        &label_text,
+                        computed.body_size as f64,
+                        FontStyle::Regular,
+                    )
                 })
                 .fold(0.0_f64, f64::max);
             let leader_gap = 30.0;
@@ -16517,7 +17255,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         + 64;
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     // Propagate interactivity into the scene so the SVG backend can inject
     // CSS / JS / UI.  For pixel-space plots (no axis) axis_meta is left None.
@@ -16536,6 +17276,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     | Plot::Ternary(_)
                     | Plot::Scatter3D(_)
                     | Plot::Surface3D(_)
+                    | Plot::Quiver3D(_)
                     | Plot::Clustermap(_)
                     | Plot::Joint(_)
                     | Plot::Venn(_)
@@ -16553,7 +17294,8 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                     | Plot::LegendPlot(_)
             )
         });
-        if !skip_axes_for_meta {
+        // Hover read-outs assume a linear range, which a broken axis is not.
+        if !skip_axes_for_meta && computed.x_break.is_none() && computed.y_break.is_none() {
             scene.axis_meta = Some(AxisMeta {
                 x_min: computed.x_range.0,
                 x_max: computed.x_range.1,
@@ -16583,6 +17325,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
                 | Plot::DicePlot(_)
                 | Plot::Scatter3D(_)
                 | Plot::Surface3D(_)
+                | Plot::Quiver3D(_)
                 | Plot::Clustermap(_)
                 | Plot::Joint(_)
                 | Plot::Venn(_)
@@ -16665,7 +17408,7 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         computed.dice_x_label_pos = Some((gx0 + gw / 2.0, x_label_y));
 
         // y-label: centred on grid height, just left of the tick labels
-        let max_y_px = widest_text_width(
+        let max_y_px = computed.fonts.widest_text_width(
             dp.y_categories.iter().map(|s| s.as_str()),
             ts,
             FontStyle::Regular,
@@ -16942,6 +17685,16 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
             Plot::Quiver(q) => {
                 add_quiver(q, &mut scene, &computed);
             }
+            Plot::SequenceLogo(sl) => {
+                crate::render::logo_render::add_sequence_logo(sl, &mut scene, &computed, &layout);
+            }
+            Plot::Quiver3D(q) => {
+                if let (Some(ranges), Some(cfg)) = (ranges_3d, box3d_cfg_3d.as_ref()) {
+                    let proj = proj_3d
+                        .get_or_insert_with(|| draw_3d_box(ranges, cfg, &mut scene, &computed));
+                    add_quiver3d(q, &mut scene, &computed, proj);
+                }
+            }
         }
     }
 
@@ -16949,8 +17702,17 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     add_text_annotations(&layout.annotations, &mut scene, &computed);
 
     if !skip_axes {
+        // The gap cover belongs to the axes: pixel-space plots have none.
+        add_axis_break_cover(&mut scene, &computed);
+        add_in_gap_markers(&plots, &mut scene, &computed);
         scene.elements.push(Primitive::ClipEnd);
     }
+
+    // Bracket labels sit beyond the data (above it, or beside a horizontal
+    // bracket), so like the Manhattan chromosome labels they are drawn after
+    // the clip: a label wider than the axis headroom runs into the margin
+    // instead of being cut off.
+    add_brackets(&layout, &mut scene, &computed);
 
     // Manhattan chromosome labels must be drawn after ClipEnd (they sit below the clip rect)
     for plot in plots.iter() {
@@ -16984,6 +17746,15 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     for plot in plots.iter() {
         if let Plot::Gantt(gp) = plot {
             add_gantt_labels(gp, &mut scene, &computed);
+        }
+    }
+
+    // Sequence-logo consensus row sits below the x tick labels — emit after ClipEnd.
+    for plot in plots.iter() {
+        if let Plot::SequenceLogo(sl) = plot {
+            if sl.show_consensus {
+                crate::render::logo_render::add_consensus_row(sl, &mut scene, &computed);
+            }
         }
     }
 
@@ -17157,7 +17928,9 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
     let computed_y2 = computed.for_y2();
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, &layout);
 
     add_axes_and_grid(&mut scene, &computed, &layout);
     add_y2_axis(&mut scene, &computed, &layout);
@@ -17282,8 +18055,10 @@ pub fn render_twin_y(primary: Vec<Plot>, secondary: Vec<Plot>, layout: Layout) -
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
 
     scene.elements.push(Primitive::ClipEnd);
+    add_brackets(&layout, &mut scene, &computed);
 
     let mut all_plots_for_legend: Vec<Plot> = primary;
     all_plots_for_legend.extend(secondary);
@@ -17409,7 +18184,7 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
     let mt = computed.margin_top;
 
     // Reserve pixels for leaf labels and general padding so labels don't clip.
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         tree.nodes
             .iter()
             .filter(|n| n.children.is_empty())
@@ -17785,7 +18560,9 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -17794,6 +18571,7 @@ pub fn render_phylo_tree(tree: &PhyloTree, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -17812,7 +18590,7 @@ fn add_synteny(synteny: &SyntenyPlot, scene: &mut Scene, computed: &ComputedLayo
     let n = synteny.sequences.len();
 
     // Reserve left margin for bar labels
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         synteny.sequences.iter().map(|s| s.label.as_str()),
         12.0,
         FontStyle::Regular,
@@ -18001,7 +18779,9 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
 
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
@@ -18010,6 +18790,7 @@ pub fn render_synteny(synteny: &SyntenyPlot, layout: &Layout) -> Scene {
 
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
 
     scene
 }
@@ -18183,7 +18964,7 @@ fn add_polar(pp: &PolarPlot, scene: &mut Scene, computed: &ComputedLayout) {
             } else if sin_a < -0.15 {
                 ly_raw + ts * 0.8 // below centre: shift baseline down by ~cap-height
             } else {
-                ly_raw + center_offset(ts, FontStyle::Regular) // horizontal: small centering nudge
+                ly_raw + computed.fonts.center_offset(ts, FontStyle::Regular) // horizontal: small centering nudge
             };
 
             let anchor = if cos_a < -0.1 {
@@ -18856,9 +19637,10 @@ fn joint_draw_right_marginal(
 /// size plus symmetric padding, so a larger `title_size` reserves proportionally
 /// more and never clips (the old fixed 35px band ignored `title_size`).
 fn jointplot_title_height(layout: &Layout) -> f64 {
+    let fonts = layout.fonts();
     let ts = layout.title_size as f64;
     let title_h = if layout.title.is_some() {
-        text_height(ts, FontStyle::Regular) + 2.0 * (ts * 0.2)
+        fonts.text_height(ts, FontStyle::Regular) + 2.0 * (ts * 0.2)
     } else {
         0.0
     };
@@ -18868,7 +19650,7 @@ fn jointplot_title_height(layout: &Layout) -> f64 {
     let subtitle_h = match &layout.subtitle {
         Some(s) => {
             let lines = render_utils::wrap_or_single(s, layout.subtitle_wrap).len();
-            lines as f64 * line_height(jointplot_subtitle_size(layout), FontStyle::Regular)
+            lines as f64 * fonts.line_height(jointplot_subtitle_size(layout), FontStyle::Regular)
         }
         None => 0.0,
     };
@@ -18889,14 +19671,19 @@ fn jointplot_subtitle_size(layout: &Layout) -> f64 {
 /// Baseline y for a JointPlot title within its [`jointplot_title_height`] band.
 fn jointplot_title_baseline(layout: &Layout) -> f64 {
     let ts = layout.title_size as f64;
-    ts * 0.2 + ascent(ts, FontStyle::Regular)
+    let fonts = layout.fonts();
+    ts * 0.2 + fonts.ascent(ts, FontStyle::Regular)
 }
 
 /// Legend box width for a joint plot, sized to its widest group label. `JointPlot`
 /// renders its own legend, so it doesn't pass through `auto_from_plots`; this gives
 /// it the same content-hugging width (swatch + gap + measured text + padding).
-fn jointplot_legend_width(jp: &crate::plot::jointplot::JointPlot, body_size: f64) -> f64 {
-    widest_text_width(
+fn jointplot_legend_width(
+    jp: &crate::plot::jointplot::JointPlot,
+    body_size: f64,
+    fonts: &FontSet,
+) -> f64 {
+    fonts.widest_text_width(
         jp.groups
             .iter()
             .filter_map(|g| g.scatter.legend_label.as_deref()),
@@ -18940,7 +19727,7 @@ fn add_jointplot(
     // Size the legend box to the widest group label rather than the generic
     // `legend_width` default (which is not derived from these labels).
     let legend_width = if has_legend {
-        jointplot_legend_width(jp, computed.body_size as f64)
+        jointplot_legend_width(jp, computed.body_size as f64, &computed.fonts)
     } else {
         legend_width
     };
@@ -19148,7 +19935,7 @@ fn add_jointplot(
                     }
                     scene.add(Primitive::Text {
                         x: legend_x + 18.0,
-                        y: swatch_cy + center_offset(bs, FontStyle::Regular),
+                        y: swatch_cy + computed.fonts.center_offset(bs, FontStyle::Regular),
                         content: lbl,
                         size: scatter_computed.body_size,
                         anchor: TextAnchor::Start,
@@ -19178,6 +19965,7 @@ fn add_jointplot(
 /// let scene = render_jointplot(joint, layout);
 /// ```
 pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -> Scene {
+    let fonts = layout.fonts();
     let width = layout.width.unwrap_or(500.0);
     let height = layout.height.unwrap_or(500.0);
     let title_h = jointplot_title_height(&layout);
@@ -19185,13 +19973,14 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     let has_legend = jp.groups.iter().any(|g| g.scatter.legend_label.is_some());
     let legend_after_right = has_legend && jp.show_right;
     let legend_extra_w = if legend_after_right {
-        jointplot_legend_width(&jp, layout.body_size as f64) + 20.0
+        jointplot_legend_width(&jp, layout.body_size as f64, &fonts) + 20.0
     } else {
         0.0
     };
     let scene_width = width + legend_extra_w;
 
     let mut scene = Scene::new(scene_width, height);
+    scene.mono_font_family = layout.mono_font_family.clone();
     if let Some(ref font) = layout.font_family {
         scene.font_family = Some(font.clone());
     }
@@ -19219,16 +20008,16 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     if let Some(ref subtitle) = layout.subtitle {
         let ts = layout.title_size as f64;
         let sts = jointplot_subtitle_size(&layout);
-        let slh = line_height(sts, FontStyle::Regular);
+        let slh = fonts.line_height(sts, FontStyle::Regular);
         // Bottom of the title (baseline + descent), or the very top when there is
         // no title; then drop the first subtitle baseline by its own ascent.
         let title_bottom = if layout.title.is_some() {
-            jointplot_title_baseline(&layout) + descent(ts, FontStyle::Regular)
+            jointplot_title_baseline(&layout) + fonts.descent(ts, FontStyle::Regular)
         } else {
             0.0
         };
-        let start_y = title_bottom + ascent(sts, FontStyle::Regular);
-        let color = muted_subtitle_color(&scene);
+        let start_y = title_bottom + fonts.ascent(sts, FontStyle::Regular);
+        let color = muted_subtitle_color(&scene, &layout.theme.background);
         for (i, line) in render_utils::wrap_or_single(subtitle, layout.subtitle_wrap)
             .iter()
             .enumerate()
@@ -19254,6 +20043,11 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
     if layout.bw_mode {
         stub_layout = stub_layout.with_bw_mode();
     }
+    // Carry the font families so the stub measures text in the faces the scene
+    // renders (`scene.font_family` comes from `layout` above).
+    stub_layout.font_family = layout.font_family.clone();
+    stub_layout.tick_font_family = layout.tick_font_family.clone();
+    stub_layout.mono_font_family = layout.mono_font_family.clone();
     let computed = ComputedLayout::from_layout(&stub_layout);
 
     add_jointplot(
@@ -19261,7 +20055,7 @@ pub fn render_jointplot(jp: crate::plot::jointplot::JointPlot, layout: Layout) -
         &mut scene,
         &computed,
         title_h,
-        layout.legend_width,
+        layout.legend_width_with(&fonts),
         layout.show_legend,
         true,
     );
@@ -19391,19 +20185,23 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 if mp.show_values {
                     lines.push(format!("{val}"));
                 }
-                let widest = widest_text_width(
+                let widest = computed.fonts.widest_text_width(
                     lines.iter().map(|s| s.as_str()),
                     label_size as f64,
                     FontStyle::Regular,
                 );
                 if widest < col_w * 0.9 {
                     let cx = col_x + col_w / 2.0;
-                    let line_h = text_height(label_size as f64, FontStyle::Regular);
+                    let line_h = computed
+                        .fonts
+                        .text_height(label_size as f64, FontStyle::Regular);
                     // Centre the whole stack on the segment rather than its first
                     // line, so a one-line label lands exactly where it used to.
                     let first_cy = seg_top + seg_h / 2.0
                         - line_h * (lines.len() as f64 - 1.0) / 2.0
-                        + center_offset(label_size as f64, FontStyle::Regular);
+                        + computed
+                            .fonts
+                            .center_offset(label_size as f64, FontStyle::Regular);
                     for (li, line) in lines.iter().enumerate() {
                         let cy = first_cy + line_h * li as f64;
                         label_bg_rect(
@@ -19412,7 +20210,7 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             cx,
                             cy,
                             TextAnchor::Middle,
-                            widest_text_width(
+                            computed.fonts.widest_text_width(
                                 std::iter::once(line.as_str()),
                                 label_size as f64,
                                 FontStyle::Regular,
@@ -19489,7 +20287,10 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let pct_label = format!("{}%", (frac * 100.0) as u32);
         scene.add(Primitive::Text {
             x: axis_x - tick_len - computed.tick_label_margin,
-            y: ty + center_offset(computed.tick_size as f64, FontStyle::Regular),
+            y: ty
+                + computed
+                    .fonts
+                    .center_offset(computed.tick_size as f64, FontStyle::Regular),
             content: pct_label,
             size: computed.tick_size,
             anchor: TextAnchor::End,
@@ -19517,7 +20318,12 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
     let max_label_px = if net.show_labels {
         net.nodes
             .iter()
-            .map(|n| measure_text_width(&n.label, font_size as f64, FontStyle::Regular) + 4.0)
+            .map(|n| {
+                computed
+                    .fonts
+                    .measure_text_width(&n.label, font_size as f64, FontStyle::Regular)
+                    + 4.0
+            })
             .fold(0.0_f64, f64::max)
     } else {
         0.0
@@ -20018,13 +20824,15 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
             for (i, node) in net.nodes.iter().enumerate() {
                 let r = node.size.unwrap_or(net.node_radius);
                 // Largest font whose measured label width fits the node diameter.
-                let label_w_per_px =
-                    measure_text_width(&node.label, 1.0, FontStyle::Regular).max(1e-6);
+                let label_w_per_px = computed
+                    .fonts
+                    .measure_text_width(&node.label, 1.0, FontStyle::Regular)
+                    .max(1e-6);
                 let max_fs = ((2.0 * r) / label_w_per_px).floor() as u32;
                 let fs = max_fs.min(font_size).max(6);
                 scene.add(Primitive::Text {
                     x: round2(px[i]),
-                    y: round2(py[i] + center_offset(fs as f64, FontStyle::Regular)),
+                    y: round2(py[i] + computed.fonts.center_offset(fs as f64, FontStyle::Regular)),
                     content: node.label.clone(),
                     size: fs,
                     anchor: TextAnchor::Middle,
@@ -20059,7 +20867,11 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 .enumerate()
                 .map(|(i, node)| {
                     let r = node.size.unwrap_or(net.node_radius);
-                    let lw = measure_text_width(&node.label, font_size as f64, FontStyle::Regular);
+                    let lw = computed.fonts.measure_text_width(
+                        &node.label,
+                        font_size as f64,
+                        FontStyle::Regular,
+                    );
                     let gap = r + 4.0;
                     // Unit vector from centroid to node.
                     let fdx = px[i] - cx_c;
@@ -20076,8 +20888,11 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                         (px[i], TextAnchor::Middle)
                     };
                     // Vertical: shift in the outward y direction; apply baseline offset.
-                    let ly =
-                        py[i] + fuy * gap + center_offset(font_size as f64, FontStyle::Regular);
+                    let ly = py[i]
+                        + fuy * gap
+                        + computed
+                            .fonts
+                            .center_offset(font_size as f64, FontStyle::Regular);
                     (lx, ly, node.label.clone(), lw, anchor)
                 })
                 .collect();
@@ -20565,7 +21380,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
 
         // 1-D push-apart: sort by radial position, then spread overlapping pairs.
         for items in axis_items.iter_mut() {
-            items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            items.sort_by(|a, b| a.1.nan_cmp(&b.1));
             for _ in 0..30 {
                 let mut moved = false;
                 for j in 1..items.len() {
@@ -20605,7 +21420,10 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
                 scene.add(Primitive::Text {
                     x: round2(cx + radial * th.cos()),
                     y: round2(
-                        cy + radial * th.sin() + center_offset(label_sz as f64, FontStyle::Regular),
+                        cy + radial * th.sin()
+                            + computed
+                                .fonts
+                                .center_offset(label_sz as f64, FontStyle::Regular),
                     ),
                     content: text.clone(),
                     size: label_sz,
@@ -21105,11 +21923,7 @@ fn run_squarify(pixel_areas: &[f64], rect: TmRect) -> Vec<(usize, TmRect)> {
     let mut order: Vec<usize> = (0..pixel_areas.len())
         .filter(|&i| pixel_areas[i] > f64::EPSILON)
         .collect();
-    order.sort_by(|&a, &b| {
-        pixel_areas[b]
-            .partial_cmp(&pixel_areas[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| pixel_areas[b].nan_cmp(&pixel_areas[a]));
 
     let mut result = vec![
         TmRect {
@@ -21268,11 +22082,7 @@ fn run_binary(pixel_areas: &[f64], rect: TmRect, depth: usize) -> Vec<(usize, Tm
     if order.is_empty() {
         return vec![];
     }
-    order.sort_by(|&a, &b| {
-        pixel_areas[b]
-            .partial_cmp(&pixel_areas[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| pixel_areas[b].nan_cmp(&pixel_areas[a]));
 
     let mut result = vec![
         TmRect {
@@ -21669,8 +22479,9 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
             };
 
             if show_lbl {
-                let max_chars =
-                    ((tile.rect.w * 0.88) / mean_char_width(font_size as f64)).floor() as usize;
+                let max_chars = ((tile.rect.w * 0.88)
+                    / computed.fonts.mean_char_width(font_size as f64))
+                .floor() as usize;
                 let label = if max_chars > 2 && tile.label.chars().count() > max_chars {
                     let truncated: String = tile
                         .label
@@ -21694,7 +22505,9 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         tile.rect.x + tile.rect.w * 0.5,
                         tile.rect.y
                             + tile.rect.h * 0.5
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         TextAnchor::Middle,
                         false,
                     )
@@ -21705,7 +22518,10 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 } else {
                     FontStyle::Regular
                 };
-                let label_w = measure_text_width(&label, font_size as f64, label_style);
+                let label_w =
+                    computed
+                        .fonts
+                        .measure_text_width(&label, font_size as f64, label_style);
                 label_bg_rect(
                     scene, computed, lx, ly, anchor, label_w, font_size, bold, None,
                 );
@@ -22137,7 +22953,7 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
             let font_size = 11u32;
             // Available arc width at midpoint
             let arc_len = arc.sweep_deg.to_radians() * r_mid;
-            let max_chars = ((arc_len * 0.88) / mean_char_width(font_size as f64))
+            let max_chars = ((arc_len * 0.88) / computed.fonts.mean_char_width(font_size as f64))
                 .floor()
                 .max(0.0) as usize;
             let label = if max_chars > 2 && arc.label.chars().count() > max_chars {
@@ -22163,7 +22979,10 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
                 None
             };
 
-            let label_w = measure_text_width(&label, font_size as f64, FontStyle::Regular);
+            let label_w =
+                computed
+                    .fonts
+                    .measure_text_width(&label, font_size as f64, FontStyle::Regular);
             label_bg_rect(
                 scene,
                 computed,
@@ -22368,7 +23187,10 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                         .min(computed.body_size);
                     scene.add(Primitive::Text {
                         x: px,
-                        y: py + center_offset(font_sz as f64, FontStyle::Regular),
+                        y: py
+                            + computed
+                                .fonts
+                                .center_offset(font_sz as f64, FontStyle::Regular),
                         content: label,
                         size: font_sz,
                         anchor: TextAnchor::Middle,
@@ -22398,10 +23220,10 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                     Some((si, py))
                 })
                 .collect();
-            pos.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            pos.sort_by(|a, b| a.1.nan_cmp(&b.1));
             nudge_bump_labels(
                 &mut pos,
-                crate::render::text_metrics::line_height(font_h, FontStyle::Regular),
+                computed.fonts.line_height(font_h, FontStyle::Regular),
             );
             pos
         };
@@ -22424,7 +23246,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             };
             scene.add(Primitive::Text {
                 x: left_px - label_gap,
-                y: py + center_offset(font_h, FontStyle::Regular),
+                y: py + computed.fonts.center_offset(font_h, FontStyle::Regular),
                 content: s.name.clone(),
                 size: computed.body_size,
                 anchor: TextAnchor::End,
@@ -22453,7 +23275,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
             };
             scene.add(Primitive::Text {
                 x: right_px + label_gap,
-                y: py + center_offset(font_h, FontStyle::Regular),
+                y: py + computed.fonts.center_offset(font_h, FontStyle::Regular),
                 content: s.name.clone(),
                 size: computed.body_size,
                 anchor: TextAnchor::Start,
@@ -22559,7 +23381,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
         // Reserve horizontal space for stage label text so the widest bar's
         // left edge never collides with the left margin.
-        let left_label_w = widest_text_width(
+        let left_label_w = computed.fonts.widest_text_width(
             fp.stages.iter().map(|s| s.label.as_str()),
             font_size as f64,
             FontStyle::Regular,
@@ -22571,7 +23393,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 .mirror
                 .as_ref()
                 .map(|m| {
-                    widest_text_width(
+                    computed.fonts.widest_text_width(
                         m.iter().map(|s| s.label.as_str()),
                         font_size as f64,
                         FontStyle::Regular,
@@ -22741,10 +23563,17 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     };
                     (rx, anc, Color::from("#333333"))
                 };
-                let label_y =
-                    bar_y + bar_h / 2.0 + center_offset(font_size as f64, FontStyle::Regular);
+                let label_y = bar_y
+                    + bar_h / 2.0
+                    + computed
+                        .fonts
+                        .center_offset(font_size as f64, FontStyle::Regular);
                 if text_fits {
-                    let label_w = measure_text_width(&label, font_size as f64, FontStyle::Regular);
+                    let label_w = computed.fonts.measure_text_width(
+                        &label,
+                        font_size as f64,
+                        FontStyle::Regular,
+                    );
                     label_bg_rect(
                         scene, computed, lx, label_y, anchor, label_w, font_size, false, None,
                     );
@@ -22770,7 +23599,11 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 };
                 scene.add(Primitive::Text {
                     x: lx,
-                    y: bar_y + bar_h / 2.0 + center_offset(font_size as f64, FontStyle::Regular),
+                    y: bar_y
+                        + bar_h / 2.0
+                        + computed
+                            .fonts
+                            .center_offset(font_size as f64, FontStyle::Regular),
                     content: stage.label.clone(),
                     size: font_size,
                     anchor,
@@ -22879,7 +23712,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             x: lx,
                             y: bar_y
                                 + bar_h / 2.0
-                                + center_offset(font_size as f64, FontStyle::Regular),
+                                + computed
+                                    .fonts
+                                    .center_offset(font_size as f64, FontStyle::Regular),
                             content: label,
                             size: font_size,
                             anchor,
@@ -22894,7 +23729,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         x: center_x + max_bar_w / 2.0 + 6.0,
                         y: bar_y
                             + bar_h / 2.0
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         content: ms.label.clone(),
                         size: font_size,
                         anchor: TextAnchor::Start,
@@ -23058,7 +23895,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         bar_x + bar_w / 2.0,
                         bar_y
                             + actual_bar_h / 2.0
-                            + center_offset(font_size as f64, FontStyle::Regular),
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular),
                         TextAnchor::Middle,
                         Color::from("#ffffff"),
                     )
@@ -23158,7 +23997,9 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                                 bar_x + bar_w / 2.0,
                                 center_y
                                     + m_half_h / 2.0
-                                    + center_offset(font_size as f64, FontStyle::Regular),
+                                    + computed
+                                        .fonts
+                                        .center_offset(font_size as f64, FontStyle::Regular),
                                 TextAnchor::Middle,
                                 Color::from("#ffffff"),
                             )
@@ -23694,7 +24535,7 @@ fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout)
 
     let sunday_start = matches!(cp.week_start, WeekStart::Sunday);
     // Reserve left margin wide enough for the longest period label (or day-of-week labels).
-    let max_label_w = widest_text_width(
+    let max_label_w = computed.fonts.widest_text_width(
         periods.iter().map(|(l, _, _)| l.as_str()),
         12.0,
         FontStyle::Regular,
@@ -23803,7 +24644,9 @@ fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout)
         // ── Period label (year / "FY2023/24" / …) ────────────────────────────
         scene.add(Primitive::Text {
             x: grid_x - 4.0,
-            y: period_top + period_label_h / 2.0 + center_offset(11.0, FontStyle::Regular),
+            y: period_top
+                + period_label_h / 2.0
+                + computed.fonts.center_offset(11.0, FontStyle::Regular),
             content: label.clone(),
             size: 11,
             anchor: TextAnchor::End,
@@ -24319,11 +25162,7 @@ pub fn waffle_largest_remainder(values: &[f64], total_cells: usize) -> Vec<usize
         .enumerate()
         .map(|(i, (e, f))| (i, e - *f as f64))
         .collect();
-    fracs.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.0.cmp(&b.0))
-    });
+    fracs.sort_by(|a, b| b.1.nan_cmp(&a.1).then(a.0.cmp(&b.0)));
     for i in 0..remainder {
         floored[fracs[i].0] += 1;
     }
@@ -24819,7 +25658,10 @@ fn add_horizon_annots(hp: &HorizonPlot, scene: &mut Scene, computed: &ComputedLa
                     bold: false,
                     color: Some(sign_color),
                 });
-                let char_w = measure_text_width("+", font_size as f64, FontStyle::Regular);
+                let char_w =
+                    computed
+                        .fonts
+                        .measure_text_width("+", font_size as f64, FontStyle::Regular);
                 scene.add(Primitive::Text {
                     x: annot_x + char_w,
                     y: pos_y,
@@ -24860,7 +25702,10 @@ fn add_horizon_annots(hp: &HorizonPlot, scene: &mut Scene, computed: &ComputedLa
                     bold: false,
                     color: Some(sign_color),
                 });
-                let char_w = measure_text_width("-", font_size as f64, FontStyle::Regular);
+                let char_w =
+                    computed
+                        .fonts
+                        .measure_text_width("-", font_size as f64, FontStyle::Regular);
                 scene.add(Primitive::Text {
                     x: annot_x + char_w,
                     y: neg_y,
@@ -25023,15 +25868,179 @@ pub fn render_quiver(q: &crate::plot::quiver::QuiverPlot, layout: &Layout) -> Sc
     let computed = ComputedLayout::from_layout(layout);
     let mut scene = Scene::new(computed.width, computed.height);
     scene.font_family = computed.font_family.clone();
+    scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
+    apply_layout_background(&mut scene, layout);
     add_axes_and_grid(&mut scene, &computed, layout);
     add_labels_and_title(&mut scene, &computed, layout);
     add_shaded_regions(&layout.shaded_regions, &mut scene, &computed);
     add_quiver(q, &mut scene, &computed);
     add_reference_lines(&layout.reference_lines, &mut scene, &computed);
     add_text_annotations(&layout.annotations, &mut scene, &computed);
+    add_axis_break_cover(&mut scene, &computed);
+    add_brackets(layout, &mut scene, &computed);
     scene
 }
+// ── Quiver3DPlot (3-D vector field) ───────────────────────────────────────────
+
+/// Outline of one arrow as a single closed polygon: a `shaft_hw` half-width
+/// shaft from `tail` to the head base, then a triangular head ending at `tip`,
+/// with the head pointing along the unit vector `(ux, uy)`.
+///
+/// One subpath (rather than a stroked shaft plus a filled head) so that a
+/// `fill-opacity` fades the whole arrow uniformly, and so the shaft and head
+/// can never disagree about where the head begins.
+fn arrow_polygon_path(
+    tail: (f64, f64),
+    tip: (f64, f64),
+    ux: f64,
+    uy: f64,
+    shaft_hw: f64,
+    head_len: f64,
+    head_hw: f64,
+) -> String {
+    let (px, py) = (-uy, ux);
+    let base = (tip.0 - ux * head_len, tip.1 - uy * head_len);
+    let head_hw = head_hw.max(shaft_hw);
+    format!(
+        "M {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} L {:.2} {:.2} Z",
+        tail.0 + px * shaft_hw,
+        tail.1 + py * shaft_hw,
+        base.0 + px * shaft_hw,
+        base.1 + py * shaft_hw,
+        base.0 + px * head_hw,
+        base.1 + py * head_hw,
+        tip.0,
+        tip.1,
+        base.0 - px * head_hw,
+        base.1 - py * head_hw,
+        base.0 - px * shaft_hw,
+        base.1 - py * shaft_hw,
+        tail.0 - px * shaft_hw,
+        tail.1 - py * shaft_hw,
+    )
+}
+
+/// Renders one `Quiver3DPlot` instance's arrows into an already-drawn 3D box.
+/// `proj` is shared with every other 3D instance in the same call (see
+/// [`add_scatter3d`]).
+///
+/// Each arrow's tail and tip are projected, then the arrow is drawn as a flat
+/// screen-space glyph along the projected shaft. Arrows are painted back to
+/// front by the depth of their projected midpoint.
+fn add_quiver3d(
+    q: &Quiver3DPlot,
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    proj: &Projection3D,
+) {
+    if q.arrows.is_empty() {
+        return;
+    }
+    let scale = q.effective_scale();
+    let (mag_min, mag_max) = q.magnitude_extent();
+    let (c_min, c_max) = q.color_range.unwrap_or((mag_min, mag_max));
+    let c_span = (c_max - c_min).max(f64::EPSILON);
+
+    struct ProjectedArrow {
+        tail: (f64, f64),
+        tip: (f64, f64),
+        depth: f64,
+        idx: usize,
+    }
+
+    // Clip each arrow to a cube far larger than the box (±0.5), so a tip far
+    // outside it (tight bounds with a huge vector) can't project to infinite
+    // pixel coordinates; arrows inside it project unchanged.
+    const ARROW_CLIP: f64 = 1e9;
+    let mut projected: Vec<ProjectedArrow> = q
+        .arrows
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, a)| {
+            let (t, p) = q.endpoints_with_scale(a, scale);
+            let ((tx, ty, td), (px, py, pd)) = proj.project_segment_clipped(t, p, ARROW_CLIP)?;
+            Some(ProjectedArrow {
+                tail: (tx, ty),
+                tip: (px, py),
+                depth: (td + pd) * 0.5,
+                idx,
+            })
+        })
+        .collect();
+
+    // Painter's algorithm: largest depth (furthest) first.
+    projected.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
+
+    let (depth_min, depth_max) = projected
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+            (lo.min(p.depth), hi.max(p.depth))
+        });
+    let depth_span = (depth_max - depth_min).max(1e-12);
+
+    let bw_cmap = computed.bw_mode.then(crate::render::bw::bw_colormap);
+    let shaft_hw = q.shaft_width * 0.5;
+
+    for pa in &projected {
+        let arrow = &q.arrows[pa.idx];
+        let dx = pa.tip.0 - pa.tail.0;
+        let dy = pa.tip.1 - pa.tail.1;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-6 {
+            // Zero-length or pointing straight at the viewer: nothing to draw.
+            continue;
+        }
+        let (ux, uy) = (dx / len, dy / len);
+
+        if computed.interactive {
+            let title = format!(
+                "x={:.2}, y={:.2}, z={:.2}, u={:.2}, v={:.2}, w={:.2}, |v|={:.2}",
+                arrow.x,
+                arrow.y,
+                arrow.z,
+                arrow.u,
+                arrow.v,
+                arrow.w,
+                arrow.magnitude()
+            );
+            scene.add(Primitive::GroupStart {
+                transform: None,
+                title: Some(title),
+                extra_attrs: Some(r#"class="tt""#.to_string()),
+            });
+        }
+
+        let color_str: String = if let Some(ref c) = arrow.color {
+            c.clone()
+        } else if let Some(ref cmap) = q.color_map {
+            let cmap = bw_cmap.as_ref().unwrap_or(cmap);
+            cmap.map(((arrow.magnitude() - c_min) / c_span).clamp(0.0, 1.0))
+        } else {
+            q.color.clone()
+        };
+        let color = Color::from(color_str.as_str());
+
+        let (head_len, head_hw) = q.resolve_head(len);
+        let opacity = q
+            .depth_shade
+            .then(|| 1.0 - (pa.depth - depth_min) / depth_span * 0.7);
+
+        scene.add(Primitive::Path(Box::new(PathData {
+            d: arrow_polygon_path(pa.tail, pa.tip, ux, uy, shaft_hw, head_len, head_hw),
+            fill: Some(color.clone()),
+            stroke: color,
+            stroke_width: 0.0,
+            opacity,
+            stroke_dasharray: None,
+        })));
+
+        if computed.interactive {
+            scene.add(Primitive::GroupEnd);
+        }
+    }
+}
+
 // ── GanttPlot ─────────────────────────────────────────────────────────────────
 
 fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
@@ -25200,11 +26209,16 @@ fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     // Inside label (white, clipped to plot area — fine because it's inside the bar)
                     if gp.show_labels {
                         let label_size = 11u32;
-                        let est_text_w =
-                            measure_text_width(&task.label, label_size as f64, FontStyle::Regular);
+                        let est_text_w = computed.fonts.measure_text_width(
+                            &task.label,
+                            label_size as f64,
+                            FontStyle::Regular,
+                        );
                         if bar_width >= gp.label_min_width && bar_width > est_text_w + 6.0 {
-                            let label_y =
-                                y_center + center_offset(label_size as f64, FontStyle::Regular);
+                            let label_y = y_center
+                                + computed
+                                    .fonts
+                                    .center_offset(label_size as f64, FontStyle::Regular);
                             label_bg_rect(
                                 scene,
                                 computed,
@@ -25301,7 +26315,10 @@ fn add_gantt_labels(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout
                 let text_color = Color::from(color_str.as_str());
                 scene.add(Primitive::Text {
                     x: cx + s + 5.0,
-                    y: y_center + center_offset(label_size as f64, FontStyle::Regular),
+                    y: y_center
+                        + computed
+                            .fonts
+                            .center_offset(label_size as f64, FontStyle::Regular),
                     content: task.label.clone(),
                     size: label_size,
                     anchor: TextAnchor::Start,
@@ -25313,13 +26330,19 @@ fn add_gantt_labels(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout
                 let x_start = computed.map_x(task.start);
                 let x_end = computed.map_x(task.end);
                 let bar_width = (x_end - x_start).max(2.0);
-                let est_text_w =
-                    measure_text_width(&task.label, label_size as f64, FontStyle::Regular);
+                let est_text_w = computed.fonts.measure_text_width(
+                    &task.label,
+                    label_size as f64,
+                    FontStyle::Regular,
+                );
                 // Only draw outside label when bar is too short for inside label
                 if !(bar_width >= gp.label_min_width && bar_width > est_text_w + 6.0) {
                     scene.add(Primitive::Text {
                         x: x_end + 5.0,
-                        y: y_center + center_offset(label_size as f64, FontStyle::Regular),
+                        y: y_center
+                            + computed
+                                .fonts
+                                .center_offset(label_size as f64, FontStyle::Regular),
                         content: task.label.clone(),
                         size: label_size,
                         anchor: TextAnchor::Start,

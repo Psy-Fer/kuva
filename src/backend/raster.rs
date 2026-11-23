@@ -13,14 +13,17 @@
 //!   - Text via fontdue with glyph caching; rotated text via offscreen blit
 //!   - Clip rects and translate transforms fully respected
 
+use crate::render::render_utils::NanCmp;
 use std::collections::HashMap;
 
 use fontdue::{Font, FontSettings, Metrics};
 use std::sync::OnceLock;
 
 use crate::plot::FillPattern;
+use crate::render::axis::tick_group_family;
 use crate::render::color::Color as KColor;
-use crate::render::render::{Primitive, Scene, TextAnchor};
+use crate::render::render::{Primitive, Scene, TextAnchor, TextSpan};
+use crate::render::text_metrics::{FaceSource, FontSet, FontStyle, ResolvedFace};
 
 // ── RGBA ──────────────────────────────────────────────────────────────────────
 
@@ -669,40 +672,65 @@ impl Canvas {
     // even-odd fill.
 
     fn fill_polygon(&mut self, pts: &[(f32, f32)], c: Rgba, clip: Clip) {
-        for (span_start, span_end, py) in Self::polygon_spans(pts, clip) {
+        self.fill_contours(&[pts], c, clip);
+    }
+
+    /// Fill a set of closed contours as a single shape under one nonzero-winding
+    /// pass.
+    ///
+    /// Filling contours one at a time cannot produce holes: an inner contour
+    /// filled on its own is just another solid polygon in the same color, so
+    /// glyph counters (the bowl of a D, the hole in an A) paint shut. Feeding
+    /// every contour into one edge table lets an oppositely-wound inner contour
+    /// cancel the outer one's winding and leave a hole.
+    ///
+    /// A single contour behaves exactly as before.
+    fn fill_contours(&mut self, contours: &[&[(f32, f32)]], c: Rgba, clip: Clip) {
+        for (span_start, span_end, py) in Self::polygon_spans(contours, clip) {
             self.fill_span_aa(span_start, span_end, py, c, clip);
         }
     }
 
-    /// Like [`Canvas::fill_polygon`], but rasterizes a BW-mode hatch pattern
+    /// Like [`Canvas::fill_contours`], but rasterizes a BW-mode hatch pattern
     /// instead of a flat color. `tx, ty, s` invert the screen-space transform
     /// per-pixel so the pattern samples in the same local coordinate space an
     /// SVG `patternUnits="userSpaceOnUse"` tile would use.
-    fn fill_polygon_patterned(
+    fn fill_contours_patterned(
         &mut self,
-        pts: &[(f32, f32)],
+        contours: &[&[(f32, f32)]],
         tx: f32,
         ty: f32,
         s: f32,
         pattern: FillPattern,
         clip: Clip,
     ) {
-        for (span_start, span_end, py) in Self::polygon_spans(pts, clip) {
+        for (span_start, span_end, py) in Self::polygon_spans(contours, clip) {
             self.fill_span_aa_patterned(span_start, span_end, py, tx, ty, s, pattern, clip);
         }
     }
 
     /// AET scanline fill (nonzero winding rule): computes the filled
-    /// `(span_start, span_end, row)` spans of `pts` without touching pixels,
-    /// so callers can fill them with either a flat color or a pattern.
-    fn polygon_spans(pts: &[(f32, f32)], clip: Clip) -> Vec<(f32, f32, i32)> {
+    /// `(span_start, span_end, row)` spans of every contour in `contours`
+    /// without touching pixels, so callers can fill them with either a flat
+    /// color or a pattern. All contours share one edge table (see
+    /// [`Canvas::fill_contours`]).
+    fn polygon_spans(contours: &[&[(f32, f32)]], clip: Clip) -> Vec<(f32, f32, i32)> {
         let mut spans = Vec::new();
-        if pts.len() < 3 {
+        if contours.iter().all(|pts| pts.len() < 3) {
             return spans;
         }
 
-        let y_lo = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
-        let y_hi = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+        let mut y_lo = f32::INFINITY;
+        let mut y_hi = f32::NEG_INFINITY;
+        for pts in contours {
+            for p in pts.iter() {
+                y_lo = y_lo.min(p.1);
+                y_hi = y_hi.max(p.1);
+            }
+        }
+        if !y_lo.is_finite() || !y_hi.is_finite() {
+            return spans;
+        }
         let scan_y0 = (y_lo.floor() as i32).max(clip.y0);
         let scan_y1 = (y_hi.ceil() as i32).min(clip.y1 - 1);
         if scan_y0 > scan_y1 {
@@ -719,43 +747,49 @@ impl Canvas {
 
         let height = (scan_y1 - scan_y0 + 1) as usize;
         let mut et: Vec<Vec<AetEdge>> = (0..height).map(|_| Vec::new()).collect();
-        let n = pts.len();
 
-        for i in 0..n {
-            let (ax, ay) = pts[i];
-            let (bx, by) = pts[(i + 1) % n];
-            if (ay - by).abs() < 1e-6 {
+        for pts in contours {
+            if pts.len() < 3 {
                 continue;
             }
-            // Canonical orientation: ay_c < by_c (going down in screen y).
-            // Downward edges contribute +1 winding; upward (flipped) contribute -1.
-            let (ax_c, ay_c, bx_c, by_c, winding) = if ay < by {
-                (ax, ay, bx, by, 1i32)
-            } else {
-                (bx, by, ax, ay, -1i32)
-            };
+            let n = pts.len();
+            for i in 0..n {
+                let (ax, ay) = pts[i];
+                // Each contour closes on itself — never bridge to the next one.
+                let (bx, by) = pts[(i + 1) % n];
+                if (ay - by).abs() < 1e-6 {
+                    continue;
+                }
+                // Canonical orientation: ay_c < by_c (going down in screen y).
+                // Downward edges contribute +1 winding; upward (flipped) contribute -1.
+                let (ax_c, ay_c, bx_c, by_c, winding) = if ay < by {
+                    (ax, ay, bx, by, 1i32)
+                } else {
+                    (bx, by, ax, ay, -1i32)
+                };
 
-            // Active for scanlines where ay_c <= py+0.5 < by_c.
-            let py_start = (ay_c - 0.5).ceil() as i32;
-            let py_end = (by_c - 0.5).ceil() as i32;
-            if py_start >= py_end {
-                continue;
+                // Active for scanlines where ay_c <= py+0.5 < by_c.
+                let py_start = (ay_c - 0.5).ceil() as i32;
+                let py_end = (by_c - 0.5).ceil() as i32;
+                if py_start >= py_end {
+                    continue;
+                }
+
+                let inv_slope = (bx_c - ax_c) / (by_c - ay_c);
+                let eff_start = py_start.max(scan_y0);
+                let eff_end = py_end.min(scan_y1 + 1);
+                if eff_start >= eff_end {
+                    continue;
+                }
+
+                let x_eff = ax_c + (eff_start as f32 + 0.5 - ay_c) * inv_slope;
+                et[(eff_start - scan_y0) as usize].push(AetEdge {
+                    y_max: eff_end,
+                    x: x_eff,
+                    inv_slope,
+                    winding,
+                });
             }
-
-            let inv_slope = (bx_c - ax_c) / (by_c - ay_c);
-            let eff_start = py_start.max(scan_y0);
-            let eff_end = py_end.min(scan_y1 + 1);
-            if eff_start >= eff_end {
-                continue;
-            }
-
-            let x_eff = ax_c + (eff_start as f32 + 0.5 - ay_c) * inv_slope;
-            et[(eff_start - scan_y0) as usize].push(AetEdge {
-                y_max: eff_end,
-                x: x_eff,
-                inv_slope,
-                winding,
-            });
         }
 
         let mut aet: Vec<AetEdge> = Vec::with_capacity(8);
@@ -769,7 +803,7 @@ impl Canvas {
             if !aet.is_empty() {
                 xs.clear();
                 xs.extend(aet.iter().map(|e| (e.x, e.winding)));
-                xs.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                xs.sort_unstable_by(|a, b| a.0.nan_cmp(&b.0));
 
                 // Nonzero winding: fill while cumulative winding != 0.
                 let mut winding = 0i32;
@@ -1251,6 +1285,54 @@ fn shared_font_mono() -> &'static Font {
         Font::from_bytes(crate::fonts::dejavu_sans_mono(), FontSettings::default())
             .expect("bundled DejaVu Sans Mono TTF is valid")
     })
+}
+
+/// The bundled DejaVu font a built-in face's metrics were taken from. There is no
+/// bold-oblique file, so bold italic draws (and is measured) as bold.
+fn builtin_raster_font(style: FontStyle) -> &'static Font {
+    match style {
+        FontStyle::Regular | FontStyle::Tick => shared_font(),
+        FontStyle::Bold | FontStyle::BoldItalic => shared_font_bold(),
+        FontStyle::Italic => shared_font_oblique(),
+        FontStyle::Mono => shared_font_mono(),
+    }
+}
+
+/// The font to draw a resolved face with: exactly the face layout measured. A
+/// registered face fontdue cannot parse falls back to the DejaVu face for `style`.
+#[cfg_attr(not(feature = "custom_fonts"), allow(unused_variables))]
+fn raster_font(face: &ResolvedFace, style: FontStyle) -> &Font {
+    match &face.source {
+        FaceSource::Builtin(builtin) => builtin_raster_font(*builtin),
+        #[cfg(feature = "custom_fonts")]
+        FaceSource::Registered(registered) => registered
+            .raster_font()
+            .unwrap_or_else(|| builtin_raster_font(style)),
+    }
+}
+
+/// The fonts for text under the current tick-label family (`None` outside a
+/// tick-label group), resolved once per family per scene.
+fn font_set<'a>(
+    sets: &'a mut HashMap<Option<String>, FontSet>,
+    scene: &Scene,
+    tick: &Option<String>,
+) -> &'a FontSet {
+    sets.entry(tick.clone()).or_insert_with(|| {
+        FontSet::resolve(scene.font_family.as_deref(), tick.as_deref())
+            .with_mono(scene.mono_font_family.as_deref())
+    })
+}
+
+/// The glyph cache for one font. Fonts are keyed by address: every font drawn in
+/// a scene lives for the whole render (statics, or faces held by `font_set`).
+fn glyph_cache_for<'a>(
+    caches: &'a mut HashMap<usize, GlyphCache>,
+    font: &Font,
+) -> &'a mut GlyphCache {
+    caches
+        .entry(font as *const Font as usize)
+        .or_insert_with(GlyphCache::new)
 }
 
 // ── SVG path parsing ──────────────────────────────────────────────────────────
@@ -1850,11 +1932,13 @@ impl RasterBackend {
             .unwrap_or(Rgba::opaque(255, 255, 255));
         canvas.fill_background(bg);
 
-        let font = shared_font();
-        let mut glyph_cache = GlyphCache::new();
-        let mut glyph_cache_bold = GlyphCache::new();
-        let mut glyph_cache_oblique = GlyphCache::new();
-        let mut glyph_cache_mono = GlyphCache::new();
+        // Text is drawn in the faces layout measured: the scene's family, and
+        // inside a tick-label group (a `font-family` attribute) that group's family
+        // as the tick font.
+        let mut font_sets: HashMap<Option<String>, FontSet> = HashMap::new();
+        let mut font_groups: Vec<Option<String>> = Vec::new();
+        let mut tick_family: Option<String> = None;
+        let mut glyph_caches: HashMap<usize, GlyphCache> = HashMap::new();
         let s = self.scale;
 
         let default_text = scene
@@ -1886,13 +1970,19 @@ impl RasterBackend {
             }
 
             match elem {
-                Primitive::GroupStart { transform, .. } => {
+                Primitive::GroupStart {
+                    transform,
+                    extra_attrs,
+                    ..
+                } => {
                     let (dx, dy) = transform
                         .as_deref()
                         .map(parse_translate)
                         .unwrap_or((0.0, 0.0));
                     tx_stack.push((tx + dx, ty + dy));
                     clip_stack.push(clip);
+                    font_groups.push(tick_group_family(extra_attrs.as_deref()));
+                    tick_family = font_groups.iter().rev().find_map(Clone::clone);
                 }
                 Primitive::GroupEnd => {
                     if tx_stack.len() > 1 {
@@ -1901,6 +1991,8 @@ impl RasterBackend {
                     if clip_stack.len() > 1 {
                         clip_stack.pop();
                     }
+                    font_groups.pop();
+                    tick_family = font_groups.iter().rev().find_map(Clone::clone);
                 }
                 Primitive::ClipStart {
                     x,
@@ -2103,24 +2195,17 @@ impl RasterBackend {
                     };
 
                     if let Some(ref fc) = pd.fill {
+                        // All contours must go through one winding pass, or
+                        // inner contours paint their holes shut.
+                        let owned: Vec<Vec<(f32, f32)>> = subs.iter().map(transform_pts).collect();
+                        let refs: Vec<&[(f32, f32)]> = owned.iter().map(|v| v.as_slice()).collect();
                         if let Some(mut rgba) = kcolor_to_rgba(fc) {
                             if let Some(op) = pd.opacity {
                                 rgba = rgba.with_alpha((op.clamp(0.0, 1.0) * 255.0) as u8);
                             }
-                            for sub in &subs {
-                                canvas.fill_polygon(&transform_pts(sub), rgba, clip);
-                            }
+                            canvas.fill_contours(&refs, rgba, clip);
                         } else if let Some(pattern) = pattern_from_fill(fc) {
-                            for sub in &subs {
-                                canvas.fill_polygon_patterned(
-                                    &transform_pts(sub),
-                                    tx,
-                                    ty,
-                                    s,
-                                    pattern,
-                                    clip,
-                                );
-                            }
+                            canvas.fill_contours_patterned(&refs, tx, ty, s, pattern, clip);
                         }
                     }
 
@@ -2208,7 +2293,7 @@ impl RasterBackend {
                     size,
                     anchor,
                     rotate,
-                    bold: _,
+                    bold,
                     color,
                 } => {
                     let rgba = color
@@ -2268,6 +2353,15 @@ impl RasterBackend {
                     } else {
                         content
                     };
+                    let style = if *bold {
+                        FontStyle::Bold
+                    } else if tick_family.is_some() {
+                        FontStyle::Tick
+                    } else {
+                        FontStyle::Regular
+                    };
+                    let fonts = font_set(&mut font_sets, scene, &tick_family);
+                    let font = raster_font(fonts.resolved(style), style);
                     canvas.draw_text(
                         sx!(*x),
                         sy!(*y),
@@ -2277,7 +2371,7 @@ impl RasterBackend {
                         *anchor,
                         rotate.map(|r| r as f32),
                         font,
-                        &mut glyph_cache,
+                        glyph_cache_for(&mut glyph_caches, font),
                         clip,
                     );
                 }
@@ -2324,6 +2418,14 @@ impl RasterBackend {
                     let lowered_math = |sp: &crate::render::render::TextSpan| {
                         crate::render::math::to_unicode(&format!("${}$", sp.text))
                     };
+                    let fonts = font_set(&mut font_sets, scene, &tick_family);
+                    let in_tick_group = tick_family.is_some();
+                    let span_font = |sp: &TextSpan| {
+                        let style = FontStyle::for_span(sp, in_tick_group);
+                        raster_font(fonts.resolved(style), style)
+                    };
+                    let math_font =
+                        raster_font(fonts.resolved(FontStyle::Regular), FontStyle::Regular);
 
                     // Compute total width for anchor alignment using metrics (no cache needed).
                     // (the index is only read when `typst-math` is compiled in)
@@ -2343,18 +2445,9 @@ impl RasterBackend {
                                         * s;
                                     return (pm.width_px as f32 - 2.0 * margin).max(1.0);
                                 }
-                                return measure_text_direct(&lowered_math(sp), sz, font);
+                                return measure_text_direct(&lowered_math(sp), sz, math_font);
                             }
-                            let f = if sp.bold {
-                                shared_font_bold()
-                            } else if sp.code {
-                                shared_font_mono()
-                            } else if sp.italic {
-                                shared_font_oblique()
-                            } else {
-                                font
-                            };
-                            measure_text_direct(&sp.text, sz, f)
+                            measure_text_direct(&sp.text, sz, span_font(sp))
                         })
                         .sum();
 
@@ -2386,7 +2479,7 @@ impl RasterBackend {
                             }
                             // Fallback: draw the lookup-tier form as text.
                             let lowered = lowered_math(sp);
-                            let w = measure_text_direct(&lowered, sz, font);
+                            let w = measure_text_direct(&lowered, sz, math_font);
                             canvas.draw_text(
                                 pen_x,
                                 sy!(*y),
@@ -2395,75 +2488,28 @@ impl RasterBackend {
                                 rgba,
                                 TextAnchor::Start,
                                 None,
-                                font,
-                                &mut glyph_cache,
+                                math_font,
+                                glyph_cache_for(&mut glyph_caches, math_font),
                                 clip,
                             );
                             pen_x += w;
                             continue;
                         }
-                        // Draw with the appropriate font/cache; advance pen by span width.
-                        let w = if sp.bold {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_bold());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_bold(),
-                                &mut glyph_cache_bold,
-                                clip,
-                            );
-                            w
-                        } else if sp.code {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_mono());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_mono(),
-                                &mut glyph_cache_mono,
-                                clip,
-                            );
-                            w
-                        } else if sp.italic {
-                            let w = measure_text_direct(&sp.text, sz, shared_font_oblique());
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                shared_font_oblique(),
-                                &mut glyph_cache_oblique,
-                                clip,
-                            );
-                            w
-                        } else {
-                            let w = measure_text_direct(&sp.text, sz, font);
-                            canvas.draw_text(
-                                pen_x,
-                                sy!(*y),
-                                &sp.text,
-                                sz,
-                                rgba,
-                                TextAnchor::Start,
-                                None,
-                                font,
-                                &mut glyph_cache,
-                                clip,
-                            );
-                            w
-                        };
+                        // Draw in the span's face; advance the pen by its width.
+                        let f = span_font(sp);
+                        let w = measure_text_direct(&sp.text, sz, f);
+                        canvas.draw_text(
+                            pen_x,
+                            sy!(*y),
+                            &sp.text,
+                            sz,
+                            rgba,
+                            TextAnchor::Start,
+                            None,
+                            f,
+                            glyph_cache_for(&mut glyph_caches, f),
+                            clip,
+                        );
                         pen_x += w;
                     }
                 }
@@ -2471,5 +2517,94 @@ impl RasterBackend {
         }
 
         canvas.encode_png()
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    fn span(bold: bool, italic: bool, code: bool) -> TextSpan {
+        TextSpan {
+            text: "x".into(),
+            bold,
+            italic,
+            code,
+            underline: false,
+            math: false,
+        }
+    }
+
+    #[test]
+    fn group_font_family_reads_the_escaped_attribute() {
+        assert_eq!(
+            tick_group_family(Some(r#"font-family="DejaVu Sans Mono""#)).as_deref(),
+            Some("DejaVu Sans Mono")
+        );
+        assert_eq!(
+            tick_group_family(Some(r#"font-family="&quot;Fira Code&quot;, monospace""#)).as_deref(),
+            Some("\"Fira Code\", monospace")
+        );
+        assert_eq!(tick_group_family(Some(r#"class="x""#)), None);
+        assert_eq!(tick_group_family(None), None);
+    }
+
+    #[test]
+    fn span_styles_follow_bold_then_code_then_italic() {
+        assert_eq!(
+            FontStyle::for_span(&span(true, true, false), false),
+            FontStyle::BoldItalic
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(true, false, true), false),
+            FontStyle::Bold
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, true, true), false),
+            FontStyle::Mono
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, true, false), false),
+            FontStyle::Italic
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, false, false), true),
+            FontStyle::Tick
+        );
+        assert_eq!(
+            FontStyle::for_span(&span(false, false, false), false),
+            FontStyle::Regular
+        );
+    }
+
+    #[test]
+    fn builtin_faces_draw_the_dejavu_file_their_metrics_came_from() {
+        let fonts = FontSet::default();
+        let same = |style| {
+            std::ptr::eq(
+                raster_font(fonts.resolved(style), style),
+                builtin_raster_font(style),
+            )
+        };
+        for style in [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+            FontStyle::Mono,
+            FontStyle::Tick,
+        ] {
+            assert!(same(style), "{style:?}");
+        }
+        assert!(std::ptr::eq(
+            builtin_raster_font(FontStyle::BoldItalic),
+            shared_font_bold()
+        ));
+        // A monospace tick family draws its labels in DejaVu Sans Mono.
+        let mono_ticks = FontSet::resolve(None, Some("monospace"));
+        assert!(std::ptr::eq(
+            raster_font(mono_ticks.resolved(FontStyle::Tick), FontStyle::Tick),
+            shared_font_mono()
+        ));
     }
 }

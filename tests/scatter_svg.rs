@@ -576,3 +576,59 @@ fn test_scatter_labels_skip_empty() {
     common::write_test_output("test_outputs/scatter_labels_partial.svg", &svg).unwrap();
     assert!(svg.contains(">keep<") && svg.contains(">alsokeep<"));
 }
+
+/// #136: data a hair past a power of ten (`1.0 + EPSILON`) must not stretch a narrow log axis by
+/// a whole decade. Renders the issue's two-panel figure side by side: the axes should now match,
+/// with the right panel ending at the next 1-2-5 tick (2) instead of 10.
+#[test]
+fn test_scatter_log_range_just_past_a_decade() {
+    use kuva::render::figure::Figure;
+    use kuva::render::layout::ComputedLayout;
+
+    let panel = |hi: f64| -> (Vec<Plot>, Layout) {
+        let plots: Vec<Plot> = vec![ScatterPlot::new()
+            .with_data(vec![(0.1, 0.1), (hi, hi)])
+            .into()];
+        let layout = Layout::auto_from_plots(&plots)
+            .with_log_scale()
+            .with_title(format!("max = {hi}"));
+        (plots, layout)
+    };
+
+    let (pa, la) = panel(1.0);
+    let (pb, lb) = panel(1.0 + f64::EPSILON);
+    let ca = ComputedLayout::from_layout(&la);
+    let cb = ComputedLayout::from_layout(&lb);
+    assert_eq!((ca.x_range, ca.y_range), ((0.1, 1.0), (0.1, 1.0)));
+    // The point at 1 + EPSILON stays inside the axis; it is not snapped to 1.
+    assert_eq!((cb.x_range, cb.y_range), ((0.1, 2.0), (0.1, 2.0)));
+
+    let scene = Figure::new(1, 2)
+        .with_plots(vec![pa, pb])
+        .with_layouts(vec![la, lb])
+        .render();
+    let svg = SvgBackend.render_scene(&scene);
+    common::write_test_output("test_outputs/scatter_log_range_issue136.svg", svg.clone()).unwrap();
+    assert!(svg.contains("<svg"));
+}
+
+/// #136 follow-up: an explicit max that makes a log axis wider than three decades switches it to
+/// powers-of-ten ticks, so the auto min (tightened to 20 for data starting at 33) must widen back
+/// to 10, or the axis would start between ticks.
+#[test]
+fn test_scatter_log_auto_min_widens_with_wide_override() {
+    use kuva::render::layout::ComputedLayout;
+
+    let plots: Vec<Plot> = vec![ScatterPlot::new()
+        .with_data(vec![(33.0, 33.0), (400.0, 400.0)])
+        .into()];
+    let narrow = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots).with_log_scale());
+    assert_eq!(narrow.y_range, (20.0, 500.0));
+
+    let wide = ComputedLayout::from_layout(
+        &Layout::auto_from_plots(&plots)
+            .with_log_scale()
+            .with_y_axis_max(1.0e6),
+    );
+    assert_eq!(wide.y_range, (10.0, 1.0e6));
+}

@@ -40,6 +40,10 @@ Available CLI values: `wong`, `okabe_ito`, `tol_bright`, `tol_muted`, `tol_light
 
 For convenience, `--cvd-palette TYPE` selects a colorblind-safe palette by condition name: `deuteranopia`, `protanopia`, `tritanopia`.
 
+An unrecognized name falls back to the default palette with a warning.
+
+To see every palette in your terminal, run `kuva palettes`. Each name is shown with a swatch per colour; add `--hex` for the hex codes, or name one or more palettes to show just those (`kuva palettes wong tol-muted`). Swatches need a terminal with 24-bit colour; piped output (or `NO_COLOR`) prints names and hex codes instead, so `kuva palettes | grep wong` works too.
+
 ---
 
 ## Built-in palettes

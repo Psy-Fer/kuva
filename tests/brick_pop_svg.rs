@@ -119,6 +119,30 @@ fn test_brick_pop_large_cohort() {
     let scene = plot.render(1000.0);
     let svg = SvgBackend.render_scene(&scene);
     common::write_test_output("test_outputs/brick_pop_large_cohort.svg", svg.clone()).unwrap();
+    // Same figure with rect batching off, to compare size and rendering side by side.
+    let unbatched = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&scene);
+    assert!(
+        svg.len() < unbatched.len() * 3 / 4,
+        "batching should shrink a brick plot"
+    );
+    common::write_test_output(
+        "test_outputs/brick_pop_large_cohort_unbatched.svg",
+        unbatched,
+    )
+    .unwrap();
+    // A self-contained page holding the compressed figure, for checking the HTML path by eye.
+    #[cfg(feature = "svgz")]
+    common::write_test_output(
+        "test_outputs/brick_pop_large_cohort.html",
+        kuva::html::standalone_page(
+            "RFC1 cohort",
+            &SvgBackend::new().render_scene_svgz(&scene),
+            "brick_pop_large_cohort",
+        ),
+    )
+    .unwrap();
     assert!(svg.contains("<svg"), "must render a 120-row cohort");
 }
 
@@ -184,7 +208,9 @@ fn test_brick_pop_frequency_singletons() {
     let plot = BrickPopPlot::new(brick)
         .with_title("CPUM_TYMS - 12 singletons")
         .with_frequencies(freqs);
-    let svg = SvgBackend.render_scene(&plot.render(900.0));
+    let svg = SvgBackend::new()
+        .with_rect_batching(false)
+        .render_scene(&plot.render(900.0));
     common::write_test_output("test_outputs/brick_pop_singletons.svg", svg.clone()).unwrap();
 
     // Freq bars use the default colour #4c78a8 (no motif is pinned to it here). Every bar

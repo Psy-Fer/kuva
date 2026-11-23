@@ -80,4 +80,66 @@ fn emit_code_snippets_compile() {
         fs::write(&path, program).unwrap_or_else(|e| panic!("failed to write {path:?}: {e}"));
         cases.pass(path);
     }
+
+    // Custom fonts: the loading statements and family settings compile and run
+    // (`custom_fonts` is in `full`). An absolute path, so the program finds the
+    // font wherever trybuild runs it.
+    let font = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fonts/DejaVuSerif.ttf");
+    let snippet = run_emit_code(&[
+        "box",
+        "examples/data/measurements.tsv",
+        "--group-col",
+        "group",
+        "--value-col",
+        "value",
+        "--font-file",
+        font.to_str().unwrap(),
+        "--tick-font",
+        "DejaVu Serif",
+        "--mono-font",
+        "DejaVu Sans Mono",
+    ]);
+    for needle in [
+        "kuva::fonts::register_font_file(",
+        r#".with_font_family("DejaVu Serif")"#,
+        r#".with_tick_font_family("DejaVu Serif")"#,
+        r#".with_mono_font_family("DejaVu Sans Mono")"#,
+    ] {
+        assert!(snippet.contains(needle), "missing {needle}:\n{snippet}");
+    }
+    let path = dir.join("custom_fonts.rs");
+    fs::write(&path, representative::wrap_as_program(&snippet)).unwrap();
+    cases.pass(path);
+}
+
+/// `--emit-code` validates `--signif` exactly like a real run: a malformed
+/// spec or unknown format fails instead of silently emitting no bracket.
+#[test]
+fn emit_code_rejects_bad_signif_specs() {
+    let exe = env!("CARGO_BIN_EXE_kuva");
+    let cases: [(&[&str], &str); 2] = [
+        (&["--signif", "a,b"], "three comma-separated fields"),
+        (
+            &["--signif", "#0,#1,0.1", "--signif-format", "fancy"],
+            "expected stars, p, or both",
+        ),
+    ];
+    for (extra, needle) in cases {
+        let output = Command::new(exe)
+            .args([
+                "box",
+                "examples/data/measurements.tsv",
+                "--group-col",
+                "group",
+                "--value-col",
+                "value",
+            ])
+            .args(extra)
+            .arg("--emit-code")
+            .output()
+            .expect("run kuva");
+        assert!(!output.status.success(), "{extra:?} should fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(needle), "{extra:?}: {stderr}");
+    }
 }

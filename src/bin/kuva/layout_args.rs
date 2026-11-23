@@ -1,4 +1,6 @@
 use clap::Args;
+use kuva::plot::annotations::{BracketAnchor, BracketLabel, SignificanceBracket};
+use kuva::plot::axis_break::AxisBreak;
 use kuva::render::datetime::DateTimeAxis;
 use kuva::render::layout::{AxisLabelOverlap, AxisLine, Layout, TickAlign, TickFormat, TickPos};
 use kuva::render::palette::Palette;
@@ -14,7 +16,8 @@ use kuva::render::theme::Theme;
 #[derive(Args, Debug)]
 #[command(next_help_heading = "Output & appearance")]
 pub struct BaseArgs {
-    /// Output file. Extension must be .svg, .png, or .pdf (case-insensitive).
+    /// Output file. Extension must be .svg, .svgz (gzipped SVG), .html (a self-contained page
+    /// that shows the compressed figure in any browser), .png, or .pdf (case-insensitive).
     /// Defaults to SVG on stdout.
     #[arg(
         short = 'o',
@@ -46,7 +49,8 @@ pub struct BaseArgs {
     /// Named color palette: category10, wong, okabe-ito, pastel, bold,
     /// tol-bright, tol-muted, tol-light, ibm, or an LTC palette (paloma, maya,
     /// dora, ploen, olga, mterese, franscoise, fernande, sylvie, expevo, minou,
-    /// alger, seafarer, luminaries, casa-natal; optional `ltc-` prefix)
+    /// alger, seafarer, luminaries, casa-natal; optional `ltc-` prefix).
+    /// Run `kuva palettes` to preview them in the terminal.
     #[arg(long)]
     pub palette: Option<String>,
 
@@ -129,12 +133,47 @@ pub struct BaseArgs {
     #[arg(long, value_name = "CHARS")]
     pub legend_wrap: Option<usize>,
 
-    /// Embed DejaVu Sans font directly in SVG output.
-    /// Use this when rendering SVG in environments without system fonts
-    /// (headless servers, containers, CI pipelines). Adds ~1 MB to the SVG.
-    /// Has no effect on PNG/PDF output (those backends always have the font).
-    #[arg(long, conflicts_with = "terminal")]
+    /// Font family for all text, as a CSS font-family list (e.g. "Inter, sans-serif").
+    /// The first family is the one used: a font loaded with --font-file/--font-dir is
+    /// measured, drawn and embedded exactly; any other family is named in SVG output
+    /// and spaced as DejaVu Sans.
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub font: Option<String>,
+
+    /// Font family for axis tick labels only (default: --font).
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub tick_font: Option<String>,
+
+    /// Font family for `code` spans in text (default: DejaVu Sans Mono).
+    #[arg(long, value_name = "FAMILY", help_heading = "Fonts")]
+    pub mono_font: Option<String>,
+
+    /// Load a font file (TTF, OTF, TTC) to use by family name. Repeat for each
+    /// file, e.g. the regular and bold files of a family. Without --font, the
+    /// family of the first file becomes the font for all text.
+    #[cfg(feature = "custom_fonts")]
+    #[arg(long, value_name = "PATH", help_heading = "Fonts")]
+    pub font_file: Vec<std::path::PathBuf>,
+
+    /// Load every font file in a directory (and its subdirectories). Repeatable.
+    #[cfg(feature = "custom_fonts")]
+    #[arg(long, value_name = "DIR", help_heading = "Fonts")]
+    pub font_dir: Vec<std::path::PathBuf>,
+
+    /// Embed the fonts directly in SVG output: DejaVu Sans, plus any font loaded
+    /// with --font-file/--font-dir that the plot uses. Use this when rendering SVG
+    /// in environments without those fonts (headless servers, containers, CI
+    /// pipelines). Adds ~1 MB to the SVG, plus the loaded fonts' size.
+    /// Has no effect on PNG/PDF output (those backends always have the fonts).
+    #[arg(long, conflicts_with = "terminal", help_heading = "Fonts")]
     pub embed_font: bool,
+
+    /// Write every rectangle as its own `<rect>` in SVG output. By default, runs of plain,
+    /// non-overlapping rectangles (bricks, heatmap cells, bars) are written as one `<path>` per
+    /// colour, which renders identically and roughly halves the file. Use this if something
+    /// downstream needs to select or restyle individual cells.
+    #[arg(long, conflicts_with = "terminal")]
+    pub no_rect_batching: bool,
 
     /// Print the equivalent Rust library code for this plot instead of rendering it.
     /// The emitted snippet bakes in the resolved data as literals (a copy-pasteable
@@ -233,6 +272,19 @@ pub struct AxisArgs {
     /// On a Manhattan plot this controls chromosome label placement.
     #[arg(long, value_name = "STRATEGY")]
     pub x_label_overlap: Option<String>,
+
+    /// Break the X axis: skip the values between LO and HI and draw a short
+    /// gap with slanted marks on the axis line (`--x-break 10,990`). An
+    /// optional third number is the fraction of the axis given to the
+    /// segment before the break (`--x-break 10,990,0.5`; default follows the
+    /// data, clamped to 0.3..0.7). Linear numeric axes only; ignored on log
+    /// or category axes.
+    #[arg(long, value_name = "LO,HI[,SHARE]", value_parser = parse_break_pair, allow_hyphen_values = true)]
+    pub x_break: Option<(f64, f64, Option<f64>)>,
+
+    /// Break the Y axis between LO and HI (`--y-break 12,940`); see --x-break.
+    #[arg(long, value_name = "LO,HI[,SHARE]", value_parser = parse_break_pair, allow_hyphen_values = true)]
+    pub y_break: Option<(f64, f64, Option<f64>)>,
 }
 
 #[derive(Args, Debug)]
@@ -371,8 +423,327 @@ pub struct Y2AxisArgs {
 
 // ── Apply functions ───────────────────────────────────────────────────────────
 
+/// Parse `LO,HI[,SHARE]` for `--x-break` / `--y-break`: two finite numbers
+/// with LO < HI, and an optional fraction of the axis for the segment before
+/// the break.
+pub fn parse_break_pair(s: &str) -> Result<(f64, f64, Option<f64>), String> {
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    let (a, b, share) = match parts[..] {
+        [a, b] => (a, b, None),
+        [a, b, c] => (a, b, Some(c)),
+        _ => {
+            return Err(format!(
+                "'{s}': expected LO,HI or LO,HI,SHARE (comma-separated numbers)"
+            ))
+        }
+    };
+    let num = |label: &str, v: &str| -> Result<f64, String> {
+        let x: f64 = v
+            .parse()
+            .map_err(|_| format!("'{s}': {label} '{v}' is not a number"))?;
+        if !x.is_finite() {
+            return Err(format!("'{s}': {label} must be finite"));
+        }
+        Ok(x)
+    };
+    let (lo, hi) = (num("LO", a)?, num("HI", b)?);
+    if lo >= hi {
+        return Err(format!("'{s}': LO must be less than HI"));
+    }
+    let share = share.map(|c| num("SHARE", c)).transpose()?;
+    if let Some(f) = share {
+        if !(0.05..=0.95).contains(&f) {
+            return Err(format!("'{s}': SHARE must be between 0.05 and 0.95"));
+        }
+    }
+    Ok((lo, hi, share))
+}
+
+/// Significance-bracket flags shared by the categorical subcommands
+/// (`bar`, `box`, `violin`, `strip`, `raincloud`).
+#[derive(Args, Debug, Clone, Default)]
+pub struct SignifArgs {
+    /// Significance bracket between two groups: `A,B,P`. A and B are group
+    /// labels as they appear in the data (or `#i` for the zero-based group
+    /// index), P is the p-value. A non-numeric P is drawn verbatim
+    /// (`WT,KO,n.s.`). Labels that contain commas work as long as they
+    /// match the data's group names (`"Day 1, fed","Day 1, fasted",0.01`). Repeat the flag for several brackets; they stack
+    /// above the data and the value axis grows to fit. Brackets follow
+    /// `--horizontal` automatically.
+    #[arg(long = "signif", value_name = "A,B,P", action = clap::ArgAction::Append)]
+    pub signif: Vec<String>,
+
+    /// Label style for --signif brackets: `stars` (default; `*` to `****`,
+    /// `ns`), `p` (`p = 0.023`), or `both` (`** (p = 0.0031)`).
+    #[arg(long = "signif-format", value_name = "STYLE", default_value = "stars")]
+    pub signif_format: String,
+}
+
+/// Parse `--signif-format`.
+pub fn parse_signif_format(style: &str) -> Result<BracketLabel, String> {
+    match style {
+        "stars" => Ok(BracketLabel::Stars),
+        "p" => Ok(BracketLabel::PValue),
+        "both" => Ok(BracketLabel::Both),
+        other => Err(format!(
+            "unknown --signif-format '{other}': expected stars, p, or both"
+        )),
+    }
+}
+
+/// Parse one `--signif A,B,P` spec into a bracket. A numeric P in `0..=1`
+/// takes `format`; anything else (including `nan`) is drawn verbatim.
+/// Orientation is inferred from the layout at render time.
+///
+/// `groups` are the plot's group labels. The spec is split on commas, and
+/// when there are more than three fields the split is chosen so that A and B
+/// both name a group (or are `#i` indices), which lets labels contain
+/// commas. Without a match it falls back to `A,B,P` with P taking the rest.
+pub fn parse_signif_spec(
+    spec: &str,
+    format: &BracketLabel,
+    groups: &[String],
+) -> Result<SignificanceBracket, String> {
+    let fields: Vec<&str> = spec.split(',').collect();
+    if fields.len() < 3 {
+        return Err(format!(
+            "--signif '{spec}': expected three comma-separated fields A,B,P"
+        ));
+    }
+    let known = |s: &str| {
+        let s = s.trim();
+        s.strip_prefix('#').map_or_else(
+            || groups.iter().any(|g| g == s),
+            |i| i.parse::<usize>().is_ok_and(|i| i < groups.len()),
+        )
+    };
+    // First split (shortest A, then shortest B) whose A and B both resolve;
+    // otherwise the plain three-way split.
+    let n = fields.len();
+    let (i, j) = (1..n - 1)
+        .flat_map(|i| (i + 1..n).map(move |j| (i, j)))
+        .find(|&(i, j)| known(&fields[..i].join(",")) && known(&fields[i..j].join(",")))
+        .unwrap_or((1, 2));
+    let a = fields[..i].join(",");
+    let b = fields[i..j].join(",");
+    let p = fields[j..].join(",");
+    let (a, b, p) = (a.trim(), b.trim(), p.trim());
+    if a.is_empty() || b.is_empty() || p.is_empty() {
+        return Err(format!("--signif '{spec}': empty field"));
+    }
+    let anchor = |s: &str| -> Result<BracketAnchor, String> {
+        if let Some(idx) = s.strip_prefix('#') {
+            idx.parse::<usize>()
+                .map(BracketAnchor::Index)
+                .map_err(|_| format!("--signif '{spec}': '{s}' is not a group index"))
+        } else {
+            Ok(BracketAnchor::Label(s.to_string()))
+        }
+    };
+    // An unknown group is not an error (the bracket is just not drawn), but
+    // it is almost always a typo, so say so.
+    for s in [a, b] {
+        if !known(s) && !groups.is_empty() {
+            let what = if s.starts_with('#') {
+                format!("index {s} is out of range ({} groups)", groups.len())
+            } else {
+                format!("no group named '{s}'")
+            };
+            eprintln!(
+                "warning: --signif '{spec}': {what}; the bracket is skipped (groups: {})",
+                groups.join(", ")
+            );
+        }
+    }
+    let (a, b) = (anchor(a)?, anchor(b)?);
+    match p.parse::<f64>() {
+        Ok(pv) if pv.is_finite() && (0.0..=1.0).contains(&pv) => {
+            let mut bracket = SignificanceBracket::new(a, b, pv);
+            bracket.format = format.clone();
+            Ok(bracket)
+        }
+        Ok(pv) if pv.is_finite() => {
+            Err(format!("--signif '{spec}': p-value {pv} is outside 0..=1"))
+        }
+        _ => Ok(SignificanceBracket::text(a, b, p)),
+    }
+}
+
+/// Apply `--signif` / `--signif-format` to the layout. Call it after the
+/// layout knows its categories, so labels can be checked against them.
+pub fn apply_signif_args(mut layout: Layout, args: &SignifArgs) -> Result<Layout, String> {
+    let format = parse_signif_format(&args.signif_format)?;
+    let groups = layout
+        .x_categories
+        .clone()
+        .or_else(|| layout.y_categories.clone())
+        .unwrap_or_default();
+    for spec in &args.signif {
+        layout = layout.with_bracket(parse_signif_spec(spec, &format, &groups)?);
+    }
+    Ok(layout)
+}
+
 /// Apply base output/appearance args to a layout.
+/// The font families a run asked for, after loading any font files.
+#[derive(Debug, Default)]
+pub struct FontChoice {
+    pub body: Option<String>,
+    pub tick: Option<String>,
+    pub mono: Option<String>,
+}
+
+/// Load the fonts named by --font-file/--font-dir, pick the families, and warn
+/// about anything that will not render as asked: a family missing bold or italic
+/// faces (kuva never fakes them), a variable font (only its default style is
+/// used), a font whose licence forbids embedding when it will be embedded, and a
+/// --font family that is not loaded. Exits with an error when a font cannot be
+/// loaded. Call before rendering.
+pub fn apply_font_args(args: &BaseArgs) -> FontChoice {
+    #[allow(unused_mut)]
+    let mut body = args.font.clone();
+    #[cfg(feature = "custom_fonts")]
+    {
+        let loaded = load_fonts(args);
+        if body.is_none() {
+            body = loaded.first().map(|info| info.family.clone());
+        }
+        warn_font_issues(args, &loaded, body.as_deref());
+    }
+    FontChoice {
+        body,
+        tick: args.tick_font.clone(),
+        mono: args.mono_font.clone(),
+    }
+}
+
+/// Register the --font-file/--font-dir fonts, in order. Exits on an unreadable
+/// file or a directory with no usable font; a bad file inside a directory is a
+/// warning.
+#[cfg(feature = "custom_fonts")]
+fn load_fonts(args: &BaseArgs) -> Vec<kuva::fonts::FontInfo> {
+    let mut loaded = Vec::new();
+    for path in &args.font_file {
+        match kuva::fonts::register_font_file(path) {
+            Ok(infos) => loaded.extend(infos),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    for dir in &args.font_dir {
+        match kuva::fonts::register_fonts_dir(dir) {
+            Ok(report) => {
+                for (file, e) in &report.skipped {
+                    eprintln!("warning: skipped {}: {e}", file.display());
+                }
+                loaded.extend(report.registered);
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    loaded
+}
+
+/// The first family of a CSS font-family list, unquoted.
+#[cfg(feature = "custom_fonts")]
+fn first_family(list: &str) -> &str {
+    list.split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim()
+}
+
+/// "a", "a or b", "a, b or c".
+#[cfg(feature = "custom_fonts")]
+fn join_or(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
+#[cfg(feature = "custom_fonts")]
+fn warn_font_issues(args: &BaseArgs, loaded: &[kuva::fonts::FontInfo], body: Option<&str>) {
+    for info in loaded {
+        if info.variable {
+            eprintln!(
+                "warning: {} is a variable font; only its default style (weight {}) is used. \
+                 Load the static font files for other weights.",
+                info.family, info.weight
+            );
+        }
+    }
+    let embedding = args.embed_font
+        || args
+            .output
+            .as_deref()
+            .and_then(|p| p.extension())
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    if embedding {
+        let mut warned: Vec<&str> = Vec::new();
+        for info in loaded.iter().filter(|i| i.restricted_embedding) {
+            if !warned.contains(&info.family.as_str()) {
+                warned.push(&info.family);
+                eprintln!(
+                    "warning: the licence of {} does not allow embedding it in documents; \
+                     check its licence before sharing this file.",
+                    info.family
+                );
+            }
+        }
+    }
+    let Some(body) = body else { return };
+    let family = first_family(body);
+    match kuva::fonts::family_styles(family) {
+        Some(styles) => {
+            let missing = styles.missing();
+            if !missing.is_empty() {
+                eprintln!(
+                    "warning: {family} has no {} face; that text uses the nearest face \
+                     instead (kuva never fakes bold or italic). Load the font files for \
+                     those styles with --font-file.",
+                    join_or(&missing)
+                );
+            }
+        }
+        None => {
+            const GENERIC: &[&str] = &[
+                "serif",
+                "sans-serif",
+                "monospace",
+                "cursive",
+                "fantasy",
+                "system-ui",
+                "ui-sans-serif",
+                "ui-serif",
+                "ui-monospace",
+            ];
+            let builtin = family.to_ascii_lowercase().starts_with("dejavu sans");
+            if !builtin && !GENERIC.contains(&family.to_ascii_lowercase().as_str()) {
+                eprintln!(
+                    "warning: font '{family}' is not loaded, so text is spaced for DejaVu \
+                     Sans and PNG output draws DejaVu Sans (SVG and PDF use '{family}' where \
+                     it is installed). Load it with --font-file to use it exactly."
+                );
+            }
+        }
+    }
+}
+
 pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
+    // Set on the layout (not on the finished scene) so anything drawn in the
+    // background colour during rendering, such as an axis-break cover, matches.
+    if let Some(ref bg) = args.background {
+        layout = layout.with_background(bg.clone());
+    }
     if let Some(w) = args.width {
         layout = layout.with_width(w);
     }
@@ -411,14 +782,22 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
         layout = layout.with_term_rows(rows);
     }
     if let Some(ref name) = args.palette {
-        if let Some(pal) = palette_from_name(name) {
-            layout = layout.with_palette(pal);
+        match palette_from_name(name) {
+            Some(pal) => layout = layout.with_palette(pal),
+            None => eprintln!(
+                "warning: unknown palette '{name}', using the default. \
+                Run `kuva palettes` to see the available names."
+            ),
         }
     }
     // --cvd-palette overrides --palette when both are provided.
     if let Some(ref condition) = args.cvd_palette {
-        if let Some(pal) = colourblind_palette(condition) {
-            layout = layout.with_palette(pal);
+        match colourblind_palette(condition) {
+            Some(pal) => layout = layout.with_palette(pal),
+            None => eprintln!(
+                "warning: unknown --cvd-palette '{condition}'. \
+                Expected deuteranopia, protanopia or tritanopia."
+            ),
         }
     }
     if let Some(f) = args.scale {
@@ -454,6 +833,17 @@ pub fn apply_base_args(mut layout: Layout, args: &BaseArgs) -> Layout {
     }
     if let Some(n) = args.legend_wrap {
         layout = layout.with_legend_wrap(n);
+    }
+    // Fonts after the theme, so --font wins over a theme's font family.
+    let fonts = apply_font_args(args);
+    if let Some(family) = fonts.body {
+        layout = layout.with_font_family(family);
+    }
+    if let Some(family) = fonts.tick {
+        layout = layout.with_tick_font_family(family);
+    }
+    if let Some(family) = fonts.mono {
+        layout = layout.with_mono_font_family(family);
     }
     layout
 }
@@ -525,6 +915,20 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
         if let Some(strategy) = parse_label_overlap(s) {
             layout = layout.with_x_label_overlap(strategy);
         }
+    }
+    if let Some((lo, hi, share)) = args.x_break {
+        let mut brk = AxisBreak::new(lo, hi);
+        if let Some(f) = share {
+            brk = brk.with_share(f);
+        }
+        layout = layout.with_x_break_config(brk);
+    }
+    if let Some((lo, hi, share)) = args.y_break {
+        let mut brk = AxisBreak::new(lo, hi);
+        if let Some(f) = share {
+            brk = brk.with_share(f);
+        }
+        layout = layout.with_y_break_config(brk);
     }
     layout
 }
@@ -623,46 +1027,194 @@ pub(crate) fn theme_from_name(name: &str) -> Theme {
     }
 }
 
+/// One named palette the CLI accepts.
+pub struct NamedPalette {
+    /// Canonical name shown in help and `kuva palettes`.
+    pub name: &'static str,
+    /// Heading `kuva palettes` groups it under.
+    pub group: &'static str,
+    pub build: fn() -> Palette,
+}
+
+/// Every `--palette` name, in display order. `palette_from_name` and
+/// `kuva palettes` both read this table, so the list can't drift.
+pub const NAMED_PALETTES: &[NamedPalette] = &[
+    NamedPalette {
+        name: "category10",
+        group: "General",
+        build: Palette::category10,
+    },
+    NamedPalette {
+        name: "pastel",
+        group: "General",
+        build: Palette::pastel,
+    },
+    NamedPalette {
+        name: "bold",
+        group: "General",
+        build: Palette::bold,
+    },
+    NamedPalette {
+        name: "wong",
+        group: "Colourblind-safe",
+        build: Palette::wong,
+    },
+    NamedPalette {
+        name: "okabe-ito",
+        group: "Colourblind-safe",
+        build: Palette::okabe_ito,
+    },
+    NamedPalette {
+        name: "tol-bright",
+        group: "Colourblind-safe",
+        build: Palette::tol_bright,
+    },
+    NamedPalette {
+        name: "tol-muted",
+        group: "Colourblind-safe",
+        build: Palette::tol_muted,
+    },
+    NamedPalette {
+        name: "tol-light",
+        group: "Colourblind-safe",
+        build: Palette::tol_light,
+    },
+    NamedPalette {
+        name: "ibm",
+        group: "Colourblind-safe",
+        build: Palette::ibm,
+    },
+    // LTC palettes (loukesio/ltc-color-palettes, MIT). Accept an optional `ltc-` prefix.
+    NamedPalette {
+        name: "paloma",
+        group: "LTC",
+        build: Palette::paloma,
+    },
+    NamedPalette {
+        name: "maya",
+        group: "LTC",
+        build: Palette::maya,
+    },
+    NamedPalette {
+        name: "dora",
+        group: "LTC",
+        build: Palette::dora,
+    },
+    NamedPalette {
+        name: "ploen",
+        group: "LTC",
+        build: Palette::ploen,
+    },
+    NamedPalette {
+        name: "olga",
+        group: "LTC",
+        build: Palette::olga,
+    },
+    NamedPalette {
+        name: "mterese",
+        group: "LTC",
+        build: Palette::mterese,
+    },
+    NamedPalette {
+        name: "franscoise",
+        group: "LTC",
+        build: Palette::franscoise,
+    },
+    NamedPalette {
+        name: "fernande",
+        group: "LTC",
+        build: Palette::fernande,
+    },
+    NamedPalette {
+        name: "sylvie",
+        group: "LTC",
+        build: Palette::sylvie,
+    },
+    NamedPalette {
+        name: "expevo",
+        group: "LTC",
+        build: Palette::expevo,
+    },
+    NamedPalette {
+        name: "minou",
+        group: "LTC",
+        build: Palette::minou,
+    },
+    NamedPalette {
+        name: "alger",
+        group: "LTC",
+        build: Palette::alger,
+    },
+    NamedPalette {
+        name: "seafarer",
+        group: "LTC",
+        build: Palette::seafarer,
+    },
+    NamedPalette {
+        name: "luminaries",
+        group: "LTC",
+        build: Palette::luminaries,
+    },
+    NamedPalette {
+        name: "casa-natal",
+        group: "LTC",
+        build: Palette::casa_natal,
+    },
+];
+
+/// One `--cvd-palette` condition.
+pub struct CvdPalette {
+    pub name: &'static str,
+    /// Short alias (`deuter`, `protan`, `tritan`).
+    pub alias: &'static str,
+    pub build: fn() -> Palette,
+}
+
+/// Every `--cvd-palette` condition, in display order.
+pub const CVD_PALETTES: &[CvdPalette] = &[
+    CvdPalette {
+        name: "deuteranopia",
+        alias: "deuter",
+        build: Palette::deuteranopia,
+    },
+    CvdPalette {
+        name: "protanopia",
+        alias: "protan",
+        build: Palette::protanopia,
+    },
+    CvdPalette {
+        name: "tritanopia",
+        alias: "tritan",
+        build: Palette::tritanopia,
+    },
+];
+
+/// Look up a `--palette` name. `_` and `-` are interchangeable, and LTC
+/// palettes take an optional `ltc-` prefix.
+pub fn find_named_palette(name: &str) -> Option<&'static NamedPalette> {
+    let name = name.replace('_', "-");
+    let (key, ltc_only) = match name.strip_prefix("ltc-") {
+        Some(rest) => (rest, true),
+        None => (name.as_str(), false),
+    };
+    NAMED_PALETTES
+        .iter()
+        .find(|p| p.name == key && (!ltc_only || p.group == "LTC"))
+}
+
 pub fn palette_from_name(name: &str) -> Option<Palette> {
-    match name {
-        "category10" => Some(Palette::category10()),
-        "wong" => Some(Palette::wong()),
-        "okabe-ito" | "okabe_ito" => Some(Palette::okabe_ito()),
-        "pastel" => Some(Palette::pastel()),
-        "bold" => Some(Palette::bold()),
-        "tol-bright" | "tol_bright" => Some(Palette::tol_bright()),
-        "tol-muted" | "tol_muted" => Some(Palette::tol_muted()),
-        "tol-light" | "tol_light" => Some(Palette::tol_light()),
-        "ibm" => Some(Palette::ibm()),
-        // LTC palettes (loukesio/ltc-color-palettes, MIT). Accept an optional `ltc-` prefix.
-        other => match other.strip_prefix("ltc-").unwrap_or(other) {
-            "paloma" => Some(Palette::paloma()),
-            "maya" => Some(Palette::maya()),
-            "dora" => Some(Palette::dora()),
-            "ploen" => Some(Palette::ploen()),
-            "olga" => Some(Palette::olga()),
-            "mterese" => Some(Palette::mterese()),
-            "franscoise" => Some(Palette::franscoise()),
-            "fernande" => Some(Palette::fernande()),
-            "sylvie" => Some(Palette::sylvie()),
-            "expevo" => Some(Palette::expevo()),
-            "minou" => Some(Palette::minou()),
-            "alger" => Some(Palette::alger()),
-            "seafarer" => Some(Palette::seafarer()),
-            "luminaries" => Some(Palette::luminaries()),
-            "casa-natal" | "casa_natal" => Some(Palette::casa_natal()),
-            _ => None,
-        },
-    }
+    find_named_palette(name).map(|p| (p.build)())
+}
+
+/// `--cvd-palette` lookup by canonical name or short alias.
+pub fn find_cvd_palette(condition: &str) -> Option<&'static CvdPalette> {
+    CVD_PALETTES
+        .iter()
+        .find(|c| condition == c.name || condition == c.alias)
 }
 
 fn colourblind_palette(condition: &str) -> Option<Palette> {
-    match condition {
-        "deuteranopia" | "deuter" => Some(Palette::deuteranopia()),
-        "protanopia" | "protan" => Some(Palette::protanopia()),
-        "tritanopia" | "tritan" => Some(Palette::tritanopia()),
-        _ => None,
-    }
+    find_cvd_palette(condition).map(|c| (c.build)())
 }
 
 fn parse_axis_line(s: &str) -> Option<AxisLine> {

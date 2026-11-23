@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
-use std::process::{Command, Stdio};
 
 use crate::plot::sankey::{SankeyAlluvium, SankeyLink};
 
@@ -679,80 +677,6 @@ fn tsp_cycle_links(mat: &[Vec<f64>], rng: &mut DeterministicRng) -> Vec<usize> {
     two_opt_best_improvement(cycle, mat)
 }
 
-fn neighbornet_cycle(mat: &[Vec<f64>]) -> Option<Vec<usize>> {
-    let n = mat.len();
-    if n == 0 {
-        return Some(Vec::new());
-    }
-    if n <= 3 {
-        return Some((0..n).collect());
-    }
-
-    let script = r#"
-import sys
-import numpy as np
-from splitspy.nnet import nnet_cycle
-
-n = int(sys.stdin.readline().strip())
-rows = []
-for _ in range(n):
-    rows.append([float(x) for x in sys.stdin.readline().strip().split()])
-mat = np.array(rows, dtype=np.float64)
-
-max_nodes = max(3, 3 * n - 5)
-full = np.zeros((max_nodes + 1, max_nodes + 1), dtype=np.float64)
-full[1:n+1, 1:n+1] = mat
-nodes_head = nnet_cycle.__setup_nodes(n)
-joins = nnet_cycle.__join_nodes(n, full, nodes_head)
-cycle = nnet_cycle.__expand_nodes(joins, nodes_head)
-cycle = nnet_cycle.__normalize_cycle(cycle)
-print(" ".join(str(int(x)) for x in cycle))
-"#;
-
-    let mut child = Command::new("python3")
-        .arg("-c")
-        .arg(script)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-
-    {
-        let stdin = child.stdin.as_mut()?;
-        writeln!(stdin, "{n}").ok()?;
-        for row in mat {
-            for (j, value) in row.iter().enumerate() {
-                if j > 0 {
-                    write!(stdin, " ").ok()?;
-                }
-                write!(stdin, "{value}").ok()?;
-            }
-            writeln!(stdin).ok()?;
-        }
-    }
-
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let cycle: Vec<usize> = stdout
-        .split_whitespace()
-        .map(|s| s.parse::<isize>())
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?
-        .into_iter()
-        .filter(|&idx| idx > 0)
-        .map(|idx| (idx - 1) as usize)
-        .collect();
-    if cycle.len() == n {
-        Some(cycle)
-    } else {
-        None
-    }
-}
-
 #[allow(dead_code)]
 fn largest_gap_cycle_start(cycle: &[usize], mat: &[Vec<f64>]) -> Vec<usize> {
     if cycle.len() <= 1 {
@@ -863,7 +787,6 @@ pub(crate) fn optimize_sankey_alluvial_order(
     links: &[SankeyLink],
     seed: u64,
     node_sort_keys: Option<&[String]>,
-    use_neighbornet: bool,
 ) -> SankeyOrderingResult {
     if initial_nodes_in_axis.is_empty() {
         return SankeyOrderingResult {
@@ -876,11 +799,7 @@ pub(crate) fn optimize_sankey_alluvial_order(
     if alluvia.is_empty() {
         let mat = build_distance_matrix_from_links(col_orig, links);
         let mut rng = DeterministicRng::new(seed);
-        let cycle = if use_neighbornet {
-            neighbornet_cycle(&mat).unwrap_or_else(|| tsp_cycle_links(&mat, &mut rng))
-        } else {
-            tsp_cycle_links(&mat, &mut rng)
-        };
+        let cycle = tsp_cycle_links(&mat, &mut rng);
         let axis_nodes = barycentric_refine_links(
             axis_nodes_from_cycle(&cycle, col_orig, initial_nodes_in_axis.len()),
             col_orig,
@@ -907,18 +826,10 @@ pub(crate) fn optimize_sankey_alluvial_order(
                 permuted[i][j] = node_mat[src_i][src_j];
             }
         }
-        let permuted_cycle = if use_neighbornet {
-            neighbornet_cycle(&permuted).unwrap_or_else(|| tsp_cycle(&permuted, &mut rng))
-        } else {
-            tsp_cycle(&permuted, &mut rng)
-        };
+        let permuted_cycle = tsp_cycle(&permuted, &mut rng);
         permuted_cycle.into_iter().map(|i| order[i]).collect()
     } else {
-        if use_neighbornet {
-            neighbornet_cycle(&node_mat).unwrap_or_else(|| tsp_cycle(&node_mat, &mut rng))
-        } else {
-            tsp_cycle(&node_mat, &mut rng)
-        }
+        tsp_cycle(&node_mat, &mut rng)
     };
     let n_axes = initial_nodes_in_axis.len();
 
@@ -1333,15 +1244,8 @@ mod tests {
     #[test]
     fn wompwomp_fixture_three_layer_tsp_objective_matches() {
         let (col_orig, nodes_in_col, alluvia) = build_fixture(&canonical_three_layer_rows());
-        let ordered = optimize_sankey_alluvial_order(
-            &col_orig,
-            &nodes_in_col,
-            &alluvia,
-            &[],
-            42,
-            None,
-            false,
-        );
+        let ordered =
+            optimize_sankey_alluvial_order(&col_orig, &nodes_in_col, &alluvia, &[], 42, None);
         let objective = total_crossing_objective_alluvia(
             &alluvia,
             &ordered.column_order,
@@ -1378,15 +1282,8 @@ mod tests {
     #[test]
     fn wompwomp_fixture_identical_layer_tsp_objective_matches() {
         let (col_orig, nodes_in_col, alluvia) = build_fixture(&identical_layer_rows());
-        let ordered = optimize_sankey_alluvial_order(
-            &col_orig,
-            &nodes_in_col,
-            &alluvia,
-            &[],
-            42,
-            None,
-            false,
-        );
+        let ordered =
+            optimize_sankey_alluvial_order(&col_orig, &nodes_in_col, &alluvia, &[], 42, None);
         let objective = total_crossing_objective_alluvia(
             &alluvia,
             &ordered.column_order,
@@ -1482,15 +1379,8 @@ mod tests {
             &col_orig,
             &identity.nodes_in_col,
         );
-        let ordered = optimize_sankey_alluvial_order(
-            &col_orig,
-            &nodes_in_col,
-            &alluvia,
-            &[],
-            42,
-            None,
-            false,
-        );
+        let ordered =
+            optimize_sankey_alluvial_order(&col_orig, &nodes_in_col, &alluvia, &[], 42, None);
         let ordered_obj = total_crossing_objective_alluvia(
             &alluvia,
             &ordered.column_order,
@@ -1518,7 +1408,6 @@ mod tests {
             &[],
             42,
             Some(&node_sort_keys),
-            false,
         );
         let objective = total_crossing_objective_alluvia(
             &alluvia,
@@ -1560,7 +1449,6 @@ mod tests {
             &[],
             42,
             Some(&node_sort_keys),
-            false,
         );
         let objective = total_crossing_objective_alluvia(
             &alluvia,

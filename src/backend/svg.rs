@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crate::backend::interactive_js;
+use crate::render::color::Color;
 use crate::render::render::{Primitive, Scene, TextAnchor};
 
 /// Fast float-to-string conversion using Ryu.
@@ -8,7 +9,9 @@ use crate::render::render::{Primitive, Scene, TextAnchor};
 /// If whole number, strip the decimal e.g. "3" instead of "3.0".
 #[inline]
 fn write_float(buf: &mut String, v: f64) {
-    let v = (v * 100.0).round() * 0.01;
+    // Divide, don't multiply by 0.01: 0.01 is inexact in binary, so `6130.0 * 0.01`
+    // is 61.300000000000004 and ryu prints all 17 digits (~15% of a big brick SVG).
+    let v = (v * 100.0).round() / 100.0;
     if v.fract() == 0.0 && v.abs() < 1e15 {
         let _ = write!(buf, "{}", v as i64);
     } else {
@@ -55,9 +58,21 @@ fn write_newline(buf: &mut String, pretty: bool) {
     }
 }
 
+/// Writes a [`Scene`] as SVG.
+///
+/// Start from [`SvgBackend::new()`] and chain options:
+/// `SvgBackend::new().with_rect_batching(false).render_scene(&scene)`.
+///
+/// `SvgBackend` is also a constant holding the default backend (see the
+/// [`SvgBackend` const](constant@SvgBackend)), so older code written as
+/// `SvgBackend.render_scene(&scene)` still compiles. Chaining off the constant works too
+/// (`SvgBackend.with_rect_batching(false)` is the same as
+/// `SvgBackend::new().with_rect_batching(false)`), but prefer `SvgBackend::new()` in new code so
+/// it is clear a fresh, configurable backend is meant.
 pub struct SvgBackend {
     pretty: bool,
     embed_font: bool,
+    rect_batching: bool,
 }
 
 impl Default for SvgBackend {
@@ -71,6 +86,7 @@ impl SvgBackend {
         Self {
             pretty: false,
             embed_font: false,
+            rect_batching: true,
         }
     }
 
@@ -89,11 +105,48 @@ impl SvgBackend {
         self
     }
 
+    /// Write runs of plain rectangles compactly (on by default).
+    ///
+    /// A run of consecutive rectangles with no stroke, opacity or tooltip, in which no two
+    /// rectangles overlap, is written as one `<path>` per fill colour instead of one `<rect>`
+    /// per rectangle. Brick plots, heatmaps and bar charts are made of exactly such runs, so
+    /// their SVGs come out about half the size and compress much better. Because nothing in the
+    /// run overlaps, paint order cannot matter and the image is unchanged; every rectangle stays
+    /// its own closed subpath, so gaps between neighbours are kept. A run with any overlap is
+    /// written as individual `<rect>`s, exactly as with batching off.
+    ///
+    /// Turn it off (`false`) when something downstream needs each rectangle as its own element,
+    /// e.g. to select or restyle single cells in an editor or with CSS.
+    pub fn with_rect_batching(mut self, v: bool) -> Self {
+        self.rect_batching = v;
+        self
+    }
+
+    /// Render the scene as a gzipped SVG (the bytes of a `.svgz` file).
+    ///
+    /// Big brick plots and heatmaps compress 10 to 50 times. Image viewers, Inkscape and Firefox
+    /// open a `.svgz` directly, but Chrome only shows one served over HTTP with
+    /// `Content-Encoding: gzip`, not from a local file. To put a compressed figure in a web page
+    /// that works anywhere, including from `file://`, use the [`html`](crate::html) helpers.
+    #[cfg(feature = "svgz")]
+    pub fn render_scene_svgz(&self, scene: &Scene) -> Vec<u8> {
+        crate::encoding::gzip(self.render_scene(scene).as_bytes())
+    }
+
     pub fn render_scene(&self, scene: &Scene) -> String {
         let p = self.pretty;
 
         let estimated_capacity = 200 + scene.elements.len() * 80;
         let mut svg = String::with_capacity(estimated_capacity);
+        // The `font-family` attribute for code spans: the scene's mono family, with
+        // the bundled DejaVu Sans Mono and generic monospace as fallbacks.
+        let code_family = match &scene.mono_font_family {
+            Some(family) => format!(
+                r#" font-family="{},DejaVu Sans Mono,monospace""#,
+                crate::render::render_utils::escape_attr(family)
+            ),
+            None => r#" font-family="DejaVu Sans Mono,monospace""#.to_string(),
+        };
 
         svg.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" width=""#);
         write_float(&mut svg, scene.width);
@@ -109,6 +162,15 @@ impl SvgBackend {
             svg.push_str(r#" fill=""#);
             write_escaped(&mut svg, color);
             svg.push('"');
+        }
+        // A scene drawn in registered fonts asks viewers not to fake a missing bold
+        // or italic: kuva measured (and the PNG/PDF backends draw) the nearest real
+        // face, so a synthesised one would not match.
+        #[cfg(feature = "custom_fonts")]
+        let used_faces = registered_faces_used(scene);
+        #[cfg(feature = "custom_fonts")]
+        if !used_faces.is_empty() {
+            svg.push_str(r#" style="font-synthesis:none""#);
         }
         // Emit axis metadata as data-* attrs when interactive.
         if scene.interactive {
@@ -145,6 +207,21 @@ impl SvgBackend {
             write_indent(&mut svg, 1, p);
             svg.push_str(crate::fonts::dejavu_sans_style_block());
             write_newline(&mut svg, p);
+            // Registered fonts the scene draws, so it renders the same anywhere.
+            #[cfg(feature = "custom_fonts")]
+            {
+                let rules: String = used_faces
+                    .iter()
+                    .filter_map(|face| face.font_face_css())
+                    .collect();
+                if !rules.is_empty() {
+                    write_indent(&mut svg, 1, p);
+                    svg.push_str("<style>");
+                    svg.push_str(&rules);
+                    svg.push_str("</style>");
+                    write_newline(&mut svg, p);
+                }
+            }
         }
 
         if let Some(color) = &scene.background_color {
@@ -155,11 +232,15 @@ impl SvgBackend {
             write_newline(&mut svg, p);
         }
 
+        // Clip ids come from a process-wide counter (so merged Figure panels never collide);
+        // renumber them per SVG, in order of first use, so the same scene always writes the
+        // same bytes.
+        let mut clip_ids = ClipIdRenamer::default();
         if !scene.defs.is_empty() || scene.has_tooltips || scene.interactive {
             write_indent(&mut svg, 1, p);
             svg.push_str("<defs>");
             for d in &scene.defs {
-                svg.push_str(d);
+                clip_ids.write_renamed(&mut svg, d);
             }
             if scene.interactive {
                 svg.push_str(r#"<style>"#);
@@ -187,7 +268,18 @@ impl SvgBackend {
         // Unique tag per embedded math fragment, to namespace Typst's element IDs.
         #[cfg(feature = "typst-math")]
         let mut math_uid: usize = 0;
-        for elem in &scene.elements {
+        let mut i = 0;
+        while i < scene.elements.len() {
+            if self.rect_batching {
+                let end = rect_run_end(&scene.elements, i);
+                if end > i {
+                    write_rect_run(&mut svg, &scene.elements[i..end], depth, p);
+                    i = end;
+                    continue;
+                }
+            }
+            let elem = &scene.elements[i];
+            i += 1;
             match elem {
                 Primitive::Circle {
                     cx,
@@ -332,6 +424,12 @@ impl SvgBackend {
                             depth,
                             p,
                             &mut math_uid,
+                            &crate::render::text_metrics::FontSet::resolve(
+                                scene.font_family.as_deref(),
+                                None,
+                            )
+                            .with_mono(scene.mono_font_family.as_deref()),
+                            &code_family,
                         );
                         continue;
                     }
@@ -362,7 +460,7 @@ impl SvgBackend {
                         if styled {
                             svg.push_str("<tspan");
                             if span.code {
-                                svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                                svg.push_str(&code_family);
                             }
                             if span.bold {
                                 svg.push_str(r#" font-weight="bold""#);
@@ -521,7 +619,7 @@ impl SvgBackend {
                     // Here we only open the clipping group.
                     write_indent(&mut svg, depth, p);
                     svg.push_str(r#"<g clip-path="url(#"#);
-                    svg.push_str(id);
+                    clip_ids.write_renamed(&mut svg, id);
                     svg.push_str(r#")">"#);
                     write_newline(&mut svg, p);
                     depth += 1;
@@ -543,33 +641,14 @@ impl SvgBackend {
                     opacity,
                 } => {
                     write_indent(&mut svg, depth, p);
-                    svg.push_str(r#"<rect x=""#);
-                    write_float(&mut svg, *x);
-                    svg.push_str(r#"" y=""#);
-                    write_float(&mut svg, *y);
-                    svg.push_str(r#"" width=""#);
-                    write_float(&mut svg, *width);
-                    svg.push_str(r#"" height=""#);
-                    write_float(&mut svg, *height);
-                    svg.push_str(r#"" fill=""#);
-                    fill.write_svg(&mut svg);
-                    svg.push('"');
-                    if let Some(stroke) = stroke {
-                        svg.push_str(r#" stroke=""#);
-                        stroke.write_svg(&mut svg);
-                        svg.push('"');
-                    }
-                    if let Some(w) = stroke_width {
-                        svg.push_str(r#" stroke-width=""#);
-                        write_float(&mut svg, *w);
-                        svg.push('"');
-                    }
-                    if let Some(opacity) = opacity {
-                        svg.push_str(r#" fill-opacity=""#);
-                        write_float(&mut svg, *opacity);
-                        svg.push('"');
-                    }
-                    svg.push_str(" />");
+                    write_rect(
+                        &mut svg,
+                        (*x, *y, *width, *height),
+                        fill,
+                        stroke.as_ref(),
+                        *stroke_width,
+                        *opacity,
+                    );
                     write_newline(&mut svg, p);
                 }
                 Primitive::CircleBatch {
@@ -618,19 +697,16 @@ impl SvgBackend {
                     }
                 }
                 Primitive::RectBatch { x, y, w, h, fills } => {
-                    for i in 0..x.len() {
+                    for k in 0..x.len() {
                         write_indent(&mut svg, depth, p);
-                        svg.push_str(r#"<rect x=""#);
-                        write_float(&mut svg, x[i]);
-                        svg.push_str(r#"" y=""#);
-                        write_float(&mut svg, y[i]);
-                        svg.push_str(r#"" width=""#);
-                        write_float(&mut svg, w[i]);
-                        svg.push_str(r#"" height=""#);
-                        write_float(&mut svg, h[i]);
-                        svg.push_str(r#"" fill=""#);
-                        fills[i].write_svg(&mut svg);
-                        svg.push_str(r#"" />"#);
+                        write_rect(
+                            &mut svg,
+                            (x[k], y[k], w[k], h[k]),
+                            &fills[k],
+                            None,
+                            None,
+                            None,
+                        );
                         write_newline(&mut svg, p);
                     }
                 }
@@ -711,10 +787,369 @@ impl SvgBackend {
     }
 }
 
+/// Renumbers `kuva-clip-N` ids within one SVG: the first id seen becomes `kuva-clip-0`, the
+/// next new one `kuva-clip-1`, and so on, and every later mention of an id gets the same new
+/// number. The renderer takes `N` from a process-wide counter so the panels of a merged
+/// [`Figure`](crate::render::figure::Figure) never share an id; renumbering at write time keeps
+/// that while making the output depend only on the scene, not on what the process drew before.
+#[derive(Default)]
+struct ClipIdRenamer {
+    map: std::collections::HashMap<u64, usize>,
+}
+
+impl ClipIdRenamer {
+    const PREFIX: &'static str = "kuva-clip-";
+
+    /// Append `text` to `svg` with every `kuva-clip-<digits>` id renumbered.
+    fn write_renamed(&mut self, svg: &mut String, text: &str) {
+        let mut rest = text;
+        while let Some(pos) = rest.find(Self::PREFIX) {
+            let after = &rest[pos + Self::PREFIX.len()..];
+            let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+            match after[..digits].parse::<u64>() {
+                Ok(old) => {
+                    let next = self.map.len();
+                    let new = *self.map.entry(old).or_insert(next);
+                    svg.push_str(&rest[..pos]);
+                    svg.push_str(Self::PREFIX);
+                    let _ = write!(svg, "{new}");
+                }
+                // Not followed by a number: not one of ours, copy it unchanged.
+                Err(_) => svg.push_str(&rest[..pos + Self::PREFIX.len()]),
+            }
+            rest = &after[digits..];
+        }
+        svg.push_str(rest);
+    }
+}
+
+/// Write one `<rect>` element (no indent or newline).
+fn write_rect(
+    svg: &mut String,
+    (x, y, width, height): (f64, f64, f64, f64),
+    fill: &Color,
+    stroke: Option<&Color>,
+    stroke_width: Option<f64>,
+    opacity: Option<f64>,
+) {
+    svg.push_str(r#"<rect x=""#);
+    write_float(svg, x);
+    svg.push_str(r#"" y=""#);
+    write_float(svg, y);
+    svg.push_str(r#"" width=""#);
+    write_float(svg, width);
+    svg.push_str(r#"" height=""#);
+    write_float(svg, height);
+    svg.push_str(r#"" fill=""#);
+    fill.write_svg(svg);
+    svg.push('"');
+    if let Some(stroke) = stroke {
+        svg.push_str(r#" stroke=""#);
+        stroke.write_svg(svg);
+        svg.push('"');
+    }
+    if let Some(w) = stroke_width {
+        svg.push_str(r#" stroke-width=""#);
+        write_float(svg, w);
+        svg.push('"');
+    }
+    if let Some(opacity) = opacity {
+        svg.push_str(r#" fill-opacity=""#);
+        write_float(svg, opacity);
+        svg.push('"');
+    }
+    svg.push_str(" />");
+}
+
+/// A rectangle that rect batching may fold into a per-colour `<path>`.
+struct PlainRect<'a> {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    fill: &'a Color,
+}
+
+/// Whether a fill can move from a `<rect>` to a `<path>` unchanged. A pattern or gradient
+/// (`url(...)`) may be sized to the element's bounding box, which differs between one rect and
+/// a path spanning many, and `none` paints nothing, so neither is batched.
+fn batchable_fill(fill: &Color) -> bool {
+    match fill {
+        Color::Rgb(..) => true,
+        Color::None => false,
+        Color::Css(s) => !s.trim_start().starts_with("url("),
+    }
+}
+
+/// Append `elem`'s rectangles to `out` if every one of them can be batched; otherwise return
+/// `false` (and leave `out` as it was).
+fn push_plain_rects<'a>(elem: &'a Primitive, out: &mut Vec<PlainRect<'a>>) -> bool {
+    let finite = |v: [f64; 4]| v.iter().all(|c| c.is_finite());
+    match elem {
+        Primitive::Rect {
+            x,
+            y,
+            width,
+            height,
+            fill,
+            stroke: None,
+            opacity: None,
+            ..
+        } if batchable_fill(fill) && finite([*x, *y, *width, *height]) => {
+            out.push(PlainRect {
+                x: *x,
+                y: *y,
+                w: *width,
+                h: *height,
+                fill,
+            });
+            true
+        }
+        Primitive::RectBatch { x, y, w, h, fills } => {
+            let n = x.len();
+            let ok = y.len() == n
+                && w.len() == n
+                && h.len() == n
+                && fills.len() == n
+                && (0..n).all(|k| batchable_fill(&fills[k]) && finite([x[k], y[k], w[k], h[k]]));
+            if ok {
+                out.extend((0..n).map(|k| PlainRect {
+                    x: x[k],
+                    y: y[k],
+                    w: w[k],
+                    h: h[k],
+                    fill: &fills[k],
+                }));
+            }
+            ok
+        }
+        _ => false,
+    }
+}
+
+/// End (exclusive) of the run of batchable rect primitives starting at `start`, or `start`
+/// when the run holds fewer than two rectangles (nothing to gain).
+fn rect_run_end(elements: &[Primitive], start: usize) -> usize {
+    let mut scratch = Vec::new();
+    let mut end = start;
+    while end < elements.len() && push_plain_rects(&elements[end], &mut scratch) {
+        end += 1;
+    }
+    if scratch.len() < 2 {
+        start
+    } else {
+        end
+    }
+}
+
+/// Overlap below this many pixels, in both directions, counts as touching. SVG coordinates are
+/// written to two decimals, so a smaller overlap is rounding, not paint.
+const OVERLAP_EPS: f64 = 0.01;
+
+/// Whether two rects of the same fill may overlap inside one batched path. One path paints the
+/// union of its subpaths once, which matches separate rects only when the fill is opaque, so
+/// this is limited to plain `#rrggbb` colours. A CSS colour may carry alpha
+/// (`rgba(..)`, `#rrggbbaa`, `transparent`), so its overlaps split the run instead.
+fn opaque(fill: &Color) -> bool {
+    matches!(fill, Color::Rgb(..))
+}
+
+/// Splits a run of rects into consecutive segments that can each be regrouped by colour.
+///
+/// Within a segment no two rects of different colours overlap, so painting it colour by
+/// colour gives the same image as painting it in order. Same-colour rects may overlap if the
+/// colour is opaque. A rect that would break that starts a new segment, so paint order across
+/// the conflict is kept and only that boundary costs anything: one bad rect no longer turns
+/// batching off for a whole plot.
+///
+/// The overlap check uses a uniform grid sized from the median rect, so a big heatmap or brick
+/// plot costs about one bucket lookup per rect. If one segment's grid work runs far past its
+/// size (wildly mixed rect sizes), the segment is closed early: always safe, just less merging.
+struct Segmenter {
+    cw: f64,
+    ch: f64,
+    grid: std::collections::HashMap<(i64, i64), Vec<u32>>,
+    members: Vec<u32>,
+    work: usize,
+}
+
+impl Segmenter {
+    fn new(rects: &[PlainRect]) -> Self {
+        let median = |mut v: Vec<f64>| {
+            if v.is_empty() {
+                return 1.0;
+            }
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2].max(OVERLAP_EPS)
+        };
+        let live = || rects.iter().filter(|r| r.w > 0.0 && r.h > 0.0);
+        Segmenter {
+            cw: median(live().map(|r| r.w).collect()),
+            ch: median(live().map(|r| r.h).collect()),
+            grid: std::collections::HashMap::new(),
+            members: Vec::new(),
+            work: 0,
+        }
+    }
+
+    fn cells(
+        &self,
+        r: &PlainRect,
+    ) -> (std::ops::RangeInclusive<i64>, std::ops::RangeInclusive<i64>) {
+        (
+            (r.x / self.cw).floor() as i64..=((r.x + r.w) / self.cw).floor() as i64,
+            (r.y / self.ch).floor() as i64..=((r.y + r.h) / self.ch).floor() as i64,
+        )
+    }
+
+    /// Whether rect `idx` can join the current segment.
+    fn fits(&mut self, rects: &[PlainRect], idx: usize) -> bool {
+        let r = &rects[idx];
+        let budget = 64 * (self.members.len() + 1) + 10_000;
+        let (xs, ys) = self.cells(r);
+        for gx in xs {
+            for gy in ys.clone() {
+                self.work += 1;
+                let Some(cell) = self.grid.get(&(gx, gy)) else {
+                    continue;
+                };
+                for &other in cell {
+                    self.work += 1;
+                    let o = &rects[other as usize];
+                    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
+                    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
+                    if xov > OVERLAP_EPS
+                        && yov > OVERLAP_EPS
+                        && !(opaque(r.fill) && r.fill == o.fill)
+                    {
+                        return false;
+                    }
+                }
+                if self.work > budget {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn add(&mut self, rects: &[PlainRect], idx: usize) {
+        let (xs, ys) = self.cells(&rects[idx]);
+        for gx in xs {
+            for gy in ys.clone() {
+                self.grid.entry((gx, gy)).or_default().push(idx as u32);
+            }
+        }
+        self.members.push(idx as u32);
+    }
+
+    /// Close the current segment, returning its rect indices in paint order.
+    fn take(&mut self) -> Vec<u32> {
+        self.grid.clear();
+        self.work = 0;
+        std::mem::take(&mut self.members)
+    }
+}
+
+/// Write a run of batchable rect primitives. The run is split into segments (see
+/// [`Segmenter`]), and each segment is written as one `<path>` per fill in first-seen order,
+/// each rect a closed `M x y h w v h h -w z` subpath with relative moves between them. A colour
+/// with a single rect in a segment stays a `<rect>`.
+fn write_rect_run(svg: &mut String, run: &[Primitive], depth: usize, p: bool) {
+    let mut rects = Vec::new();
+    for elem in run {
+        push_plain_rects(elem, &mut rects);
+    }
+    let mut seg = Segmenter::new(&rects);
+    for idx in 0..rects.len() {
+        // A rect with no positive size paints nothing (and a negative-size subpath would
+        // paint), so it is dropped.
+        if !(rects[idx].w > 0.0 && rects[idx].h > 0.0) {
+            continue;
+        }
+        if !seg.fits(&rects, idx) {
+            write_segment(svg, &rects, &seg.take(), depth, p);
+        }
+        seg.add(&rects, idx);
+    }
+    write_segment(svg, &rects, &seg.take(), depth, p);
+}
+
+/// Write one overlap-safe segment as one `<path>` per fill (first-seen order, never HashMap
+/// order, so the output is deterministic).
+fn write_segment(svg: &mut String, rects: &[PlainRect], members: &[u32], depth: usize, p: bool) {
+    use std::collections::HashMap;
+
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for &k in members {
+        let k = k as usize;
+        let mut key = String::with_capacity(7);
+        rects[k].fill.write_svg(&mut key);
+        match index.get(&key) {
+            Some(&g) => groups[g].1.push(k),
+            None => {
+                index.insert(key.clone(), groups.len());
+                groups.push((key, vec![k]));
+            }
+        }
+    }
+
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    for (fill, ks) in &groups {
+        write_indent(svg, depth, p);
+        if ks.len() == 1 {
+            let r = &rects[ks[0]];
+            write_rect(svg, (r.x, r.y, r.w, r.h), r.fill, None, None, None);
+            write_newline(svg, p);
+            continue;
+        }
+        svg.push_str(r#"<path d=""#);
+        // After `z` the current point is the subpath's start, so each move is relative to the
+        // previous rectangle's corner. Deltas come from the rounded corners, so they add up to
+        // exactly the absolute coordinates a `<rect>` would have used.
+        let mut prev: Option<(f64, f64)> = None;
+        for &k in ks {
+            let r = &rects[k];
+            let (x, y) = (round(r.x), round(r.y));
+            match prev {
+                None => {
+                    svg.push('M');
+                    write_float(svg, x);
+                    svg.push(' ');
+                    write_float(svg, y);
+                }
+                Some((px, py)) => {
+                    svg.push('m');
+                    write_float(svg, x - px);
+                    svg.push(' ');
+                    write_float(svg, y - py);
+                }
+            }
+            let w = round(r.w);
+            svg.push('h');
+            write_float(svg, w);
+            svg.push('v');
+            write_float(svg, round(r.h));
+            svg.push('h');
+            write_float(svg, -w);
+            svg.push('z');
+            prev = Some((x, y));
+        }
+        svg.push_str(r#"" fill=""#);
+        svg.push_str(fill);
+        svg.push_str(r#"" />"#);
+        write_newline(svg, p);
+    }
+}
+
 // Backward-compat shim in the value namespace.
 // `SvgBackend.render_scene(...)` in old code: `SvgBackend` resolves to this const.
 // `SvgBackend::new()` in new code: `SvgBackend` resolves to the type.
 // TODO: To phase out later: add #[deprecated(note = "Use SvgBackend::new()")] here.
+/// The default SVG backend as a value, equal to [`SvgBackend::new()`]. Kept so code written as
+/// `SvgBackend.render_scene(&scene)` keeps compiling; new code should call `SvgBackend::new()`
+/// (see the [`SvgBackend` type](struct@SvgBackend)).
 #[allow(non_upper_case_globals)]
 pub const SvgBackend: SvgBackend = SvgBackend::new();
 
@@ -726,6 +1161,62 @@ pub const SvgBackend: SvgBackend = SvgBackend::new();
 /// width (math), all sharing the baseline `y`. Anchoring shifts the whole
 /// line by its total width. A fragment that fails to compile degrades to its
 /// lookup-tier text in place.
+/// The registered faces a scene draws text in: for each piece of text, the face
+/// its style resolves to under the scene's fonts (the body family, a tick-label
+/// group's family, the mono family), deduplicated in first-use order.
+#[cfg(feature = "custom_fonts")]
+fn registered_faces_used(scene: &Scene) -> Vec<std::sync::Arc<crate::fonts::Face>> {
+    use crate::render::axis::tick_group_family;
+    use crate::render::text_metrics::{FaceSource, FontSet, FontStyle};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    let mut sets: HashMap<Option<String>, FontSet> = HashMap::new();
+    let mut groups: Vec<Option<String>> = Vec::new();
+    let mut tick: Option<String> = None;
+    let mut out: Vec<Arc<crate::fonts::Face>> = Vec::new();
+    let mut note = |tick: &Option<String>, style: FontStyle| {
+        let set = sets.entry(tick.clone()).or_insert_with(|| {
+            FontSet::resolve(scene.font_family.as_deref(), tick.as_deref())
+                .with_mono(scene.mono_font_family.as_deref())
+        });
+        if let FaceSource::Registered(face) = &set.resolved(style).source {
+            if !out.iter().any(|f| Arc::ptr_eq(f, face)) {
+                out.push(Arc::clone(face));
+            }
+        }
+    };
+    for element in &scene.elements {
+        match element {
+            Primitive::GroupStart { extra_attrs, .. } => {
+                groups.push(tick_group_family(extra_attrs.as_deref()));
+                tick = groups.iter().rev().find_map(Clone::clone);
+            }
+            Primitive::GroupEnd => {
+                groups.pop();
+                tick = groups.iter().rev().find_map(Clone::clone);
+            }
+            Primitive::Text { bold, .. } => {
+                let style = if *bold {
+                    FontStyle::Bold
+                } else if tick.is_some() {
+                    FontStyle::Tick
+                } else {
+                    FontStyle::Regular
+                };
+                note(&tick, style);
+            }
+            Primitive::RichText { spans, .. } => {
+                for span in spans {
+                    note(&tick, FontStyle::for_span(span, tick.is_some()));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 #[cfg(feature = "typst-math")]
 #[allow(clippy::too_many_arguments)]
 fn rich_text_with_math(
@@ -739,9 +1230,13 @@ fn rich_text_with_math(
     depth: usize,
     pretty: bool,
     math_uid: &mut usize,
+    fonts: &crate::render::text_metrics::FontSet,
+    code_family: &str,
 ) {
     use crate::render::math;
-    use crate::render::text_metrics::{measure_text_width, FontStyle};
+    use crate::render::text_metrics::FontStyle;
+    let measure_text_width =
+        |text: &str, size: f64, style: FontStyle| fonts.measure_text_width(text, size, style);
 
     // Resolve each span to (drawable, advance) up front so anchoring can use
     // the exact total width.
@@ -796,7 +1291,7 @@ fn rich_text_with_math(
                 let _ = write!(svg, "{size}");
                 svg.push_str(r#"" text-anchor="start""#);
                 if sp.code {
-                    svg.push_str(r#" font-family="DejaVu Sans Mono,monospace""#);
+                    svg.push_str(code_family);
                 }
                 if sp.bold {
                     svg.push_str(r#" font-weight="bold""#);
@@ -835,5 +1330,234 @@ fn rich_text_with_math(
             }
         }
         cursor += w;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_float;
+
+    /// `x * 0.01` leaves float noise that ryu prints in full (`61.300000000000004`);
+    /// every value must come out as at most two decimals.
+    #[test]
+    fn write_float_never_emits_float_noise() {
+        for (v, want) in [
+            (61.3, "61.3"),
+            (3.26, "3.26"),
+            (449.59, "449.59"),
+            (0.29, "0.29"),
+            (-12.345, "-12.35"),
+            (100.0, "100"),
+        ] {
+            let mut s = String::new();
+            write_float(&mut s, v);
+            assert_eq!(s, want, "write_float({v})");
+        }
+        for i in -200_000..200_000 {
+            let mut s = String::new();
+            write_float(&mut s, i as f64 * 0.013);
+            let decimals = s.split('.').nth(1).map_or(0, str::len);
+            assert!(decimals <= 2, "write_float({}) = {s}", i as f64 * 0.013);
+        }
+    }
+
+    use super::SvgBackend;
+    use crate::render::color::Color;
+    use crate::render::render::{Primitive, Scene};
+
+    fn rect(x: f64, y: f64, w: f64, h: f64, fill: &str) -> Primitive {
+        Primitive::Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+            fill: Color::from(fill),
+            stroke: None,
+            stroke_width: None,
+            opacity: None,
+        }
+    }
+
+    fn render(elements: Vec<Primitive>, batching: bool) -> String {
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.elements = elements;
+        SvgBackend::new()
+            .with_rect_batching(batching)
+            .render_scene(&scene)
+    }
+
+    /// Bricks: alternating colours with small gaps. One path per colour, every brick its own
+    /// closed subpath (so the gaps survive), colours in first-seen order.
+    #[test]
+    fn non_overlapping_run_becomes_one_path_per_colour() {
+        let els = (0..6)
+            .map(|i| {
+                let fill = if i % 2 == 0 { "#ff0000" } else { "#0000ff" };
+                rect(10.0 + i as f64 * 2.4, 5.0, 2.28, 4.0, fill)
+            })
+            .collect();
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+        assert_eq!(
+            svg.matches("<rect").count(),
+            1,
+            "only the background rect: {svg}"
+        );
+        assert_eq!(svg.matches('z').count(), 6);
+        let red = svg.find("#ff0000").unwrap();
+        let blue = svg.find("#0000ff").unwrap();
+        assert!(red < blue);
+        // First red brick absolute, the next two relative to it (4.8 px pitch).
+        assert!(
+            svg.contains(r#"d="M10 5h2.28v4h-2.28zm4.8 0h2.28v4h-2.28zm4.8 0h2.28v4h-2.28z""#),
+            "{svg}"
+        );
+    }
+
+    /// Two different colours overlapping: the run splits at the conflict, so the blue rect is
+    /// still painted after the red one it covers, and batching carries on after it.
+    #[test]
+    fn cross_colour_overlap_splits_the_run() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(20.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(5.0, 5.0, 10.0, 10.0, "#0000ff"), // covers the first red rect
+            rect(40.0, 0.0, 10.0, 10.0, "#0000ff"),
+            rect(60.0, 0.0, 10.0, 10.0, "#0000ff"),
+        ];
+        let svg = render(els, true);
+        // Segment 1: the two reds. Segment 2: the three blues.
+        let red = svg.find("fill=\"#ff0000\"").unwrap();
+        let blue = svg.find("fill=\"#0000ff\"").unwrap();
+        assert!(
+            red < blue,
+            "red must be painted before the blue that covers it: {svg}"
+        );
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+        assert_eq!(svg.matches('z').count(), 5, "{svg}");
+    }
+
+    /// The CPUM_TYMS case: a widened 1 bp CIGAR span overlapping a neighbour of the same opaque
+    /// colour does not stop batching.
+    #[test]
+    fn same_opaque_colour_overlap_still_batches() {
+        let els = vec![
+            rect(0.0, 0.0, 0.6, 5.0, "#cccccc"),
+            rect(0.45, 0.0, 0.6, 5.0, "#cccccc"),
+            rect(10.0, 0.0, 5.0, 5.0, "#cccccc"),
+        ];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 1, "{svg}");
+        assert!(!svg.contains("<rect x"), "{svg}");
+    }
+
+    /// A translucent colour painted as one path would cover the overlap once instead of twice,
+    /// so same-colour overlaps of a CSS colour split the run.
+    #[test]
+    fn translucent_overlap_splits() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "rgba(255,0,0,0.5)"),
+            rect(5.0, 0.0, 10.0, 10.0, "rgba(255,0,0,0.5)"),
+        ];
+        let svg = render(els, true);
+        assert!(!svg.contains("<path"), "{svg}");
+        assert_eq!(svg.matches("<rect x").count(), 2);
+    }
+
+    /// Clip ids are renumbered per SVG, so rendering the same plot twice in one process gives
+    /// identical bytes even though the renderer's id counter has moved on.
+    #[test]
+    fn clip_ids_are_reproducible_within_a_process() {
+        use crate::plot::ScatterPlot;
+        use crate::render::layout::Layout;
+        use crate::render::plots::Plot;
+        use crate::render::render::render_multiple;
+        let draw = || {
+            let plots: Vec<Plot> = vec![ScatterPlot::new().with_data(vec![(1.0, 2.0)]).into()];
+            let layout = Layout::auto_from_plots(&plots);
+            SvgBackend::new().render_scene(&render_multiple(plots, layout))
+        };
+        let (a, b) = (draw(), draw());
+        assert_eq!(a, b);
+        assert!(a.contains(r#"<clipPath id="kuva-clip-0">"#), "{a}");
+        assert!(a.contains(r#"clip-path="url(#kuva-clip-0)""#), "{a}");
+    }
+
+    #[test]
+    fn clip_id_renamer_keeps_references_consistent() {
+        let mut r = super::ClipIdRenamer::default();
+        let mut out = String::new();
+        r.write_renamed(
+            &mut out,
+            "a kuva-clip-41 b kuva-clip-7 c kuva-clip-41 kuva-clip-x",
+        );
+        assert_eq!(out, "a kuva-clip-0 b kuva-clip-1 c kuva-clip-0 kuva-clip-x");
+    }
+
+    /// Edges that touch (or overlap by less than the 0.01 px written precision) are not an
+    /// overlap: flush heatmap cells still batch.
+    #[test]
+    fn touching_cells_still_batch() {
+        let els = vec![
+            rect(0.0, 0.0, 10.0, 10.0, "#ff0000"),
+            rect(10.0, 0.0, 10.0, 10.0, "#00ff00"),
+            rect(0.0, 9.995, 10.0, 10.0, "#00ff00"),
+            rect(10.0, 10.0, 10.0, 10.0, "#ff0000"),
+        ];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 2, "{svg}");
+    }
+
+    /// Stroked, translucent, pattern-filled or unfilled rects break the run; a lone plain rect
+    /// is never turned into a path.
+    #[test]
+    fn only_plain_rects_batch() {
+        let mut stroked = rect(30.0, 0.0, 5.0, 5.0, "#ff0000");
+        if let Primitive::Rect { stroke, .. } = &mut stroked {
+            *stroke = Some(Color::from("#000000"));
+        }
+        let mut faded = rect(40.0, 0.0, 5.0, 5.0, "#ff0000");
+        if let Primitive::Rect { opacity, .. } = &mut faded {
+            *opacity = Some(0.5);
+        }
+        let els = vec![
+            rect(0.0, 0.0, 5.0, 5.0, "#ff0000"),
+            stroked,
+            rect(10.0, 0.0, 5.0, 5.0, "url(#hatch)"),
+            rect(20.0, 0.0, 5.0, 5.0, "#ff0000"),
+            faded,
+        ];
+        let batched = render(els, true);
+        assert!(!batched.contains("<path"), "{batched}");
+    }
+
+    /// A RectBatch (heatmap cells) batches, and zero-size cells are dropped rather than drawn.
+    #[test]
+    fn rect_batch_primitive_batches_and_skips_empty_cells() {
+        let els = vec![Primitive::RectBatch {
+            x: vec![0.0, 10.0, 20.0, 30.0],
+            y: vec![0.0; 4],
+            w: vec![10.0, 10.0, 0.0, 10.0],
+            h: vec![10.0; 4],
+            fills: vec![Color::from("#111111"); 4],
+        }];
+        let svg = render(els, true);
+        assert_eq!(svg.matches("<path").count(), 1, "{svg}");
+        assert_eq!(svg.matches('z').count(), 3, "{svg}");
+    }
+
+    /// The default is on, and `SvgBackend` the value-namespace const matches `new()`.
+    #[test]
+    fn batching_is_the_default() {
+        let els = || {
+            vec![
+                rect(0.0, 0.0, 5.0, 5.0, "#ff0000"),
+                rect(10.0, 0.0, 5.0, 5.0, "#ff0000"),
+            ]
+        };
+        let mut scene = Scene::new(100.0, 100.0);
+        scene.elements = els();
+        assert!(super::SvgBackend.render_scene(&scene).contains("<path"));
+        assert!(SvgBackend::new().render_scene(&scene).contains("<path"));
     }
 }

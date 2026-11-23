@@ -1,3 +1,5 @@
+use crate::plot::nan_cmp::NanCmp;
+
 /// A single ROC curve group (one classifier or one class).
 pub struct RocGroup {
     pub label: String,
@@ -165,7 +167,7 @@ pub fn compute_roc_points(predictions: &[(f64, bool)]) -> Vec<RocPoint> {
         return Vec::new();
     }
     let mut sorted = predictions.to_vec();
-    sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| b.0.nan_cmp(&a.0));
 
     let n_pos = sorted.iter().filter(|p| p.1).count();
     let n_neg = sorted.len() - n_pos;
@@ -307,10 +309,12 @@ pub(crate) fn optimal_threshold_idx(points: &[RocPoint]) -> usize {
     points
         .iter()
         .enumerate()
+        // NaN would rank as the maximum under `nan_cmp`; it is never optimal.
+        .filter(|(_, p)| !(p.tpr - p.fpr).is_nan())
         .max_by(|(_, a), (_, b)| {
             let ja = a.tpr - a.fpr;
             let jb = b.tpr - b.fpr;
-            ja.partial_cmp(&jb).unwrap_or(std::cmp::Ordering::Equal)
+            ja.nan_cmp(&jb)
         })
         .map(|(i, _)| i)
         .unwrap_or(0)

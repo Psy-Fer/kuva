@@ -5,6 +5,7 @@ use crate::plot::boxplot::BoxPlot;
 use crate::plot::brick::BrickPlot;
 use crate::plot::histogram::Histogram;
 use crate::plot::line::LinePlot;
+use crate::plot::logo::SequenceLogo;
 use crate::plot::scatter::{ScatterPlot, TrendLine};
 use crate::plot::violin::ViolinPlot;
 
@@ -39,6 +40,7 @@ use crate::plot::pr::PrPlot;
 use crate::plot::pyramid::PopulationPyramid;
 use crate::plot::qq::QQPlot;
 use crate::plot::quiver::QuiverPlot;
+use crate::plot::quiver3d::Quiver3DPlot;
 use crate::plot::radar::RadarPlot;
 use crate::plot::raincloud::RaincloudPlot;
 use crate::plot::ridgeline::RidgelinePlot;
@@ -130,6 +132,8 @@ pub enum Plot {
     Text(TextPlot),
     LegendPlot(LegendPlot),
     Quiver(QuiverPlot),
+    SequenceLogo(SequenceLogo),
+    Quiver3D(Quiver3DPlot),
 }
 
 impl From<ScatterPlot> for Plot {
@@ -452,6 +456,17 @@ impl From<QuiverPlot> for Plot {
         Plot::Quiver(p)
     }
 }
+impl From<Quiver3DPlot> for Plot {
+    fn from(p: Quiver3DPlot) -> Self {
+        Plot::Quiver3D(p)
+    }
+}
+
+impl From<SequenceLogo> for Plot {
+    fn from(p: SequenceLogo) -> Self {
+        Plot::SequenceLogo(p)
+    }
+}
 
 use crate::plot::colormap::ColorMap;
 use crate::plot::plot3d::DataRanges3D;
@@ -551,6 +566,9 @@ impl Plot {
             Plot::Ecdf(e) => e.color = color.into(),
             Plot::QQ(q) => q.color = color.into(),
             Plot::Quiver(q) => q.color = color.into(),
+            // SequenceLogo colors per-letter via AlphabetPalette — no single primary color.
+            Plot::SequenceLogo(_) => {}
+            Plot::Quiver3D(q) => q.color = color.into(),
             _ => {} // multi-series plots (StackedArea, Streamgraph, etc.) skip palette auto-assign
         }
     }
@@ -696,16 +714,14 @@ impl Plot {
             }
             Plot::Histogram(h) => {
                 // Precomputed path: derive bounds from edges and counts directly
-                if let Some((edges, counts)) = &h.precomputed {
-                    if edges.len() < 2 || counts.is_empty() {
-                        return None;
-                    }
+                if let Some((edges, _)) = &h.precomputed {
+                    let heights = h.precomputed_heights()?;
                     let x_min = edges[0];
-                    let x_max = *edges.last().unwrap();
-                    let max_y = if h.normalize {
+                    let x_max = edges[heights.len()];
+                    let max_y = if h.normalize && !h.density {
                         1.0
                     } else {
-                        counts.iter().cloned().fold(0.0_f64, f64::max)
+                        heights.iter().cloned().fold(0.0_f64, f64::max)
                     };
                     return Some(((x_min, x_max), (0.0, max_y)));
                 }
@@ -728,8 +744,7 @@ impl Plot {
                     let density_norm = 1.0 / (n * bw * (2.0 * std::f64::consts::PI).sqrt());
                     let kde = render_utils::simple_kde(&h.data, bw, h.kde_samples);
                     let peak_density = kde.iter().map(|(_, y)| *y).fold(0.0_f64, f64::max);
-                    let kde_peak_height =
-                        peak_density * density_norm * n * binned.bin_width * binned.norm;
+                    let kde_peak_height = peak_density * density_norm * h.kde_height_scale(&binned);
                     max_y = max_y.max(kde_peak_height);
                 }
 
@@ -1224,7 +1239,9 @@ impl Plot {
                 }
                 Some(((x_min, x_max), (y_min, y_max)))
             }
-            Plot::Scatter3D(_) | Plot::Surface3D(_) => Some(((-1.0, 1.0), (-1.0, 1.0))),
+            Plot::Scatter3D(_) | Plot::Surface3D(_) | Plot::Quiver3D(_) => {
+                Some(((-1.0, 1.0), (-1.0, 1.0)))
+            }
             // Pixel-space plot — returns dummy bounds so Layout gets a valid range.
             Plot::Clustermap(_) => Some(((0.0, 1.0), (0.0, 1.0))),
             // Pixel-space composite plot; layout supplied internally via render_multiple.
@@ -1528,6 +1545,12 @@ impl Plot {
                     .unwrap_or(0.0);
                 Some(((x_min, x_max), (y_min, y_max)))
             }
+            Plot::SequenceLogo(sl) => {
+                if sl.n_positions() == 0 {
+                    return None;
+                }
+                Some((sl.x_span(), (0.0, sl.y_max())))
+            }
         }
     }
 
@@ -1575,8 +1598,8 @@ impl Plot {
                 n + 70
             }
             Plot::Clustermap(c) => {
-                let cells: usize = c.data.iter().map(|r| r.len()).sum();
-                cells + 500
+                let (rows, cols) = c.dims();
+                rows * cols + 500
             }
             Plot::Joint(jp) => {
                 jp.groups
@@ -1651,6 +1674,8 @@ impl Plot {
             Plot::Gantt(gp) => gp.tasks.len() * 5 + 20,
             Plot::Text(tp) => tp.body.lines().count() * 2 + 10,
             Plot::Quiver(q) => q.arrows.len() * 2 + 10,
+            Plot::SequenceLogo(sl) => sl.n_positions() * sl.letters.len() * 12 + 40,
+            Plot::Quiver3D(q) => q.arrows.len() + 70,
             _ => 100,
         }
     }
@@ -1757,17 +1782,21 @@ impl Plot {
                 )
             }
             Plot::Clustermap(cm) => {
-                if cm.data.is_empty() || cm.data.iter().all(|r| r.is_empty()) {
+                // Categorical cells and binned values get a swatch legend instead.
+                if !cm.uses_colorbar() || cm.data.is_empty() || cm.data.iter().all(|r| r.is_empty())
+                {
                     return None;
                 }
-                let min = cm
-                    .data
+                // Cells are coloured by the normalised values (e.g. row z-scores), so the
+                // colorbar must span those, not the raw data.
+                let values =
+                    crate::render::render::apply_normalization(cm.data.clone(), &cm.normalization);
+                let min = values
                     .iter()
                     .flatten()
                     .cloned()
                     .fold(f64::INFINITY, f64::min);
-                let max = cm
-                    .data
+                let max = values
                     .iter()
                     .flatten()
                     .cloned()
@@ -1793,6 +1822,13 @@ impl Plot {
                 )
             }
             Plot::Quiver(q) => {
+                let cmap = cmap_of(q.color_map.as_ref()?);
+                let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
+                colorbar_linear(&cmap, min, max, q.color_legend_label.clone())
+            }
+            // SequenceLogo uses a discrete letter legend, never a continuous colorbar.
+            Plot::SequenceLogo(_) => None,
+            Plot::Quiver3D(q) => {
                 let cmap = cmap_of(q.color_map.as_ref()?);
                 let (min, max) = q.color_range.unwrap_or_else(|| q.magnitude_extent());
                 colorbar_linear(&cmap, min, max, q.color_legend_label.clone())

@@ -9,9 +9,9 @@
 ![conda](https://anaconda.org/conda-forge/kuva/badges/version.svg)
 ![conda-downloads](https://anaconda.org/conda-forge/kuva/badges/downloads.svg)
 
-A scientific plotting library in Rust. 64 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
+A scientific plotting library in Rust. 66 plot types, SVG output, optional PNG/PDF backends, and a CLI binary that renders plots directly from the shell — including in the terminal itself.
 
-![All 64 plot types](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/overview/all_plots_complex.svg)
+![All 66 plot types](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/overview/all_plots_complex.svg)
 
 ![kuva terminal — Sankey diagram](https://raw.githubusercontent.com/Psy-Fer/kuva/main/docs/src/assets/terminal/sankey.gif)
 
@@ -55,7 +55,8 @@ kuva = "0.6"
 # Optional backends
 kuva = { version = "0.6", features = ["png"] }   # PNG output
 kuva = { version = "0.6", features = ["pdf"] }   # PDF output — requires Rust >= 1.92 (higher than kuva's own MSRV; see below)
-kuva = { version = "0.6", features = ["full"] }  # PNG + PDF
+kuva = { version = "0.6", features = ["custom_fonts"] }  # load your own font files (TTF/OTF/TTC)
+kuva = { version = "0.6", features = ["full"] }  # PNG + PDF + custom fonts + .svgz/HTML output
 
 # Opt-in extras (deliberately not in `full`)
 kuva = { version = "0.6", features = ["typst-math"] }  # typeset $...$ math via the Typst compiler — requires Rust >= 1.89
@@ -100,7 +101,7 @@ kuva ridgeline samples.tsv --group-by group --value expression --overlap 0.6
 kuva box samples.tsv --group-col group --value-col expression --terminal
 ```
 
-Input is auto-detected TSV or CSV. `.parquet` files are also supported. Columns are selectable by name or 0-based index. Pipe from stdin by omitting the file argument. Output defaults to SVG on stdout; use a `.svg`, `.png`, or `.pdf` extension with `-o` to write a file. Extensions are case-insensitive, and other extensions are rejected.
+Input is auto-detected TSV or CSV. `.parquet` files are also supported. Columns are selectable by name or 0-based index. Pipe from stdin by omitting the file argument. Output defaults to SVG on stdout; use a `.svg`, `.svgz`, `.html`, `.png`, or `.pdf` extension with `-o` to write a file (`.html` is a self-contained page that shows the compressed figure in any browser). Extensions are case-insensitive, and other extensions are rejected.
 
 ---
 

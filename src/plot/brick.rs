@@ -249,6 +249,11 @@ pub(crate) const BRICK_NOTATION_GAP_PX: f64 = 4.0;
 /// the normal pitch and space appears only where the CIGAR changes.
 pub(crate) const BAR_ROW_UNITS: f64 = 0.45;
 
+/// Height of the band above a CIGAR bar that holds its deletion-length labels
+/// (`65D`), as a fraction of one brick row. Charged only to bars that have a
+/// deletion, so labels never reach into the row above.
+pub(crate) const DELETION_LABEL_UNITS: f64 = 0.75;
+
 /// Resolved CIGAR bar placement for a [`BrickPlot`], in display order.
 ///
 /// Produced by `BrickPlot::cigar_layout` and consumed by both `Plot::bounds`
@@ -265,12 +270,27 @@ pub(crate) struct CigarLayout {
     pub run_of_row: Vec<usize>,
     /// `(first_pos, last_pos)` of each run of rows sharing a CIGAR.
     pub runs: Vec<(usize, usize)>,
+    /// Height of the deletion-label band above each display position's bar, in
+    /// y-units (0 when the bar has no deletion or labels are off).
+    pub label_units: Vec<f64>,
     /// Top of each row in y-units, measured from the top of the plot.
     pub row_top_units: Vec<f64>,
     /// Total height in y-units, including every bar allowance.
     pub total_units: f64,
     /// Rows whose CIGAR was rejected.
     pub issues: Vec<CigarIssue>,
+}
+
+impl CigarLayout {
+    /// Y-units reserved above display position `pos` for its CIGAR bar and its
+    /// deletion-label band (0 when the row draws no bar).
+    pub(crate) fn bar_allowance(&self, pos: usize) -> f64 {
+        if self.draws_bar[pos] {
+            BAR_ROW_UNITS + self.label_units[pos]
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Allows `with_cigars` to accept plain `&str`/`String` values (auto-wrapped
@@ -610,6 +630,9 @@ pub struct BrickPlot {
     /// Bracket each deduped run in the left gutter with an `xN` count.
     /// Default `true`; has no effect when `cigar_dedup` is `false`.
     pub cigar_run_bracket: bool,
+    /// Label each deletion caret with its length (`65D`). Default `true`.
+    /// See [`with_cigar_deletion_labels`](BrickPlot::with_cigar_deletion_labels).
+    pub cigar_deletion_labels: bool,
     /// Per-operation colour overrides. Operations absent from the map keep
     /// [`CigarOp::default_color`].
     pub cigar_colors: Option<HashMap<CigarOp, String>>,
@@ -661,6 +684,7 @@ impl BrickPlot {
             cigars: None,
             cigar_dedup: true,
             cigar_run_bracket: true,
+            cigar_deletion_labels: true,
             cigar_colors: None,
             sort: BrickSort::None,
         }
@@ -718,6 +742,17 @@ impl BrickPlot {
     /// rather than to its own row alone.
     pub fn with_cigar_run_bracket(mut self, on: bool) -> Self {
         self.cigar_run_bracket = on;
+        self
+    }
+
+    /// Label each deletion caret on a CIGAR bar with the deleted length, e.g.
+    /// `65D`, in small text in the deletion colour (default `true`). The labels
+    /// sit in a band reserved above the bar, so they never overlap the row
+    /// above. Labels of deletions too close together are spread apart, and
+    /// the smallest deletions lose their label first when there is no room at
+    /// all. Rows too short for a legible label (under about 9 px) get none.
+    pub fn with_cigar_deletion_labels(mut self, on: bool) -> Self {
+        self.cigar_deletion_labels = on;
         self
     }
 
@@ -934,6 +969,7 @@ impl BrickPlot {
             order,
             spans: vec![None; n],
             draws_bar: vec![false; n],
+            label_units: vec![0.0; n],
             run_of_row: vec![0; n],
             runs: Vec::new(),
             row_top_units: Vec::with_capacity(n),
@@ -1004,7 +1040,13 @@ impl BrickPlot {
         let mut y = 0.0_f64;
         for pos in 0..n {
             if out.draws_bar[pos] {
-                y += BAR_ROW_UNITS;
+                let has_deletion = out.spans[pos]
+                    .as_ref()
+                    .is_some_and(|spans| spans.iter().any(|s| s.op == CigarOp::Deletion));
+                if self.cigar_deletion_labels && has_deletion {
+                    out.label_units[pos] = DELETION_LABEL_UNITS;
+                }
+                y += BAR_ROW_UNITS + out.label_units[pos];
             }
             out.row_top_units.push(y);
             y += 1.0;

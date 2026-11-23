@@ -38,9 +38,17 @@ pub struct HistogramArgs {
     #[arg(long)]
     pub bin_method: Option<String>,
 
-    /// Normalize counts to a probability density (area = 1).
-    #[arg(long)]
+    /// Scale bar heights so the tallest bar is 1 (relative frequency). For a
+    /// probability density use --density.
+    #[arg(long, conflicts_with = "density")]
     pub normalize: bool,
+
+    /// Scale bar heights to a probability density: count / (total * bin width),
+    /// so the bars' area is 1 (matplotlib density=True). Each --y column is its
+    /// own density; with --stacked the whole stack has area 1; with
+    /// --cumulative it becomes the empirical CDF, ending at 1.
+    #[arg(long)]
+    pub density: bool,
 
     /// Draw outline-only staircases instead of filled bars (histtype='step').
     #[arg(long)]
@@ -122,6 +130,9 @@ pub fn run(args: HistogramArgs) -> Result<(), String> {
         }
         if args.normalize {
             h = h.with_normalize();
+        }
+        if args.density {
+            h = h.with_density();
         }
         h
     };
