@@ -1,5 +1,5 @@
 use crate::plot::legend::LegendPosition;
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 

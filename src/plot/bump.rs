@@ -1,4 +1,4 @@
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 /// Line curve style connecting consecutive rank points.
 #[derive(Debug, Clone, Default)]

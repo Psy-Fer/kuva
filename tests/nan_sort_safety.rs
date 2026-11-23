@@ -90,7 +90,7 @@ fn quiver3d_with_an_overflowing_axis_range() {
 /// also gave an infinite magnitude, and `inf / inf` in the colour mapping.
 #[test]
 fn quiver3d_with_overflowing_arrow_tips() {
-    let cases: Vec<(&str, Quiver3DPlot)> = vec![
+    let mut cases: Vec<(&str, Quiver3DPlot)> = vec![
         (
             "far anchors, explicit scale",
             Quiver3DPlot::new()
@@ -120,6 +120,15 @@ fn quiver3d_with_overflowing_arrow_tips() {
                 .with_magnitude_colormap(ColorMap::Viridis, "|v|"),
         ),
     ];
+    cases.push((
+        "absurd auto-scale fraction over a tiny vector",
+        Quiver3DPlot::new()
+            .with_arrows([
+                (0.0, 0.0, 0.0, 1e-150, 0.0, 0.0),
+                (1.0, 1.0, 1.0, 0.0, 0.0, 0.0),
+            ])
+            .with_auto_scale(1e300),
+    ));
     for (what, q) in cases {
         let out = svg(Plot::Quiver3D(q));
         assert!(out.contains("<path"), "{what}: no arrows drawn");

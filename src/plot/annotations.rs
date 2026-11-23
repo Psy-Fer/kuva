@@ -4,7 +4,7 @@
 //! functions that consume them stay in [`crate::render::annotations`], which re-exports these
 //! types for backward compatibility.
 
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 #[derive(Clone, Debug)]
 pub enum Orientation {

@@ -1,4 +1,4 @@
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 /// One group of survival observations for a Kaplan-Meier curve.
 ///

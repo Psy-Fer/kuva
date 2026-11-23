@@ -1,4 +1,4 @@
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 /// Builder for a Pareto chart: a bar chart of category values, sorted descending
 /// by default, with a superimposed cumulative-percentage line on a secondary

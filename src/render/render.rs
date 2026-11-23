@@ -25952,7 +25952,7 @@ fn add_quiver3d(
     // Clip each arrow to a cube far larger than the box (±0.5), so a tip far
     // outside it (tight bounds with a huge vector) can't project to infinite
     // pixel coordinates; arrows inside it project unchanged.
-    const ARROW_CLIP: f64 = 1e3;
+    const ARROW_CLIP: f64 = 1e9;
     let mut projected: Vec<ProjectedArrow> = q
         .arrows
         .iter()

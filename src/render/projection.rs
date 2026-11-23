@@ -154,7 +154,8 @@ impl Projection3D {
     /// A point far outside the box (an arrow tip with `with_tight_bounds()`
     /// and a huge vector) would otherwise project to infinite pixel
     /// coordinates, and the arrow-head geometry built from them to NaN.
-    /// Clipping in normalised space keeps the segment's direction. Segments
+    /// Clipping in normalised space keeps the segment's direction, except for
+    /// coordinates beyond 1e300 box units, which saturate per axis. Segments
     /// already inside the cube project exactly as [`Self::project`] would.
     pub(crate) fn project_segment_clipped(
         &self,
@@ -250,11 +251,6 @@ mod tests {
             + a[2] * (b[0] * c[1] - b[1] * c[0])
     }
 
-    /// The projection must be a proper rotation at every view angle: the
-    /// images of +x, +y, +z keep a positive triple product, so a right-handed
-    /// helix stays right-handed and a counter-clockwise field about +z reads
-    /// counter-clockwise from above. (It used to negate screen x, which
-    /// mirrored the scene in half of all views, the default one included.)
     #[test]
     fn segment_clipping_keeps_inside_segments_and_bounds_far_ones() {
         let p = Projection3D::new(
@@ -286,6 +282,11 @@ mod tests {
         assert!(p.project_segment_clipped(a, b, 1e3).is_none());
     }
 
+    /// The projection must be a proper rotation at every view angle: the
+    /// images of +x, +y, +z keep a positive triple product, so a right-handed
+    /// helix stays right-handed and a counter-clockwise field about +z reads
+    /// counter-clockwise from above. (It used to negate screen x, which
+    /// mirrored the scene in half of all views, the default one included.)
     #[test]
     fn projection_is_right_handed_at_every_view() {
         for az in [-150.0, -120.0, -60.0, -30.0, 0.0, 45.0, 60.0, 120.0, 180.0] {

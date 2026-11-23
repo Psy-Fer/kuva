@@ -1,4 +1,4 @@
-use crate::render::render_utils::NanCmp;
+use crate::plot::nan_cmp::NanCmp;
 
 /// A single Precision-Recall curve group (one classifier or one class).
 pub struct PrGroup {

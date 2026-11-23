@@ -656,7 +656,9 @@ impl Quiver3DPlot {
             return 1.0;
         }
         let cell = (self.arrows.len() as f64).powf(-1.0 / k as f64);
-        self.auto_scale_fraction * cell / max_norm_mag
+        // Finite even for an absurd fraction over a tiny vector: an infinite
+        // scale would make a zero component `0 * inf = NaN`.
+        (self.auto_scale_fraction * cell / max_norm_mag).min(f64::MAX)
     }
 
     /// Tail and tip of an arrow in data coordinates for a given scale.

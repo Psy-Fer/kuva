@@ -70,6 +70,8 @@ pub mod volcano;
 pub mod waffle;
 pub mod waterfall;
 
+pub(crate) mod nan_cmp;
+
 pub mod legend;
 
 // pub mod types;

@@ -1,6 +1,6 @@
+use crate::plot::nan_cmp::NanCmp;
 use crate::plot::volcano::LabelStyle;
 use crate::render::palette::Palette;
-use crate::render::render_utils::NanCmp;
 
 /// A single SNP or variant displayed in a Manhattan plot.
 pub struct ManhattanPoint {
