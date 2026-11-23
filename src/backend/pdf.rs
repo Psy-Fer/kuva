@@ -203,8 +203,14 @@ impl AsRef<[u8]> for SharedFontData {
 /// the registry no longer holds (replaced by a later registration) are removed.
 #[cfg(feature = "custom_fonts")]
 fn load_registered_fonts(db: &mut usvg::fontdb::Database) {
-    for (bytes, indices) in crate::fonts::registered_sources() {
-        let source = usvg::fontdb::Source::Binary(Arc::new(SharedFontData(bytes)));
+    use crate::fonts::FontSource;
+    for (source, indices) in crate::fonts::registered_sources() {
+        let source = match source {
+            FontSource::File(path) => usvg::fontdb::Source::File(path),
+            FontSource::Bytes(bytes) => {
+                usvg::fontdb::Source::Binary(Arc::new(SharedFontData(bytes)))
+            }
+        };
         for id in db.load_font_source(source) {
             let keep = db
                 .face(id)
@@ -237,15 +243,23 @@ mod font_tests {
         );
         crate::fonts::register_font_file(path).unwrap();
         let db = PdfBackend::fontdb();
-        // The first DejaVu Serif face fontdb sees is the registered one (in-memory
-        // data), ahead of any system-installed copy, so ties resolve to it.
+        // The first DejaVu Serif face fontdb sees is the registered one, ahead of
+        // any system-installed copy, so ties resolve to it. A font registered from
+        // a path reaches fontdb as that file; one registered from bytes (another
+        // test in this process may do that) as in-memory data.
         let first = db
             .faces()
             .find(|f| f.families.iter().any(|(name, _)| name == "DejaVu Serif"))
             .expect("registered family is in the database");
+        let registered = match &first.source {
+            usvg::fontdb::Source::Binary(_) => true,
+            usvg::fontdb::Source::File(p) | usvg::fontdb::Source::SharedFile(p, _) => {
+                p == std::path::Path::new(path)
+            }
+        };
         assert!(
-            matches!(first.source, usvg::fontdb::Source::Binary(_)),
-            "first DejaVu Serif face should be the registered data"
+            registered,
+            "first DejaVu Serif face should be the registered font"
         );
     }
 }

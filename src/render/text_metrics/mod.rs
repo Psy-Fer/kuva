@@ -552,7 +552,7 @@ impl FontSet {
 fn registered_face(family_list: Option<&str>, weight: u16, italic: bool) -> Option<ResolvedFace> {
     let first = first_family(family_list?)?;
     crate::fonts::match_face(&first, weight, italic).map(|face| ResolvedFace {
-        metrics: Arc::clone(&face.metrics),
+        metrics: Arc::clone(face.metrics()),
         source: FaceSource::Registered(face),
     })
 }

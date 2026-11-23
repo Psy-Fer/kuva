@@ -1,8 +1,10 @@
 //! The process-wide registry of fonts loaded at runtime (feature `custom_fonts`).
 //!
-//! Each face is parsed once, when it is registered: its family, weight and style
-//! are read from the font's own tables, and its text metrics are measured into a
-//! [`FontMetrics`] that layout then only looks up. Faces are matched to a requested
+//! Registering a face reads its family, weight and style from the font's own
+//! tables; for a font file, only those few tables are read. The whole file is
+//! read, and the face's text metrics measured into a [`FontMetrics`] that layout
+//! then only looks up, the first time the face is used, so registering a
+//! directory of hundreds of fonts stays cheap. Faces are matched to a requested
 //! style with the CSS font-matching rules, the same rules browsers and fontdb use,
 //! so every backend lands on the face layout measured.
 
@@ -10,7 +12,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
-use crate::render::text_metrics::FontMetrics;
+use crate::render::text_metrics::{FontMetrics, FontStyle};
 
 /// What kuva read from a registered font face.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,16 +38,62 @@ pub struct FontInfo {
     pub restricted_embedding: bool,
 }
 
-/// A registered face: what it is, its bytes (for the PNG and PDF backends) and
-/// its measured metrics.
+/// A registered font file's data. A font registered from a path is read in full
+/// only when one of its faces is first measured, drawn or embedded.
+pub(crate) struct FontFile {
+    path: Option<PathBuf>,
+    bytes: OnceLock<Option<Arc<[u8]>>>,
+}
+
+impl FontFile {
+    fn in_memory(bytes: Arc<[u8]>) -> Self {
+        FontFile {
+            path: None,
+            bytes: OnceLock::from(Some(bytes)),
+        }
+    }
+
+    fn on_disk(path: PathBuf) -> Self {
+        FontFile {
+            path: Some(path),
+            bytes: OnceLock::new(),
+        }
+    }
+
+    /// The file's bytes, read on first use. `None` when the file can no longer be
+    /// read (moved or deleted since it was registered); its faces then draw as
+    /// the bundled DejaVu Sans.
+    fn bytes(&self) -> Option<&Arc<[u8]>> {
+        self.bytes
+            .get_or_init(|| {
+                let path = self.path.as_ref()?;
+                match std::fs::read(path) {
+                    Ok(bytes) => Some(bytes.into()),
+                    Err(e) => {
+                        eprintln!(
+                            "kuva: warning: registered font {} could not be read ({e}); \
+                             its text is drawn in DejaVu Sans",
+                            path.display()
+                        );
+                        None
+                    }
+                }
+            })
+            .as_ref()
+    }
+}
+
+/// A registered face: what it is, its file (for the PNG and PDF backends and SVG
+/// embedding) and its measured metrics.
 pub(crate) struct Face {
     pub(crate) info: FontInfo,
-    // Read by the PDF backend and SVG embedding (#134 steps 5-6).
-    #[allow(dead_code)]
-    pub(crate) bytes: Arc<[u8]>,
+    file: Arc<FontFile>,
     #[allow(dead_code)]
     pub(crate) index: u32,
-    pub(crate) metrics: Arc<FontMetrics>,
+    /// Measured on first use, not at registration: building the advance table
+    /// walks the whole cmap, which made registering a directory of hundreds of
+    /// faces take a second when most of them are never drawn.
+    metrics: OnceLock<Arc<FontMetrics>>,
     /// The face parsed for the PNG rasteriser, built on first use. `None` when
     /// fontdue cannot read a face ttf-parser could (it then draws as DejaVu).
     #[cfg(feature = "png")]
@@ -60,12 +108,29 @@ impl fmt::Debug for Face {
         f.debug_struct("Face")
             .field("info", &self.info)
             .field("index", &self.index)
-            .field("bytes", &self.bytes.len())
+            .field("path", &self.file.path)
             .finish_non_exhaustive()
     }
 }
 
 impl Face {
+    /// The font file's bytes, read on first use (see [`FontFile::bytes`]).
+    fn bytes(&self) -> Option<&Arc<[u8]>> {
+        self.file.bytes()
+    }
+
+    /// This face's text metrics, measured once on first use. A face whose file
+    /// can no longer be read or parsed measures as the bundled DejaVu Sans, which
+    /// is what it then draws as.
+    pub(crate) fn metrics(&self) -> &Arc<FontMetrics> {
+        self.metrics.get_or_init(|| {
+            self.bytes()
+                .and_then(|bytes| ttf_parser::Face::parse(bytes, self.index).ok())
+                .map(|face| Arc::new(FontMetrics::from_face(&face)))
+                .unwrap_or_else(|| Arc::clone(FontMetrics::builtin(FontStyle::Regular)))
+        })
+    }
+
     /// The `@font-face` rule that embeds this face in an SVG (base64 data URL),
     /// built once. `None` for a face inside a collection (TTC/OTC): a web font
     /// cannot pick one face out of a collection file.
@@ -73,10 +138,11 @@ impl Face {
     pub(crate) fn font_face_css(&self) -> Option<&str> {
         self.css
             .get_or_init(|| {
-                if ttf_parser::fonts_in_collection(&self.bytes).is_some() {
+                let bytes = self.bytes()?;
+                if ttf_parser::fonts_in_collection(bytes).is_some() {
                     return None;
                 }
-                let (mime, format) = if self.bytes.starts_with(b"OTTO") {
+                let (mime, format) = if bytes.starts_with(b"OTTO") {
                     ("font/otf", "opentype")
                 } else {
                     ("font/ttf", "truetype")
@@ -97,7 +163,7 @@ impl Face {
                      format('{format}');font-weight:{weight};font-style:{style};\
                      font-stretch:{stretch};}}",
                     family = css_string(&self.info.family),
-                    data = crate::encoding::base64_encode(&self.bytes),
+                    data = crate::encoding::base64_encode(bytes),
                     weight = self.info.weight,
                     style = if self.info.italic { "italic" } else { "normal" },
                 ))
@@ -111,7 +177,7 @@ impl Face {
         self.raster
             .get_or_init(|| {
                 fontdue::Font::from_bytes(
-                    &self.bytes[..],
+                    &self.bytes()?[..],
                     fontdue::FontSettings {
                         collection_index: self.index,
                         ..fontdue::FontSettings::default()
@@ -231,6 +297,16 @@ fn registry() -> &'static RwLock<Vec<Arc<Face>>> {
 /// Returns what was registered.
 pub fn register_font_file(path: impl AsRef<Path>) -> Result<Vec<FontInfo>, FontError> {
     let path = path.as_ref();
+    // Read only the tables registration needs; the rest of the file is read the
+    // first time a face is used.
+    if let Some(infos) = read_face_infos(path) {
+        return Ok(insert(
+            Arc::new(FontFile::on_disk(path.to_path_buf())),
+            infos,
+        ));
+    }
+    // Anything unusual: read and parse the whole file, which also gives the
+    // proper error.
     let bytes = std::fs::read(path).map_err(|source| FontError::Io {
         path: path.to_path_buf(),
         source,
@@ -283,22 +359,42 @@ pub fn registered_fonts() -> Vec<FontInfo> {
     read_registry().iter().map(|f| f.info.clone()).collect()
 }
 
-/// Every registered font's data, once per file, with the face indices still
+/// Where a registered font file's data comes from, for backends that load
+/// fonts into their own database (PDF).
+#[cfg_attr(not(feature = "pdf"), allow(dead_code))]
+pub(crate) enum FontSource {
+    /// Registered from a path: the backend reads (or maps) the file itself, so
+    /// kuva doesn't have to read every registered file to make a PDF.
+    File(PathBuf),
+    /// Registered from bytes in memory.
+    Bytes(Arc<[u8]>),
+}
+
+/// Every registered font file, once each, with the face indices still
 /// registered from it (a face replaced by a later registration is left out).
 /// For backends that load fonts into their own database (PDF).
 #[cfg_attr(not(feature = "pdf"), allow(dead_code))]
-pub(crate) fn registered_sources() -> Vec<(Arc<[u8]>, Vec<u32>)> {
-    let mut out: Vec<(Arc<[u8]>, Vec<u32>)> = Vec::new();
+pub(crate) fn registered_sources() -> Vec<(FontSource, Vec<u32>)> {
+    let mut files: Vec<(Arc<FontFile>, Vec<u32>)> = Vec::new();
     for face in read_registry().iter() {
-        match out
+        match files
             .iter_mut()
-            .find(|(bytes, _)| Arc::ptr_eq(bytes, &face.bytes))
+            .find(|(file, _)| Arc::ptr_eq(file, &face.file))
         {
             Some((_, indices)) => indices.push(face.index),
-            None => out.push((Arc::clone(&face.bytes), vec![face.index])),
+            None => files.push((Arc::clone(&face.file), vec![face.index])),
         }
     }
-    out
+    files
+        .into_iter()
+        .filter_map(|(file, indices)| {
+            let source = match &file.path {
+                Some(path) => FontSource::File(path.clone()),
+                None => FontSource::Bytes(Arc::clone(file.bytes()?)),
+            };
+            Some((source, indices))
+        })
+        .collect()
 }
 
 /// The face each of kuva's four text styles resolves to in a registered family
@@ -410,7 +506,19 @@ fn css_string(name: &str) -> String {
 }
 
 fn same_family(a: &str, b: &str) -> bool {
-    a.trim().to_lowercase() == b.trim().to_lowercase()
+    // Registration runs this against every face already registered, so ASCII
+    // names (nearly all of them) compare without allocating.
+    let lower = |s: &str| {
+        s.trim()
+            .chars()
+            .flat_map(char::to_lowercase)
+            .collect::<Vec<_>>()
+    };
+    if a.is_ascii() && b.is_ascii() {
+        a.trim().eq_ignore_ascii_case(b.trim())
+    } else {
+        lower(a) == lower(b)
+    }
 }
 
 fn read_registry() -> std::sync::RwLockReadGuard<'static, Vec<Arc<Face>>> {
@@ -420,22 +528,36 @@ fn read_registry() -> std::sync::RwLockReadGuard<'static, Vec<Arc<Face>>> {
 fn register(data: Arc<[u8]>, origin: &str) -> Result<Vec<FontInfo>, FontError> {
     // Parse every face before touching the registry, so a collection with one bad
     // face registers nothing.
-    let faces = parse_faces(&data, origin)?;
-    let infos = faces.iter().map(|f| f.info.clone()).collect();
-    let mut reg = registry().write().unwrap_or_else(PoisonError::into_inner);
-    for face in faces {
-        reg.retain(|old| {
-            !(same_family(&old.info.family, &face.info.family)
-                && old.info.weight == face.info.weight
-                && old.info.italic == face.info.italic
-                && old.info.stretch == face.info.stretch)
-        });
-        reg.push(Arc::new(face));
-    }
-    Ok(infos)
+    let infos = parse_faces(&data, origin)?;
+    Ok(insert(Arc::new(FontFile::in_memory(data)), infos))
 }
 
-fn parse_faces(data: &Arc<[u8]>, origin: &str) -> Result<Vec<Face>, FontError> {
+/// Add the faces of one file (face `i` of the file is `infos[i]`), replacing any
+/// registered face with the same family, weight, style and stretch.
+fn insert(file: Arc<FontFile>, infos: Vec<FontInfo>) -> Vec<FontInfo> {
+    let mut reg = registry().write().unwrap_or_else(PoisonError::into_inner);
+    for (index, info) in (0u32..).zip(&infos) {
+        reg.retain(|old| {
+            !(same_family(&old.info.family, &info.family)
+                && old.info.weight == info.weight
+                && old.info.italic == info.italic
+                && old.info.stretch == info.stretch)
+        });
+        reg.push(Arc::new(Face {
+            info: info.clone(),
+            file: Arc::clone(&file),
+            index,
+            metrics: OnceLock::new(),
+            #[cfg(feature = "png")]
+            raster: OnceLock::new(),
+            #[cfg(feature = "embed_font")]
+            css: OnceLock::new(),
+        }));
+    }
+    infos
+}
+
+fn parse_faces(data: &[u8], origin: &str) -> Result<Vec<FontInfo>, FontError> {
     let parse_err = |reason: String| FontError::Parse {
         origin: origin.to_string(),
         reason,
@@ -444,36 +566,113 @@ fn parse_faces(data: &Arc<[u8]>, origin: &str) -> Result<Vec<Face>, FontError> {
     if count == 0 {
         return Err(parse_err("the font collection is empty".into()));
     }
-    let mut faces = Vec::with_capacity(count as usize);
+    // The count comes from the file, and each face needs a 4-byte offset after
+    // the 12-byte header: a tiny file claiming billions of faces would otherwise
+    // reserve memory for all of them (and trips a debug assertion in ttf-parser).
+    if u64::from(count) > (data.len().saturating_sub(12) / 4) as u64 {
+        return Err(parse_err(
+            "the collection header claims more faces than the file holds".into(),
+        ));
+    }
+    let mut infos = Vec::with_capacity(count as usize);
     for index in 0..count {
         let face = ttf_parser::Face::parse(data, index).map_err(|e| parse_err(e.to_string()))?;
-        let family = family_name(&face).ok_or_else(|| FontError::NoFamilyName {
-            origin: origin.to_string(),
-        })?;
-        let info = FontInfo {
-            family,
-            weight: face.weight().to_number(),
-            italic: face.is_italic() || face.is_oblique() || face.italic_angle() != 0.0,
-            stretch: face.width().to_number(),
-            monospace: face.is_monospaced(),
-            variable: face.is_variable(),
-            restricted_embedding: matches!(
-                face.permissions(),
-                Some(ttf_parser::Permissions::Restricted)
-            ),
-        };
-        faces.push(Face {
-            info,
-            bytes: Arc::clone(data),
-            index,
-            metrics: Arc::new(FontMetrics::from_face(&face)),
-            #[cfg(feature = "png")]
-            raster: OnceLock::new(),
-            #[cfg(feature = "embed_font")]
-            css: OnceLock::new(),
-        });
+        infos.push(face_info(&face, origin)?);
     }
-    Ok(faces)
+    Ok(infos)
+}
+
+fn face_info(face: &ttf_parser::Face, origin: &str) -> Result<FontInfo, FontError> {
+    let family = family_name(face).ok_or_else(|| FontError::NoFamilyName {
+        origin: origin.to_string(),
+    })?;
+    Ok(FontInfo {
+        family,
+        weight: face.weight().to_number(),
+        italic: face.is_italic() || face.is_oblique() || face.italic_angle() != 0.0,
+        stretch: face.width().to_number(),
+        monospace: face.is_monospaced(),
+        variable: face.is_variable(),
+        restricted_embedding: matches!(
+            face.permissions(),
+            Some(ttf_parser::Permissions::Restricted)
+        ),
+    })
+}
+
+/// Largest single table [`read_face_infos`] reads; past it, the whole-file path
+/// takes over.
+const MAX_HEADER_TABLE_BYTES: u64 = 16 << 20;
+
+/// The [`FontInfo`] of every face in a font file, read from the table directory
+/// and the few tables it needs (`head`, `hhea`, `maxp`, `name`, `OS/2`, `post`,
+/// `fvar`) without reading glyph data. `None` when anything is unusual (a short
+/// or malformed directory, an oversized table, no family name); the caller then
+/// reads and parses the whole file, which also gives the proper error.
+fn read_face_infos(path: &Path) -> Option<Vec<FontInfo>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut read_at = |offset: u64, n: u64| -> Option<Vec<u8>> {
+        if n > MAX_HEADER_TABLE_BYTES || offset.checked_add(n)? > len {
+            return None;
+        }
+        file.seek(SeekFrom::Start(offset)).ok()?;
+        let mut buf = vec![0; n as usize];
+        file.read_exact(&mut buf).ok()?;
+        Some(buf)
+    };
+    let be_u32 = |b: &[u8], at: usize| u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+
+    let header = read_at(0, 12)?;
+    let face_offsets: Vec<u64> = if &header[..4] == b"ttcf" {
+        // Each face needs a 4-byte offset, so the file bounds the count.
+        let count = u64::from(be_u32(&header, 8));
+        if count == 0 || count > (len - 12) / 4 {
+            return None;
+        }
+        let raw = read_at(12, count * 4)?;
+        raw.chunks_exact(4)
+            .map(|o| u64::from(be_u32(o, 0)))
+            .collect()
+    } else {
+        vec![0]
+    };
+
+    let origin = path.display().to_string();
+    let mut infos = Vec::with_capacity(face_offsets.len());
+    for offset in face_offsets {
+        let dir = read_at(offset, 12)?;
+        let num_tables = u64::from(u16::from_be_bytes([dir[4], dir[5]]));
+        let records = read_at(offset + 12, num_tables * 16)?;
+        // Outer `None`: unreadable, give up. Inner `None`: the table is absent.
+        let mut table = |tag: &[u8; 4]| -> Option<Option<Vec<u8>>> {
+            match records.chunks_exact(16).find(|r| &r[..4] == tag) {
+                Some(r) => read_at(u64::from(be_u32(r, 8)), u64::from(be_u32(r, 12))).map(Some),
+                None => Some(None),
+            }
+        };
+        let head = table(b"head")??;
+        let hhea = table(b"hhea")??;
+        let maxp = table(b"maxp")??;
+        let name = table(b"name")?;
+        let os2 = table(b"OS/2")?;
+        let post = table(b"post")?;
+        let fvar = table(b"fvar")?;
+        let face = ttf_parser::Face::from_raw_tables(ttf_parser::RawFaceTables {
+            head: &head,
+            hhea: &hhea,
+            maxp: &maxp,
+            name: name.as_deref(),
+            os2: os2.as_deref(),
+            post: post.as_deref(),
+            fvar: fvar.as_deref(),
+            ..Default::default()
+        })
+        .ok()?;
+        infos.push(face_info(&face, &origin).ok()?);
+    }
+    Some(infos)
 }
 
 /// The typographic family name (name ID 16), else the family name (ID 1),

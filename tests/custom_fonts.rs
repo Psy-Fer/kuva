@@ -432,3 +432,56 @@ fn code_spans_use_the_mono_family() {
     // The registered mono family is a registered face in use.
     assert!(custom.contains("font-synthesis:none"));
 }
+
+// ── Lazy loading (performance pass after #134) ───────────────────────────────
+
+/// Registering a file reads only the font's header tables; that must describe
+/// every face exactly as parsing the whole file does. Covers TrueType outlines
+/// (DejaVu) and CFF (`.otf`, New Computer Modern Math).
+#[test]
+fn header_only_registration_matches_a_full_parse() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for path in [
+        serif(),
+        serif_bold(),
+        root.join("assets/fonts/NewCMMath-Regular.otf"),
+    ] {
+        let from_file = fonts::register_font_file(&path).unwrap();
+        let from_bytes = fonts::register_font_bytes(std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(from_file, from_bytes, "{}", path.display());
+    }
+    register_serif();
+}
+
+/// A collection header claiming billions of faces used to make registration
+/// reserve memory for all of them and abort.
+#[test]
+fn collection_with_a_huge_face_count_is_an_error_not_an_abort() {
+    let mut ttc = b"ttcf\x00\x01\x00\x00\xff\xff\xff\xff".to_vec();
+    ttc.extend_from_slice(&[0; 16]);
+    assert!(fonts::register_font_bytes(ttc.clone()).is_err());
+    let dir = scratch("huge_ttc");
+    let path = dir.join("huge.ttc");
+    std::fs::write(&path, &ttc).unwrap();
+    assert!(fonts::register_font_file(&path).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A registered file is read in full only when one of its faces is first used.
+/// If it has gone by then, its text measures and draws as DejaVu Sans instead
+/// of failing. (A family no other test uses, so this can't disturb them.)
+#[test]
+fn a_registered_file_removed_before_first_use_falls_back() {
+    let dir = scratch("removed_font");
+    let path = dir.join("math.otf");
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/NewCMMath-Regular.otf");
+    std::fs::copy(src, &path).unwrap();
+    let infos = fonts::register_font_file(&path).unwrap();
+    let family = infos[0].family.clone();
+    std::fs::remove_file(&path).unwrap();
+    let plots = scatter_with_legend();
+    let layout = Layout::auto_from_plots(&plots).with_font_family(family.as_str());
+    let svg = svg_of(plots, layout, false);
+    assert!(svg.contains("<svg"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
