@@ -173,7 +173,30 @@ impl PdfBackend {
     /// Order matters: fontdb breaks ties between equally good faces by load
     /// order, so a registered family wins over a system font of the same name,
     /// and the PDF draws the face layout measured.
+    ///
+    /// Building it scans the system fonts, so it is built once per process and
+    /// reused until another font is registered.
     pub(crate) fn fontdb() -> Arc<usvg::fontdb::Database> {
+        static CACHE: std::sync::Mutex<Option<(u64, Arc<usvg::fontdb::Database>)>> =
+            std::sync::Mutex::new(None);
+        #[cfg(feature = "custom_fonts")]
+        let generation = crate::fonts::generation();
+        #[cfg(not(feature = "custom_fonts"))]
+        let generation = 0;
+        let mut cache = CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((built_at, db)) = cache.as_ref() {
+            if *built_at == generation {
+                return Arc::clone(db);
+            }
+        }
+        let db = Self::build_fontdb();
+        *cache = Some((generation, Arc::clone(&db)));
+        db
+    }
+
+    fn build_fontdb() -> Arc<usvg::fontdb::Database> {
         let mut db = usvg::fontdb::Database::new();
         #[cfg(feature = "custom_fonts")]
         load_registered_fonts(&mut db);
@@ -234,6 +257,31 @@ fn background_svg(w: f64, h: f64, scene: &Scene) -> String {
 #[cfg(all(test, feature = "custom_fonts"))]
 mod font_tests {
     use super::*;
+
+    #[test]
+    fn font_database_is_reused_until_a_font_is_registered() {
+        // Other tests register fonts concurrently: only compare two builds when
+        // the registry didn't change between them.
+        let before = crate::fonts::generation();
+        let a = PdfBackend::fontdb();
+        let b = PdfBackend::fontdb();
+        if crate::fonts::generation() == before {
+            assert!(
+                Arc::ptr_eq(&a, &b),
+                "unchanged registry reuses the database"
+            );
+        }
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/data/fonts/DejaVuSerif-Bold.ttf"
+        );
+        crate::fonts::register_font_file(path).unwrap();
+        let c = PdfBackend::fontdb();
+        assert!(!Arc::ptr_eq(&a, &c), "registering rebuilds the database");
+        assert!(c
+            .faces()
+            .any(|f| f.families.iter().any(|(name, _)| name == "DejaVu Serif")));
+    }
 
     #[test]
     fn registered_fonts_come_first_in_the_font_database() {

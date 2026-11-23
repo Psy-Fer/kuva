@@ -288,6 +288,16 @@ const BOLD_THRESHOLD: u16 = 600;
 const REGULAR_WEIGHT: u16 = 400;
 const BOLD_WEIGHT: u16 = 700;
 
+/// Bumped on every registration, so a backend can cache what it built from the
+/// registry (the PDF font database) until the registry changes.
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The registry's current generation (see [`GENERATION`]).
+#[cfg_attr(not(feature = "pdf"), allow(dead_code))]
+pub(crate) fn generation() -> u64 {
+    GENERATION.load(std::sync::atomic::Ordering::Acquire)
+}
+
 fn registry() -> &'static RwLock<Vec<Arc<Face>>> {
     static REGISTRY: OnceLock<RwLock<Vec<Arc<Face>>>> = OnceLock::new();
     REGISTRY.get_or_init(|| RwLock::new(Vec::new()))
@@ -554,6 +564,9 @@ fn insert(file: Arc<FontFile>, infos: Vec<FontInfo>) -> Vec<FontInfo> {
             css: OnceLock::new(),
         }));
     }
+    // Still under the write lock, so a reader that sees the new generation
+    // also sees the new faces.
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
     infos
 }
 

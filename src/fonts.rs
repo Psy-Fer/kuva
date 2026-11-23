@@ -46,7 +46,7 @@ pub use registry::{
     family_styles, register_font_bytes, register_font_file, register_fonts_dir, registered_fonts,
     DirReport, FamilyStyles, FontError, FontInfo,
 };
+#[cfg(all(feature = "custom_fonts", feature = "pdf"))]
+pub(crate) use registry::{generation, registered_sources, FontSource};
 #[cfg(feature = "custom_fonts")]
 pub(crate) use registry::{match_face, Face};
-#[cfg(all(feature = "custom_fonts", feature = "pdf"))]
-pub(crate) use registry::{registered_sources, FontSource};

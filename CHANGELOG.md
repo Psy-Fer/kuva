@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **PDF rendering reuses its font database.** Each PDF used to rebuild it, scanning every system font; it is now built once per process and rebuilt only when another font is registered, so a small PDF takes about 2 ms instead of 18 ms after the first. A font installed on the system while a program runs is not picked up by that program's later PDFs.
 - **BrickPlot rows whose CIGAR bar has a deletion are taller**, by the deletion-label band (0.75 of a row), so plots with deletions in their CIGARs get a slightly taller canvas when sized by row height. `BrickPlot` gains a public `cigar_deletion_labels` field: code that builds one with a struct literal needs it added; `BrickPlot::new()` is unaffected.
 - **`Scene` has a new public `mono_font_family` field** (the font for `code` spans). Code that builds a `Scene` with a struct literal needs `mono_font_family: None` added; `Scene::new` and `Scene::with_capacity` are unaffected.
 - **The legend box is measured when the layout is computed, not when the builder runs.** `Layout::auto_from_plots`, `with_legend_entries`, `with_legend_title`, `with_legend_group` and `with_y2_auto` used to measure their labels immediately, in whatever font was set at the time, so a `with_font_family` called afterwards (the usual order) was ignored. They now record the labels and the width is measured with the final fonts, in any builder order. With the default font the result is identical. The Gantt label margin works the same way.
