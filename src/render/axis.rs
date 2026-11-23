@@ -420,6 +420,9 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
             (py - b.lo_px).abs() > edge_px && (py - b.hi_px).abs() > edge_px
         });
     }
+    // Labels per axis at once, so `Auto` can size decimals to the tick spacing.
+    let x_tick_labels = computed.x_tick_format.format_ticks(&x_ticks);
+    let y_tick_labels = computed.y_tick_format.format_ticks(&y_ticks);
 
     // Generate minors as if one more major existed just beyond each end so the
     // bands past the outer majors get filled, then drop any that fall outside the
@@ -613,7 +616,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     &computed.fonts,
                     layout.x_tick_rotate,
                 );
-                for tx in x_ticks.iter() {
+                for (tx, auto_label) in x_ticks.iter().zip(&x_tick_labels) {
                     let x = map_x(*tx);
 
                     draw_x_tick(scene, layout, computed, theme, x, false);
@@ -623,7 +626,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                     } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                         render_utils::format_log_tick(*tx)
                     } else {
-                        computed.x_tick_format.format(*tx)
+                        auto_label.clone()
                     };
                     let (anchor, rotate) = match layout.x_tick_rotate {
                         Some(angle) => (TextAnchor::End, Some(angle)),
@@ -689,7 +692,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         }
 
         if !layout.suppress_y_ticks {
-            for ty in y_ticks.iter() {
+            for (ty, auto_label) in y_ticks.iter().zip(&y_tick_labels) {
                 let y = map_y(*ty);
                 draw_y_tick(scene, layout, computed, theme, y, false);
 
@@ -698,7 +701,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 } else if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
-                    computed.y_tick_format.format(*ty)
+                    auto_label.clone()
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
@@ -725,7 +728,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 &computed.fonts,
                 layout.x_tick_rotate,
             );
-            for tx in x_ticks.iter() {
+            for (tx, auto_label) in x_ticks.iter().zip(&x_tick_labels) {
                 let x = map_x(*tx);
 
                 draw_x_tick(scene, layout, computed, theme, x, false);
@@ -735,7 +738,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 } else if layout.log_x && matches!(computed.x_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*tx)
                 } else {
-                    computed.x_tick_format.format(*tx)
+                    auto_label.clone()
                 };
                 let (anchor, rotate) = match layout.x_tick_rotate {
                     Some(angle) if angle < 0.0 => (TextAnchor::End, Some(angle)),
@@ -763,7 +766,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         }
 
         if !layout.suppress_y_ticks {
-            for ty in y_ticks.iter() {
+            for (ty, auto_label) in y_ticks.iter().zip(&y_tick_labels) {
                 let y = map_y(*ty);
 
                 draw_y_tick(scene, layout, computed, theme, y, false);
@@ -773,7 +776,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 } else if layout.log_y && matches!(computed.y_tick_format, TickFormat::Auto) {
                     render_utils::format_log_tick(*ty)
                 } else {
-                    computed.y_tick_format.format(*ty)
+                    auto_label.clone()
                 };
                 scene.add(Primitive::Text {
                     x: computed.margin_left - computed.tick_label_margin,
@@ -1050,8 +1053,9 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(y2_min, y2_max, computed.y_ticks)
     };
 
+    let y2_tick_labels = computed.y2_tick_format.format_ticks(&y2_ticks);
     start_tick_font(scene, computed);
-    for ty in y2_ticks.iter() {
+    for (ty, auto_label) in y2_ticks.iter().zip(&y2_tick_labels) {
         let y = computed.map_y2(*ty);
 
         let (tx1, tx2) = match layout.tick_align {
@@ -1076,7 +1080,7 @@ pub fn add_y2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         let label = if layout.log_y2 && matches!(computed.y2_tick_format, TickFormat::Auto) {
             render_utils::format_log_tick(*ty)
         } else {
-            computed.y2_tick_format.format(*ty)
+            auto_label.clone()
         };
         scene.add(Primitive::Text {
             x: axis_x + computed.tick_label_margin,
@@ -1148,8 +1152,9 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         render_utils::generate_ticks(x2_min, x2_max, computed.x_ticks)
     };
 
+    let x2_tick_labels = computed.x2_tick_format.format_ticks(&x2_ticks);
     start_tick_font(scene, computed);
-    for tx in x2_ticks.iter() {
+    for (tx, auto_label) in x2_ticks.iter().zip(&x2_tick_labels) {
         let x = computed.map_x2(*tx);
 
         let (ty1, ty2) = match layout.tick_align {
@@ -1174,7 +1179,7 @@ pub fn add_x2_axis(scene: &mut Scene, computed: &ComputedLayout, layout: &Layout
         let label = if layout.log_x2 && matches!(computed.x2_tick_format, TickFormat::Auto) {
             render_utils::format_log_tick(*tx)
         } else {
-            computed.x2_tick_format.format(*tx)
+            auto_label.clone()
         };
         scene.add(Primitive::Text {
             x,

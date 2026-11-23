@@ -10356,20 +10356,19 @@ fn add_colorbar_at(
     let range = info.max_value - info.min_value;
     let owned_ticks: Vec<(f64, String)>;
     let tick_entries: &[(f64, String)] = if let Some(ref tv) = info.tick_values {
-        owned_ticks = tv
-            .iter()
-            .map(|&(pos, value)| (pos, computed.colorbar_tick_format.format(value)))
-            .collect();
+        let values: Vec<f64> = tv.iter().map(|&(_, value)| value).collect();
+        let labels = computed.colorbar_tick_format.format_ticks(&values);
+        owned_ticks = tv.iter().map(|&(pos, _)| pos).zip(labels).collect();
         owned_ticks.as_slice()
     } else if let Some(ref tl) = info.tick_labels {
         tl.as_slice()
     } else {
-        let raw = render_utils::generate_ticks(info.min_value, info.max_value, 5);
-        owned_ticks = raw
+        let raw: Vec<f64> = render_utils::generate_ticks(info.min_value, info.max_value, 5)
             .into_iter()
             .filter(|t| *t >= info.min_value && *t <= info.max_value)
-            .map(|t| (t, computed.colorbar_tick_format.format(t)))
             .collect();
+        let labels = computed.colorbar_tick_format.format_ticks(&raw);
+        owned_ticks = raw.into_iter().zip(labels).collect();
         owned_ticks.as_slice()
     };
 

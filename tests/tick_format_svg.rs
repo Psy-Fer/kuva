@@ -238,3 +238,51 @@ fn test_percent_clamp_at_100() {
         "clamp_axis must not extend beyond 100% for 0-1 data"
     );
 }
+
+#[test]
+// The values are issue #143's data range, not attempts at π.
+#[allow(clippy::approx_constant)]
+fn test_auto_preserves_precision_for_small_ranges() {
+    use kuva::plot::LinePlot;
+
+    // Issue #143: data spanning 0.001 at 3.141..3.142 produced duplicate "3.141" / "3.142"
+    // tick labels when TickFormat::Auto truncated everything to 3 decimal places.
+    // A whole axis is formatted together, so the decimals follow the tick spacing.
+    let ticks = [3.141, 3.141 + 0.0002, 3.141 + 0.0004, 3.1416, 3.1418, 3.142];
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&ticks),
+        ["3.141", "3.1412", "3.1414", "3.1416", "3.1418", "3.142"]
+    );
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&[100.0, 100.0001, 100.0002]),
+        ["100", "100.0001", "100.0002"]
+    );
+    // Float representation noise from arithmetic (e.g. 0.1 + 0.2) should still strip cleanly.
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&[0.1, 0.1 + 0.1, 0.1 + 0.2]),
+        ["0.1", "0.2", "0.3"]
+    );
+    // Ticks on data values rather than nice numbers (histogram bin edges) keep
+    // 3 decimals instead of printing every digit.
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&[-3.1611038473044104, 7.1, 89.87440451078888]),
+        ["-3.161", "7.1", "89.874"]
+    );
+    // A single value (flow labels, colorbar values) keeps the 3-decimal default.
+    assert_eq!(TickFormat::Auto.format(3.14159265), "3.142");
+    assert_eq!(TickFormat::Auto.format(1.0 / 3.0), "0.333");
+
+    let x = [3.141, 3.142];
+    let plot = LinePlot::new().with_data(x.iter().copied().map(|v| (v, v)));
+    let plots = vec![Plot::Line(plot)];
+    let layout = Layout::auto_from_plots(&plots);
+    let scene = render_multiple(plots, layout).with_background(Some("white"));
+    let svg = SvgBackend.render_scene(&scene);
+
+    for expected in ["3.1412", "3.1414", "3.1416", "3.1418"] {
+        assert!(
+            svg.contains(&format!(">{expected}<")),
+            "expected tick label {expected} in SVG:\n{svg}"
+        );
+    }
+}
