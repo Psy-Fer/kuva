@@ -19,7 +19,9 @@ jobs:
     name: Build mdBook
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install mdBook
         run: |
@@ -29,12 +31,9 @@ jobs:
       - name: Build book
         run: mdbook build docs
 
-      - name: Cache doom assets
-        uses: actions/cache@v4
-        with:
-          path: doom-assets
-          key: doom-assets-v1
-
+      # No cache for doom-assets/: a cache entry can be written by any workflow run on the
+      # branch, and the files end up as script in doom.svg. build.rs downloads them from the
+      # doom-assets-v1 release and checks their SHA-256 digests.
       - name: Build kuva with doom feature
         run: cargo build --release --bin kuva --features cli,doom
 
@@ -42,7 +41,7 @@ jobs:
         run: ./target/release/kuva doom -o docs/book/doom.svg
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: docs/book
 
@@ -57,4 +56,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

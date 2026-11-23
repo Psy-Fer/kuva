@@ -31,7 +31,7 @@ The file below is a single `.svg`. No server, no network requests, no external d
 
 ## Generate your own
 
-The `doom` feature is opt-in and separate from the plotting library. Building it downloads a pre-compiled [Chocolate Doom](https://github.com/cloudflare/doom-wasm) engine (GPL v2) and the shareware DOOM WAD (© id Software, free redistribution permitted) from the kuva GitHub releases on first build, then compiles them directly into the binary.
+The `doom` feature is opt-in and separate from the plotting library. Building it downloads a pre-compiled [Chocolate Doom](https://github.com/cloudflare/doom-wasm) engine (GPL v2) and the shareware DOOM WAD (© id Software, free redistribution permitted) from the kuva GitHub releases on first build, checks each file against a SHA-256 digest recorded in `build.rs`, then compiles them directly into the binary. The files are kept in `doom-assets/` next to `Cargo.toml`; if a check fails, delete that directory and build again.
 
 ```bash
 cargo build --bin kuva --features cli,doom

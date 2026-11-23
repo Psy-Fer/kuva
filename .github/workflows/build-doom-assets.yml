@@ -3,20 +3,34 @@ name: Build doom assets
 # Run manually once to compile doom.wasm + doom.js and upload them alongside
 # doom1.wad (shareware) to the `doom-assets-v1` release on this repo.
 # After that, `cargo build --bin kuva --features cli,doom` downloads from there.
+#
+# build.rs checks the SHA-256 of each downloaded file, so after a rebuild the
+# digests printed by the "Digests" step have to be copied into build.rs.
+#
+# The build job runs upstream code (the Emscripten action and doom-wasm's own
+# build script), so it only gets a read-only token and keeps no credentials on
+# disk. The upstream source is fetched at a fixed commit and the action is
+# pinned to a full SHA. Only the publish job can write to releases, and it
+# runs no upstream code: it takes the built files as an artifact.
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed to create/update the release
+  contents: read
+
+env:
+  # cloudflare/doom-wasm commit to build. Change it deliberately, after reviewing
+  # the upstream diff.
+  DOOM_WASM_COMMIT: 65e0d3ae2ffa604155eebd96ed40da6567bd08f4
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
         with:
           # Pin to the version current when cloudflare/doom-wasm was last maintained.
           # Newer Emscripten breaks the old autoconf configure step.
@@ -25,14 +39,19 @@ jobs:
       - name: Install build deps
         run: sudo apt-get install -y automake autoconf
 
-      - name: Clone cloudflare/doom-wasm
-        run: git clone --depth 1 https://github.com/cloudflare/doom-wasm doom-wasm-src
+      - name: Fetch cloudflare/doom-wasm at the pinned commit
+        run: |
+          git init doom-wasm-src
+          cd doom-wasm-src
+          git fetch --depth 1 https://github.com/cloudflare/doom-wasm "$DOOM_WASM_COMMIT"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$DOOM_WASM_COMMIT"
 
       - name: Build doom.wasm + doom.js
         working-directory: doom-wasm-src
         run: |
           # ac_cv_prog_cc_stdc=no: skip the C-standard detection macro that
-          # fails when emcc is used as a cross-compiler — emcc already handles C99.
+          # fails when emcc is used as a cross-compiler (emcc already handles C99).
           # CFLAGS: silence implicit-function-declaration errors in old DOOM source.
           export ac_cv_prog_cc_stdc=no
           export CFLAGS="-Wno-implicit-function-declaration -Wno-implicit-int"
@@ -41,39 +60,64 @@ jobs:
 
       - name: Rename outputs
         run: |
-          cp doom-wasm-src/src/websockets-doom.wasm doom.wasm
-          cp doom-wasm-src/src/websockets-doom.js   doom.js
+          mkdir dist
+          cp doom-wasm-src/src/websockets-doom.wasm dist/doom.wasm
+          cp doom-wasm-src/src/websockets-doom.js   dist/doom.js
 
       - name: Download DOOM1.WAD shareware
         run: |
-          # doom-wad-shareware is in Ubuntu multiverse — installs doom1.wad directly.
-          # © id Software / ZeniMax Media. Free redistribution permitted (shareware).
+          # doom-wad-shareware is in Ubuntu multiverse and installs doom1.wad directly.
+          # (c) id Software / ZeniMax Media. Free redistribution permitted (shareware).
           sudo add-apt-repository multiverse -y
           sudo apt-get update -q
           sudo apt-get install -y doom-wad-shareware
-          cp /usr/share/games/doom/doom1.wad doom1.wad
-          ls -lh doom1.wad
+          cp /usr/share/games/doom/doom1.wad dist/doom1.wad
+          ls -lh dist/doom1.wad
+
+      - name: Digests (copy these into build.rs)
+        run: sha256sum dist/*
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: doom-assets
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create/update the release
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: doom-assets
+          path: dist
 
       - name: Create or update doom-assets-v1 release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        working-directory: dist
         run: |
+          sha256sum doom.wasm doom.js doom1.wad
           # Delete existing release if present, then re-create.
           gh release delete doom-assets-v1 --yes 2>/dev/null || true
           gh release create doom-assets-v1 \
             --prerelease \
             --title "Doom assets v1 (build-time download, not a kuva release)" \
-            --notes "$(cat <<'EOF'
+            --notes "$(cat <<EOF
           Pre-compiled assets used by \`cargo build --bin kuva --features cli,doom\`.
 
           Contents
-          - **doom.wasm** / **doom.js** — Chocolate Doom compiled via Emscripten
-            Source: https://github.com/cloudflare/doom-wasm (GPL v2)
-          - **doom1.wad** — DOOM shareware episode 1
-            © id Software / ZeniMax Media. Free redistribution permitted.
+          - **doom.wasm** / **doom.js**: Chocolate Doom compiled via Emscripten
+            Source: https://github.com/cloudflare/doom-wasm (GPL v2), commit ${DOOM_WASM_COMMIT}
+          - **doom1.wad**: DOOM shareware episode 1
+            (c) id Software / ZeniMax Media. Free redistribution permitted.
 
           These files are NOT part of the kuva library (MIT). They are downloaded
-          automatically by build.rs and embedded into the SVG output of \`kuva doom\`.
+          automatically by build.rs, checked against SHA-256 digests, and embedded
+          into the SVG output of \`kuva doom\`.
           EOF
           )" \
             doom.wasm doom.js doom1.wad

@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, dev]
 
+# Every job only reads the repository. Third-party actions are pinned to full commit SHAs
+# (the comment gives the tag or branch they came from), so moving an upstream tag or branch
+# can't change what runs here. Bump them by hand.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -14,10 +20,12 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@cf1e78c50ca91e757bab3edc229027eebfc07871 # main, 2026-11-23
         with:
           tool-cache: false
           android: true
@@ -27,7 +35,7 @@ jobs:
           docker-images: true
           swap-storage: false
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build library (no features)
         run: cargo build
@@ -45,10 +53,12 @@ jobs:
     name: Test (opt-in typst tiers)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@cf1e78c50ca91e757bab3edc229027eebfc07871 # main, 2026-11-23
         with:
           tool-cache: false
           android: true
@@ -58,7 +68,7 @@ jobs:
           docker-images: true
           swap-storage: false
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Test (typst math tier + markup backend)
         run: |
@@ -73,9 +83,11 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Clippy (CLI + all backends)
         run: cargo ci-clippy
@@ -84,7 +96,9 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Check formatting
         run: cargo ci-fmt
@@ -93,18 +107,20 @@ jobs:
     name: MSRV build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Read MSRV from Cargo.toml
         id: msrv
         run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
 
       - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master, 2026-11-23
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build library (no features) at MSRV
         run: cargo +${{ steps.msrv.outputs.version }} build
@@ -119,18 +135,20 @@ jobs:
     name: PDF feature MSRV build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Read PDF feature's MSRV from Cargo.toml
         id: pdf_msrv
         run: echo "version=$(sed -n 's/^pdf_feature = "\(.*\)"/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
 
       - name: Install PDF feature's MSRV toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master, 2026-11-23
         with:
           toolchain: ${{ steps.pdf_msrv.outputs.version }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # `full` = png + pdf + embed_font. Adding `typst-math` here matches what
       # the release workflow's pre-built binaries use (features:

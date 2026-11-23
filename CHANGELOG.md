@@ -87,6 +87,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`kuva::html` figures can't be opened as a page document.** The loader gave the decompressed SVG a `blob:` URL of the page's own origin and put it on both the `<img>` and the download link, so opening either in a new tab rendered the SVG as a document of that origin, where a script in the SVG would run. The image URL is now revoked once the image has loaded, and download links get a separate URL typed as plain bytes, so opening one in a tab downloads the file. "Save image as" may no longer work; use the download link. The docs now say the helpers don't sanitise the SVG.
 
+- **CI and docs workflows pinned and read-only.** `ci.yml` ran `jlumbroso/free-disk-space@main`, `dtolnay/rust-toolchain@master` and `Swatinem/rust-cache@v2` by movable branch or tag, with the repository's default token. Every third-party action in `ci.yml`, `docs.yml` and `build-doom-assets.yml` is now pinned to a full commit SHA, `ci.yml` declares `contents: read`, and checkouts don't keep the token on disk.
+
+- **Doom assets checked before they are embedded.** The `doom` feature compiles `doom.js`, `doom.wasm` and `doom1.wad` into the binary, and `kuva doom` writes them as script into its SVG (the docs site publishes one). The asset workflow built them from the head of `cloudflare/doom-wasm` while holding a token that could rewrite releases, and the docs workflow restored them from a cache that any run on the branch could fill. The workflow now builds a fixed upstream commit in a read-only job and publishes from a separate job, the docs build no longer uses the cache, and `build.rs` checks each file against its SHA-256 before embedding it, whether downloaded or already in `doom-assets/`.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added
