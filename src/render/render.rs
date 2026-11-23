@@ -4847,8 +4847,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &x_ticks {
-            let t = (tick_val - x_range.0) / (x_range.1 - x_range.0) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - x_range.0 * 0.5) / (x_range.1 * 0.5 - x_range.0 * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(t, fc_y, -0.5);
@@ -4900,8 +4902,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &y_ticks {
-            let t = (tick_val - y_range.0) / (y_range.1 - y_range.0) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - y_range.0 * 0.5) / (y_range.1 * 0.5 - y_range.0 * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(fc_x, t, -0.5);
@@ -4980,8 +4984,10 @@ fn draw_3d_box(
         // is a title and keeps the main one.
         start_tick_font(scene, computed);
         for &tick_val in &z_ticks {
-            let t = (tick_val - z_min) / (z_max - z_min) - 0.5;
-            if t.abs() > 0.501 {
+            // Halved so a range near ±f64::MAX can't overflow to inf (NaN `t`);
+            // A NaN `t` is skipped too.
+            let t = (tick_val * 0.5 - z_min * 0.5) / (z_max * 0.5 - z_min * 0.5) - 0.5;
+            if t.is_nan() || t.abs() > 0.501 {
                 continue;
             }
             let (sx, sy, _) = proj.project_normalized(edge_x, edge_y, t);
@@ -25943,20 +25949,23 @@ fn add_quiver3d(
         idx: usize,
     }
 
+    // Clip each arrow to a cube far larger than the box (±0.5), so a tip far
+    // outside it (tight bounds with a huge vector) can't project to infinite
+    // pixel coordinates; arrows inside it project unchanged.
+    const ARROW_CLIP: f64 = 1e3;
     let mut projected: Vec<ProjectedArrow> = q
         .arrows
         .iter()
         .enumerate()
-        .map(|(idx, a)| {
+        .filter_map(|(idx, a)| {
             let (t, p) = q.endpoints_with_scale(a, scale);
-            let (tx, ty, td) = proj.project(t[0], t[1], t[2]);
-            let (px, py, pd) = proj.project(p[0], p[1], p[2]);
-            ProjectedArrow {
+            let ((tx, ty, td), (px, py, pd)) = proj.project_segment_clipped(t, p, ARROW_CLIP)?;
+            Some(ProjectedArrow {
                 tail: (tx, ty),
                 tip: (px, py),
                 depth: (td + pd) * 0.5,
                 idx,
-            }
+            })
         })
         .collect();
 

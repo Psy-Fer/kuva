@@ -23,9 +23,16 @@ pub struct Quiver3DArrow {
 }
 
 impl Quiver3DArrow {
-    /// Euclidean length of the `(u, v, w)` vector.
+    /// Euclidean length of the `(u, v, w)` vector, saturating at `f64::MAX`.
     pub fn magnitude(&self) -> f64 {
-        (self.u * self.u + self.v * self.v + self.w * self.w).sqrt()
+        let m = (self.u * self.u + self.v * self.v + self.w * self.w).sqrt();
+        if m.is_finite() {
+            m
+        } else {
+            // The squares overflowed: recompute without overflow and saturate,
+            // so colour normalisation never sees `inf / inf`.
+            self.u.hypot(self.v).hypot(self.w).min(f64::MAX)
+        }
     }
 
     fn all_finite(&self) -> bool {
@@ -625,13 +632,24 @@ impl Quiver3DPlot {
             k => k,
         };
         let padded = Self::pad(anchors);
-        let span = [padded.x, padded.y, padded.z].map(|(lo, hi)| hi - lo);
+        // Half spans (and `hypot` on overflow), so ranges and vectors near ±f64::MAX don't
+        // overflow to inf (which would collapse the scale to 0).
+        let half = [padded.x, padded.y, padded.z].map(|(lo, hi)| hi * 0.5 - lo * 0.5);
         let max_norm_mag = self
             .arrows
             .iter()
             .map(|a| {
-                let (u, v, w) = (a.u / span[0], a.v / span[1], a.w / span[2]);
-                (u * u + v * v + w * w).sqrt()
+                let (u, v, w) = (
+                    a.u * 0.5 / half[0],
+                    a.v * 0.5 / half[1],
+                    a.w * 0.5 / half[2],
+                );
+                let m = (u * u + v * v + w * w).sqrt();
+                if m.is_finite() {
+                    m
+                } else {
+                    u.hypot(v).hypot(w)
+                }
             })
             .fold(0.0_f64, f64::max);
         if max_norm_mag <= 0.0 {
@@ -647,18 +665,30 @@ impl Quiver3DPlot {
         arrow: &Quiver3DArrow,
         scale: f64,
     ) -> ([f64; 3], [f64; 3]) {
-        let d = [arrow.u * scale, arrow.v * scale, arrow.w * scale];
+        // Saturate at ±f64::MAX: finite inputs near the end of the range can
+        // overflow here, and an infinite endpoint turns the box range and
+        // every projected coordinate into NaN (`inf * 0`).
+        let sat = |v: f64| v.clamp(-f64::MAX, f64::MAX);
+        let d = [
+            sat(arrow.u * scale),
+            sat(arrow.v * scale),
+            sat(arrow.w * scale),
+        ];
         let back = match self.pivot {
             QuiverPivot::Tail => 0.0,
             QuiverPivot::Middle => 0.5,
             QuiverPivot::Tip => 1.0,
         };
         let tail = [
-            arrow.x - d[0] * back,
-            arrow.y - d[1] * back,
-            arrow.z - d[2] * back,
+            sat(arrow.x - d[0] * back),
+            sat(arrow.y - d[1] * back),
+            sat(arrow.z - d[2] * back),
         ];
-        let tip = [tail[0] + d[0], tail[1] + d[1], tail[2] + d[2]];
+        let tip = [
+            sat(tail[0] + d[0]),
+            sat(tail[1] + d[1]),
+            sat(tail[2] + d[2]),
+        ];
         (tail, tip)
     }
 

@@ -15,6 +15,7 @@ use kuva::plot::streamgraph::StreamgraphPlot;
 use kuva::plot::surface3d::Surface3DPlot;
 use kuva::plot::survival::SurvivalPlot;
 use kuva::plot::violin::ViolinPlot;
+use kuva::plot::{ColorMap, QuiverPivot};
 use kuva::render::layout::Layout;
 use kuva::render::plots::Plot;
 use kuva::render::render::render_multiple;
@@ -82,6 +83,48 @@ fn quiver3d_with_an_overflowing_axis_range() {
         Quiver3DPlot::new().with_arrows(arrows).with_tight_bounds(),
     ));
     assert_no_nan(&out, "quiver3d");
+}
+
+/// Arrow tips `x + u * scale` overflowed to inf for finite inputs, which made
+/// the box range (and so every projected coordinate) NaN; vectors this large
+/// also gave an infinite magnitude, and `inf / inf` in the colour mapping.
+#[test]
+fn quiver3d_with_overflowing_arrow_tips() {
+    let cases: Vec<(&str, Quiver3DPlot)> = vec![
+        (
+            "far anchors, explicit scale",
+            Quiver3DPlot::new()
+                .with_arrows((0..20).map(|i| (1e308, i as f64, 0.0, 1e308, 1.0, 1.0)))
+                .with_scale(10.0),
+        ),
+        (
+            "tight bounds, explicit scale",
+            Quiver3DPlot::new()
+                .with_arrows((0..20).map(|i| (i as f64, i as f64, 0.0, 1e308, 1.0, 1.0)))
+                .with_scale(10.0)
+                .with_tight_bounds(),
+        ),
+        (
+            "auto scale, tip pivot",
+            Quiver3DPlot::new()
+                .with_arrows((0..20).map(|i| (extreme(i), i as f64, 0.0, f64::MAX, -f64::MAX, 1.0)))
+                .with_pivot(QuiverPivot::Tip),
+        ),
+        (
+            "magnitude colormap",
+            Quiver3DPlot::new()
+                .with_arrows((0..20).map(|i| {
+                    let u = if i % 2 == 0 { f64::MAX } else { 1.0 };
+                    (i as f64, (i % 4) as f64, 0.0, u, u, u)
+                }))
+                .with_magnitude_colormap(ColorMap::Viridis, "|v|"),
+        ),
+    ];
+    for (what, q) in cases {
+        let out = svg(Plot::Quiver3D(q));
+        assert!(out.contains("<path"), "{what}: no arrows drawn");
+        assert_no_nan(&out, what);
+    }
 }
 
 /// 40 values with NaN mixed in: long enough for the std sorts' merge path.

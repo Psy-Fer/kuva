@@ -11,6 +11,9 @@
 
 pub use crate::plot::plot3d::View3D;
 
+/// A projected point: `(screen_x, screen_y, depth)`.
+pub(crate) type ScreenPoint = (f64, f64, f64);
+
 /// Pre-computed 3D→2D orthographic projection.
 ///
 /// Projects data-space (x, y, z) coordinates to pixel-space (screen_x, screen_y, depth).
@@ -144,6 +147,68 @@ impl Projection3D {
         self.project_normalized(nx, ny, nz)
     }
 
+    /// Project the data-space segment `a`-`b`, clipped to a cube of `±limit`
+    /// in normalised box units (the box itself is `±0.5`). Returns `None` when
+    /// the segment lies wholly outside the cube.
+    ///
+    /// A point far outside the box (an arrow tip with `with_tight_bounds()`
+    /// and a huge vector) would otherwise project to infinite pixel
+    /// coordinates, and the arrow-head geometry built from them to NaN.
+    /// Clipping in normalised space keeps the segment's direction. Segments
+    /// already inside the cube project exactly as [`Self::project`] would.
+    pub(crate) fn project_segment_clipped(
+        &self,
+        a: [f64; 3],
+        b: [f64; 3],
+        limit: f64,
+    ) -> Option<(ScreenPoint, ScreenPoint)> {
+        // Saturate, so a coordinate that overflowed during normalisation stays
+        // finite and the differences below can't overflow either.
+        const SAT: f64 = 1e300;
+        let norm = |p: [f64; 3]| {
+            [
+                Self::normalize(p[0], self.norm_x).clamp(-SAT, SAT),
+                Self::normalize(p[1], self.norm_y).clamp(-SAT, SAT),
+                Self::normalize(p[2], self.norm_z).clamp(-SAT, SAT),
+            ]
+        };
+        let (mut na, mut nb) = (norm(a), norm(b));
+        let inside = |p: &[f64; 3]| p.iter().all(|c| c.abs() <= limit);
+        if !(inside(&na) && inside(&nb)) {
+            // Liang-Barsky against the cube.
+            let d = [nb[0] - na[0], nb[1] - na[1], nb[2] - na[2]];
+            let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+            for i in 0..3 {
+                for (p, q) in [(-d[i], na[i] + limit), (d[i], limit - na[i])] {
+                    if p == 0.0 {
+                        if q < 0.0 {
+                            return None;
+                        }
+                    } else {
+                        let r = q / p;
+                        if p < 0.0 {
+                            if r > t1 {
+                                return None;
+                            }
+                            t0 = t0.max(r);
+                        } else {
+                            if r < t0 {
+                                return None;
+                            }
+                            t1 = t1.min(r);
+                        }
+                    }
+                }
+            }
+            let at = |t: f64| [na[0] + t * d[0], na[1] + t * d[1], na[2] + t * d[2]];
+            (na, nb) = (at(t0), at(t1));
+        }
+        Some((
+            self.project_normalized(na[0], na[1], na[2]),
+            self.project_normalized(nb[0], nb[1], nb[2]),
+        ))
+    }
+
     /// Project a point already in normalized [-0.5, 0.5]³ space.
     /// Used for axes/grid (unit cube coords).
     #[inline]
@@ -190,6 +255,37 @@ mod tests {
     /// helix stays right-handed and a counter-clockwise field about +z reads
     /// counter-clockwise from above. (It used to negate screen x, which
     /// mirrored the scene in half of all views, the default one included.)
+    #[test]
+    fn segment_clipping_keeps_inside_segments_and_bounds_far_ones() {
+        let p = Projection3D::new(
+            View3D {
+                azimuth: -60.0,
+                elevation: 30.0,
+            },
+            (0.0, 19.0),
+            (0.0, 1.0),
+            (0.0, 1.0),
+            200.0,
+            200.0,
+            300.0,
+        );
+        // Inside the cube: exactly what `project` gives.
+        let (a, b) = ([1.0, 0.2, 0.3], [5.0, 0.8, 0.9]);
+        let (pa, pb) = p.project_segment_clipped(a, b, 1e3).unwrap();
+        assert_eq!(pa, p.project(a[0], a[1], a[2]));
+        assert_eq!(pb, p.project(b[0], b[1], b[2]));
+        // A tip at f64::MAX projects to inf unclipped; clipped it stays finite
+        // and the tail is untouched.
+        let (a, b) = ([1.0, 0.5, 0.5], [f64::MAX, 0.5, 0.5]);
+        assert!(!p.project(b[0], b[1], b[2]).0.is_finite());
+        let (pa, pb) = p.project_segment_clipped(a, b, 1e3).unwrap();
+        assert_eq!(pa, p.project(a[0], a[1], a[2]));
+        assert!(pb.0.is_finite() && pb.1.is_finite() && pb.2.is_finite());
+        // Wholly outside the cube: nothing to draw.
+        let (a, b) = ([1e300, 0.5, 0.5], [f64::MAX, 0.5, 0.5]);
+        assert!(p.project_segment_clipped(a, b, 1e3).is_none());
+    }
+
     #[test]
     fn projection_is_right_handed_at_every_view() {
         for az in [-150.0, -120.0, -60.0, -30.0, 0.0, 45.0, 60.0, 120.0, 180.0] {
