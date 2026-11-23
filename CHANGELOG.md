@@ -91,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Doom assets checked before they are embedded.** The `doom` feature compiles `doom.js`, `doom.wasm` and `doom1.wad` into the binary, and `kuva doom` writes them as script into its SVG (the docs site publishes one). The asset workflow built them from the head of `cloudflare/doom-wasm` while holding a token that could rewrite releases, and the docs workflow restored them from a cache that any run on the branch could fill. The workflow now builds a fixed upstream commit in a read-only job and publishes from a separate job, the docs build no longer uses the cache, and `build.rs` checks each file against its SHA-256 before embedding it, whether downloaded or already in `doom-assets/`.
 
+- **Tree input that isn't a tree can't hang or crash a render.** The Newick parser recursed once per `(`, so a long run of them (in a file or `kuva phylo --newick`) overflowed the stack and aborted the process; it now keeps its own stack and parses any depth. `PhyloTree::from_edges` accepted edge lists with a self edge, a cycle, repeated rows or a second parent for a node, and rendering such a tree looped forever while using more and more memory. Those edges are now skipped (the first parent given for a node wins). `from_linkage` drops rows that point at a node not made yet or at one that already has a parent. Trees built by hand through the public `nodes` and `root` fields are rendered from a copy with the same edges dropped.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added

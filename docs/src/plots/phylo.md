@@ -105,6 +105,8 @@ let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
 
 When building a tree with `from_edges()`, node IDs are assigned in order of first appearance across all `(parent, child, length)` tuples — the first unique label encountered becomes node 0, the second node 1, and so on.
 
+Edges that would not leave a tree are skipped: a node listed as its own child, a second parent for a node (the first one given wins), a repeated row, and an edge that would close a cycle.
+
 ```rust,no_run
 use kuva::plot::PhyloTree;
 use kuva::backend::svg::SvgBackend;

@@ -132,9 +132,8 @@ impl NewickParser {
             .ok()
     }
 
-    /// Recursively parse a subtree; returns the new node's id.
-    fn parse_subtree(&mut self, nodes: &mut Vec<PhyloNode>, parent: Option<usize>) -> usize {
-        self.skip_ws();
+    /// Push a new node, linked under `parent` if there is one, and return its id.
+    fn new_node(nodes: &mut Vec<PhyloNode>, parent: Option<usize>) -> usize {
         let id = nodes.len();
         nodes.push(PhyloNode {
             id,
@@ -144,68 +143,94 @@ impl NewickParser {
             branch_length: 0.0,
             support: None,
         });
+        if let Some(p) = parent {
+            nodes[p].children.push(id);
+        }
+        id
+    }
 
-        if self.peek() == Some(b'(') {
-            self.advance(); // consume '('
-            loop {
-                self.skip_ws();
-                let child = self.parse_subtree(nodes, Some(id));
-                nodes[id].children.push(child);
-                self.skip_ws();
-                match self.peek() {
-                    Some(b',') => {
-                        self.advance();
-                    }
-                    Some(b')') => {
-                        self.advance();
-                        break;
-                    }
-                    _ => break,
-                }
-            }
-            // Optional label / support value after ')'
-            self.skip_ws();
-            if !matches!(
-                self.peek(),
-                Some(b':') | Some(b';') | Some(b',') | Some(b')') | None
-            ) {
-                let tok = self.read_token();
-                if !tok.is_empty() {
-                    if let Ok(v) = tok.parse::<f64>() {
-                        nodes[id].support = Some(v);
-                    } else {
-                        nodes[id].label = Some(tok);
-                    }
-                }
-            }
-        } else {
-            // Leaf: read its label
+    /// Optional label or support value after an internal node's `)`.
+    fn read_internal_label(&mut self, node: &mut PhyloNode) {
+        self.skip_ws();
+        if !matches!(
+            self.peek(),
+            Some(b':') | Some(b';') | Some(b',') | Some(b')') | None
+        ) {
             let tok = self.read_token();
             if !tok.is_empty() {
-                nodes[id].label = Some(tok);
+                if let Ok(v) = tok.parse::<f64>() {
+                    node.support = Some(v);
+                } else {
+                    node.label = Some(tok);
+                }
             }
         }
+    }
 
-        // Optional branch length after ':'
+    /// Optional branch length after `:`.
+    fn read_branch_length(&mut self, node: &mut PhyloNode) {
         self.skip_ws();
         if self.peek() == Some(b':') {
             self.advance();
             self.skip_ws();
-            nodes[id].branch_length = self.read_number().unwrap_or(0.0);
+            node.branch_length = self.read_number().unwrap_or(0.0);
         }
-
-        id
     }
 
+    /// Parse the whole tree. The root is always node 0.
+    ///
+    /// The parser keeps its own stack of open internal nodes rather than
+    /// recursing, so deeply nested input (a long run of `(`) uses heap memory
+    /// in proportion to its length and can't overflow the thread's stack.
+    /// Unbalanced input is accepted: open nodes are closed at the end of the
+    /// string or at an unexpected character, as before.
     fn parse(mut self) -> (Vec<PhyloNode>, usize) {
         let mut nodes = Vec::new();
-        let root = self.parse_subtree(&mut nodes, None);
+        // Internal nodes whose `(` has been read and whose child list is still open.
+        let mut open: Vec<usize> = Vec::new();
+        let mut parent = None;
+        'node: loop {
+            // Start a new node under `parent`.
+            self.skip_ws();
+            let id = Self::new_node(&mut nodes, parent);
+            if self.peek() == Some(b'(') {
+                self.advance();
+                open.push(id);
+                parent = Some(id);
+                continue 'node;
+            }
+            // Leaf: label, then branch length.
+            let tok = self.read_token();
+            if !tok.is_empty() {
+                nodes[id].label = Some(tok);
+            }
+            self.read_branch_length(&mut nodes[id]);
+
+            // Close finished internal nodes until another child starts.
+            loop {
+                let Some(&top) = open.last() else {
+                    break 'node;
+                };
+                self.skip_ws();
+                if self.peek() == Some(b',') {
+                    self.advance();
+                    parent = Some(top);
+                    continue 'node;
+                }
+                if self.peek() == Some(b')') {
+                    self.advance();
+                }
+                open.pop();
+                self.read_internal_label(&mut nodes[top]);
+                self.read_branch_length(&mut nodes[top]);
+            }
+        }
         // Consume trailing ';'
         self.skip_ws();
         if self.peek() == Some(b';') {
             self.advance();
         }
-        (nodes, root)
+        (nodes, 0)
     }
 }
 
@@ -238,11 +263,28 @@ impl PhyloTree {
 
     /// Build a tree from `(parent_label, child_label, branch_length)` edges.
     ///
-    /// Root = the node that never appears as a child.
+    /// Root = the first node that never appears as a child.
+    ///
+    /// Edges that would not leave a tree are skipped: a node that is its own
+    /// child, a second parent for a node that already has one (including a
+    /// repeated row), and an edge that would close a cycle. Edges are taken in
+    /// order, so the first parent given for a node wins.
     pub fn from_edges<S: AsRef<str>>(edges: &[(S, S, f64)]) -> Self {
         let mut label_to_id: HashMap<String, usize> = HashMap::new();
         let mut nodes: Vec<PhyloNode> = Vec::new();
         let mut child_ids: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        // Union-find over the nodes, one set per connected piece of the forest.
+        // A node without a parent is the root of its piece, so adding the edge
+        // parent -> child closes a cycle exactly when parent is already in
+        // child's piece.
+        let mut set_of: Vec<usize> = Vec::new();
+        fn find(set_of: &mut [usize], mut i: usize) -> usize {
+            while set_of[i] != i {
+                set_of[i] = set_of[set_of[i]];
+                i = set_of[i];
+            }
+            i
+        }
 
         for (parent_lbl, child_lbl, branch_len) in edges {
             let parent_lbl = parent_lbl.as_ref();
@@ -281,6 +323,18 @@ impl PhyloTree {
                 label_to_id.insert(child_lbl.to_string(), id);
                 id
             };
+
+            while set_of.len() < nodes.len() {
+                set_of.push(set_of.len());
+            }
+            if parent_id == child_id || nodes[child_id].parent.is_some() {
+                continue;
+            }
+            let (ps, cs) = (find(&mut set_of, parent_id), find(&mut set_of, child_id));
+            if ps == cs {
+                continue;
+            }
+            set_of[cs] = ps;
 
             nodes[child_id].parent = Some(parent_id);
             nodes[child_id].branch_length = *branch_len;
@@ -360,17 +414,27 @@ impl PhyloTree {
     /// left children first).  Use this to set `y_categories` on a side-by-side
     /// `Heatmap` for row alignment.
     pub fn leaf_labels_top_to_bottom(&self) -> Vec<String> {
-        post_order_dfs(self.root, &self.nodes)
+        let tree = as_proper_tree(self);
+        post_order_dfs(tree.root, &tree.nodes)
             .into_iter()
-            .filter(|&id| self.nodes[id].children.is_empty())
-            .filter_map(|id| self.nodes[id].label.clone())
+            .filter(|&id| tree.nodes[id].children.is_empty())
+            .filter_map(|id| tree.nodes[id].label.clone())
             .collect()
     }
 }
 
 /// Iterative post-order DFS; left children first (pushed in reverse onto stack).
+///
+/// `nodes` and `root` are public fields of [`PhyloTree`], so they may not form
+/// a tree. Each node is visited at most once and ids outside `nodes` are
+/// skipped, so a cycle or a repeated child ends the walk instead of looping.
 pub(crate) fn post_order_dfs(root: usize, nodes: &[PhyloNode]) -> Vec<usize> {
     let mut result = Vec::new();
+    if root >= nodes.len() {
+        return result;
+    }
+    let mut seen = vec![false; nodes.len()];
+    seen[root] = true;
     let mut stack = vec![(root, false)];
     while let Some((id, done)) = stack.pop() {
         if done {
@@ -378,9 +442,58 @@ pub(crate) fn post_order_dfs(root: usize, nodes: &[PhyloNode]) -> Vec<usize> {
         } else {
             stack.push((id, true));
             for &child in nodes[id].children.iter().rev() {
-                stack.push((child, false));
+                if child < nodes.len() && !seen[child] {
+                    seen[child] = true;
+                    stack.push((child, false));
+                }
             }
         }
     }
     result
+}
+
+/// A copy of `tree` whose child lists are trimmed so that every node reachable
+/// from the root is reached once: children outside `nodes`, children already
+/// reached, and edges back up the tree are dropped, and `parent` is set to
+/// match. Renderers walk this copy, so hand-built trees with cycles or shared
+/// children render instead of hanging.
+pub(crate) fn as_proper_tree(tree: &PhyloTree) -> PhyloTree {
+    let mut out = tree.clone();
+    let n = out.nodes.len();
+    if tree.root >= n {
+        out.nodes.iter_mut().for_each(|nd| nd.children.clear());
+        return out;
+    }
+    let mut seen = vec![false; n];
+    seen[tree.root] = true;
+    out.nodes[tree.root].parent = None;
+    let mut stack = vec![tree.root];
+    while let Some(id) = stack.pop() {
+        let kept: Vec<usize> = tree.nodes[id]
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| {
+                if c < n && !seen[c] {
+                    seen[c] = true;
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect();
+        for &c in &kept {
+            out.nodes[c].parent = Some(id);
+            stack.push(c);
+        }
+        out.nodes[id].children = kept;
+    }
+    for (i, nd) in out.nodes.iter_mut().enumerate() {
+        nd.id = i;
+        if !seen[i] {
+            nd.children.clear();
+            nd.parent = None;
+        }
+    }
+    out
 }

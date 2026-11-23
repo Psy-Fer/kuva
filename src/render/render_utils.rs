@@ -1551,49 +1551,40 @@ pub fn linkage_to_nodes(
         })
         .collect();
 
+    // Rows come from outside (a scipy or R linkage), so a row may name a node
+    // that doesn't exist yet, or one that already has a parent. Such children
+    // are dropped, which keeps the result a tree.
     for (row_idx, row) in linkage.iter().enumerate() {
-        let left = row[0] as usize;
-        let right = row[1] as usize;
-        let dist = row[2];
         let new_id = n + row_idx;
-
-        // Height of a cluster = half its merge distance
-        let height_left = if left < n {
-            0.0
-        } else {
-            linkage[left - n][2] / 2.0
-        };
-        let height_right = if right < n {
-            0.0
-        } else {
-            linkage[right - n][2] / 2.0
-        };
+        let dist = row[2];
         let h_new = dist / 2.0;
-
-        let bl_left = (h_new - height_left).max(0.0);
-        let bl_right = (h_new - height_right).max(0.0);
-
-        // Apply branch lengths to the children that already exist in nodes
-        if left < nodes.len() {
-            nodes[left].branch_length = bl_left;
-            nodes[left].parent = Some(new_id);
-        }
-        if right < nodes.len() {
-            nodes[right].branch_length = bl_right;
-            nodes[right].parent = Some(new_id);
+        let mut children = Vec::with_capacity(2);
+        for idx in [row[0], row[1]] {
+            if !(idx >= 0.0 && idx < new_id as f64) {
+                continue;
+            }
+            let c = idx as usize;
+            if nodes[c].parent.is_some() || children.contains(&c) {
+                continue;
+            }
+            // Height of a cluster = half its merge distance
+            let height = if c < n { 0.0 } else { linkage[c - n][2] / 2.0 };
+            nodes[c].branch_length = (h_new - height).max(0.0);
+            nodes[c].parent = Some(new_id);
+            children.push(c);
         }
 
         nodes.push(PhyloNode {
             id: new_id,
             label: None,
             parent: None,
-            children: vec![left, right],
+            children,
             branch_length: 0.0,
             support: None,
         });
     }
 
-    let root = nodes.len() - 1;
+    let root = nodes.len().saturating_sub(1);
     (nodes, root)
 }
 

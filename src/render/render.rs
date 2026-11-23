@@ -18127,6 +18127,10 @@ fn add_phylo_tree(tree: &PhyloTree, scene: &mut Scene, computed: &ComputedLayout
     use crate::plot::phylo::post_order_dfs;
     use std::f64::consts::PI;
 
+    // The tree's fields are public, so walk a copy that is known to be a tree.
+    let proper = crate::plot::phylo::as_proper_tree(tree);
+    let tree = &proper;
+
     let n_nodes = tree.nodes.len();
     if n_nodes == 0 {
         return;
