@@ -105,6 +105,60 @@ impl TickFormat {
             Self::Custom(f) => f(v),
         }
     }
+
+    /// Format every tick of one axis. Same as [`TickFormat::format`] on each
+    /// value, except that `Auto` keeps enough decimals to write every tick
+    /// exactly: a narrow range such as `3.141..3.142` (ticks every `0.0002`)
+    /// gets `3.1412, 3.1414, ...` instead of collapsing into duplicate
+    /// 3-decimal labels. Ticks that sit on data values rather than nice
+    /// numbers (histogram bin edges) keep the usual 3 decimals.
+    pub fn format_ticks(&self, ticks: &[f64]) -> Vec<String> {
+        match self {
+            Self::Auto => {
+                let decimals = auto_tick_decimals(ticks);
+                ticks
+                    .iter()
+                    .map(|&v| tick_format_auto_with(if v == 0.0 { 0.0 } else { v }, decimals))
+                    .collect()
+            }
+            _ => ticks.iter().map(|&v| self.format(v)).collect(),
+        }
+    }
+}
+
+/// Decimals `Auto` uses for the fixed-point labels of one axis: the fewest
+/// (at least 3, at most 12) that write every tick to within 0.1% of the
+/// smallest tick spacing.
+fn auto_tick_decimals(ticks: &[f64]) -> usize {
+    const MIN: usize = 3;
+    const MAX: usize = 12;
+    let mut sorted: Vec<f64> = ticks.iter().copied().filter(|v| v.is_finite()).collect();
+    sorted.sort_by(f64::total_cmp);
+    let step = sorted
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|d| *d > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    if !step.is_finite() {
+        return MIN;
+    }
+    let tol = step * 1e-3;
+    // Only the ticks that `tick_format_auto_with` writes in fixed point.
+    let fixed: Vec<f64> = sorted
+        .into_iter()
+        .filter(|v| {
+            let a = v.abs();
+            (0.01..10_000.0).contains(&a) && !(a >= 1.0 && v.fract().abs() < 1e-9)
+        })
+        .collect();
+    (MIN..=MAX)
+        .find(|&d| {
+            let p = 10f64.powi(d as i32);
+            fixed
+                .iter()
+                .all(|&v| ((v * p).round() / p - v).abs() <= tol)
+        })
+        .unwrap_or(MAX)
 }
 
 fn tick_format_degree(v: f64) -> String {
@@ -116,6 +170,10 @@ fn tick_format_degree(v: f64) -> String {
 }
 
 fn tick_format_auto(v: f64) -> String {
+    tick_format_auto_with(v, 3)
+}
+
+fn tick_format_auto_with(v: f64, decimals: usize) -> String {
     if !v.is_finite() {
         return v.to_string();
     }
@@ -124,14 +182,6 @@ fn tick_format_auto(v: f64) -> String {
     } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {
         tick_format_sci(v)
     } else {
-        // Round to 10 significant digits (well inside f64's ~15-17 digits) so
-        // IEEE-754 arithmetic noise strips cleanly without truncating small ranges.
-        let int_digits = if v.abs() >= 1.0 {
-            (v.abs().log10().floor() as usize) + 1
-        } else {
-            0
-        };
-        let decimals = 10usize.saturating_sub(int_digits);
         let s = format!("{:.*}", decimals, v);
         let s = s.trim_end_matches('0');
         let s = s.trim_end_matches('.');
@@ -3985,10 +4035,7 @@ impl ComputedLayout {
             } else {
                 render_utils::generate_ticks(layout.y_range.0, layout.y_range.1, n)
             };
-            let labels: Vec<String> = tick_vals
-                .iter()
-                .map(|&v| layout.y_tick_format.format(v))
-                .collect();
+            let labels: Vec<String> = layout.y_tick_format.format_ticks(&tick_vals);
             fonts
                 .widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
                 .max(tick_size * 2.0)
@@ -4070,10 +4117,9 @@ impl ComputedLayout {
                 // Measure the actual secondary-axis tick labels rather than assuming a flat
                 // ~3 char-widths, which clipped wide right-axis numbers.
                 let n = if layout.ticks > 0 { layout.ticks } else { 5 };
-                let labels: Vec<String> = render_utils::generate_ticks(y2_min, y2_max, n)
-                    .iter()
-                    .map(|&v| layout.y2_tick_format.format(v))
-                    .collect();
+                let labels: Vec<String> = layout
+                    .y2_tick_format
+                    .format_ticks(&render_utils::generate_ticks(y2_min, y2_max, n));
                 let y2_tick_label_px = fonts
                     .widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
                     .max(tick_size * 2.0);
@@ -4275,15 +4321,11 @@ impl ComputedLayout {
         // label still overruns. `colorbar_tick_values` is `None` for hand-built layouts;
         // there we keep the legacy fixed reservation.
         let colorbar_label_px = match &layout.colorbar_tick_values {
-            Some(values) => values
+            Some(values) => layout
+                .colorbar_tick_format
+                .format_ticks(values)
                 .iter()
-                .map(|&v| {
-                    fonts.measure_text_width(
-                        &layout.colorbar_tick_format.format(v),
-                        tick_size,
-                        tick_style,
-                    )
-                })
+                .map(|label| fonts.measure_text_width(label, tick_size, tick_style))
                 // Floor at ~2 char-widths like the axis-tick reservations, so a 1-2 char
                 // colorbar still gets a sane label band.
                 .fold(tick_size * 2.0, f64::max),
