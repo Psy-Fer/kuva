@@ -18,7 +18,7 @@ pub use crate::plot::plot3d::View3D;
 pub struct Projection3D {
     /// Combined rotation matrix (3×3 stored row-major as [row][col])
     rot: [[f64; 3]; 3],
-    /// Data range normalization: (min, 1/span) for each axis
+    /// Data range normalization: (min, 1/half_span) for each axis
     norm_x: (f64, f64),
     norm_y: (f64, f64),
     norm_z: (f64, f64),
@@ -113,22 +113,34 @@ impl Projection3D {
         }
     }
 
+    /// `(min, 1 / half_span)` for [`Self::normalize`]. Works on halves so a
+    /// finite range wider than `f64::MAX` (say -1e308 to 1e308) doesn't
+    /// overflow to an infinite span, which made the scale 0 and some
+    /// projected points `inf * 0 = NaN`. Halving is exact, so ranges that
+    /// never overflowed normalise to exactly the same values as before.
     fn norm_params(range: (f64, f64)) -> (f64, f64) {
-        let span = range.1 - range.0;
-        if span.abs() < 1e-15 {
-            (range.0, 1.0) // degenerate: all points map to -0.5 (pre-padded by data_ranges)
+        let half_span = range.1 * 0.5 - range.0 * 0.5;
+        if half_span.abs() < 0.5e-15 {
+            (range.0, 2.0) // degenerate: all points map to -0.5 (pre-padded by data_ranges)
         } else {
-            (range.0, 1.0 / span)
+            (range.0, 1.0 / half_span)
         }
+    }
+
+    /// Map `v` into `[-0.5, 0.5]` with [`Self::norm_params`]' output. Finite for
+    /// any finite `v` inside the range.
+    #[inline]
+    fn normalize(v: f64, (min, inv_half_span): (f64, f64)) -> f64 {
+        (v * 0.5 - min * 0.5) * inv_half_span - 0.5
     }
 
     /// Project a data-space point to pixel-space.
     /// Returns `(screen_x, screen_y, depth)` where depth is used for sorting.
     #[inline]
     pub fn project(&self, x: f64, y: f64, z: f64) -> (f64, f64, f64) {
-        let nx = (x - self.norm_x.0) * self.norm_x.1 - 0.5;
-        let ny = (y - self.norm_y.0) * self.norm_y.1 - 0.5;
-        let nz = (z - self.norm_z.0) * self.norm_z.1 - 0.5;
+        let nx = Self::normalize(x, self.norm_x);
+        let ny = Self::normalize(y, self.norm_y);
+        let nz = Self::normalize(z, self.norm_z);
         self.project_normalized(nx, ny, nz)
     }
 

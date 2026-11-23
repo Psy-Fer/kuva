@@ -21,6 +21,7 @@
 //! ```
 
 use crate::render::render::{Primitive, Scene, TextAnchor};
+use crate::render::render_utils::NanCmp;
 use crate::render::text_metrics::{FontSet, FontStyle};
 
 // ── Box-drawing bit constants ─────────────────────────────────────────────────
@@ -370,7 +371,7 @@ impl Canvas {
                     xs.push(p0.0 + t * (p1.0 - p0.0));
                 }
             }
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            xs.sort_by(|a, b| a.nan_cmp(b));
             let mut i = 0;
             while i + 1 < xs.len() {
                 let x0 = (xs[i] as isize).max(0);

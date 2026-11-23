@@ -1,3 +1,5 @@
+use crate::render::render_utils::NanCmp;
+
 /// A single Precision-Recall curve group (one classifier or one class).
 pub struct PrGroup {
     pub label: String,
@@ -159,7 +161,7 @@ pub fn compute_pr_points(predictions: &[(f64, bool)]) -> (Vec<PrPoint>, f64) {
         return (Vec::new(), prevalence);
     }
     let mut sorted = predictions.to_vec();
-    sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| b.0.nan_cmp(&a.0));
 
     // Anchor: (recall=0, precision=1.0) at threshold=+∞
     let mut points = vec![PrPoint {
@@ -214,10 +216,12 @@ pub fn optimal_f1_idx(points: &[PrPoint]) -> usize {
     points
         .iter()
         .enumerate()
+        // NaN would rank as the maximum under `nan_cmp`; it is never optimal.
+        .filter(|(_, p)| !f1(p.precision, p.recall).is_nan())
         .max_by(|(_, a), (_, b)| {
             let f1a = f1(a.precision, a.recall);
             let f1b = f1(b.precision, b.recall);
-            f1a.partial_cmp(&f1b).unwrap_or(std::cmp::Ordering::Equal)
+            f1a.nan_cmp(&f1b)
         })
         .map(|(i, _)| i)
         .unwrap_or(0)

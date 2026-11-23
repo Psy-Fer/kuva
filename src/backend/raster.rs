@@ -13,6 +13,7 @@
 //!   - Text via fontdue with glyph caching; rotated text via offscreen blit
 //!   - Clip rects and translate transforms fully respected
 
+use crate::render::render_utils::NanCmp;
 use std::collections::HashMap;
 
 use fontdue::{Font, FontSettings, Metrics};
@@ -802,7 +803,7 @@ impl Canvas {
             if !aet.is_empty() {
                 xs.clear();
                 xs.extend(aet.iter().map(|e| (e.x, e.winding)));
-                xs.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                xs.sort_unstable_by(|a, b| a.0.nan_cmp(&b.0));
 
                 // Nonzero winding: fill while cumulative winding != 0.
                 let mut winding = 0i32;

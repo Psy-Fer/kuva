@@ -1,3 +1,5 @@
+use crate::render::render_utils::NanCmp;
+
 /// Line curve style connecting consecutive rank points.
 #[derive(Debug, Clone, Default)]
 pub enum CurveStyle {
@@ -284,9 +286,9 @@ impl BumpPlot {
 
             // Sort: higher value = rank 1 when !ascending
             if self.rank_ascending {
-                present.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                present.sort_by(|a, b| a.1.nan_cmp(&b.1));
             } else {
-                present.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                present.sort_by(|a, b| b.1.nan_cmp(&a.1));
             }
 
             // Assign ranks with tie handling

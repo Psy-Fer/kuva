@@ -9,6 +9,7 @@ use crate::render::axis::{
 use crate::render::layout::{ComputedLayout, Layout, TickFormat, SUBTITLE_SIZE_RATIO};
 use crate::render::palette::Palette;
 use crate::render::plots::Plot;
+use crate::render::render_utils::NanCmp;
 use crate::render::render_utils::{self, linear_fit, pearson_corr, percentile};
 use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
@@ -5103,11 +5104,7 @@ fn add_scatter3d(
         .collect();
 
     // Sort back-to-front (largest depth first)
-    projected.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    projected.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
 
     // Compute depth range for shading
     let (depth_min, depth_max) = if s.depth_shade {
@@ -5269,11 +5266,7 @@ fn add_surface3d(
     }
 
     // Sort back-to-front (painter's algorithm)
-    faces.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    faces.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
 
     // Pre-compute wireframe stroke
     let wire_stroke = if s.show_wireframe {
@@ -7383,8 +7376,7 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
         } else {
             // Phase 3: sort by angle and run a spreading pass so leader-line labels
             // don't crowd each other.
-            leader_entries
-                .sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+            leader_entries.sort_by(|a, b| a.3.nan_cmp(&b.3));
             let mut angles: Vec<f64> = leader_entries.iter().map(|e| e.3).collect();
 
             // Use a common radius: the max anchor distance from the diagram centre.
@@ -8363,7 +8355,7 @@ fn draw_row_dendrogram(
         .filter(|&id| !nodes[id].children.is_empty())
         .map(|id| acc_dist[id])
         .collect();
-    internal_unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    internal_unique.sort_by(|a, b| a.nan_cmp(b));
     internal_unique.dedup_by(|a, b| (*a - *b).abs() < 1e-10);
     let n_int = internal_unique.len();
     if n_int == 0 {
@@ -8489,7 +8481,7 @@ fn draw_col_dendrogram(
         .filter(|&id| !nodes[id].children.is_empty())
         .map(|id| acc_dist[id])
         .collect();
-    internal_unique.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    internal_unique.sort_by(|a, b| a.nan_cmp(b));
     internal_unique.dedup_by(|a, b| (*a - *b).abs() < 1e-10);
     let n_int = internal_unique.len();
     if n_int == 0 {
@@ -11678,7 +11670,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
             for (gi, group) in qp.groups.iter().enumerate() {
                 let color = resolve_color(group, gi);
                 let mut sorted = group.data.clone();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                sorted.sort_by(|a, b| a.nan_cmp(b));
                 let n = sorted.len();
                 if n == 0 {
                     continue;
@@ -11842,7 +11834,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                     .copied()
                     .filter(|&p| p > 0.0 && p <= 1.0)
                     .collect();
-                pvals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                pvals.sort_by(|a, b| a.nan_cmp(b));
                 let n = pvals.len();
                 if n == 0 {
                     continue;
@@ -11880,7 +11872,7 @@ fn add_qqplot(qp: &crate::plot::qq::QQPlot, computed: &ComputedLayout, scene: &m
                             z * z
                         })
                         .collect();
-                    chi2.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    chi2.sort_by(|a, b| a.nan_cmp(b));
                     let lambda = percentile(&chi2, 50.0) / 0.4549;
 
                     let label_x = computed.margin_left + computed.plot_width() * 0.05;
@@ -14936,11 +14928,14 @@ fn add_streamgraph(
             let search_end = inner_hi.min(if n_pts > 2 { n_pts - 1 } else { n_pts });
 
             // Pick the index with the tallest band in that window.
-            let max_idx_opt = (search_start..search_end).max_by(|&a, &b| {
-                let ha = geom.uppers[k][a] - geom.lowers[k][a];
-                let hb = geom.uppers[k][b] - geom.lowers[k][b];
-                ha.partial_cmp(&hb).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // NaN heights would win under `nan_cmp`; skip them.
+            let max_idx_opt = (search_start..search_end)
+                .filter(|&i| !(geom.uppers[k][i] - geom.lowers[k][i]).is_nan())
+                .max_by(|&a, &b| {
+                    let ha = geom.uppers[k][a] - geom.lowers[k][a];
+                    let hb = geom.uppers[k][b] - geom.lowers[k][b];
+                    ha.nan_cmp(&hb)
+                });
             let max_idx = match max_idx_opt {
                 Some(i) => i,
                 None => continue,
@@ -21379,7 +21374,7 @@ fn add_radar(rp: &crate::plot::radar::RadarPlot, scene: &mut Scene, computed: &C
 
         // 1-D push-apart: sort by radial position, then spread overlapping pairs.
         for items in axis_items.iter_mut() {
-            items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            items.sort_by(|a, b| a.1.nan_cmp(&b.1));
             for _ in 0..30 {
                 let mut moved = false;
                 for j in 1..items.len() {
@@ -21922,11 +21917,7 @@ fn run_squarify(pixel_areas: &[f64], rect: TmRect) -> Vec<(usize, TmRect)> {
     let mut order: Vec<usize> = (0..pixel_areas.len())
         .filter(|&i| pixel_areas[i] > f64::EPSILON)
         .collect();
-    order.sort_by(|&a, &b| {
-        pixel_areas[b]
-            .partial_cmp(&pixel_areas[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| pixel_areas[b].nan_cmp(&pixel_areas[a]));
 
     let mut result = vec![
         TmRect {
@@ -22085,11 +22076,7 @@ fn run_binary(pixel_areas: &[f64], rect: TmRect, depth: usize) -> Vec<(usize, Tm
     if order.is_empty() {
         return vec![];
     }
-    order.sort_by(|&a, &b| {
-        pixel_areas[b]
-            .partial_cmp(&pixel_areas[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| pixel_areas[b].nan_cmp(&pixel_areas[a]));
 
     let mut result = vec![
         TmRect {
@@ -23227,7 +23214,7 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                     Some((si, py))
                 })
                 .collect();
-            pos.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            pos.sort_by(|a, b| a.1.nan_cmp(&b.1));
             nudge_bump_labels(
                 &mut pos,
                 computed.fonts.line_height(font_h, FontStyle::Regular),
@@ -25169,11 +25156,7 @@ pub fn waffle_largest_remainder(values: &[f64], total_cells: usize) -> Vec<usize
         .enumerate()
         .map(|(i, (e, f))| (i, e - *f as f64))
         .collect();
-    fracs.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.0.cmp(&b.0))
-    });
+    fracs.sort_by(|a, b| b.1.nan_cmp(&a.1).then(a.0.cmp(&b.0)));
     for i in 0..remainder {
         floored[fracs[i].0] += 1;
     }
@@ -25978,11 +25961,7 @@ fn add_quiver3d(
         .collect();
 
     // Painter's algorithm: largest depth (furthest) first.
-    projected.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    projected.sort_by(|a, b| b.depth.nan_cmp(&a.depth));
 
     let (depth_min, depth_max) = projected
         .iter()

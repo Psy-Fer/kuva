@@ -39,6 +39,7 @@ use crate::render::render::{
     collect_legend_entries, render_legend_at_with_fonts, render_multiple, PathData, Primitive,
     Scene, TextAnchor,
 };
+use crate::render::render_utils::NanCmp;
 use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 
@@ -867,12 +868,7 @@ impl IntervalTrack {
     /// overlap depth, so the layout uses exactly as many rows as needed.
     fn pack_rows(&self) -> (Vec<usize>, usize) {
         let mut order: Vec<usize> = (0..self.intervals.len()).collect();
-        order.sort_by(|&a, &b| {
-            self.intervals[a]
-                .start
-                .partial_cmp(&self.intervals[b].start)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        order.sort_by(|&a, &b| self.intervals[a].start.nan_cmp(&self.intervals[b].start));
         let mut row_end: Vec<f64> = Vec::new(); // end of the last interval placed in each row
         let mut row_of = vec![0usize; self.intervals.len()];
         for &i in &order {

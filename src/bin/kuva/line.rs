@@ -125,7 +125,7 @@ pub fn run(args: LineArgs) -> Result<(), String> {
             .iter()
             .map(|&i| (xs[i].unwrap_or(0.0), ys[i].unwrap_or(0.0)))
             .collect();
-        data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        data.sort_by(|a, b| a.0.total_cmp(&b.0));
         Ok(data)
     };
 

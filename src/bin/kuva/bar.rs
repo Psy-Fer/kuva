@@ -398,7 +398,7 @@ pub fn run(args: BarArgs) -> Result<(), String> {
                     "max" => vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
                     "median" => {
                         let mut s = vals.clone();
-                        s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        s.sort_by(|a, b| a.total_cmp(b));
                         let n = s.len();
                         if n.is_multiple_of(2) {
                             (s[n / 2 - 1] + s[n / 2]) / 2.0

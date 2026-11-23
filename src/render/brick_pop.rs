@@ -30,6 +30,7 @@ use crate::render::plots::Plot;
 use crate::render::render::{
     collect_legend_entries, render_multiple, Primitive, Scene, TextAnchor,
 };
+use crate::render::render_utils::NanCmp;
 use crate::render::text_metrics::{FontSet, FontStyle};
 use crate::render::theme::Theme;
 use crate::render::track_stack::merge_translated;
@@ -260,8 +261,7 @@ impl BrickPopPlot {
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|&a, &b| {
             self.frequencies[b]
-                .partial_cmp(&self.frequencies[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .nan_cmp(&self.frequencies[a])
                 .then(a.cmp(&b))
         });
         self.frequencies = order.iter().map(|&i| self.frequencies[i]).collect();

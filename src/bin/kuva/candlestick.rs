@@ -152,7 +152,7 @@ pub fn run(args: CandlestickArgs) -> Result<(), String> {
                 )
             })
             .collect();
-        rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
 
         // candle_width is a fraction (0–1) of the slot pixel width; the renderer
         // converts it from data-unit average spacing to pixels internally.

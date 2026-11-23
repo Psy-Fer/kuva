@@ -1,4 +1,5 @@
 use crate::plot::legend::LegendPosition;
+use crate::render::render_utils::NanCmp;
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -53,11 +54,7 @@ pub struct StreamGeometry {
 fn inside_out_order(totals: &[f64]) -> Vec<usize> {
     let n = totals.len();
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        totals[b]
-            .partial_cmp(&totals[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| totals[b].nan_cmp(&totals[a]));
 
     let mut top_sum = 0.0_f64;
     let mut bottom_sum = 0.0_f64;
@@ -362,11 +359,7 @@ impl StreamgraphPlot {
             StreamOrder::InsideOut => inside_out_order(&series_totals),
             StreamOrder::ByTotal => {
                 let mut o: Vec<usize> = (0..n_series).collect();
-                o.sort_by(|&a, &b| {
-                    series_totals[b]
-                        .partial_cmp(&series_totals[a])
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                o.sort_by(|&a, &b| series_totals[b].nan_cmp(&series_totals[a]));
                 o
             }
             StreamOrder::Original => (0..n_series).collect(),

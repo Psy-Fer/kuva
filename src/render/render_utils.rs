@@ -1,3 +1,28 @@
+/// A total order on `f64` (and `f32`) for sort comparators: numbers compare as usual
+/// (`-0.0 == 0.0`, unlike `f64::total_cmp`), NaN sorts above every number,
+/// and NaNs are equal to each other.
+///
+/// `partial_cmp(..).unwrap_or(Equal)` is not a total order once a key is NaN
+/// (NaN "equals" both 1 and 2), and the std sorts may panic on such a
+/// comparator; `partial_cmp(..).unwrap()` panics outright. Use `a.nan_cmp(&b)`
+/// instead, and `b.nan_cmp(&a)` for descending.
+pub(crate) trait NanCmp {
+    fn nan_cmp(&self, other: &Self) -> std::cmp::Ordering;
+}
+
+macro_rules! impl_nan_cmp {
+    ($($t:ty),*) => {$(
+        impl NanCmp for $t {
+            #[inline]
+            fn nan_cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.partial_cmp(other)
+                    .unwrap_or_else(|| self.is_nan().cmp(&other.is_nan()))
+            }
+        }
+    )*};
+}
+impl_nan_cmp!(f64, f32);
+
 /// XML/attribute-escape a data-derived string before it is interpolated into
 /// a raw SVG attribute string (e.g. `data-group="{value}"`).
 ///
@@ -818,7 +843,7 @@ pub fn silverman_bandwidth(values: &[f64]) -> f64 {
     let std_dev = (values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt();
 
     let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| a.nan_cmp(b));
     let iqr = percentile(&sorted, 75.0) - percentile(&sorted, 25.0);
 
     let a = if iqr > 0.0 {
@@ -841,13 +866,12 @@ pub fn silverman_bandwidth(values: &[f64]) -> f64 {
 /// within 4*bandwidth contribute (Gaussian contribution beyond that is < 0.003%).
 /// This gives O(window × samples) instead of O(n × samples).
 pub fn simple_kde(values: &[f64], bandwidth: f64, samples: usize) -> Vec<(f64, f64)> {
-    use std::cmp::Ordering;
     if values.is_empty() || samples == 0 {
         return Vec::new();
     }
 
     let mut sorted = values.to_vec();
-    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    sorted.sort_unstable_by(|a, b| a.nan_cmp(b));
 
     let lo = sorted[0] - 3.0 * bandwidth;
     let hi = sorted[sorted.len() - 1] + 3.0 * bandwidth;
@@ -896,7 +920,6 @@ pub fn simple_kde_reflect(
     reflect_lo: bool,
     reflect_hi: bool,
 ) -> Vec<(f64, f64)> {
-    use std::cmp::Ordering;
     if values.is_empty() || samples == 0 || lo >= hi {
         return Vec::new();
     }
@@ -912,7 +935,7 @@ pub fn simple_kde_reflect(
             aug.push(2.0 * hi - v);
         }
     }
-    aug.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    aug.sort_unstable_by(|a, b| a.nan_cmp(b));
 
     let step = (hi - lo) / (samples - 1).max(1) as f64;
     let cutoff = 4.0 * bandwidth;
@@ -1320,11 +1343,7 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
 
     let mut result = vec![0.0f64; n];
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        y_screen[a]
-            .partial_cmp(&y_screen[b])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    order.sort_by(|&a, &b| y_screen[a].nan_cmp(&y_screen[b]));
 
     let mut placed: Vec<(f64, f64)> = Vec::with_capacity(n);
     let min_dist_sq = (2.0 * point_r) * (2.0 * point_r);

@@ -4,6 +4,8 @@
 //! functions that consume them stay in [`crate::render::annotations`], which re-exports these
 //! types for backward compatibility.
 
+use crate::render::render_utils::NanCmp;
+
 #[derive(Clone, Debug)]
 pub enum Orientation {
     Horizontal,
@@ -414,9 +416,7 @@ pub fn stack_levels(spans: &[Option<(f64, f64)>]) -> Vec<Option<usize>> {
     order.sort_by(|&i, &j| {
         let wi = spans[i].map(|(lo, hi)| hi - lo).unwrap_or(0.0);
         let wj = spans[j].map(|(lo, hi)| hi - lo).unwrap_or(0.0);
-        wi.partial_cmp(&wj)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(i.cmp(&j))
+        wi.nan_cmp(&wj).then(i.cmp(&j))
     });
 
     let mut levels: Vec<Vec<(f64, f64)>> = Vec::new();

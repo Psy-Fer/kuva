@@ -69,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Label math can't run Typst code (`typst-math`, `typst`).** A `$...$` region was handed to Typst unchanged, so a label from a data file could use `#` to run Typst code (an endless loop, a huge allocation, a page-sized shape in the figure) or reach size knobs through named arguments. Math regions containing `#`, `std`, a named argument, a comment, or more than 64 brackets, fractions, scripts and roots (a long `x/x/x/...` chain overflowed the stack inside Typst), and labels over 1024 bytes, are now shown through the Unicode lookup tier instead, with a one-time warning. Typeset fragments larger than 400 by 40 em are refused too. `TypstBackend` applies the same rule to the `.typ` documents it writes.
 
+- **NaN values can't crash or hang a render.** About forty float sorts compared values with `partial_cmp(..).unwrap_or(Equal)` (or `.unwrap()`), which stops being a valid ordering once a value is NaN; Rust's sorts may panic on such a comparator for slices over 20 elements, so a NaN in a data file could abort the CLI or a library caller. They now use a total order that puts NaN last. A survival plot with a NaN time spun forever, because its tie scan relied on `t == t`; NaN times are now ignored. The 3D projection turned an axis range wider than `f64::MAX` (finite values near both ends) into a scale of zero and emitted NaN coordinates; it now normalises with half spans so the range never overflows.
+
 ## [0.6.0] — 2026-10-15
 
 ### Added
