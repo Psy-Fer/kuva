@@ -438,3 +438,31 @@ fn test_axis_range_natural_overshoot_is_unaffected() {
 
     assert_eq!(computed.x_range, (0.0, 17.5));
 }
+
+/// Regression (issue #136): a log-scale plot whose max exceeds a power of 10 by
+/// epsilon (on a narrow ≤3-decade span) must snap to the next `[1, 2, 5]`
+/// major tick (`2.0`), not jump a full decade (`10.0`).
+#[test]
+fn test_log_axis_range_just_above_major_tick_snaps_to_next_subtick() {
+    let plot_a = ScatterPlot::new().with_data(vec![(0.1, 0.1), (1.0, 1.0)]);
+    let plots_a = vec![Plot::Scatter(plot_a)];
+    let layout_a = Layout::auto_from_plots(&plots_a).with_log_scale();
+    let computed_a = ComputedLayout::from_layout(&layout_a);
+    assert_eq!(computed_a.x_range, (0.1, 1.0));
+    assert_eq!(computed_a.y_range, (0.1, 1.0));
+
+    let plot_b =
+        ScatterPlot::new().with_data(vec![(0.1, 0.1), (1.0 + f64::EPSILON, 1.0 + f64::EPSILON)]);
+    let plots_b = vec![Plot::Scatter(plot_b)];
+    let layout_b = Layout::auto_from_plots(&plots_b).with_log_scale();
+    let computed_b = ComputedLayout::from_layout(&layout_b);
+    assert_eq!(computed_b.x_range, (0.1, 2.0));
+    assert_eq!(computed_b.y_range, (0.1, 2.0));
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots_b, layout_b));
+    assert!(svg.contains(">2<") || svg.contains(">2</text>"));
+    assert!(
+        !svg.contains(">10</text>"),
+        "log plot ending at 1.0 + EPSILON must end at 2, not extend to 10"
+    );
+}

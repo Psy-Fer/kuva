@@ -590,7 +590,10 @@ pub fn auto_nice_range_capped(
 }
 
 /// Compute a nice log-scale range that fully includes the data.
-/// Rounds to powers of 10 so boundaries always align with generated ticks.
+/// Snaps boundaries to the major log ticks used for the span
+/// (`[1, 2, 5] × 10^n` when spanning at most three decades, powers of 10
+/// otherwise) so axis limits align with generated ticks without jumping a full
+/// decade on narrow ranges.
 pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
     let clamped_max = if data_max <= 0.0 {
         eprintln!(
@@ -609,12 +612,31 @@ pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
         data_min
     };
 
-    let nice_min = 10f64.powf(clamped_min.log10().floor());
-    let nice_max = 10f64.powf(clamped_max.log10().ceil());
+    if !clamped_min.is_finite() || !clamped_max.is_finite() || clamped_min > clamped_max {
+        return (1.0, 10.0);
+    }
 
-    // Ensure at least one decade of range
+    let multipliers = log_multipliers(clamped_min, clamped_max);
+    let exp_lo = clamped_min.log10().floor() as i32;
+    let exp_hi = clamped_max.log10().ceil() as i32;
+
+    let nice_min = (exp_lo.saturating_sub(1)..=exp_lo.saturating_add(1))
+        .rev()
+        .flat_map(|e| multipliers.iter().rev().map(move |&m| 10f64.powi(e) * m))
+        .find(|&tick| tick <= clamped_min)
+        .unwrap_or_else(|| 10f64.powi(exp_lo.saturating_sub(1)));
+
+    let nice_max = (exp_hi.saturating_sub(1)..=exp_hi.saturating_add(1))
+        .flat_map(|e| multipliers.iter().map(move |&m| 10f64.powi(e) * m))
+        .find(|&tick| tick >= clamped_max)
+        .unwrap_or_else(|| 10f64.powi(exp_hi.saturating_add(1)));
+
+    // Ensure at least one major-tick interval when bounds snap to the same tick
     if (nice_max / nice_min - 1.0).abs() < 1e-8 {
-        (nice_min / 10.0, nice_max * 10.0)
+        (
+            log_tick_before(nice_min, multipliers),
+            log_tick_after(nice_max, multipliers),
+        )
     } else {
         (nice_min, nice_max)
     }
@@ -2203,5 +2225,39 @@ mod tests {
         // be at least as large as rounding the raw value alone would give.
         let (_, hi) = auto_nice_range_capped(1.0, 1.0001, 1.0, 1.0, 5);
         assert!(hi >= 1.0);
+    }
+
+    // ── auto_nice_range_log (issue #136) ────────────────────────────────
+
+    #[test]
+    fn log_range_snaps_to_narrow_subticks_instead_of_full_decade() {
+        // Exactly [0.1, 1.0] lands on decade boundaries.
+        assert_eq!(auto_nice_range_log(0.1, 1.0), (0.1, 1.0));
+        // Exceeding a major tick on a narrow <=3-decade span must snap to
+        // the next [1, 2, 5] major tick instead of jumping a full decade.
+        assert_eq!(auto_nice_range_log(0.1, 1.0 + f64::EPSILON), (0.1, 2.0));
+        assert_eq!(auto_nice_range_log(0.1, 2.0_f64.next_up()), (0.1, 5.0));
+        assert_eq!(auto_nice_range_log(0.1, 5.0_f64.next_up()), (0.1, 10.0));
+        // Lower bound also snaps tightly to [1, 2, 5] ticks.
+        assert_eq!(auto_nice_range_log(1.0 - f64::EPSILON, 10.0), (0.5, 10.0));
+        assert_eq!(auto_nice_range_log(5.0, 100.0), (5.0, 100.0));
+        let ticks = generate_ticks_log(0.1, 2.0);
+        assert_eq!(ticks.first().copied(), Some(0.1));
+        assert_eq!(ticks.last().copied(), Some(2.0));
+    }
+
+    #[test]
+    fn log_range_wide_span_and_equal_bounds_stay_valid() {
+        // Wide (>3 decades) still uses pure powers of 10.
+        assert_eq!(
+            auto_nice_range_log(0.001, 1000.0_f64.next_up()),
+            (0.001, 10_000.0)
+        );
+        // Constant value expands cleanly across major ticks on both sides.
+        let (lo, hi) = auto_nice_range_log(2.0, 2.0);
+        assert!(
+            lo < 2.0 && hi > 2.0,
+            "expected straddling bounds, got ({lo}, {hi})"
+        );
     }
 }
