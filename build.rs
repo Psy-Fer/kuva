@@ -63,8 +63,8 @@ fn main() {
 
 // SHA-256 of the doom-assets-v1 release files. A rebuild with
 // .github/workflows/build-doom-assets.yml prints new digests to copy in here.
-const DOOM_WASM_SHA256: &str = "4ac406bf31468d46a293382f2432fe8da593bb2c227ae1b0040555ec56215616";
-const DOOM_JS_SHA256: &str = "264188ae0388d1d6d9d7585600b0ae94e66af47e7dd0d7e5bce5e2be05b58dfc";
+const DOOM_WASM_SHA256: &str = "79c79d2d4016616ed088085cfc07209e646d15073c7b4e633fb48762addd817a";
+const DOOM_JS_SHA256: &str = "820eb38734d5e03ce17705cb47c56076b4600725386d1b3f00c793a847b1a98d";
 // Shareware DOOM1.WAD v1.9 (SHA-1 5b2e249b9c5133ec987b3ea77596381dc0d6bc1d).
 const DOOM1_WAD_SHA256: &str = "1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771";
 
