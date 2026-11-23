@@ -429,6 +429,9 @@ pub struct Layout {
     /// Maximum number of columns for `OutsideBottomColumns` layout.
     /// `0` means no limit (columns fill available width). Override with `with_legend_col_limit`.
     pub legend_col_limit: usize,
+    /// Lay a flat legend out in this many columns (`0` = one column, reflowing
+    /// only when it would run off the canvas). See [`Layout::with_legend_columns`].
+    pub legend_columns: usize,
     /// Maximum number of entries shown in an `OutsideBottomColumns` legend.
     /// Entries beyond this are replaced with a "… (+N more)" line.
     /// `0` means unlimited. Defaults to 20 for BrickPlot via `auto_from_plots`.
@@ -584,9 +587,19 @@ pub struct Layout {
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis.  Skips auto computation when set.
     pub y_tick_step: Option<f64>,
-    /// Sub-intervals between major ticks (e.g. 5 → 4 minor marks per gap).
+    /// Explicit major tick positions for the x-axis; see [`Layout::with_x_tick_values`].
+    pub x_tick_values: Option<Vec<f64>>,
+    /// Explicit major tick positions for the y-axis; see [`Layout::with_y_tick_values`].
+    pub y_tick_values: Option<Vec<f64>>,
+    /// Sub-intervals between major ticks (e.g. 5 → 4 minor marks per gap), on
+    /// both axes unless an axis sets its own.
     pub minor_ticks: Option<u32>,
-    /// Draw faint gridlines at minor tick positions (requires `minor_ticks`).
+    /// Minor tick sub-intervals for the x-axis only; overrides `minor_ticks`.
+    pub x_minor_ticks: Option<u32>,
+    /// Minor tick sub-intervals for the y-axis only; overrides `minor_ticks`.
+    pub y_minor_ticks: Option<u32>,
+    /// Draw faint gridlines at minor tick positions, on each axis that has
+    /// minor ticks.
     pub show_minor_grid: bool,
     /// Pixel offset applied to the x-axis label after auto-positioning: `(dx, dy)`.
     /// Positive dx shifts right; positive dy shifts down.
@@ -695,6 +708,7 @@ impl Layout {
             legend_auto_labels: Vec::new(),
             legend_max_label_chars: 0,
             legend_col_limit: 0,
+            legend_columns: 0,
             legend_entry_limit: 0,
             stats_entries: Vec::new(),
             stats_title: None,
@@ -765,7 +779,11 @@ impl Layout {
             below_ticks_rows: 0,
             x_tick_step: None,
             y_tick_step: None,
+            x_tick_values: None,
+            y_tick_values: None,
             minor_ticks: None,
+            x_minor_ticks: None,
+            y_minor_ticks: None,
             show_minor_grid: false,
             x_label_offset: (0.0, 0.0),
             y_label_offset: (0.0, 0.0),
@@ -2432,6 +2450,20 @@ impl Layout {
         self
     }
 
+    /// Lay the legend out in `n` columns, filled top to bottom (like matplotlib's
+    /// `ncol`). With `n` at least the number of entries the legend is a single
+    /// row, which suits the `OutsideTop*` and `OutsideBottom*` positions: three
+    /// series above the plot take one line instead of three. Works at every
+    /// position; the margin the legend reserves follows its real size.
+    ///
+    /// Applies to flat legends (not `with_legend_group`) and not to
+    /// `OutsideBottomColumns`, which sizes its own columns
+    /// ([`Layout::with_legend_col_limit`]). `0` (the default) keeps one column.
+    pub fn with_legend_columns(mut self, n: usize) -> Self {
+        self.legend_columns = n;
+        self
+    }
+
     /// Cap the number of entries shown in an `OutsideBottomColumns` legend.
     /// Entries beyond this are replaced with a "… (+N more)" line.
     /// `0` means unlimited. Defaults to 20 for BrickPlot.
@@ -3143,8 +3175,42 @@ impl Layout {
         self.y_tick_step = Some(s);
         self
     }
+    /// Put the x-axis major ticks exactly at `values` (like matplotlib's
+    /// `set_xticks`), instead of choosing them automatically. Values outside the
+    /// axis range (or not positive, on a log axis) are skipped. Takes precedence
+    /// over [`Layout::with_x_tick_step`].
+    ///
+    /// Useful where the usual ticks don't suit the data, for example an audio
+    /// spectrum on a log axis labelled 20, 50, 100, 200, ... 20000 (a log axis
+    /// past three decades otherwise ticks at powers of ten only). Pair it with
+    /// a [`TickFormat::Custom`] to write `"1k"` for 1000.
+    pub fn with_x_tick_values(mut self, values: impl IntoIterator<Item = f64>) -> Self {
+        self.x_tick_values = Some(values.into_iter().collect());
+        self
+    }
+    /// Put the y-axis major ticks exactly at `values`. See
+    /// [`Layout::with_x_tick_values`].
+    pub fn with_y_tick_values(mut self, values: impl IntoIterator<Item = f64>) -> Self {
+        self.y_tick_values = Some(values.into_iter().collect());
+        self
+    }
+    /// Minor ticks on both axes: `n` sub-intervals between major ticks (5 draws
+    /// 4 minor marks per gap). An axis given its own count with
+    /// [`Layout::with_x_minor_ticks`] / [`Layout::with_y_minor_ticks`] uses that.
     pub fn with_minor_ticks(mut self, n: u32) -> Self {
         self.minor_ticks = Some(n);
+        self
+    }
+    /// Minor ticks on the x-axis only (`n` sub-intervals between major ticks).
+    /// With [`Layout::with_show_minor_grid`], only this axis gets minor grid lines.
+    pub fn with_x_minor_ticks(mut self, n: u32) -> Self {
+        self.x_minor_ticks = Some(n);
+        self
+    }
+    /// Minor ticks on the y-axis only (`n` sub-intervals between major ticks).
+    /// With [`Layout::with_show_minor_grid`], only this axis gets minor grid lines.
+    pub fn with_y_minor_ticks(mut self, n: u32) -> Self {
+        self.y_minor_ticks = Some(n);
         self
     }
     pub fn with_show_minor_grid(mut self, v: bool) -> Self {
@@ -3263,8 +3329,18 @@ pub struct ComputedLayout {
     pub x_tick_step: Option<f64>,
     /// Explicit major tick step for the y-axis (None = auto).
     pub y_tick_step: Option<f64>,
-    /// Sub-intervals between major ticks for minor tick marks.
+    /// Explicit major tick positions for the x-axis (None = auto).
+    pub x_tick_values: Option<Vec<f64>>,
+    /// Explicit major tick positions for the y-axis (None = auto).
+    pub y_tick_values: Option<Vec<f64>>,
+    /// Sub-intervals between major ticks for minor tick marks (both axes).
     pub minor_ticks: Option<u32>,
+    /// Minor tick sub-intervals on the x-axis: `Layout::x_minor_ticks`, else
+    /// `minor_ticks`.
+    pub x_minor_ticks: Option<u32>,
+    /// Minor tick sub-intervals on the y-axis: `Layout::y_minor_ticks`, else
+    /// `minor_ticks`.
+    pub y_minor_ticks: Option<u32>,
     /// Draw faint gridlines at minor tick positions.
     pub show_minor_grid: bool,
     /// Common bin width when all histograms share the same bin size.
@@ -4030,7 +4106,9 @@ impl ComputedLayout {
             // rather than the final auto-ranged range is fine here — the formatted width
             // changes very little after nice-rounding.
             let n = if layout.ticks > 0 { layout.ticks } else { 5 };
-            let tick_vals = if let Some(step) = layout.y_tick_step {
+            let tick_vals = if let Some(ref values) = layout.y_tick_values {
+                render_utils::explicit_ticks(values, layout.y_range, layout.log_y)
+            } else if let Some(step) = layout.y_tick_step {
                 render_utils::generate_ticks_with_step(layout.y_range.0, layout.y_range.1, step)
             } else {
                 render_utils::generate_ticks(layout.y_range.0, layout.y_range.1, n)
@@ -4067,9 +4145,20 @@ impl ComputedLayout {
         let x_last_tick_half_w: f64 = if layout.suppress_x_ticks
             || layout.x_categories.is_some()
             || layout.x_tick_rotate.is_some()
-            || layout.log_x
         {
             0.0 // handled elsewhere or not applicable
+        } else if layout.log_x {
+            // A log axis ends on a tick (the nice bound, or the one given) and
+            // writes it with `format_log_tick` unless a format is set.
+            let val = layout.x_axis_max.unwrap_or_else(|| {
+                render_utils::auto_nice_range_log(layout.x_range.0, layout.x_range.1).1
+            });
+            let label = if matches!(layout.x_tick_format, TickFormat::Auto) {
+                render_utils::format_log_tick(val)
+            } else {
+                layout.x_tick_format.format(val)
+            };
+            fonts.measure_text_width(&label, tick_size, tick_style) * 0.5
         } else {
             let val = layout.x_axis_max.unwrap_or(layout.x_range.1);
             let label = layout.x_tick_format.format(val);
@@ -4193,6 +4282,19 @@ impl ComputedLayout {
             // At least 10 rows before reflowing, as with the old truncation cap.
             let budget_total = ((avail_h / legend_row_h).floor() as usize).max(10);
             legend_line_budget = budget_total.saturating_sub(title_lines).max(1);
+            if layout.legend_columns > 0 && !lines.is_empty() {
+                // An explicit column count: the smallest line budget that fits the
+                // entries into at most that many columns (one line each when the
+                // count covers every entry, so the legend is a single row).
+                let want = layout.legend_columns.min(lines.len());
+                let total: usize = lines.iter().sum();
+                let tallest = lines.iter().copied().max().unwrap_or(1);
+                let mut budget = total.div_ceil(want).max(tallest);
+                while render_utils::legend_columns(&lines, budget).len() > want {
+                    budget += 1;
+                }
+                legend_line_budget = budget;
+            }
             let cols = render_utils::legend_columns(&lines, legend_line_budget);
             if cols.len() > 1 {
                 effective_legend_width =
@@ -4648,7 +4750,11 @@ impl ComputedLayout {
             legend_line_height,
             x_tick_step: layout.x_tick_step,
             y_tick_step: layout.y_tick_step,
+            x_tick_values: layout.x_tick_values.clone(),
+            y_tick_values: layout.y_tick_values.clone(),
             minor_ticks: layout.minor_ticks,
+            x_minor_ticks: layout.x_minor_ticks.or(layout.minor_ticks),
+            y_minor_ticks: layout.y_minor_ticks.or(layout.minor_ticks),
             show_minor_grid: layout.show_minor_grid,
             x_bin_width: layout.x_bin_width,
             polar_r_label_angle: layout.polar_r_label_angle,

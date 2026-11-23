@@ -1528,7 +1528,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
         if bar.horizontal {
             // Categories on Y-axis, values on X-axis; bars extend rightward from x=0.
             if bar.stacked {
-                let mut x_accum = 0.0;
+                let mut x_accum = bar.baseline;
                 for (j, bar_val) in group.bars.iter().enumerate() {
                     let y0 = computed.map_y(group_cat - total_width / 2.0);
                     let y1 = computed.map_y(group_cat + total_width / 2.0);
@@ -1588,7 +1588,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     let y_center = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
                     let y0 = computed.map_y(y_center - single_width / 2.0);
                     let y1 = computed.map_y(y_center + single_width / 2.0);
-                    let x0 = computed.map_x(0.0);
+                    let x0 = computed.map_x(bar.baseline);
                     let x1 = computed.map_x(bar_val.value);
                     let series_label = if n == 1 {
                         group.label.as_str()
@@ -1642,7 +1642,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
         } else {
             // Default vertical: categories on X-axis, values on Y-axis.
             if bar.stacked {
-                let mut y_accum = 0.0;
+                let mut y_accum = bar.baseline;
                 for (j, bar_val) in group.bars.iter().enumerate() {
                     let x0 = computed.map_x(group_cat - total_width / 2.0);
                     let x1 = computed.map_x(group_cat + total_width / 2.0);
@@ -1715,7 +1715,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     let x = group_cat - total_width / 2.0 + single_width * (j as f64 + 0.5);
                     let x0 = computed.map_x(x - single_width / 2.0);
                     let x1 = computed.map_x(x + single_width / 2.0);
-                    let y0 = computed.map_y(0.0);
+                    let y0 = computed.map_y(bar.baseline);
                     let y1 = computed.map_y(bar_val.value);
 
                     let series_label = if n == 1 {
@@ -3139,10 +3139,20 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
     };
     let total = rows * cols;
 
-    let (x_lo, x_hi) = heatmap.x_range.unwrap_or((0.5, cols as f64 + 0.5));
-    let (y_lo, y_hi) = heatmap.y_range.unwrap_or((0.5, rows as f64 + 0.5));
-    let x_step = (x_hi - x_lo) / cols as f64;
-    let y_step = (y_hi - y_lo) / rows as f64;
+    let x_edges = Heatmap::cell_edges(
+        heatmap.x_edges.as_deref(),
+        heatmap.x_range,
+        cols,
+        computed.log_x,
+        "x",
+    );
+    let y_edges = Heatmap::cell_edges(
+        heatmap.y_edges.as_deref(),
+        heatmap.y_range,
+        rows,
+        computed.log_y,
+        "y",
+    );
 
     // Build rect data across rows.
     // full_w / full_h stored separately so value-overlay centering is independent of cell_size.
@@ -3161,11 +3171,12 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         .enumerate()
         .flat_map(|(i, row)| {
             let cmap = cmap.clone();
+            let (x_edges, y_edges) = (&x_edges, &y_edges);
             row.iter().enumerate().map(move |(j, &value)| {
-                let x0 = computed.map_x(x_lo + j as f64 * x_step);
-                let x1 = computed.map_x(x_lo + (j + 1) as f64 * x_step);
-                let y0 = computed.map_y(y_lo + (i + 1) as f64 * y_step);
-                let y1 = computed.map_y(y_lo + i as f64 * y_step);
+                let x0 = computed.map_x(x_edges[j]);
+                let x1 = computed.map_x(x_edges[j + 1]);
+                let y0 = computed.map_y(y_edges[i + 1]);
+                let y1 = computed.map_y(y_edges[i]);
                 let full_w = (x1 - x0).abs();
                 let full_h = (y1 - y0).abs();
                 // At cell_size < 1.0 leave a deliberate gap (factor * natural size).

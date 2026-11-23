@@ -24,6 +24,7 @@ fn main() {
     grouped();
     stacked();
     horizontal();
+    baseline();
 
     println!("Bar SVGs written to {OUT}/");
 }
@@ -130,4 +131,29 @@ fn stacked() {
 
     let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
     std::fs::write(format!("{OUT}/stacked.svg"), svg).unwrap();
+}
+
+fn baseline() {
+    let plot = BarPlot::new()
+        .with_bars(vec![
+            ("63", -75.0),
+            ("125", -60.0),
+            ("250", -48.0),
+            ("500", -52.0),
+            ("1k", -55.0),
+            ("2k", -63.0),
+        ])
+        .with_color("steelblue")
+        .with_baseline(-120.0);
+
+    let plots = vec![Plot::Bar(plot)];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_y_axis_min(-120.0)
+        .with_y_axis_max(-30.0)
+        .with_title("Octave Band Levels")
+        .with_x_label("Band (Hz)")
+        .with_y_label("Level (dBFS)");
+
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    std::fs::write(format!("{OUT}/baseline.svg"), svg).unwrap();
 }

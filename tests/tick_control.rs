@@ -126,6 +126,182 @@ fn test_minor_grid() {
     );
 }
 
+/// Minor grid lines (half the grid width) as (vertical, horizontal) counts.
+fn minor_grid_lines(svg: &str) -> (usize, usize) {
+    let attr = |tag: &str, name: &str| -> f64 {
+        let key = format!("{name}=\"");
+        let start = tag.find(&key).unwrap() + key.len();
+        tag[start..].split('"').next().unwrap().parse().unwrap()
+    };
+    let mut counts = (0, 0);
+    for tag in svg.split("<line").skip(1) {
+        let tag = tag.split('>').next().unwrap();
+        if !tag.contains("stroke-width=\"0.5\"") {
+            continue;
+        }
+        if attr(tag, "x1") == attr(tag, "x2") {
+            counts.0 += 1;
+        } else if attr(tag, "y1") == attr(tag, "y2") {
+            counts.1 += 1;
+        }
+    }
+    counts
+}
+
+/// #142: minor ticks (and so minor grid lines) on one axis only, and an axis's
+/// own count overriding the shared one.
+#[test]
+fn test_minor_ticks_per_axis() {
+    let base = || {
+        let plots = vec![Plot::Scatter(
+            ScatterPlot::new().with_data(vec![(0.0f64, 0.0f64), (10.0, 5.0)]),
+        )];
+        Layout::auto_from_plots(&plots).with_show_minor_grid(true)
+    };
+    let x_only = scatter_svg(base().with_x_minor_ticks(5));
+    common::write_test_output("test_outputs/tick_control_minor_x_only.svg", &x_only).unwrap();
+    let (v, h) = minor_grid_lines(&x_only);
+    assert!(v > 0, "x minor grid lines expected");
+    assert_eq!(h, 0, "no y minor grid lines expected");
+
+    let (v, h) = minor_grid_lines(&scatter_svg(base().with_y_minor_ticks(5)));
+    assert!(h > 0);
+    assert_eq!(v, 0);
+
+    // Per-axis count wins over the shared one.
+    let (v_shared, h_shared) = minor_grid_lines(&scatter_svg(base().with_minor_ticks(5)));
+    let (v_over, h_over) = minor_grid_lines(&scatter_svg(
+        base().with_minor_ticks(5).with_x_minor_ticks(2),
+    ));
+    assert_eq!(h_over, h_shared, "y keeps the shared count");
+    assert!(v_over < v_shared, "x uses its own, smaller count");
+}
+
+/// Text of every `<text>` element, in order.
+fn texts(svg: &str) -> Vec<String> {
+    svg.split("<text")
+        .skip(1)
+        .filter_map(|t| {
+            t.split_once('>')
+                .map(|(_, rest)| rest.split('<').next().unwrap().to_string())
+        })
+        .collect()
+}
+
+/// #137: explicit major tick positions, here an audio spectrum on a log axis
+/// past three decades (which otherwise ticks at powers of ten only).
+#[test]
+fn test_explicit_tick_values_on_a_log_axis() {
+    let data: Vec<(f64, f64)> = (0..200)
+        .map(|i| {
+            let f = 20.0 * 1000f64.powf(i as f64 / 199.0);
+            (f, -60.0 - 10.0 * (f / 1000.0).log10())
+        })
+        .collect();
+    let plots = vec![Plot::Line(LinePlot::new().with_data(data))];
+    let ticks = [
+        20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0,
+    ];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_log_x()
+        .with_x_axis_min(20.0)
+        .with_x_axis_max(20000.0)
+        // Outside the range, and not positive on a log axis: skipped.
+        .with_x_tick_values(ticks.iter().copied().chain([0.0, -5.0, 1e6]));
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/tick_control_explicit_log.svg", &svg).unwrap();
+    let t = texts(&svg);
+    for v in ticks {
+        assert!(t.contains(&format!("{v}")), "tick label {v} missing: {t:?}");
+    }
+    for skipped in ["0", "-5", "1000000"] {
+        assert!(
+            !t.contains(&skipped.to_string()),
+            "{skipped} should be skipped"
+        );
+    }
+}
+
+/// With hand-picked log ticks, minor ticks still follow the decades (2 to 9
+/// times each power of ten), not linear steps between the given ticks.
+#[test]
+fn test_explicit_log_ticks_keep_decade_minors() {
+    let plots = vec![Plot::Line(
+        LinePlot::new().with_data(vec![(20.0, 0.0), (20000.0, 1.0)]),
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_log_x()
+        .with_x_axis_min(20.0)
+        .with_x_axis_max(20000.0)
+        .with_x_tick_values([20.0, 50.0, 100.0, 1000.0, 2000.0, 20000.0])
+        .with_x_minor_ticks(9)
+        .with_show_minor_grid(true);
+    let computed = ComputedLayout::from_layout(&layout);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    // Vertical minor grid lines (half-width strokes), as x positions.
+    let minor_xs: Vec<f64> = svg
+        .split("<line")
+        .skip(1)
+        .map(|t| t.split('>').next().unwrap())
+        .filter(|t| t.contains("stroke-width=\"0.5\""))
+        .filter_map(|t| {
+            let x1 = t
+                .split(" x1=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .parse::<f64>()
+                .ok()?;
+            let x2 = t
+                .split(" x2=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .parse::<f64>()
+                .ok()?;
+            (x1 == x2).then_some(x1)
+        })
+        .collect();
+    let has_minor_at = |v: f64| {
+        minor_xs
+            .iter()
+            .any(|x| (x - computed.map_x(v)).abs() < 0.05)
+    };
+    for v in [30.0, 40.0, 300.0, 3000.0, 9000.0] {
+        assert!(has_minor_at(v), "decade minor at {v} expected");
+    }
+    assert!(
+        !has_minor_at(1000.0 + 1000.0 / 9.0),
+        "no linear step between 1000 and 2000"
+    );
+}
+
+/// Explicit y ticks on a linear axis replace the automatic ones.
+#[test]
+fn test_explicit_tick_values_linear_y() {
+    let layout = Layout::auto_from_plots(&[Plot::Scatter(
+        ScatterPlot::new().with_data(vec![(0.0f64, 0.0f64), (13.0, 5.0)]),
+    )])
+    .with_y_tick_values([0.5, 2.5, 4.5]);
+    let svg = scatter_svg(layout);
+    // y tick labels are the right-anchored texts.
+    let y_labels: Vec<String> = svg
+        .split("<text")
+        .skip(1)
+        .filter(|t| t.split('>').next().unwrap().contains("text-anchor=\"end\""))
+        .map(|t| {
+            t.split_once('>')
+                .unwrap()
+                .1
+                .split('<')
+                .next()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(y_labels, ["0.5", "2.5", "4.5"]);
+}
+
 /// Axis line width: with_axis_line_width(4.0) → stroke-width="4" on both axis lines.
 #[test]
 fn test_axis_line_width() {

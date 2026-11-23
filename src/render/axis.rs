@@ -302,6 +302,27 @@ fn compute_minor_ticks(
         .collect()
 }
 
+/// Minor ticks for a log axis whose major ticks were given by hand: `n`
+/// subdivisions of each decade (`9` marks 2 to 9 times each power of ten),
+/// leaving out any that sit on a major tick.
+fn decade_minor_ticks(range: (f64, f64), majors: &[f64], n: u32) -> Vec<f64> {
+    let (lo, hi) = (range.0.min(range.1), range.0.max(range.1));
+    if !(lo > 0.0 && hi.is_finite()) {
+        return Vec::new();
+    }
+    let (lo_e, hi_e) = (lo.log10().floor() as i32, hi.log10().ceil() as i32);
+    // f64 spans about 630 decades; anything wider is not a real axis.
+    if hi_e.saturating_sub(lo_e) > 700 {
+        return Vec::new();
+    }
+    let decades: Vec<f64> = (lo_e..=hi_e).map(|e| 10f64.powi(e)).collect();
+    let on_major = |v: f64| majors.iter().any(|m| (m - v).abs() <= m.abs() * 1e-9);
+    compute_minor_ticks(&decades, &TickSpacing::Log { min: lo, max: hi }, range, n)
+        .into_iter()
+        .filter(|v| !on_major(*v))
+        .collect()
+}
+
 /// Estimate arithmetic spacing from the first two distinct tick positions,
 /// falling back to `fallback` when there aren't enough ticks. Rounding and
 /// omitted unrepresentable positions can change the observed spacing.
@@ -320,15 +341,31 @@ fn arithmetic_step(ticks: &[f64], fallback: impl FnOnce() -> f64) -> f64 {
 /// drift out of sync — `bin_width` is `None` for y, which has no histogram
 /// binning concept.
 #[allow(clippy::too_many_arguments)]
-fn resolve_axis_ticks(
+fn resolve_axis_ticks<'a>(
     range: (f64, f64),
+    tick_values: Option<&[f64]>,
     tick_step: Option<f64>,
     bin_width: Option<f64>,
-    datetime: Option<&DateTimeAxis>,
+    datetime: Option<&'a DateTimeAxis>,
     log: bool,
     target_ticks: usize,
-) -> (Vec<f64>, TickSpacing<'_>) {
-    if let Some(step) = tick_step {
+) -> (Vec<f64>, TickSpacing<'a>) {
+    if let Some(values) = tick_values {
+        // Explicit positions. Minor ticks subdivide the gaps between them; the
+        // spacing only matters past an end that isn't on a given tick.
+        let ticks = render_utils::explicit_ticks(values, range, log);
+        let spacing = if log {
+            TickSpacing::Log {
+                min: range.0,
+                max: range.1,
+            }
+        } else {
+            TickSpacing::Arithmetic(arithmetic_step(&ticks, || {
+                render_utils::compute_tick_step(range.0, range.1, target_ticks)
+            }))
+        };
+        (ticks, spacing)
+    } else if let Some(step) = tick_step {
         (
             render_utils::generate_ticks_with_step(range.0, range.1, step),
             TickSpacing::Arithmetic(step),
@@ -370,6 +407,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     // the tick that would exist just past each end (see `TickSpacing`).
     let (x_ticks, x_spacing) = resolve_axis_ticks(
         computed.x_range,
+        computed.x_tick_values.as_deref(),
         computed.x_tick_step,
         computed.x_bin_width,
         layout.x_datetime.as_ref(),
@@ -378,6 +416,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     );
     let (y_ticks, y_spacing) = resolve_axis_ticks(
         computed.y_range,
+        computed.y_tick_values.as_deref(),
         computed.y_tick_step,
         None,
         layout.y_datetime.as_ref(),
@@ -393,6 +432,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         computed.x_break,
         computed.x_range,
         computed.x_tick_step.is_none()
+            && computed.x_tick_values.is_none()
             && computed.x_bin_width.is_none()
             && layout.x_datetime.is_none()
             && !layout.log_x,
@@ -403,7 +443,10 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
         y_spacing,
         computed.y_break,
         computed.y_range,
-        computed.y_tick_step.is_none() && layout.y_datetime.is_none() && !layout.log_y,
+        computed.y_tick_step.is_none()
+            && computed.y_tick_values.is_none()
+            && layout.y_datetime.is_none()
+            && !layout.log_y,
         computed.y_ticks,
     );
     // A tick label right at a gap edge would sit under the break mark.
@@ -428,25 +471,35 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     // bands past the outer majors get filled, then drop any that fall outside the
     // axis range. The filtered lists feed both the gridlines and the tick marks.
     // On a broken axis each segment extrapolates with its own step.
-    let x_minor = computed.minor_ticks.map(|n| {
-        minor_ticks_for(
-            &x_ticks,
-            &x_spacing,
-            x_broken.as_ref(),
-            computed.x_break,
-            computed.x_range,
-            n,
-        )
+    // A log axis with hand-picked ticks (20, 50, 100, ...) takes its minors from
+    // the decades instead, so `9` still marks 2 to 9 in each decade.
+    let x_minor = computed.x_minor_ticks.map(|n| {
+        if layout.log_x && computed.x_tick_values.is_some() {
+            decade_minor_ticks(computed.x_range, &x_ticks, n)
+        } else {
+            minor_ticks_for(
+                &x_ticks,
+                &x_spacing,
+                x_broken.as_ref(),
+                computed.x_break,
+                computed.x_range,
+                n,
+            )
+        }
     });
-    let y_minor = computed.minor_ticks.map(|n| {
-        minor_ticks_for(
-            &y_ticks,
-            &y_spacing,
-            y_broken.as_ref(),
-            computed.y_break,
-            computed.y_range,
-            n,
-        )
+    let y_minor = computed.y_minor_ticks.map(|n| {
+        if layout.log_y && computed.y_tick_values.is_some() {
+            decade_minor_ticks(computed.y_range, &y_ticks, n)
+        } else {
+            minor_ticks_for(
+                &y_ticks,
+                &y_spacing,
+                y_broken.as_ref(),
+                computed.y_break,
+                computed.y_range,
+                n,
+            )
+        }
     });
 
     // Draw minor gridlines (before major so major renders on top)
@@ -1411,6 +1464,7 @@ mod tests {
     fn log_axis_with_explicit_tick_step_resolves_to_arithmetic_spacing() {
         let (ticks, spacing) = resolve_axis_ticks(
             (1.0, 20.0),
+            None,      // no explicit tick values
             Some(5.0), // explicit tick step
             None,
             None,

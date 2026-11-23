@@ -984,6 +984,7 @@ pub(crate) fn clone_layout(l: &Layout) -> Layout {
     new.legend_box = l.legend_box;
     new.legend_height = l.legend_height;
     new.legend_col_limit = l.legend_col_limit;
+    new.legend_columns = l.legend_columns;
     new.legend_entry_limit = l.legend_entry_limit;
     new.legend_entry_count = l.legend_entry_count;
     new.legend_auto_labels = l.legend_auto_labels.clone();
@@ -1058,7 +1059,11 @@ pub(crate) fn clone_layout(l: &Layout) -> Layout {
     new.term_rows = l.term_rows;
     new.x_tick_step = l.x_tick_step;
     new.y_tick_step = l.y_tick_step;
+    new.x_tick_values = l.x_tick_values.clone();
+    new.y_tick_values = l.y_tick_values.clone();
     new.minor_ticks = l.minor_ticks;
+    new.x_minor_ticks = l.x_minor_ticks;
+    new.y_minor_ticks = l.y_minor_ticks;
     new.show_minor_grid = l.show_minor_grid;
     new.x_label_offset = l.x_label_offset;
     new.y_label_offset = l.y_label_offset;

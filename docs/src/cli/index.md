@@ -315,6 +315,10 @@ cat gwas.tsv | kuva manhattan --chr-col chr --pvalue-col pvalue --terminal
 | `--x-label <TEXT>` | — | X-axis label |
 | `--y-label <TEXT>` | — | Y-axis label |
 | `--ticks <N>` | `5` | Hint for number of tick marks |
+| `--x-tick-values <V,V,...>` / `--y-tick-values <V,V,...>` | — | Major ticks exactly at these values, e.g. `20,50,100,200` |
+| `--minor-ticks <N>` | — | Minor ticks on both axes: `N` sub-intervals between major ticks |
+| `--x-minor-ticks <N>` / `--y-minor-ticks <N>` | — | Minor ticks on one axis only (overrides `--minor-ticks` there) |
+| `--minor-grid` | off | Faint grid lines at the minor ticks, on each axis that has them |
 | `--no-grid` | off | Disable background grid |
 | `--y-break <LO,HI[,SHARE]>` | — | Skip the values between LO and HI on the Y axis: a short gap with slanted marks, each segment to its own scale. SHARE is the fraction of the axis for the segment below the break (default follows the data, clamped to 0.3–0.7). Linear numeric axes only ([Reference → Axis Breaks](../reference/axis_break.md)) |
 | `--x-break <LO,HI[,SHARE]>` | — | Same for the X axis |

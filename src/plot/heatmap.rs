@@ -95,15 +95,22 @@ pub struct Heatmap {
     pub color_map: ColorMap,
     /// When `true`, each cell displays its raw numeric value as text.
     pub show_values: bool,
+    /// Colour bar title, set by [`Heatmap::with_legend`].
     pub legend_label: Option<String>,
     pub show_tooltips: bool,
     pub tooltip_labels: Option<Vec<String>>,
     /// Custom x-axis range `(x_min, x_max)`. When set, cell columns are
-    /// mapped linearly across this range instead of the default `[0.5, cols+0.5]`.
+    /// spread evenly across this range (evenly in log units on a log axis)
+    /// instead of the default `[0.5, cols+0.5]`.
     pub x_range: Option<(f64, f64)>,
     /// Custom y-axis range `(y_min, y_max)`. When set, cell rows are
-    /// mapped linearly across this range instead of the default `[0.5, rows+0.5]`.
+    /// spread evenly across this range (evenly in log units on a log axis)
+    /// instead of the default `[0.5, rows+0.5]`.
     pub y_range: Option<(f64, f64)>,
+    /// Explicit column edges (`cols + 1` values); see [`Heatmap::with_x_edges`].
+    pub x_edges: Option<Vec<f64>>,
+    /// Explicit row edges (`rows + 1` values); see [`Heatmap::with_y_edges`].
+    pub y_edges: Option<Vec<f64>>,
     /// Fraction of each cell's natural size used when drawing the cell rect.
     /// `0.99` (default) leaves a 1% gap between cells, making cell boundaries
     /// visible. `1.0` draws cells flush — useful for large grids where the gap
@@ -133,6 +140,8 @@ impl Heatmap {
             tooltip_labels: None,
             x_range: None,
             y_range: None,
+            x_edges: None,
+            y_edges: None,
             cell_size: 0.99,
         }
     }
@@ -140,8 +149,10 @@ impl Heatmap {
     /// Set the grid data.
     ///
     /// Accepts any iterable of iterables of numeric values. The outer iterator
-    /// produces rows (top to bottom); the inner iterator produces columns
-    /// (left to right). All rows must have the same number of columns.
+    /// produces rows, the first drawn at the bottom (at the low end of the y
+    /// range); the inner iterator produces columns (left to right). All rows
+    /// must have the same number of columns. [`Heatmap::with_y_categories`]
+    /// orders the rows by label instead.
     ///
     /// ```rust,no_run
     /// # use kuva::plot::Heatmap;
@@ -309,7 +320,7 @@ impl Heatmap {
         self
     }
 
-    /// Attach a legend label to this heatmap.
+    /// Title the colour bar, typically with the unit of the values (`"dB"`).
     pub fn with_legend<S: Into<String>>(mut self, label: S) -> Self {
         self.legend_label = Some(label.into());
         self
@@ -332,7 +343,10 @@ impl Heatmap {
     ///
     /// By default columns are mapped to `[0.5, cols + 0.5]` so that integer
     /// tick positions land on cell centres. Use this when the heatmap represents
-    /// a scalar field over a physical domain (e.g. `-10.0..10.0`).
+    /// a scalar field over a physical domain (e.g. `-10.0..10.0`). The columns
+    /// are spread evenly across the range, in log units on a log x axis, so
+    /// every column has the same width on screen. For uneven columns give the
+    /// edges with [`Heatmap::with_x_edges`].
     pub fn with_x_range(mut self, x_min: impl Into<f64>, x_max: impl Into<f64>) -> Self {
         self.x_range = Some((x_min.into(), x_max.into()));
         self
@@ -341,10 +355,68 @@ impl Heatmap {
     /// Set the y-axis range `(y_min, y_max)` for the heatmap.
     ///
     /// By default rows are mapped to `[0.5, rows + 0.5]`. Use this when the
-    /// heatmap represents a scalar field over a physical domain.
+    /// heatmap represents a scalar field over a physical domain. The rows are
+    /// spread evenly across the range, in log units on a log y axis (a
+    /// spectrogram with log-spaced frequency rows), so every row has the same
+    /// height on screen. For uneven rows, such as linear frequency bins on a log
+    /// axis, give the edges with [`Heatmap::with_y_edges`].
     pub fn with_y_range(mut self, y_min: impl Into<f64>, y_max: impl Into<f64>) -> Self {
         self.y_range = Some((y_min.into(), y_max.into()));
         self
+    }
+
+    /// Set the column edges: `cols + 1` increasing (or decreasing) values, column
+    /// `j` spanning `edges[j]..edges[j + 1]`, like matplotlib's `pcolormesh`.
+    /// Takes precedence over [`Heatmap::with_x_range`]. Edges that don't match
+    /// the column count, aren't finite and strictly ordered, or aren't positive
+    /// on a log axis are ignored, with a warning.
+    pub fn with_x_edges(mut self, edges: impl IntoIterator<Item = f64>) -> Self {
+        self.x_edges = Some(edges.into_iter().collect());
+        self
+    }
+
+    /// Set the row edges: `rows + 1` values, row `i` spanning
+    /// `edges[i]..edges[i + 1]`. Lets each row cover its own band, for example
+    /// the linear frequency bins of an FFT drawn on a log frequency axis. See
+    /// [`Heatmap::with_x_edges`].
+    pub fn with_y_edges(mut self, edges: impl IntoIterator<Item = f64>) -> Self {
+        self.y_edges = Some(edges.into_iter().collect());
+        self
+    }
+
+    /// The `n + 1` cell edges along one axis: the given edges when usable, else
+    /// `n` equal cells across the range (equal in log units on a log axis).
+    pub(crate) fn cell_edges(
+        edges: Option<&[f64]>,
+        range: Option<(f64, f64)>,
+        n: usize,
+        log: bool,
+        axis: &str,
+    ) -> Vec<f64> {
+        if let Some(e) = edges {
+            let finite = e.iter().all(|v| v.is_finite() && (!log || *v > 0.0));
+            let ordered = e.windows(2).all(|w| w[0] < w[1]) || e.windows(2).all(|w| w[0] > w[1]);
+            if e.len() == n + 1 && finite && ordered {
+                return e.to_vec();
+            }
+            eprintln!(
+                "kuva: warning: heatmap {axis} edges ignored: need {} finite, strictly \
+                 ordered{} values, got {}",
+                n + 1,
+                if log { ", positive" } else { "" },
+                e.len()
+            );
+        }
+        let (lo, hi) = range.unwrap_or((0.5, n as f64 + 0.5));
+        if log && lo > 0.0 && hi > 0.0 {
+            let ratio = hi / lo;
+            (0..=n)
+                .map(|k| lo * ratio.powf(k as f64 / n as f64))
+                .collect()
+        } else {
+            let step = (hi - lo) / n as f64;
+            (0..=n).map(|k| lo + k as f64 * step).collect()
+        }
     }
 
     /// Set the cell size as a fraction of each cell's natural width and height.

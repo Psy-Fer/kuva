@@ -46,6 +46,8 @@ pub struct BarPlot {
     pub error_color: Option<String>,
     /// Whisker cap width as a fraction of the bar's own width (default `0.2`).
     pub error_cap_width: f64,
+    /// Value the bars start from (default `0.0`). See [`BarPlot::with_baseline`].
+    pub baseline: f64,
 }
 
 /// A single category group containing one or more bars.
@@ -87,6 +89,7 @@ impl BarPlot {
             errors: None,
             error_color: None,
             error_cap_width: 0.2,
+            baseline: 0.0,
         }
     }
 
@@ -297,6 +300,18 @@ impl BarPlot {
     /// with [`.with_group()`](Self::with_group).
     pub fn with_stacked(mut self) -> Self {
         self.stacked = true;
+        self
+    }
+
+    /// Start the bars at `baseline` instead of `0`. Each bar runs from the
+    /// baseline to its value, so negative quantities such as dBFS levels
+    /// (`-75`, `-60`, ...) rise from `with_baseline(-120.0)` instead of hanging
+    /// from zero. Stacked segments keep their lengths and stack up from the
+    /// baseline. The value axis always includes the baseline.
+    ///
+    /// A log value axis needs a positive baseline, since it can't show `0`.
+    pub fn with_baseline(mut self, baseline: f64) -> Self {
+        self.baseline = baseline;
         self
     }
 

@@ -247,11 +247,28 @@ pub struct AxisArgs {
     #[arg(long, allow_hyphen_values = true)]
     pub y_tick_step: Option<f64>,
 
+    /// Put the X axis major ticks exactly at these values, e.g. 20,50,100,200
+    /// (values outside the axis range are skipped). Overrides --x-tick-step.
+    #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+    pub x_tick_values: Vec<f64>,
+
+    /// Put the Y axis major ticks exactly at these values. Overrides --y-tick-step.
+    #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+    pub y_tick_values: Vec<f64>,
+
     /// Subdivisions between major ticks, e.g. 5 draws 4 minor marks per interval.
     #[arg(long)]
     pub minor_ticks: Option<u32>,
 
-    /// Draw faint gridlines at minor tick positions (requires --minor-ticks).
+    /// Minor tick subdivisions on the X axis only (overrides --minor-ticks there).
+    #[arg(long)]
+    pub x_minor_ticks: Option<u32>,
+
+    /// Minor tick subdivisions on the Y axis only (overrides --minor-ticks there).
+    #[arg(long)]
+    pub y_minor_ticks: Option<u32>,
+
+    /// Draw faint gridlines at minor tick positions, on each axis with minor ticks.
     #[arg(long)]
     pub minor_grid: bool,
 
@@ -894,6 +911,18 @@ pub fn apply_axis_args(mut layout: Layout, args: &AxisArgs) -> Layout {
     }
     if let Some(s) = args.y_tick_step {
         layout = layout.with_y_tick_step(s);
+    }
+    if !args.x_tick_values.is_empty() {
+        layout = layout.with_x_tick_values(args.x_tick_values.iter().copied());
+    }
+    if !args.y_tick_values.is_empty() {
+        layout = layout.with_y_tick_values(args.y_tick_values.iter().copied());
+    }
+    if let Some(n) = args.x_minor_ticks {
+        layout = layout.with_x_minor_ticks(n);
+    }
+    if let Some(n) = args.y_minor_ticks {
+        layout = layout.with_y_minor_ticks(n);
     }
     if let Some(n) = args.minor_ticks {
         layout = layout.with_minor_ticks(n);

@@ -141,6 +141,26 @@ Full set of outside variants:
 | `OutsideBottomRight` | Bottom margin, right-aligned |
 | `OutsideBottomColumns` | Bottom margin, auto-packed multi-column grid; canvas height extends to fit all entries |
 
+### Entries side by side
+
+A legend is one column by default. `.with_legend_columns(n)` lays it out in `n` columns, filled top to bottom (like matplotlib's `ncol`). With `n` at least the number of entries the legend is a single row, which keeps a legend above or below the plot to one line:
+
+```rust,no_run
+# use kuva::plot::{LegendPosition, LinePlot};
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+let plots: Vec<Plot> = vec![
+    LinePlot::new().with_data(vec![(0.0, 1.0), (1.0, 2.0)]).with_legend("L10").into(),
+    LinePlot::new().with_data(vec![(0.0, 2.0), (1.0, 3.0)]).with_legend("L50").into(),
+    LinePlot::new().with_data(vec![(0.0, 3.0), (1.0, 4.0)]).with_legend("L90").into(),
+];
+let layout = Layout::auto_from_plots(&plots)
+    .with_legend_position(LegendPosition::OutsideTopLeft)
+    .with_legend_columns(3); // one row: L10  L50  L90
+```
+
+It works at every position, and the margin the legend reserves follows its real size. It applies to flat legends; grouped legends and `OutsideBottomColumns` (which sizes its own grid, capped by `.with_legend_col_limit(n)`) keep their layouts.
+
 ---
 
 ### Freeform positions
@@ -341,6 +361,7 @@ figure.with_shared_legend_entries(vec![
 | `.with_legend_title(s)` | — | Bold header row above all entries |
 | `.with_legend_width(px)` | auto | Override the auto-computed legend box width |
 | `.with_legend_height(px)` | auto | Override the auto-computed legend box height |
+| `.with_legend_columns(n)` | `0` (one column) | Lay the entries out in `n` columns; `n` at least the entry count gives one row |
 
 ### Content builders on `Layout`
 

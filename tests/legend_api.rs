@@ -1084,3 +1084,89 @@ fn test_dashdot_legend_swatch_fits_full_pattern() {
         "DashDot swatch must be at least 18px (one full \"8 4 2 4\" cycle) to show the dot, got {swatch_len}"
     );
 }
+
+/// The `y` of the `<text>` holding exactly `label`.
+fn text_y(svg: &str, label: &str) -> f64 {
+    let end = svg
+        .find(&format!(">{label}</text>"))
+        .unwrap_or_else(|| panic!("{label} missing"));
+    let tag = &svg[svg[..end].rfind("<text").unwrap()..end];
+    let start = tag.find(" y=\"").unwrap() + 4;
+    tag[start..].split('"').next().unwrap().parse().unwrap()
+}
+
+fn three_lines() -> Vec<Plot> {
+    let line = |shift: f64| -> Vec<(f64, f64)> {
+        (1..100).map(|i| (i as f64, shift - i as f64)).collect()
+    };
+    vec![
+        LinePlot::new()
+            .with_data(line(0.0))
+            .with_legend("L10")
+            .into(),
+        LinePlot::new()
+            .with_data(line(-10.0))
+            .with_legend("L50")
+            .into(),
+        LinePlot::new()
+            .with_data(line(-20.0))
+            .with_legend("L90")
+            .into(),
+    ]
+}
+
+/// #139: `with_legend_columns` lays the legend out side by side; with as many
+/// columns as entries, three series above the plot take one row.
+#[test]
+fn legend_columns_one_row_above_the_plot() {
+    use kuva::render::layout::ComputedLayout;
+    let top = || {
+        Layout::auto_from_plots(&three_lines()).with_legend_position(LegendPosition::OutsideTopLeft)
+    };
+    let stacked_layout = top();
+    let row_layout = top().with_legend_columns(3);
+    let stacked_top = ComputedLayout::from_layout(&stacked_layout).margin_top;
+    let row_top = ComputedLayout::from_layout(&row_layout).margin_top;
+    let out = svg(three_lines(), row_layout);
+    common::write_test_output("test_outputs/legend_columns_one_row.svg", &out).unwrap();
+    let ys: Vec<f64> = ["L10", "L50", "L90"]
+        .iter()
+        .map(|l| text_y(&out, l))
+        .collect();
+    assert!(
+        ys.iter().all(|y| (y - ys[0]).abs() < 0.01),
+        "one row: {ys:?}"
+    );
+    assert!(
+        row_top < stacked_top,
+        "a row reserves less height ({row_top} vs {stacked_top})"
+    );
+    // The legend sits above the plot area.
+    assert!(ys[0] < row_top);
+}
+
+/// Fewer columns than entries: entries fill each column top to bottom.
+#[test]
+fn legend_columns_fill_down_then_across() {
+    let mut plots = three_lines();
+    plots.push(
+        LinePlot::new()
+            .with_data(vec![(1.0, 0.0), (2.0, 1.0)])
+            .with_legend("L99")
+            .into(),
+    );
+    let layout = Layout::auto_from_plots(&plots)
+        .with_legend_position(LegendPosition::OutsideTopLeft)
+        .with_legend_columns(2);
+    let out = svg(plots, layout);
+    let (a, b, c, d) = (
+        text_y(&out, "L10"),
+        text_y(&out, "L50"),
+        text_y(&out, "L90"),
+        text_y(&out, "L99"),
+    );
+    assert!(
+        (a - c).abs() < 0.01 && (b - d).abs() < 0.01 && b > a,
+        "{a} {b} {c} {d}"
+    );
+}

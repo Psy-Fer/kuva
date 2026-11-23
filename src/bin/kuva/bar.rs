@@ -55,6 +55,11 @@ pub struct BarArgs {
     #[arg(long)]
     pub horizontal: bool,
 
+    /// Value the bars start from (default 0), e.g. -120 so negative dB levels
+    /// rise from the bottom of the axis. Each bar runs from here to its value.
+    #[arg(long, allow_hyphen_values = true)]
+    pub baseline: Option<f64>,
+
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -161,6 +166,9 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         plot = plot.with_legend(series_names.iter().map(|s| s.as_str()).collect());
         if args.horizontal {
             plot = plot.with_horizontal(true);
+        }
+        if let Some(b) = args.baseline {
+            plot = plot.with_baseline(b);
         }
 
         #[cfg(feature = "emit_code")]
@@ -334,6 +342,9 @@ pub fn run(args: BarArgs) -> Result<(), String> {
         if args.horizontal {
             plot = plot.with_horizontal(true);
         }
+        if let Some(b) = args.baseline {
+            plot = plot.with_baseline(b);
+        }
 
         #[cfg(feature = "emit_code")]
         if args.base.emit_code {
@@ -428,6 +439,9 @@ pub fn run(args: BarArgs) -> Result<(), String> {
     }
     if args.horizontal {
         plot = plot.with_horizontal(true);
+    }
+    if let Some(b) = args.baseline {
+        plot = plot.with_baseline(b);
     }
 
     #[cfg(feature = "emit_code")]

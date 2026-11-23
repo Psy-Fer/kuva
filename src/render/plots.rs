@@ -654,13 +654,14 @@ impl Plot {
                 } else {
                     let cat_min = 0.5;
                     let cat_max = bp.groups.len() as f64 + 0.5;
-                    let mut data_min: f64 = 0.0;
-
-                    let mut data_max = f64::NEG_INFINITY;
+                    // The value axis always reaches the baseline the bars start
+                    // from, or they would start off the plot.
+                    let mut data_min: f64 = bp.baseline;
+                    let mut data_max = bp.baseline;
                     let mut flat_i = 0usize;
                     if bp.stacked {
                         for group in &bp.groups {
-                            let mut accum = 0.0;
+                            let mut accum = bp.baseline;
                             for bar in &group.bars {
                                 accum += bar.value;
                                 let (lo, hi) = bp
@@ -823,8 +824,28 @@ impl Plot {
             Plot::Heatmap(hm) => {
                 let rows = hm.data.len();
                 let cols = hm.data.first().map_or(0, |row| row.len());
-                let x = hm.x_range.unwrap_or((0.5, cols as f64 + 0.5));
-                let y = hm.y_range.unwrap_or((0.5, rows as f64 + 0.5));
+                // Edges that the renderer would use set the extent; the axis scale
+                // doesn't change the ends, so linear spacing gives the same span.
+                let extent = |edges: &[f64]| {
+                    let (a, b) = (edges[0], edges[edges.len() - 1]);
+                    (a.min(b), a.max(b))
+                };
+                fn usable(e: &Option<Vec<f64>>, n: usize) -> Option<&Vec<f64>> {
+                    e.as_ref().filter(|e| {
+                        e.len() == n + 1
+                            && e.iter().all(|v| v.is_finite())
+                            && (e.windows(2).all(|w| w[0] < w[1])
+                                || e.windows(2).all(|w| w[0] > w[1]))
+                    })
+                }
+                let x = match usable(&hm.x_edges, cols) {
+                    Some(e) => extent(e),
+                    None => hm.x_range.unwrap_or((0.5, cols as f64 + 0.5)),
+                };
+                let y = match usable(&hm.y_edges, rows) {
+                    Some(e) => extent(e),
+                    None => hm.y_range.unwrap_or((0.5, rows as f64 + 0.5)),
+                };
                 Some((x, y))
             }
             Plot::Histogram2d(h2d) => {
@@ -1708,7 +1729,7 @@ impl Plot {
                     .flatten()
                     .cloned()
                     .fold(f64::NEG_INFINITY, f64::max);
-                colorbar_linear(&cmap_of(&hm.color_map), min, max, None)
+                colorbar_linear(&cmap_of(&hm.color_map), min, max, hm.legend_label.clone())
             }
             Plot::Histogram2d(h2d) => {
                 let max_count = h2d.bins.iter().flatten().copied().max().unwrap_or(1) as f64;

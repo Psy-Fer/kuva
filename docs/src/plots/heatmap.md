@@ -190,6 +190,28 @@ let layout = Layout::auto_from_plots(&plots)
 
 Both methods accept any numeric type via `impl Into<f64>`. Either range can be set independently — you can fix only the x-axis and leave the y-axis on its default integer scale, or vice versa.
 
+The first row of the data is drawn at the bottom, at the low end of the y range (use `.with_y_categories()` to order rows by label).
+
+### Log axes and cell edges
+
+On a log axis the cells are spread evenly in log units across the range, so every row (or column) has the same height on screen. That suits a spectrogram whose frequency rows are log-spaced:
+
+```rust,no_run
+# use kuva::plot::Heatmap;
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let grid: Vec<Vec<f64>> = vec![vec![0.0; 20]; 10];
+let hm = Heatmap::new()
+    .with_data(grid)                 // 10 rows, the first at 50 Hz
+    .with_x_range(0.0, 10.0)
+    .with_y_range(50.0, 10000.0)
+    .with_legend("dB");
+let plots = vec![Plot::Heatmap(hm)];
+let layout = Layout::auto_from_plots(&plots).with_log_y();
+```
+
+When the cells are not evenly spaced, give their edges: `.with_y_edges(edges)` takes `rows + 1` values, row `i` spanning `edges[i]..edges[i + 1]` (`.with_x_edges` for columns), like matplotlib's `pcolormesh`. The linear bins of an FFT on a log frequency axis are an example: each row keeps its own band, so the low rows are taller. Edges take precedence over the range; edges with the wrong count, or not finite and strictly ordered (and positive on a log axis), are ignored with a warning.
+
 ---
 
 ## Row reordering — phylogenetic alignment
@@ -267,9 +289,10 @@ Column reordering works the same way via `with_x_categories`. Unlike `with_y_cat
 | `.with_y_categories(order)` | Reorder rows so `order[0]` is at the top; stores `row_labels` bottom-to-top for `Layout::with_y_categories` |
 | `.with_x_categories(order)` | Reorder columns to match `order` (left-to-right); stores `col_labels` in the same order |
 | `.with_x_range(lo, hi)` | Set custom x-axis extent (default `[0.5, cols + 0.5]`) |
-| `.with_y_range(lo, hi)` | Set custom y-axis extent (default `[0.5, rows + 0.5]`) |
+| `.with_y_range(lo, hi)` | Set custom y-axis extent (default `[0.5, rows + 0.5]`); cells are spread evenly, in log units on a log axis |
+| `.with_x_edges(edges)` / `.with_y_edges(edges)` | Explicit cell edges (`cols + 1` / `rows + 1` values), like `pcolormesh` |
 | `.with_cell_size(factor)` | Cell fill fraction `[0.5, 1.0]`. Default `0.99` leaves a thin gap between cells. Pass `1.0` for flush cells with no visible boundary — useful for large grids. |
-| `.with_legend(s)` | Attach a legend label |
+| `.with_legend(s)` | Title the colour bar, typically with the unit of the values (`"dB"`) |
 
 **Layout methods used with heatmaps:**
 
@@ -307,7 +330,7 @@ Bacteroidetes  1  262
 |---|---|---|
 | `--colormap <NAME>` | `viridis` | Color map: `viridis`, `inferno`, `grayscale` |
 | `--values` | off | Print numeric values in each cell |
-| `--legend <LABEL>` | — | Show color bar with this label |
+| `--legend <LABEL>` | — | Colour bar title (for example the unit) |
 | `--long-format` | off | Accept `(row, col, value)` triples instead of a wide matrix |
 | `--row-col <COL>` | `0` | Row-label column (with `--long-format`) |
 | `--col-col <COL>` | `1` | Column-label column (with `--long-format`) |

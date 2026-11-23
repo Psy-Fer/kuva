@@ -207,6 +207,33 @@ let plot = BarPlot::new()
 
 ---
 
+## Baseline
+
+Bars start at `0` by default. `.with_baseline(b)` starts them at `b` instead, and each bar runs from the baseline to its value. This suits quantities that are negative by nature, such as levels in dB: with a baseline at the bottom of the axis, the bars rise from it instead of hanging from zero. Stacked segments keep their lengths and stack up from the baseline. The value axis always includes the baseline.
+
+```rust,no_run
+use kuva::plot::BarPlot;
+use kuva::render::layout::Layout;
+use kuva::render::plots::Plot;
+
+let plot = BarPlot::new()
+    .with_bars(vec![("63", -75.0), ("125", -60.0), ("250", -48.0), ("500", -52.0)])
+    .with_color("steelblue")
+    .with_baseline(-120.0);
+
+let plots = vec![Plot::Bar(plot)];
+let layout = Layout::auto_from_plots(&plots)
+    .with_y_axis_min(-120.0)
+    .with_y_axis_max(-30.0)
+    .with_y_label("Level (dBFS)");
+```
+
+<img src="../assets/bar/baseline.svg" alt="Bars rising from a -120 dBFS baseline" width="560">
+
+A log value axis needs a positive baseline, since it can't show `0`.
+
+---
+
 ## API reference
 
 | Method | Description |
@@ -221,6 +248,7 @@ let plot = BarPlot::new()
 | `.with_legend(vec)` | Set series labels; one label per bar within a group |
 | `.with_stacked()` | Stack bars vertically instead of side-by-side |
 | `.with_width(f)` | Bar width as a fraction of slot width (default `0.8`) |
+| `.with_baseline(b)` | Value the bars start from (default `0`); each bar runs from `b` to its value |
 
 ### Choosing a mode
 
@@ -252,6 +280,7 @@ Bar chart from label/value pairs.
 | `--bar-width <F>` | `0.8` | Bar width as a fraction of the slot |
 | `--color-by <COL>` | — | Group rows by this column and color each series by palette, producing a grouped bar chart with an automatic legend |
 | `--horizontal` | off | Render categories on the Y-axis, values on the X-axis |
+| `--baseline <F>` | `0` | Value the bars start from, e.g. `-120` for dB levels |
 | `--signif <A,B,P>` | — | Significance bracket between groups A and B with p-value P, labelled with stars by default. A and B are group labels, or `#i` for a zero-based group index; a non-numeric P is drawn verbatim. Repeatable; brackets stack above the data and the value axis grows to fit. See [Significance Brackets](../reference/significance.md) |
 | `--signif-format <STYLE>` | `stars` | Bracket label style: `stars` (`*`–`****`, `ns`), `p` (`p = 0.023`), or `both` |
 

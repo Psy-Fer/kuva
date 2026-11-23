@@ -484,3 +484,90 @@ fn test_bar_error_bars_stacked() {
 
     assert!(svg.contains("<svg"));
 }
+
+/// Fill rects (the bars) as (y, height), in drawing order. Rect batching may
+/// merge plain rects into paths, so tooltips keep each bar a `<rect>`.
+fn bar_rects(svg: &str, fill: &str) -> Vec<(f64, f64)> {
+    let attr = |tag: &str, name: &str| -> f64 {
+        let key = format!(" {name}=\"");
+        let start = tag.find(&key).unwrap() + key.len();
+        tag[start..].split('"').next().unwrap().parse().unwrap()
+    };
+    svg.split("<rect")
+        .skip(1)
+        .map(|t| t.split('>').next().unwrap())
+        .filter(|t| t.contains(&format!("fill=\"{fill}\"")))
+        .map(|t| (attr(t, "y"), attr(t, "height")))
+        .collect()
+}
+
+/// #138: bars start at the baseline, so negative levels rise from the axis
+/// bottom instead of hanging from zero.
+#[test]
+fn test_bar_baseline_negative_levels() {
+    let plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![
+                ("63", -75.0),
+                ("125", -60.0),
+                ("250", -48.0),
+                ("500", -52.0),
+            ])
+            .with_color("#4682b4")
+            .with_tooltips()
+            .with_baseline(-120.0),
+    )];
+    let layout = Layout::auto_from_plots(&plots)
+        .with_y_axis_min(-120.0)
+        .with_y_axis_max(-30.0);
+    let computed = ComputedLayout::from_layout(&layout);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/bar_baseline_dbfs.svg", &svg).unwrap();
+    let bottom = computed.map_y(-120.0);
+    let rects = bar_rects(&svg, "#4682b4");
+    assert_eq!(rects.len(), 4);
+    for (value, (y, h)) in [-75.0, -60.0, -48.0, -52.0].iter().zip(&rects) {
+        assert!(
+            (y + h - bottom).abs() < 0.01,
+            "bar bottom {} vs axis {bottom}",
+            y + h
+        );
+        assert!((y - computed.map_y(*value)).abs() < 0.01, "bar top");
+    }
+}
+
+/// The value axis reaches the baseline: all-negative bars used to get an axis
+/// that stopped below zero while the bars were still drawn from zero.
+#[test]
+fn test_bar_axis_includes_baseline() {
+    let bars = || BarPlot::new().with_bars(vec![("a", -75.0), ("b", -48.0)]);
+    let plots = vec![Plot::Bar(bars())];
+    let (lo, hi) = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots)).y_range;
+    assert!(
+        lo <= -75.0 && hi >= 0.0,
+        "default baseline 0 in range: ({lo}, {hi})"
+    );
+    let plots = vec![Plot::Bar(bars().with_baseline(-120.0))];
+    let (lo, hi) = ComputedLayout::from_layout(&Layout::auto_from_plots(&plots)).y_range;
+    assert!(lo <= -120.0 && (-48.0..0.0).contains(&hi), "({lo}, {hi})");
+}
+
+/// Stacked segments keep their lengths and stack up from the baseline.
+#[test]
+fn test_bar_baseline_stacked() {
+    let plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_group("g", vec![(10.0, "#aa0000"), (5.0, "#00aa00")])
+            .with_stacked()
+            .with_tooltips()
+            .with_baseline(100.0),
+    )];
+    let layout = Layout::auto_from_plots(&plots);
+    let computed = ComputedLayout::from_layout(&layout);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let (y1, h1) = bar_rects(&svg, "#aa0000")[0];
+    let (y2, _) = bar_rects(&svg, "#00aa00")[0];
+    assert!((y1 + h1 - computed.map_y(100.0)).abs() < 0.01);
+    assert!((y1 - computed.map_y(110.0)).abs() < 0.01);
+    assert!((y2 - computed.map_y(115.0)).abs() < 0.01);
+}

@@ -81,6 +81,25 @@ let layout = Layout::auto_from_plots(&plots)
     .with_ticks(8);  // request approximately 8 tick intervals
 ```
 
+### Choosing the tick values
+
+`.with_x_tick_values(values)` and `.with_y_tick_values(values)` put the major ticks exactly where you say, like matplotlib's `set_xticks`. Values outside the axis range, and values that are not positive on a log axis, are skipped. A log axis that spans more than three decades is otherwise ticked at powers of ten only, so this is how an audio spectrum gets the usual 20, 50, 100, 200, ... labels:
+
+```rust,no_run
+# use kuva::render::layout::Layout;
+# use kuva::render::plots::Plot;
+# let plots: Vec<Plot> = vec![];
+let layout = Layout::auto_from_plots(&plots)
+    .with_log_x()
+    .with_x_axis_min(20.0)
+    .with_x_axis_max(20000.0)
+    .with_x_tick_values([20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0])
+    .with_x_minor_ticks(9)       // 2 to 9 in each decade
+    .with_show_minor_grid(true);
+```
+
+On a log axis with chosen ticks, minor ticks still follow the decades. Use a `TickFormat::Custom` formatter to write `1k` for 1000.
+
 ### Tick formats
 
 `TickFormat` controls how numeric tick labels are rendered. Import it from `kuva::TickFormat`.
@@ -661,6 +680,10 @@ Wrapping splits at whitespace boundaries. A single word longer than the limit is
 | `.with_x_label(s)` | X-axis label |
 | `.with_y_label(s)` | Y-axis label |
 | `.with_ticks(n)` | Approximate number of tick intervals |
+| `.with_x_tick_values(v)` / `.with_y_tick_values(v)` | Major ticks exactly at these values |
+| `.with_minor_ticks(n)` | Minor ticks on both axes: `n` sub-intervals between major ticks (`5` draws 4 marks per gap; on a log axis ticked at powers of ten, `9` marks 2 to 9 in each decade) |
+| `.with_x_minor_ticks(n)` / `.with_y_minor_ticks(n)` | Minor ticks on one axis only; overrides `with_minor_ticks` for that axis |
+| `.with_show_minor_grid(bool)` | Faint grid lines at the minor ticks, on each axis that has them |
 | `.with_tick_format(fmt)` | Same `TickFormat` for both axes |
 | `.with_x_tick_format(fmt)` | `TickFormat` for x-axis only |
 | `.with_y_tick_format(fmt)` | `TickFormat` for y-axis only |

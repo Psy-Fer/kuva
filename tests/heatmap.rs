@@ -526,3 +526,109 @@ fn test_heatmap_cell_size_clamp() {
         "cell_size should be clamped to 0.5"
     );
 }
+
+/// #140: `with_legend` titles the colour bar (it used to be dropped).
+#[test]
+fn test_heatmap_colorbar_title() {
+    let grid: Vec<Vec<f64>> = (0..10)
+        .map(|r| (0..20).map(|c| (r * c) as f64).collect())
+        .collect();
+    let plots = vec![Plot::Heatmap(
+        Heatmap::new().with_data(grid).with_legend("dB"),
+    )];
+    let layout = Layout::auto_from_plots(&plots);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/heatmap_colorbar_title.svg", svg.clone()).unwrap();
+    assert!(svg.contains(">dB<"), "colour bar title missing");
+}
+
+/// The first `n` filled rects (the cells, drawn before the colour bar) as
+/// (y, height), row by row, bottom row first.
+fn cell_rects(svg: &str, n: usize) -> Vec<(f64, f64)> {
+    let attr = |tag: &str, name: &str| -> f64 {
+        let key = format!(" {name}=\"");
+        let start = tag.find(&key).unwrap() + key.len();
+        tag[start..].split('"').next().unwrap().parse().unwrap()
+    };
+    svg.split("<rect")
+        .skip(1)
+        .map(|t| t.split('>').next().unwrap())
+        .filter(|t| t.contains("fill=\"#"))
+        .take(n)
+        .map(|t| (attr(t, "y"), attr(t, "height")))
+        .collect()
+}
+
+/// #141: on a log y axis, rows given a range are spread evenly in log units,
+/// so each row has the same height and the axis stays on the data.
+#[test]
+fn test_heatmap_rows_follow_a_log_y_axis() {
+    use kuva::render::layout::ComputedLayout;
+    let grid: Vec<Vec<f64>> = (0..10)
+        .map(|r| (0..20).map(|c| (r * c) as f64).collect())
+        .collect();
+    let plots = vec![Plot::Heatmap(
+        Heatmap::new()
+            .with_data(grid)
+            .with_x_range(0.0, 10.0)
+            .with_y_range(50.0, 10000.0)
+            .with_tooltips(), // keeps each cell its own <rect>
+    )];
+    let layout = Layout::auto_from_plots(&plots).with_log_y();
+    let computed = ComputedLayout::from_layout(&layout);
+    assert_eq!(computed.y_range, (50.0, 10000.0), "axis stays on the data");
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    common::write_test_output("test_outputs/heatmap_log_y.svg", svg.clone()).unwrap();
+    let rows: Vec<(f64, f64)> = cell_rects(&svg, 200).into_iter().step_by(20).collect();
+    assert_eq!(rows.len(), 10);
+    let h0 = rows[0].1;
+    assert!(
+        rows.iter().all(|(_, h)| (h - h0).abs() < 0.01),
+        "equal row heights: {rows:?}"
+    );
+}
+
+/// Explicit edges place each row on its own band: linear 1 kHz bins on a log
+/// axis get taller towards the bottom.
+#[test]
+fn test_heatmap_explicit_row_edges() {
+    use kuva::render::layout::ComputedLayout;
+    let grid: Vec<Vec<f64>> = (0..4).map(|r| vec![r as f64; 3]).collect();
+    let edges = [100.0, 1100.0, 2100.0, 3100.0, 4100.0];
+    let plots = vec![Plot::Heatmap(
+        Heatmap::new()
+            .with_data(grid)
+            .with_y_edges(edges)
+            .with_tooltips(),
+    )];
+    let layout = Layout::auto_from_plots(&plots).with_log_y();
+    let computed = ComputedLayout::from_layout(&layout);
+    let svg = SvgBackend.render_scene(&render_multiple(plots, layout));
+    let rows: Vec<(f64, f64)> = cell_rects(&svg, 12).into_iter().step_by(3).collect();
+    for (i, (y, h)) in rows.iter().enumerate() {
+        let (top, bottom) = (computed.map_y(edges[i + 1]), computed.map_y(edges[i]));
+        assert!((y - top).abs() < 0.01, "row {i} top");
+        // The default cell size draws each cell at 99% of its band.
+        assert!((h - 0.99 * (bottom - top)).abs() < 0.01, "row {i} height");
+    }
+    assert!(
+        rows[0].1 > rows[3].1,
+        "lowest linear bin is tallest on a log axis"
+    );
+}
+
+/// Edges that don't match the row count are ignored (with a warning) and the
+/// rows fall back to the default spacing.
+#[test]
+fn test_heatmap_bad_edges_fall_back() {
+    let grid: Vec<Vec<f64>> = (0..4).map(|r| vec![r as f64; 3]).collect();
+    let plain = vec![Plot::Heatmap(Heatmap::new().with_data(grid.clone()))];
+    let bad = vec![Plot::Heatmap(
+        Heatmap::new().with_data(grid).with_y_edges([0.0, 1.0, 2.0]),
+    )];
+    let render = |plots: Vec<Plot>| {
+        let layout = Layout::auto_from_plots(&plots);
+        SvgBackend.render_scene(&render_multiple(plots, layout))
+    };
+    assert_eq!(render(bad), render(plain));
+}

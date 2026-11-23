@@ -618,8 +618,22 @@ pub fn auto_nice_range_log(data_min: f64, data_max: f64) -> (f64, f64) {
         data_min
     };
 
-    let nice_min = 10f64.powf(clamped_min.log10().floor());
-    let nice_max = 10f64.powf(clamped_max.log10().ceil());
+    // The decades around the data. `log10` can round a value just past a power of
+    // ten down onto it (`log10(1000.0.next_up()) == 3.0`), which would put the
+    // bound inside the data, so search for the decade rather than trusting
+    // `floor`/`ceil` (edge case found by PR #145). Non-finite input keeps the
+    // plain formula.
+    let (nice_min, nice_max) = if clamped_min.is_finite() && clamped_max.is_finite() {
+        (
+            log_tick_at_or_below(clamped_min, &[1.0]),
+            log_tick_at_or_above(clamped_max, &[1.0]),
+        )
+    } else {
+        (
+            10f64.powf(clamped_min.log10().floor()),
+            10f64.powf(clamped_max.log10().ceil()),
+        )
+    };
 
     // Ensure at least one decade of range
     if (nice_max / nice_min - 1.0).abs() < 1e-8 {
@@ -779,6 +793,25 @@ pub(crate) fn log_tick_before(v: f64, multipliers: &[f64]) -> f64 {
 }
 
 /// Format a tick value for display on a log-scale axis
+/// Explicit tick positions (`Layout::with_x_tick_values`) for an axis over
+/// `range`: the finite values inside the range (positive ones on a log axis),
+/// sorted, without duplicates.
+pub(crate) fn explicit_ticks(values: &[f64], range: (f64, f64), log: bool) -> Vec<f64> {
+    let (lo, hi) = (range.0.min(range.1), range.0.max(range.1));
+    // A value a rounding step outside the range (an end of the axis given by
+    // hand) still counts.
+    let slack = (hi - lo).abs() * 1e-9;
+    let mut ticks: Vec<f64> = values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite() && (!log || *v > 0.0))
+        .filter(|v| *v >= lo - slack && *v <= hi + slack)
+        .collect();
+    ticks.sort_by(f64::total_cmp);
+    ticks.dedup();
+    ticks
+}
+
 pub fn format_log_tick(value: f64) -> String {
     if value == 0.0 {
         return "0".to_string();
@@ -1829,6 +1862,19 @@ pub(crate) fn spread_labels(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn log_range_contains_data_just_past_a_power_of_ten() {
+        // `log10(1000.0.next_up())` rounds to exactly 3.0; the axis must still
+        // reach past the data (case from PR #145).
+        let hi = 1000.0_f64.next_up();
+        assert_eq!(auto_nice_range_log(0.001, hi), (0.001, 10_000.0));
+        let (lo, top) = auto_nice_range_log(0.1, 1.0 + f64::EPSILON);
+        assert_eq!((lo, top), (0.1, 2.0));
+        let lo = 0.001_f64.next_down();
+        let (min, _) = auto_nice_range_log(lo, 10.0);
+        assert!(min <= lo, "axis min {min} must not exceed data min {lo}");
+    }
     use super::spread_labels;
 
     #[test]

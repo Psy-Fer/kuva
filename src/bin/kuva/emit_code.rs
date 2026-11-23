@@ -323,8 +323,27 @@ pub fn emit_axis_args(args: &AxisArgs) -> Vec<String> {
     if let Some(s) = args.y_tick_step {
         frags.push(format!(".with_y_tick_step({})", f64_lit(s)));
     }
+    for (values, method) in [
+        (&args.x_tick_values, "with_x_tick_values"),
+        (&args.y_tick_values, "with_y_tick_values"),
+    ] {
+        if !values.is_empty() {
+            let list = values
+                .iter()
+                .map(|v| f64_lit(*v))
+                .collect::<Vec<_>>()
+                .join(", ");
+            frags.push(format!(".{method}(vec![{list}])"));
+        }
+    }
     if let Some(n) = args.minor_ticks {
         frags.push(format!(".with_minor_ticks({n})"));
+    }
+    if let Some(n) = args.x_minor_ticks {
+        frags.push(format!(".with_x_minor_ticks({n})"));
+    }
+    if let Some(n) = args.y_minor_ticks {
+        frags.push(format!(".with_y_minor_ticks({n})"));
     }
     if args.minor_grid {
         frags.push(".with_show_minor_grid(true)".to_string());
@@ -1454,6 +1473,9 @@ pub fn emit_bar_plot(p: &BarPlot) -> String {
             ".with_error_cap_width({})",
             f64_lit(p.error_cap_width)
         ));
+    }
+    if p.baseline != 0.0 {
+        frags.push(format!(".with_baseline({})", f64_lit(p.baseline)));
     }
 
     chain("BarPlot::new()", frags)
@@ -4154,6 +4176,12 @@ pub fn emit_heatmap_plot(p: &Heatmap) -> String {
     }
     if let Some((lo, hi)) = p.y_range {
         frags.push(format!(".with_y_range({}, {})", f64_lit(lo), f64_lit(hi)));
+    }
+    for (edges, method) in [(&p.x_edges, "with_x_edges"), (&p.y_edges, "with_y_edges")] {
+        if let Some(e) = edges {
+            let list = e.iter().map(|v| f64_lit(*v)).collect::<Vec<_>>().join(", ");
+            frags.push(format!(".{method}(vec![{list}])"));
+        }
     }
     if (p.cell_size - 0.99).abs() > f64::EPSILON {
         frags.push(format!(".with_cell_size({})", f64_lit(p.cell_size)));
