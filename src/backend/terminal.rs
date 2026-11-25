@@ -252,7 +252,9 @@ impl Canvas {
         // already contains a legend background character (█); otherwise always
         // accumulate bits in line_char_bits so ticks combine with the axis line.
         let is_swatch = (hi - lo) <= 8;
-        for cx in lo..=hi {
+        // Only cells from one left of the grid to one right of it can change;
+        // the end bits still come from the real ends.
+        for cx in lo.max(-1)..=hi.min(self.cols as isize) {
             let bits = if lo == hi {
                 LEFT | RIGHT
             } else if cx == lo {
@@ -286,7 +288,7 @@ impl Canvas {
     /// Draw a vertical box-drawing line at char_col `cx` from `cy0` to `cy1`.
     fn draw_vline(&mut self, cx: isize, cy0: isize, cy1: isize, color: Rgb) {
         let (lo, hi) = if cy0 <= cy1 { (cy0, cy1) } else { (cy1, cy0) };
-        for cy in lo..=hi {
+        for cy in lo.max(-1)..=hi.min(self.rows as isize) {
             let bits = if lo == hi {
                 TOP | BOTTOM
             } else if cy == lo {
@@ -303,6 +305,26 @@ impl Canvas {
     // ── Bresenham braille line ───────────────────────────────────────────────
 
     fn bresenham(&mut self, bx0: isize, by0: isize, bx1: isize, by1: isize, color: Rgb) {
+        // The loop below visits every dot between the ends, so cut a line that
+        // reaches far off the grid to a margin of the grid's width plus height
+        // around it first. Lines inside that margin are drawn unchanged.
+        let (bw, bh) = ((self.cols * 2) as f64, (self.rows * 4) as f64);
+        let m = bw + bh;
+        let (p0, p1) = ((bx0 as f64, by0 as f64), (bx1 as f64, by1 as f64));
+        let (bx0, by0, bx1, by1) =
+            match crate::backend::clip_segment(p0, p1, (-m, -m), (bw + m, bh + m)) {
+                None => return,
+                Some((0.0, 1.0)) => (bx0, by0, bx1, by1),
+                Some((t0, t1)) => {
+                    let at = |t: f64| {
+                        let x = p0.0 + (p1.0 - p0.0) * t;
+                        let y = p0.1 + (p1.1 - p0.1) * t;
+                        (x.round() as isize, y.round() as isize)
+                    };
+                    let ((x0, y0), (x1, y1)) = (at(t0), at(t1));
+                    (x0, y0, x1, y1)
+                }
+            };
         let dx = (bx1 - bx0).abs();
         let dy = (by1 - by0).abs();
         let sx: isize = if bx0 < bx1 { 1 } else { -1 };

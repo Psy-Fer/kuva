@@ -93,6 +93,23 @@ impl Canvas {
         }
     }
 
+    /// The canvas plus a margin of its width plus height on every side, in
+    /// pixels. Lines and curves are cut to this box before any loop that
+    /// steps along them. Anything inside it is drawn exactly as given.
+    fn margin_box(&self) -> ((f64, f64), (f64, f64)) {
+        let (w, h) = (self.width as f64, self.height as f64);
+        let m = w + h;
+        ((-m, -m), (w + m, h + m))
+    }
+
+    /// The parameter range of `p0 -> p1` inside [`Canvas::margin_box`]; see
+    /// [`crate::backend::clip_segment`].
+    fn clip_to_margin(&self, p0: (f32, f32), p1: (f32, f32)) -> Option<(f32, f32)> {
+        let (lo, hi) = self.margin_box();
+        let f = |p: (f32, f32)| (p.0 as f64, p.1 as f64);
+        crate::backend::clip_segment(f(p0), f(p1), lo, hi).map(|(a, b)| (a as f32, b as f32))
+    }
+
     fn fill_background(&mut self, c: Rgba) {
         for p in self.pixels.chunks_exact_mut(4) {
             p[0] = c.r;
@@ -250,6 +267,16 @@ impl Canvas {
         c: Rgba,
         clip: Clip,
     ) {
+        // The interior loop steps once per pixel column between the ends, so
+        // cut a line that reaches far off the canvas (or isn't finite) first.
+        let (t0, t1) = match self.clip_to_margin((x0, y0), (x1, y1)) {
+            Some(t) => t,
+            None => return,
+        };
+        if (t0, t1) != (0.0, 1.0) {
+            let (dx, dy) = (x1 - x0, y1 - y0);
+            (x0, y0, x1, y1) = (x0 + dx * t0, y0 + dy * t0, x0 + dx * t1, y0 + dy * t1);
+        }
         let steep = (y1 - y0).abs() > (x1 - x0).abs();
         if steep {
             std::mem::swap(&mut x0, &mut y0);
@@ -395,15 +422,56 @@ impl Canvas {
         }
         let ux = dx / total;
         let uy = dy / total;
-        let mut pos = 0.0f32;
+
+        // Only the part of the line near the canvas is walked. The dashes start
+        // at the last whole repeat of the pattern before that part, so they
+        // keep the phase they would have had from the start of the line. An
+        // odd-length list repeats twice per cycle (dash and gap swap).
+        let Some((t0, t1)) = self.clip_to_margin((x0, y0), (x1, y1)) else {
+            return;
+        };
+        let (start, stop) = if (t0, t1) == (0.0, 1.0) {
+            (0.0, total)
+        } else {
+            (t0 * total, t1 * total)
+        };
+        let cycle_len = if dashes.len() % 2 == 1 { 2 } else { 1 } * dashes.len();
+        let period: f32 = dashes.iter().sum::<f32>() * (cycle_len / dashes.len()) as f32;
+        // A pattern repeating within half a pixel can't be seen, and stepping
+        // through it could take millions of passes.
+        if period < 0.5 {
+            let (sx, sy, ex, ey) = (
+                x0 + ux * start,
+                y0 + uy * start,
+                x0 + ux * stop,
+                y0 + uy * stop,
+            );
+            self.draw_line(sx, sy, ex, ey, c, width, None, clip);
+            return;
+        }
+        let mut pos = (start / period).floor() * period;
         let mut di = 0usize;
         let mut drawing = true;
-        while pos < total {
+        // Dashes too short to move `pos` in f32 are skipped. If a whole cycle
+        // goes by without moving, stop.
+        let mut stuck = 0usize;
+        while pos < stop {
             let seg = dashes[di % dashes.len()];
-            let end = (pos + seg).min(total);
-            if drawing {
-                let sx = x0 + ux * pos;
-                let sy = y0 + uy * pos;
+            let end = (pos + seg).min(stop);
+            if end <= pos {
+                stuck += 1;
+                if stuck >= cycle_len {
+                    break;
+                }
+                di += 1;
+                drawing = !drawing;
+                continue;
+            }
+            stuck = 0;
+            let from = pos.max(start);
+            if drawing && end > from {
+                let sx = x0 + ux * from;
+                let sy = y0 + uy * from;
                 let ex = x0 + ux * end;
                 let ey = y0 + uy * end;
                 if width <= 1.5 {
@@ -1686,14 +1754,38 @@ fn ellipse_to_canvas(ex: f32, ey: f32, cx: f32, cy: f32, cos_phi: f32, sin_phi: 
 // Recursion stops when the midpoint of the bezier deviates from the chord by
 // less than `tol` pixels. This concentrates segments where the curve bends.
 
+/// Deepest split of one cubic. A curve flattens 4x per level, so this is far
+/// past what any real curve needs, and caps one curve at 65536 points.
+const MAX_CUBIC_DEPTH: u32 = 16;
+
+/// The box (min, max) that tessellation cares about, in path coordinates.
+type CullBox = ((f32, f32), (f32, f32));
+
+#[allow(clippy::too_many_arguments)]
 fn tessellate_cubic(
     p0: (f32, f32),
     p1: (f32, f32),
     p2: (f32, f32),
     p3: (f32, f32),
     tol: f32,
+    cull: CullBox,
+    depth: u32,
     out: &mut Vec<(f32, f32)>,
 ) {
+    let pts = [p0, p1, p2, p3];
+    // A curve whose control points all lie past one edge of the box stays
+    // there, and so does its chord, so the chord is drawn and filled the same.
+    // Non-finite points can't be split meaningfully either.
+    let (lo, hi) = cull;
+    let outside = pts.iter().all(|p| p.0 < lo.0)
+        || pts.iter().all(|p| p.0 > hi.0)
+        || pts.iter().all(|p| p.1 < lo.1)
+        || pts.iter().all(|p| p.1 > hi.1);
+    let finite = pts.iter().all(|p| p.0.is_finite() && p.1.is_finite());
+    if outside || !finite || depth >= MAX_CUBIC_DEPTH {
+        out.push(p3);
+        return;
+    }
     // Midpoint of the bezier vs midpoint of the chord
     let mid = (
         0.125 * (p0.0 + 3.0 * p1.0 + 3.0 * p2.0 + p3.0),
@@ -1713,8 +1805,8 @@ fn tessellate_cubic(
     let r0 = mid2(q0, q1);
     let r1 = mid2(q1, q2);
     let s = mid2(r0, r1);
-    tessellate_cubic(p0, q0, r0, s, tol, out);
-    tessellate_cubic(s, r1, q2, p3, tol, out);
+    tessellate_cubic(p0, q0, r0, s, tol, cull, depth + 1, out);
+    tessellate_cubic(s, r1, q2, p3, tol, cull, depth + 1, out);
 }
 
 #[inline]
@@ -1723,7 +1815,7 @@ fn mid2(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
 }
 
 /// Tessellate a list of path commands into sub-paths of (f32,f32) vertices.
-fn tessellate_path(cmds: &[PathCmd], tol: f32) -> Vec<Vec<(f32, f32)>> {
+fn tessellate_path(cmds: &[PathCmd], tol: f32, cull: CullBox) -> Vec<Vec<(f32, f32)>> {
     let mut paths: Vec<Vec<(f32, f32)>> = Vec::new();
     let mut cur: Vec<(f32, f32)> = Vec::new();
     let mut pen = (0.0f32, 0.0f32);
@@ -1746,7 +1838,7 @@ fn tessellate_path(cmds: &[PathCmd], tol: f32) -> Vec<Vec<(f32, f32)>> {
                 pen = (x, y);
             }
             PathCmd::CubicTo(x1, y1, x2, y2, x, y) => {
-                tessellate_cubic(pen, (x1, y1), (x2, y2), (x, y), tol, &mut cur);
+                tessellate_cubic(pen, (x1, y1), (x2, y2), (x, y), tol, cull, 0, &mut cur);
                 pen = (x, y);
             }
             PathCmd::ClosePath => {
@@ -2185,7 +2277,14 @@ impl RasterBackend {
 
                 Primitive::Path(pd) => {
                     let cmds = parse_svg_path(&pd.d);
-                    let subs = tessellate_path(&cmds, 0.25);
+                    // The canvas margin box, taken back to path coordinates.
+                    let ((lx, ly), (hx, hy)) = canvas.margin_box();
+                    let to_path = |px: f64, t: f32| (px / s as f64) as f32 - t;
+                    let cull = (
+                        (to_path(lx, tx), to_path(ly, ty)),
+                        (to_path(hx, tx), to_path(hy, ty)),
+                    );
+                    let subs = tessellate_path(&cmds, 0.25, cull);
 
                     // Apply scale + translate to tessellated points
                     let transform_pts = |sub: &Vec<(f32, f32)>| -> Vec<(f32, f32)> {

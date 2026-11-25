@@ -67,7 +67,13 @@ pub fn bounded<T: Send + 'static>(stack: usize, f: impl FnOnce() -> T + Send + '
             panic!("did not finish (panic or stack overflow)")
         }
         Err(mpsc::RecvTimeoutError::Timeout) => {
-            eprintln!("did not finish within 10 seconds (hang); exiting the test process");
+            // Write to stderr directly: the test harness captures `eprintln!`
+            // and the captured output is lost when the process exits here.
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr(),
+                "did not finish within 10 seconds (hang); exiting the test process"
+            );
             std::process::exit(1);
         }
     }
