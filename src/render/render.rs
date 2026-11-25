@@ -1957,13 +1957,17 @@ fn add_pareto(pp: &ParetoPlot, scene: &mut Scene, computed: &ComputedLayout) {
         }
     }
 
-    let screen_pts: Vec<(f64, f64)> = (0..bars.len())
-        .map(|i| {
+    // `cum_pct` is empty when the values don't sum to a positive total; then
+    // there is no cumulative line, markers or labels.
+    let screen_pts: Vec<(f64, f64)> = cum_pct
+        .iter()
+        .enumerate()
+        .map(|(i, &pct)| {
             let cat = i as f64 + 1.0;
             if h {
-                (computed.map_x2(cum_pct[i]), computed.map_y(cat))
+                (computed.map_x2(pct), computed.map_y(cat))
             } else {
-                (computed.map_x(cat), computed.map_y2(cum_pct[i]))
+                (computed.map_x(cat), computed.map_y2(pct))
             }
         })
         .collect();
@@ -3658,10 +3662,10 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
 
         // STR bricks.
         let row = &rows[i];
-        let template = brickplot
-            .template
-            .as_ref()
-            .expect("BrickPlot rendered without template");
+        // Sequence text comes from data, so a character missing from the
+        // template (or no template at all) gets the grey used for unknown
+        // flank bases instead of a panic.
+        let template = brickplot.template.as_ref();
         let mut x_pos: f64 = 0.0;
         for (j, value) in row.chars().enumerate() {
             let width = if let Some(ref ml) = brickplot.motif_lengths {
@@ -3671,10 +3675,10 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
             };
             let x_start = if has_variable_width { x_pos } else { j as f64 };
             let color = template
-                .get(&value)
-                .expect("BrickPlot value not found in template colormap");
+                .and_then(|t| t.get(&value))
+                .map_or(dna_color('N'), String::as_str);
             let bw_idx = *template_bw_idx.get(&value).unwrap_or(&0);
-            segs.push((x_start, width, color.as_str(), bw_idx));
+            segs.push((x_start, width, color, bw_idx));
             x_pos += width;
         }
 
@@ -13102,10 +13106,9 @@ pub fn collect_legend_entries(plots: &[Plot]) -> Vec<LegendEntry> {
                 }
             }
             Plot::Brick(brickplot) => {
-                let labels = brickplot
-                    .template
-                    .as_ref()
-                    .expect("BrickPlot legend requires a template colormap");
+                // Without a template there are no entries to list.
+                let no_template = HashMap::new();
+                let labels = brickplot.template.as_ref().unwrap_or(&no_template);
                 let motifs = brickplot.motifs.as_ref();
                 // Sort by global token. In strigar mode tokens are assigned in frequency
                 // order, so this lists the most-frequent motif first; the display label
@@ -25239,13 +25242,26 @@ pub fn render_pyramid(pp: PopulationPyramid, layout: Layout) -> Scene {
 // ─── WafflePlot ──────────────────────────────────────────────────────────────
 
 /// Allocate `total_cells` across `values` using the Largest Remainder
-/// (Hamilton) method.  Guarantees the returned counts sum exactly to
-/// `total_cells`.  Returns a `Vec<usize>` parallel to `values`.
+/// (Hamilton) method. Returns a `Vec<usize>` parallel to `values` whose counts
+/// sum exactly to `total_cells`. Zero, negative, NaN and infinite values get no
+/// cells, and when no value is positive every count is 0.
 pub fn waffle_largest_remainder(values: &[f64], total_cells: usize) -> Vec<usize> {
     if values.is_empty() || total_cells == 0 {
         return vec![0; values.len()];
     }
-    let total: f64 = values.iter().sum();
+    // Only finite positive values get cells. A sum that overflows is taken
+    // over the values scaled by the largest, which keeps it finite and the
+    // shares the same.
+    let mut values: Vec<f64> = values
+        .iter()
+        .map(|&v| if v.is_finite() && v > 0.0 { v } else { 0.0 })
+        .collect();
+    let mut total: f64 = values.iter().sum();
+    if total.is_infinite() {
+        let max = values.iter().copied().fold(0.0, f64::max);
+        values.iter_mut().for_each(|v| *v /= max);
+        total = values.iter().sum();
+    }
     if total <= 0.0 {
         return vec![0; values.len()];
     }
@@ -25264,8 +25280,10 @@ pub fn waffle_largest_remainder(values: &[f64], total_cells: usize) -> Vec<usize
         .map(|(i, (e, f))| (i, e - *f as f64))
         .collect();
     fracs.sort_by(|a, b| b.1.nan_cmp(&a.1).then(a.0.cmp(&b.0)));
-    for i in 0..remainder {
-        floored[fracs[i].0] += 1;
+    // The fractional parts sum to `remainder`, each below 1, so there are at
+    // least that many categories; `take` guards against rounding.
+    for &(i, _) in fracs.iter().take(remainder) {
+        floored[i] += 1;
     }
     floored
 }

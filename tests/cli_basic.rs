@@ -2064,6 +2064,21 @@ fn test_pareto_styled_options() {
     );
 }
 
+/// Values that sum to zero or less render the bars without a cumulative line.
+#[test]
+fn test_pareto_zero_or_negative_total() {
+    for tsv in [
+        "cat\tcount\na\t0\nb\t0\nc\t0\n",
+        "cat\tcount\na\t4\nb\t-4\n",
+        "cat\tcount\na\t1\nb\t-6\n",
+    ] {
+        let (stdout, stderr, code) = run_with_stdin(&["pareto", "--cumulative-labels"], tsv);
+        assert_eq!(code, 0, "{tsv:?}: {stderr}");
+        assert!(stdout.starts_with("<svg"));
+        assert!(!stdout.contains("<polyline"), "{tsv:?}");
+    }
+}
+
 #[test]
 fn test_pareto_horizontal_and_max_categories() {
     let (stdout, stderr, code) = run_with_file(&[
