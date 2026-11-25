@@ -1452,6 +1452,7 @@ fn parse_translate(t: &str) -> (f64, f64) {
 // ── CSS colour parsing ────────────────────────────────────────────────────────
 
 fn css_to_rgb(s: &str) -> Rgb {
+    use crate::render::color::hex_byte;
     let s = s.trim();
     if s.is_empty() || s.eq_ignore_ascii_case("none") || s.eq_ignore_ascii_case("transparent") {
         return (128, 128, 128);
@@ -1469,21 +1470,17 @@ fn css_to_rgb(s: &str) -> Rgb {
     }
     // #RRGGBB
     if s.starts_with('#') && s.len() == 7 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&s[1..3], 16),
-            u8::from_str_radix(&s[3..5], 16),
-            u8::from_str_radix(&s[5..7], 16),
-        ) {
+        if let (Some(r), Some(g), Some(b)) =
+            (hex_byte(s, 1..3), hex_byte(s, 3..5), hex_byte(s, 5..7))
+        {
             return (r, g, b);
         }
     }
     // #RGB shorthand
     if s.starts_with('#') && s.len() == 4 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&s[1..2], 16),
-            u8::from_str_radix(&s[2..3], 16),
-            u8::from_str_radix(&s[3..4], 16),
-        ) {
+        if let (Some(r), Some(g), Some(b)) =
+            (hex_byte(s, 1..2), hex_byte(s, 2..3), hex_byte(s, 3..4))
+        {
             return (r * 17, g * 17, b * 17);
         }
     }

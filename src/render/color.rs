@@ -75,6 +75,13 @@ impl From<&String> for Color {
     }
 }
 
+/// Parse `s[range]` as a hex byte. `None` when the range is out of bounds,
+/// splits a multi-byte character, or isn't hex. Colour strings come from data
+/// files, so slicing them with `&s[range]` could panic.
+pub(crate) fn hex_byte(s: &str, range: std::ops::Range<usize>) -> Option<u8> {
+    s.get(range).and_then(|h| u8::from_str_radix(h, 16).ok())
+}
+
 fn parse_color_str(s: &str) -> Color {
     if s.is_empty() || s.eq_ignore_ascii_case("none") || s.eq_ignore_ascii_case("transparent") {
         return Color::None;
@@ -82,22 +89,18 @@ fn parse_color_str(s: &str) -> Color {
 
     // #RRGGBB
     if s.len() == 7 && s.as_bytes()[0] == b'#' {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&s[1..3], 16),
-            u8::from_str_radix(&s[3..5], 16),
-            u8::from_str_radix(&s[5..7], 16),
-        ) {
+        if let (Some(r), Some(g), Some(b)) =
+            (hex_byte(s, 1..3), hex_byte(s, 3..5), hex_byte(s, 5..7))
+        {
             return Color::Rgb(r, g, b);
         }
     }
 
     // #RGB shorthand
     if s.len() == 4 && s.as_bytes()[0] == b'#' {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&s[1..2], 16),
-            u8::from_str_radix(&s[2..3], 16),
-            u8::from_str_radix(&s[3..4], 16),
-        ) {
+        if let (Some(r), Some(g), Some(b)) =
+            (hex_byte(s, 1..2), hex_byte(s, 2..3), hex_byte(s, 3..4))
+        {
             return Color::Rgb(r * 17, g * 17, b * 17);
         }
     }

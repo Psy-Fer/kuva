@@ -15016,9 +15016,10 @@ fn choose_label_color(css: &str) -> &'static str {
         "white"
     } else if css.starts_with('#') && css.len() == 7 {
         // Rough luminance from hex
-        let r = u8::from_str_radix(&css[1..3], 16).unwrap_or(128) as f64;
-        let g = u8::from_str_radix(&css[3..5], 16).unwrap_or(128) as f64;
-        let b = u8::from_str_radix(&css[5..7], 16).unwrap_or(128) as f64;
+        let hex = crate::render::color::hex_byte;
+        let r = hex(css, 1..3).unwrap_or(128) as f64;
+        let g = hex(css, 3..5).unwrap_or(128) as f64;
+        let b = hex(css, 5..7).unwrap_or(128) as f64;
         let lum = 0.299 * r + 0.587 * g + 0.114 * b;
         if lum < 140.0 {
             "white"
@@ -23384,7 +23385,7 @@ pub fn render_bump(bp: BumpPlot, layout: Layout) -> Scene {
 /// Darken a hex color by `factor` (0.0 = black, 1.0 = original).
 fn darken_hex(hex: &str, factor: f64) -> String {
     fn parse_comp(s: &str, start: usize) -> u8 {
-        u8::from_str_radix(&s[start..start + 2], 16).unwrap_or(128)
+        crate::render::color::hex_byte(s, start..start + 2).unwrap_or(128)
     }
     let hex = hex.trim_start_matches('#');
     if hex.len() < 6 {
@@ -25444,25 +25445,20 @@ pub fn render_waffle(wp: WafflePlot, layout: Layout) -> Scene {
 
 /// Parse a CSS hex color `#RRGGBB` or `#RGB` into `(r, g, b)` bytes.
 /// Falls back to `(66, 146, 198)` (default blue) on parse failure.
-fn parse_hex_color(hex: &str) -> (u8, u8, u8) {
-    let h = hex.trim_start_matches('#');
+fn parse_hex_color(hex_str: &str) -> (u8, u8, u8) {
+    let hex = crate::render::color::hex_byte;
+    let h = hex_str.trim_start_matches('#');
     match h.len() {
         6 => {
-            let r = u8::from_str_radix(&h[0..2], 16).unwrap_or(66);
-            let g = u8::from_str_radix(&h[2..4], 16).unwrap_or(146);
-            let b = u8::from_str_radix(&h[4..6], 16).unwrap_or(198);
+            let r = hex(h, 0..2).unwrap_or(66);
+            let g = hex(h, 2..4).unwrap_or(146);
+            let b = hex(h, 4..6).unwrap_or(198);
             (r, g, b)
         }
         3 => {
-            let r = u8::from_str_radix(&h[0..1], 16)
-                .unwrap_or(4)
-                .wrapping_mul(17);
-            let g = u8::from_str_radix(&h[1..2], 16)
-                .unwrap_or(9)
-                .wrapping_mul(17);
-            let b = u8::from_str_radix(&h[2..3], 16)
-                .unwrap_or(12)
-                .wrapping_mul(17);
+            let r = hex(h, 0..1).unwrap_or(4).wrapping_mul(17);
+            let g = hex(h, 1..2).unwrap_or(9).wrapping_mul(17);
+            let b = hex(h, 2..3).unwrap_or(12).wrapping_mul(17);
             (r, g, b)
         }
         _ => (66, 146, 198),

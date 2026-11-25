@@ -474,9 +474,11 @@ pub(crate) fn parse_date(s: &str) -> Option<(i32, u32, u32)> {
     if s.len() < 10 {
         return None;
     }
-    let year: i32 = s[0..4].parse().ok()?;
-    let month: u32 = s[5..7].parse().ok()?;
-    let day: u32 = s[8..10].parse().ok()?;
+    // `get` rather than indexing: a multi-byte character across an offset
+    // makes the string invalid instead of panicking.
+    let year: i32 = s.get(0..4)?.parse().ok()?;
+    let month: u32 = s.get(5..7)?.parse().ok()?;
+    let day: u32 = s.get(8..10)?.parse().ok()?;
     if !(1..=12).contains(&month) {
         return None;
     }

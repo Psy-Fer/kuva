@@ -2113,6 +2113,41 @@ fn test_logo_palette_unknown_errors() {
     assert!(stderr.contains("classic"), "error should list presets");
 }
 
+/// A --colors hex value with a multi-byte character is an error, not a panic.
+#[test]
+fn test_logo_colors_non_ascii_errors() {
+    for colour in ["#é1234", "#1€45", "#1😀5"] {
+        let spec = format!("A={colour}");
+        let (_, stderr, code) =
+            run_with_file(&["logo", &data("logo.fasta"), "--colors", spec.as_str()]);
+        assert_eq!(code, 1, "{colour}: stderr: {stderr}");
+        assert!(stderr.contains("bad hex byte"), "{colour}: {stderr}");
+    }
+}
+
+/// Colour cells with a multi-byte character render to the terminal. The CSV
+/// reader keeps U+00A0 padding, and the terminal backend trims it, so the
+/// trimmed colour is 7 bytes long with the character across a hex digit.
+#[test]
+fn test_pie_terminal_non_ascii_color_cells() {
+    let tsv = "label\tvalue\tcolor\na\t1\t\u{a0}#é1234\u{a0}\nb\t2\t#ab€c\nc\t3\t#336699\n";
+    let (stdout, stderr, code) = run_with_stdin(
+        &[
+            "pie",
+            "--color-col",
+            "color",
+            "--terminal",
+            "--term-width",
+            "40",
+            "--term-height",
+            "12",
+        ],
+        tsv,
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(is_terminal_output(&stdout));
+}
+
 /// --reverse-complement on a protein alphabet is an error.
 #[test]
 fn test_logo_reverse_complement_protein_errors() {

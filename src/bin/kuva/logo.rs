@@ -506,10 +506,14 @@ fn parse_hex_color(s: &str) -> Result<[u8; 3], String> {
     if hex.len() != 6 {
         return Err(format!("expected #RRGGBB, got '{s}'"));
     }
-    let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| format!("bad hex byte in '{s}'"))?;
-    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| format!("bad hex byte in '{s}'"))?;
-    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| format!("bad hex byte in '{s}'"))?;
-    Ok([r, g, b])
+    // `get` rather than indexing: a multi-byte character across an offset is
+    // reported as a bad byte instead of panicking.
+    let byte = |r: std::ops::Range<usize>| {
+        hex.get(r)
+            .and_then(|h| u8::from_str_radix(h, 16).ok())
+            .ok_or_else(|| format!("bad hex byte in '{s}'"))
+    };
+    Ok([byte(0..2)?, byte(2..4)?, byte(4..6)?])
 }
 
 fn default_y_label(units: LogoUnits) -> &'static str {

@@ -350,8 +350,10 @@ fn canonical_rotation(s: &str) -> String {
         return String::new();
     }
     let doubled = format!("{}{}", s, s);
-    (0..n)
-        .map(|i| &doubled[i..i + n])
+    // Rotate at character boundaries so a non-ASCII k-mer can't split a
+    // character (for ASCII these are every byte offset).
+    s.char_indices()
+        .map(|(i, _)| &doubled[i..i + n])
         .min()
         .expect("range 0..n is non-empty when n > 0")
         .to_string()
