@@ -24,6 +24,7 @@
 //! failure the backend falls back to the lookup tier and warns once per
 //! distinct label.
 
+use std::ops::Range;
 #[cfg(feature = "typst-math")]
 use std::sync::{Mutex, OnceLock};
 
@@ -261,30 +262,47 @@ pub fn to_unicode(label: &str) -> String {
 
 /// Lower a single `$...$` body to inline Unicode, appending to `out`.
 fn clean_math(body: &str, out: &mut String) {
+    let src = MathSrc::new(body);
+    clean_math_range(&src, 0..body.len(), 0, out);
+}
+
+/// Lower `range` of a math body. `depth` counts the groups, fractions and
+/// roots around it; at [`MAX_MATH_DEPTH`] the structure is no longer lowered
+/// (see there).
+fn clean_math_range(src: &MathSrc, range: Range<usize>, depth: usize, out: &mut String) {
+    let body = &src.s[..range.end];
+    let end = range.end;
     let bytes = body.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
+    let nest = depth < MAX_MATH_DEPTH;
+    let lower = |r: Range<usize>| {
+        let mut s = String::new();
+        clean_math_range(src, r, depth + 1, &mut s);
+        s
+    };
+    let mut i = range.start;
+    while i < end {
         let c = bytes[i] as char;
         if c == '\\' {
             let (name, next) = read_command(body, i + 1);
             match name {
-                "frac" => {
-                    if let Some(((n, d), end)) = take_two_groups(body, next) {
-                        push_frac_inline(n, d, out);
-                        i = end;
+                "frac" if nest => {
+                    if let Some((n, d, after)) = src.two_groups(next, end) {
+                        wrap_inline(&lower(n), out);
+                        out.push('/');
+                        wrap_inline(&lower(d), out);
+                        i = after;
                         continue;
                     }
                 }
-                "sqrt" => {
-                    let (index, after_idx) = read_optional_bracket(body, next);
-                    if let Some((arg, end)) = take_group(body, after_idx) {
+                "sqrt" if nest => {
+                    let (index, after_idx) = src.bracket(next, end);
+                    if let Some((arg, after)) = src.group(after_idx, end) {
                         if let Some(idx) = index {
                             // Index as superscript before the radical, if it
                             // maps cleanly; else fall back to inline form.
                             // Clean it first so a command index (`\sqrt[\alpha]`)
                             // can't leak a backslash through the fallback.
-                            let mut cleaned = String::new();
-                            clean_math(idx, &mut cleaned);
+                            let cleaned = lower(idx);
                             if let Some(sup) = all_super(&cleaned) {
                                 out.push_str(&sup);
                             } else {
@@ -292,10 +310,8 @@ fn clean_math(body: &str, out: &mut String) {
                             }
                         }
                         out.push('√');
-                        let mut inner = String::new();
-                        clean_math(arg, &mut inner);
-                        wrap_inline(&inner, out);
-                        i = end;
+                        wrap_inline(&lower(arg), out);
+                        i = after;
                         continue;
                     }
                 }
@@ -310,8 +326,9 @@ fn clean_math(body: &str, out: &mut String) {
                         i = next;
                         continue;
                     }
-                    // Unknown command: drop it (its `{arg}` is emitted by the
-                    // brace rules below as cleaned content).
+                    // Unknown command (or `\frac`/`\sqrt` past the depth
+                    // limit): drop it. Its `{arg}` is emitted by the brace
+                    // rules below as cleaned content.
                     if !name.is_empty() {
                         i = next;
                         continue;
@@ -322,16 +339,12 @@ fn clean_math(body: &str, out: &mut String) {
             i += 1;
             continue;
         }
-        if c == '^' || c == '_' {
-            if let Some((grp, end)) = read_script_group(body, i + 1) {
+        if nest && (c == '^' || c == '_') {
+            if let Some((grp, after)) = src.script(i + 1, end) {
                 // Recurse so structure inside the group lowers correctly:
                 // `x^{\frac{1}{2}}` must become `x^(1/2)` via the fallback,
                 // not a silently corrupted x¹².
-                let sub = {
-                    let mut s = String::new();
-                    clean_math(grp, &mut s);
-                    s
-                };
+                let sub = lower(grp);
                 let mapped = if c == '^' {
                     all_super(&sub)
                 } else {
@@ -347,7 +360,7 @@ fn clean_math(body: &str, out: &mut String) {
                         out.push(')');
                     }
                 }
-                i = end;
+                i = after;
                 continue;
             }
         }
@@ -356,26 +369,11 @@ fn clean_math(body: &str, out: &mut String) {
             i += 1;
             continue;
         }
-        out.push(c);
-        i += 1;
+        // Copy the whole character: `c` is only its first byte.
+        let ch = body[i..].chars().next().unwrap_or(c);
+        out.push(ch);
+        i += ch.len_utf8();
     }
-}
-
-/// `\frac{a}{b}` → `a/b`, parenthesising multi-character parts.
-fn push_frac_inline(num: &str, den: &str, out: &mut String) {
-    let n = {
-        let mut s = String::new();
-        clean_math(num, &mut s);
-        s
-    };
-    let d = {
-        let mut s = String::new();
-        clean_math(den, &mut s);
-        s
-    };
-    wrap_inline(&n, out);
-    out.push('/');
-    wrap_inline(&d, out);
 }
 
 /// Append `s`, wrapping in parens when it's more than one grapheme so inline
@@ -494,6 +492,103 @@ fn sub_char(c: char) -> Option<char> {
 
 // ── small parsing helpers ──
 
+/// Deepest nesting of `^`/`_` groups, `\frac` and `\sqrt` that is lowered as
+/// structure. Each level is one recursive call, so without a limit a label
+/// with thousands of nested groups overflows the stack. Past the limit the
+/// commands are dropped and the braces handled as plain text, so
+/// `\frac{a}{b}` becomes `ab`. Real labels nest a few levels at most.
+const MAX_MATH_DEPTH: usize = 32;
+
+/// A math body with its brackets matched in one pass, so finding the end of a
+/// group is a lookup. Scanning for it each time costs time quadratic in the
+/// body length when the closers are missing (`{{{{...`).
+struct MathSrc<'a> {
+    s: &'a str,
+    /// At a `{`, the index of its matching `}`; at a `[`, the index of the
+    /// next `]`. `usize::MAX` elsewhere or when there is none.
+    close: Vec<usize>,
+}
+
+impl<'a> MathSrc<'a> {
+    fn new(s: &'a str) -> Self {
+        let b = s.as_bytes();
+        let mut close = vec![usize::MAX; b.len()];
+        let mut open = Vec::new();
+        for (i, &c) in b.iter().enumerate() {
+            match c {
+                b'{' => open.push(i),
+                b'}' => {
+                    if let Some(o) = open.pop() {
+                        close[o] = i;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut next_rbracket = usize::MAX;
+        for i in (0..b.len()).rev() {
+            match b[i] {
+                b']' => next_rbracket = i,
+                b'[' => close[i] = next_rbracket,
+                _ => {}
+            }
+        }
+        MathSrc { s, close }
+    }
+
+    /// If `pos` is at a `{` closed before `end`, the range inside the group
+    /// and the index past its `}`.
+    fn group(&self, pos: usize, end: usize) -> Option<(Range<usize>, usize)> {
+        if pos >= end || self.s.as_bytes()[pos] != b'{' {
+            return None;
+        }
+        let c = self.close[pos];
+        (c < end).then(|| (pos + 1..c, c + 1))
+    }
+
+    /// Two consecutive `{..}{..}` groups.
+    fn two_groups(&self, pos: usize, end: usize) -> Option<(Range<usize>, Range<usize>, usize)> {
+        let (a, after_a) = self.group(pos, end)?;
+        let (b, after_b) = self.group(after_a, end)?;
+        Some((a, b, after_b))
+    }
+
+    /// If `pos` is at a `[` closed before `end`, (inner range, index past `]`);
+    /// otherwise (None, `pos`).
+    fn bracket(&self, pos: usize, end: usize) -> (Option<Range<usize>>, usize) {
+        if pos < end && self.s.as_bytes()[pos] == b'[' {
+            let c = self.close[pos];
+            if c < end {
+                return (Some(pos + 1..c), c + 1);
+            }
+        }
+        (None, pos)
+    }
+
+    /// A `^`/`_` operand: a `{group}`, a braceless `\command`, or a single
+    /// following char.
+    fn script(&self, pos: usize, end: usize) -> Option<(Range<usize>, usize)> {
+        let bytes = self.s.as_bytes();
+        if pos >= end {
+            return None;
+        }
+        if bytes[pos] == b'{' {
+            return self.group(pos, end);
+        }
+        // Braceless command operand, e.g. `x^\alpha`: grab the whole `\name` so
+        // it isn't truncated to a lone `\` (which would leave `alpha` as text).
+        if bytes[pos] == b'\\' {
+            let (name, after) = read_command(&self.s[..end], pos + 1);
+            if !name.is_empty() {
+                return Some((pos..after, after));
+            }
+        }
+        // Single char (one UTF-8 scalar).
+        let ch_len = self.s[pos..end].chars().next()?.len_utf8();
+        Some((pos..pos + ch_len, pos + ch_len))
+    }
+}
+
 /// Read an alphabetic command name starting at `start`; returns (name, index
 /// just past it). Empty name if `start` isn't a letter.
 fn read_command(s: &str, start: usize) -> (&str, usize) {
@@ -503,72 +598,6 @@ fn read_command(s: &str, start: usize) -> (&str, usize) {
         end += 1;
     }
     (&s[start..end], end)
-}
-
-/// If `pos` is at `{`, return (inner, index past `}`).
-fn take_group(s: &str, pos: usize) -> Option<(&str, usize)> {
-    let bytes = s.as_bytes();
-    if pos >= bytes.len() || bytes[pos] != b'{' {
-        return None;
-    }
-    let mut depth = 1;
-    let mut i = pos + 1;
-    let inner_start = i;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((&s[inner_start..i], i + 1));
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Read two consecutive `{..}{..}` groups.
-fn take_two_groups(s: &str, pos: usize) -> Option<((&str, &str), usize)> {
-    let (a, after_a) = take_group(s, pos)?;
-    let (b, after_b) = take_group(s, after_a)?;
-    Some(((a, b), after_b))
-}
-
-/// If `pos` is at `[`, return (inner, index past `]`).
-fn read_optional_bracket(s: &str, pos: usize) -> (Option<&str>, usize) {
-    let bytes = s.as_bytes();
-    if pos < bytes.len() && bytes[pos] == b'[' {
-        if let Some(close) = s[pos + 1..].find(']') {
-            return (Some(&s[pos + 1..pos + 1 + close]), pos + 1 + close + 1);
-        }
-    }
-    (None, pos)
-}
-
-/// Read a `^`/`_` operand: a `{group}`, a braceless `\command`, or a single
-/// following char.
-fn read_script_group(s: &str, pos: usize) -> Option<(&str, usize)> {
-    let bytes = s.as_bytes();
-    if pos >= bytes.len() {
-        return None;
-    }
-    if bytes[pos] == b'{' {
-        return take_group(s, pos);
-    }
-    // Braceless command operand, e.g. `x^\alpha` — grab the whole `\name` so it
-    // isn't truncated to a lone `\` (which would leave `alpha` as literal text).
-    if bytes[pos] == b'\\' {
-        let (name, end) = read_command(s, pos + 1);
-        if !name.is_empty() {
-            return Some((&s[pos..end], end));
-        }
-    }
-    // Single char (one UTF-8 scalar).
-    let ch_len = s[pos..].chars().next()?.len_utf8();
-    Some((&s[pos..pos + ch_len], pos + ch_len))
 }
 
 #[cfg(feature = "typst-math")]
@@ -1006,44 +1035,57 @@ pub(crate) fn fragment_size(label: &str, size_pt: f64) -> Option<(f64, f64, f64)
 /// `frac(a, b)`, `\sqrt{x}` → `sqrt(x)` / `\sqrt[n]{x}` → `root(n, x)`,
 /// `^{…}`/`_{…}` → `^(…)`/`_(…)`. Available without the `math` feature so it
 /// can be unit-tested deterministically.
+///
+/// Structure nested deeper than 32 levels is not translated: the commands
+/// keep their names without the backslash and braces become parentheses.
 pub fn to_typst_math(body: &str) -> String {
-    let bytes = body.as_bytes();
+    let src = MathSrc::new(body);
     let mut out = String::with_capacity(body.len());
-    let mut i = 0;
-    while i < bytes.len() {
+    typst_math_range(&src, 0..body.len(), 0, &mut out);
+    out
+}
+
+fn typst_math_range(src: &MathSrc, range: Range<usize>, depth: usize, out: &mut String) {
+    let body = &src.s[..range.end];
+    let end = range.end;
+    let bytes = body.as_bytes();
+    let nest = depth < MAX_MATH_DEPTH;
+    let inner = |r: Range<usize>, out: &mut String| typst_math_range(src, r, depth + 1, out);
+    let mut i = range.start;
+    while i < end {
         let c = bytes[i] as char;
         if c == '\\' {
             let (name, next) = read_command(body, i + 1);
             match name {
-                "frac" => {
-                    if let Some(((n, d), end)) = take_two_groups(body, next) {
+                "frac" if nest => {
+                    if let Some((n, d, after)) = src.two_groups(next, end) {
                         out.push_str("frac(");
-                        out.push_str(&to_typst_math(n));
+                        inner(n, out);
                         out.push_str(", ");
-                        out.push_str(&to_typst_math(d));
+                        inner(d, out);
                         out.push(')');
-                        i = end;
+                        i = after;
                         continue;
                     }
                 }
-                "sqrt" => {
-                    let (index, after_idx) = read_optional_bracket(body, next);
-                    if let Some((arg, end)) = take_group(body, after_idx) {
+                "sqrt" if nest => {
+                    let (index, after_idx) = src.bracket(next, end);
+                    if let Some((arg, after)) = src.group(after_idx, end) {
                         match index {
                             Some(idx) => {
                                 out.push_str("root(");
-                                out.push_str(&to_typst_math(idx));
+                                inner(idx, out);
                                 out.push_str(", ");
-                                out.push_str(&to_typst_math(arg));
+                                inner(arg, out);
                                 out.push(')');
                             }
                             None => {
                                 out.push_str("sqrt(");
-                                out.push_str(&to_typst_math(arg));
+                                inner(arg, out);
                                 out.push(')');
                             }
                         }
-                        i = end;
+                        i = after;
                         continue;
                     }
                 }
@@ -1065,13 +1107,13 @@ pub fn to_typst_math(body: &str) -> String {
             i += 1;
             continue;
         }
-        if c == '^' || c == '_' {
-            if let Some((grp, end)) = read_script_group(body, i + 1) {
+        if nest && (c == '^' || c == '_') {
+            if let Some((grp, after)) = src.script(i + 1, end) {
                 out.push(c);
                 out.push('(');
-                out.push_str(&to_typst_math(grp));
+                inner(grp, out);
                 out.push(')');
-                i = end;
+                i = after;
                 continue;
             }
         }
@@ -1091,7 +1133,6 @@ pub fn to_typst_math(body: &str) -> String {
         out.push(ch);
         i += ch.len_utf8();
     }
-    out
 }
 
 /// Longest label, in bytes, handed to Typst as math. Plot labels are a line or
@@ -1276,6 +1317,13 @@ mod tests {
             to_unicode("Variance, $\\sigma^2$ (units)"),
             "Variance, σ² (units)"
         );
+    }
+
+    #[test]
+    fn non_ascii_inside_math_preserved() {
+        // These used to be copied one byte at a time, giving `Âµ` for `µ`.
+        assert_eq!(to_unicode("$µ + α_µ$ (µm)"), "µ + α_(µ) (µm)");
+        assert_eq!(to_unicode("$\\frac{µ}{σ}$"), "µ/σ");
     }
 
     #[test]
