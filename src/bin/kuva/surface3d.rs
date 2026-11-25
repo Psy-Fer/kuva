@@ -112,6 +112,7 @@ pub fn run(args: Surface3DArgs) -> Result<(), String> {
         if table.rows.is_empty() {
             return Err("empty matrix input".into());
         }
+        table.check_rectangular()?;
         let mut z_data = Vec::with_capacity(table.rows.len());
         for row in &table.rows {
             let z_row: Result<Vec<f64>, String> = row

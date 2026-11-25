@@ -3172,7 +3172,14 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         full_w: f64,
         full_h: f64,
         fill: Color,
+        /// Row, column and value of the cell, for tooltips and value labels.
+        i: usize,
+        j: usize,
+        value: f64,
     }
+    // The first row sets the column count (as in `bounds()`). Cells past it in a
+    // longer row are not drawn, and a shorter row leaves its missing cells
+    // empty, so a ragged matrix can't index past `x_edges`.
     let cell_data: Vec<CellData> = heatmap
         .data
         .iter()
@@ -3180,7 +3187,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         .flat_map(|(i, row)| {
             let cmap = cmap.clone();
             let (x_edges, y_edges) = (&x_edges, &y_edges);
-            row.iter().enumerate().map(move |(j, &value)| {
+            row.iter().take(cols).enumerate().map(move |(j, &value)| {
                 let x0 = computed.map_x(x_edges[j]);
                 let x1 = computed.map_x(x_edges[j + 1]);
                 let y0 = computed.map_y(y_edges[i + 1]);
@@ -3203,6 +3210,9 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                     full_w,
                     full_h,
                     fill: Color::from(cmap.map(norm(value))),
+                    i,
+                    j,
+                    value,
                 }
             })
         })
@@ -3212,9 +3222,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
 
     if use_tooltips {
         for (idx, cd) in cell_data.iter().enumerate() {
-            let row_i = idx / cols;
-            let col_i = idx % cols;
-            let value = heatmap.data[row_i][col_i];
+            let (row_i, col_i, value) = (cd.i, cd.j, cd.value);
             let row_label = heatmap
                 .row_labels
                 .as_ref()
@@ -3285,8 +3293,9 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
         if base * v_fit < 5.0 {
             return;
         }
-        let values: Vec<String> = (0..cell_data.len())
-            .map(|idx| format!("{:.2}", heatmap.data[idx / cols][idx % cols]))
+        let values: Vec<String> = cell_data
+            .iter()
+            .map(|cd| format!("{:.2}", cd.value))
             .collect();
         // Size uniformly to also fit the widest value, and centre on the real cap-height
         // midpoint. If a lone wide value (e.g. one large-magnitude cell in an otherwise
@@ -5257,14 +5266,17 @@ fn add_surface3d(
 
     for i in 0..nrows - 1 {
         for j in 0..ncols - 1 {
+            // A row shorter than the first (ragged `z_data`) has missing
+            // corners: give them NaN so the face is skipped below.
+            let z = |r: usize, c: usize| s.z_data[r].get(c).copied().unwrap_or(f64::NAN);
             let corners_data = [
-                (s.x_at(j), s.y_at(i), s.z_data[i][j]),
-                (s.x_at(j + 1), s.y_at(i), s.z_data[i][j + 1]),
-                (s.x_at(j + 1), s.y_at(i + 1), s.z_data[i + 1][j + 1]),
-                (s.x_at(j), s.y_at(i + 1), s.z_data[i + 1][j]),
+                (s.x_at(j), s.y_at(i), z(i, j)),
+                (s.x_at(j + 1), s.y_at(i), z(i, j + 1)),
+                (s.x_at(j + 1), s.y_at(i + 1), z(i + 1, j + 1)),
+                (s.x_at(j), s.y_at(i + 1), z(i + 1, j)),
             ];
 
-            // Skip faces with any NaN coordinate
+            // Skip faces with any NaN coordinate (or missing corner)
             if corners_data
                 .iter()
                 .any(|c| !c.0.is_finite() || !c.1.is_finite() || !c.2.is_finite())
@@ -8734,6 +8746,11 @@ pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64, fonts: &FontSet) -> Cl
 
 fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout) {
     use crate::plot::phylo::post_order_dfs;
+
+    // Work on a copy with a consistent shape when rows are ragged or the label
+    // lists don't match the matrix (see `Clustermap::shape_fixed`).
+    let fixed = cm.shape_fixed();
+    let cm = fixed.as_ref().unwrap_or(cm);
 
     let cmap = if computed.bw_mode {
         crate::render::bw::bw_colormap()
@@ -15212,6 +15229,16 @@ fn add_candlestick(cp: &CandlestickPlot, scene: &mut Scene, computed: &ComputedL
 
 // ── Contour / Marching-Squares ─────────────────────────────────────────────
 
+/// Rows and columns of the grid that `z`, `x_coords` (one per column) and
+/// `y_coords` (one per row) all cover. `ContourPlot`'s fields are public and
+/// `with_grid` doesn't check shapes, so a ragged `z` or a short coordinate
+/// list is drawn over the common part instead of indexing past the end.
+fn contour_extent(z: &[Vec<f64>], x_coords: &[f64], y_coords: &[f64]) -> (usize, usize) {
+    let rows = z.len().min(y_coords.len());
+    let cols = z[..rows].iter().map(Vec::len).min().unwrap_or(0);
+    (rows, cols.min(x_coords.len()))
+}
+
 /// Build the SVG path string for one iso-level using marching squares.
 /// Emits individual "M x1 y1 L x2 y2" segments — no stitching needed.
 ///
@@ -15224,12 +15251,8 @@ fn contour_path(
     t: f64,
     computed: &ComputedLayout,
 ) -> String {
-    let rows = z.len();
-    if rows < 2 {
-        return String::new();
-    }
-    let cols = z[0].len();
-    if cols < 2 {
+    let (rows, cols) = contour_extent(z, x_coords, y_coords);
+    if rows < 2 || cols < 2 {
         return String::new();
     }
 
@@ -15337,12 +15360,8 @@ fn contour_fill_path(
     t: f64,
     computed: &ComputedLayout,
 ) -> String {
-    let rows = z.len();
-    if rows < 2 {
-        return String::new();
-    }
-    let cols = z[0].len();
-    if cols < 2 {
+    let (rows, cols) = contour_extent(z, x_coords, y_coords);
+    if rows < 2 || cols < 2 {
         return String::new();
     }
 
@@ -15532,18 +15551,13 @@ fn add_contour(cp: &ContourPlot, scene: &mut Scene, computed: &ComputedLayout) {
     if cp.filled {
         // Painter's algorithm with per-cell marching-squares polygons.
         // 1. Fill the entire grid extent with the minimum colormap colour (base layer).
-        let x0_d = cp.x_coords.iter().cloned().fold(f64::INFINITY, f64::min);
-        let x1_d = cp
-            .x_coords
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let y0_d = cp.y_coords.iter().cloned().fold(f64::INFINITY, f64::min);
-        let y1_d = cp
-            .y_coords
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
+        //    Only the part every input covers is drawn (see `contour_extent`).
+        let (rows, cols) = contour_extent(&cp.z, &cp.x_coords, &cp.y_coords);
+        let (xs, ys) = (&cp.x_coords[..cols], &cp.y_coords[..rows]);
+        let x0_d = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let x1_d = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let y0_d = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let y1_d = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let px0 = computed.map_x(x0_d).min(computed.map_x(x1_d));
         let px1 = computed.map_x(x0_d).max(computed.map_x(x1_d));
         let py0 = computed.map_y(y0_d).min(computed.map_y(y1_d));

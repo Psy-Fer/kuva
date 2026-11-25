@@ -1804,6 +1804,8 @@ impl Plot {
                 }
                 // Cells are coloured by the normalised values (e.g. row z-scores), so the
                 // colorbar must span those, not the raw data.
+                let fixed = cm.shape_fixed();
+                let cm = fixed.as_ref().unwrap_or(cm);
                 let values =
                     crate::render::render::apply_normalization(cm.data.clone(), &cm.normalization);
                 let min = values

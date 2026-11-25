@@ -136,3 +136,64 @@ fn cell_size_grows_the_canvas() {
     // 12 columns: 10 px more per cell is 120 px wider.
     assert!((width("30x10") - width("20x10") - 120.0).abs() < 0.05);
 }
+
+/// Run the binary with `input` on stdin.
+fn run_stdin(args: &[&str], input: &str) -> (String, String, i32) {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kuva"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn kuva");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().expect("wait for kuva");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code().unwrap_or(-1),
+    )
+}
+
+#[test]
+fn ragged_rows_follow_the_header_width() {
+    // The width comes from the header. Before, it came from the first row, so
+    // here the extra column label made the renderer index past the matrix.
+    let short_first = "gene\ts1\ts2\ts3\ng1\ta\ng2\tb\ta\tc\ng3\tc\tb\ta\n";
+    // Categorical: a short row is padded with missing cells.
+    let (svg, stderr, code) = run_stdin(&["clustermap", "--categorical"], short_first);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(svg.contains(">s3</text>"), "the third column is drawn");
+    assert!(svg.contains(">NA</text>"), "missing cells are listed as NA");
+    // Numeric: a missing cell is not a number, as for an empty one.
+    let numeric = short_first.replace(['a', 'b', 'c'], "1");
+    let (_, stderr, code) = run_stdin(&["clustermap"], &numeric);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("column 's2': '' is not a number"),
+        "{stderr}"
+    );
+
+    // Without a header the longest row sets the width.
+    let (_, stderr, code) = run_stdin(
+        &["clustermap", "--categorical", "--no-header"],
+        "g1\ta\ng2\tb\ta\tc\ng3\tc\tb\ta\n",
+    );
+    assert_eq!(code, 0, "{stderr}");
+
+    // A row longer than the header is an error, not silently cut.
+    let long = "gene\ts1\ts2\ng1\t1\t2\ng2\t2\t3\t4\n";
+    let (_, stderr, code) = run_stdin(&["clustermap"], long);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("data row 2 has 4 fields but the header has 3"),
+        "{stderr}"
+    );
+}

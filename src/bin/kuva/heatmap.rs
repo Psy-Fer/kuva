@@ -117,6 +117,7 @@ pub fn run(args: HeatmapArgs) -> Result<(), String> {
         (row_order, col_order, mat)
     } else {
         // ── Wide-matrix path ─────────────────────────────────────────────────
+        table.check_rectangular()?;
         let ncols = table.rows[0].len();
         if ncols < 2 {
             return Err("heatmap input needs at least 2 columns (row label + data)".into());

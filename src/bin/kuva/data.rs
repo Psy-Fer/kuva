@@ -180,6 +180,33 @@ pub struct DataTable {
 }
 
 impl DataTable {
+    /// Check that every data row, and the header if there is one, has as many
+    /// fields as the first data row. The CSV reader accepts ragged rows, and a
+    /// matrix read from them would be misaligned.
+    pub fn check_rectangular(&self) -> Result<(), String> {
+        let Some(width) = self.rows.first().map(Vec::len) else {
+            return Ok(());
+        };
+        if let Some(h) = &self.header {
+            if h.len() != width {
+                return Err(format!(
+                    "the header has {} fields but the first data row has {width}; \
+                     every row needs the same number of fields",
+                    h.len()
+                ));
+            }
+        }
+        if let Some((i, row)) = self.rows.iter().enumerate().find(|(_, r)| r.len() != width) {
+            return Err(format!(
+                "data row {} has {} fields but the first data row has {width}; \
+                 every row needs the same number of fields",
+                i + 1,
+                row.len()
+            ));
+        }
+        Ok(())
+    }
+
     /// Read and parse input from a file path or stdin.
     ///
     /// `project` lists the columns to read.  For parquet files only the

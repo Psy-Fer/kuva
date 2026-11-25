@@ -1432,7 +1432,10 @@ pub fn pearson_corr(data: &[(f64, f64)]) -> Option<f64> {
 
 /// UPGMA hierarchical clustering. Returns `(nodes, root_id)`.
 ///
-/// `labels` must have the same length as `dist` (square symmetric matrix).
+/// `labels` should have the same length as `dist` (square symmetric matrix).
+/// Every label becomes a leaf. A distance missing because `dist` is smaller
+/// than that, or ragged, counts as the largest distance given, so those pairs
+/// are joined last.
 pub fn upgma(labels: &[&str], dist: &[Vec<f64>]) -> (Vec<crate::plot::phylo::PhyloNode>, usize) {
     use crate::plot::phylo::PhyloNode;
 
@@ -1456,11 +1459,16 @@ pub fn upgma(labels: &[&str], dist: &[Vec<f64>]) -> (Vec<crate::plot::phylo::Phy
     }
 
     // Working distance matrix (extended to hold internal nodes)
+    let given = |i: usize, j: usize| dist.get(i).and_then(|r| r.get(j)).copied();
+    let missing = (0..n)
+        .flat_map(|i| (0..n).filter_map(move |j| given(i, j)))
+        .filter(|d| d.is_finite())
+        .fold(0.0_f64, f64::max);
     let total = 2 * n - 1;
     let mut dm = vec![vec![0.0f64; total]; total];
-    for i in 0..n {
-        for j in 0..n {
-            dm[i][j] = dist[i][j];
+    for (i, row) in dm.iter_mut().take(n).enumerate() {
+        for (j, d) in row.iter_mut().take(n).enumerate() {
+            *d = given(i, j).unwrap_or(missing);
         }
     }
 

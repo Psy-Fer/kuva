@@ -1635,6 +1635,41 @@ fn test_scatter3d_color_by_legend_box_hugs_short_labels() {
     );
 }
 
+// ── ragged matrices ──────────────────────────────────────────────────────────
+
+/// Matrix input whose rows (or header) have different field counts is an
+/// error, not a panic or a misaligned matrix.
+#[test]
+fn test_ragged_matrix_input_is_an_error() {
+    let cases: [(&[&str], &str, &str); 4] = [
+        (
+            &["heatmap"],
+            "row\ta\tb\tc\nr1\t1\t2\t3\nr2\t4\t5\t6\t7\n",
+            "data row 2 has 5 fields but the first data row has 4",
+        ),
+        (
+            &["heatmap"],
+            "row\ta\tb\tc\nr1\t1\t2\t3\nr2\t4\n",
+            "data row 2 has 2 fields but the first data row has 4",
+        ),
+        (
+            &["heatmap"],
+            "row\ta\tb\tc\td\nr1\t1\t2\t3\nr2\t4\t5\t6\n",
+            "the header has 5 fields but the first data row has 4",
+        ),
+        (
+            &["surface3d", "--matrix", "--no-header"],
+            "1\t2\t3\n4\t5\n6\t7\t8\n",
+            "data row 2 has 2 fields but the first data row has 3",
+        ),
+    ];
+    for (args, input, msg) in cases {
+        let (_, stderr, code) = run_with_stdin(args, input);
+        assert_eq!(code, 1, "{args:?}: {stderr}");
+        assert!(stderr.contains(msg), "{args:?}: {stderr}");
+    }
+}
+
 // ── surface3d ────────────────────────────────────────────────────────────────
 
 #[test]

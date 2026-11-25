@@ -687,6 +687,40 @@ impl Clustermap {
         }
     }
 
+    /// A copy whose rows all have the first row's length and whose label lists
+    /// match the matrix, or `None` when the shape is already consistent.
+    ///
+    /// The fields are public and the CLI reads files that may be ragged, so the
+    /// renderer can't assume the documented shape. Short rows are padded (NaN,
+    /// or an empty category), long rows and extra labels are cut, and missing
+    /// labels are filled with their index, as when no labels are given.
+    pub(crate) fn shape_fixed(&self) -> Option<Clustermap> {
+        let (n_rows, n_cols) = self.dims();
+        let rows_ok = match &self.categorical_data {
+            Some(d) => d.iter().all(|r| r.len() == n_cols),
+            None => self.data.iter().all(|r| r.len() == n_cols),
+        };
+        let labels_ok = |l: &Option<Vec<String>>, n: usize| l.as_ref().is_none_or(|l| l.len() == n);
+        if rows_ok && labels_ok(&self.row_labels, n_rows) && labels_ok(&self.col_labels, n_cols) {
+            return None;
+        }
+        let mut cm = self.clone();
+        match &mut cm.categorical_data {
+            Some(d) => d.iter_mut().for_each(|r| r.resize(n_cols, String::new())),
+            None => cm.data.iter_mut().for_each(|r| r.resize(n_cols, f64::NAN)),
+        }
+        let fit = |l: &mut Option<Vec<String>>, n: usize| {
+            if let Some(l) = l {
+                l.truncate(n);
+                let have = l.len();
+                l.extend((have..n).map(|i| i.to_string()));
+            }
+        };
+        fit(&mut cm.row_labels, n_rows);
+        fit(&mut cm.col_labels, n_cols);
+        Some(cm)
+    }
+
     /// Put annotation strips outside the labels (default) or between the labels and the
     /// cells. It applies where strips and labels share a side: column strips when column labels
     /// are on top, row strips when row labels are on the left.

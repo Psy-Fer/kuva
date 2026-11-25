@@ -214,7 +214,18 @@ pub fn run(args: ClustermapArgs) -> Result<(), String> {
     if table.rows.is_empty() {
         return Err("clustermap input has no data rows".into());
     }
-    let ncols = table.rows[0].len();
+    // The width comes from the header, or the longest row without one. Shorter
+    // rows are padded with missing cells (an empty value is missing); a row
+    // longer than the header is an error rather than silently cut.
+    let longest = table.rows.iter().map(Vec::len).max().unwrap_or(0);
+    let ncols = table.header.as_ref().map_or(longest, Vec::len);
+    if let Some(i) = table.rows.iter().position(|r| r.len() > ncols) {
+        return Err(format!(
+            "data row {} has {} fields but the header has {ncols}",
+            i + 1,
+            table.rows[i].len()
+        ));
+    }
     if ncols < 2 {
         return Err("clustermap input needs at least 2 columns (row label + data)".into());
     }
