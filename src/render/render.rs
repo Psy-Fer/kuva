@@ -16060,14 +16060,23 @@ pub fn render_chord(chord: &ChordPlot, layout: &Layout) -> Scene {
     scene
 }
 
-fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout) {
-    if sankey.nodes.is_empty() || sankey.links.is_empty() {
-        return;
-    }
-
+/// The column of each Sankey node.
+///
+/// A node takes its explicit column if it has one, and column 0 if it has no
+/// incoming links. Every link then pushes its target to at least one column
+/// right of its source (the longest path from a seeded node). Nodes that no
+/// seeded node reaches, such as a cycle with no way in, go in the column after
+/// the last assigned one.
+///
+/// Links that close a cycle are left out of the pushing, or a cycle reachable
+/// from a source would push its nodes right forever. An iterative depth-first
+/// search from each node in input order finds them: a link to a node that is
+/// still on the search path closes a cycle. Self links are among them. The
+/// remaining links form a DAG, so one pass in topological order assigns every
+/// column, in O(nodes + links). Cycle links are still drawn; they just run
+/// backwards (or within a column).
+fn sankey_columns(sankey: &SankeyPlot) -> Vec<usize> {
     let n = sankey.nodes.len();
-
-    // ── Step 1: Column assignment ──
     let mut col: Vec<Option<usize>> = sankey.nodes.iter().map(|nd| nd.column).collect();
 
     // Seed column 0 for nodes with no incoming links (pure sources).
@@ -16081,34 +16090,87 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
         }
     }
 
-    // Iteratively propagate: col[tgt] = max(col[tgt], col[src] + 1)
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for link in &sankey.links {
-            let src = link.source;
-            let tgt = link.target;
-            if let Some(sc) = col[src] {
-                let new_tgt_col = sc + 1;
-                if col[tgt].is_none_or(|tc| tc < new_tgt_col) {
-                    col[tgt] = Some(new_tgt_col);
-                    changed = true;
+    // Outgoing link indices per node, in input order.
+    let mut out: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (li, link) in sankey.links.iter().enumerate() {
+        out[link.source].push(li);
+    }
+
+    // Mark links that close a cycle. state: 0 unvisited, 1 on the search path,
+    // 2 finished. The stack holds (node, index of the next outgoing link).
+    let mut back = vec![false; sankey.links.len()];
+    let mut state = vec![0u8; n];
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    for start in 0..n {
+        if state[start] != 0 {
+            continue;
+        }
+        state[start] = 1;
+        stack.push((start, 0));
+        while let Some(top) = stack.last_mut() {
+            let (node, next) = *top;
+            if next == out[node].len() {
+                state[node] = 2;
+                stack.pop();
+                continue;
+            }
+            top.1 += 1;
+            let li = out[node][next];
+            let tgt = sankey.links[li].target;
+            match state[tgt] {
+                0 => {
+                    state[tgt] = 1;
+                    stack.push((tgt, 0));
                 }
+                1 => back[li] = true,
+                _ => {}
             }
         }
     }
 
-    // Assign any remaining unresolved nodes (cycle members) to max_col + 1.
-    let max_assigned = col.iter().flatten().copied().max().unwrap_or(0);
-    for c in col.iter_mut() {
-        if c.is_none() {
-            *c = Some(max_assigned + 1);
+    // Longest path over the remaining links, in topological order (Kahn).
+    let mut indegree = vec![0usize; n];
+    for (li, link) in sankey.links.iter().enumerate() {
+        if !back[li] {
+            indegree[link.target] += 1;
         }
     }
-    let mut col: Vec<usize> = col
-        .into_iter()
-        .map(|c| c.expect("all Sankey node columns assigned by BFS"))
-        .collect();
+    let mut ready: std::collections::VecDeque<usize> =
+        (0..n).filter(|&i| indegree[i] == 0).collect();
+    while let Some(node) = ready.pop_front() {
+        for &li in &out[node] {
+            if back[li] {
+                continue;
+            }
+            let tgt = sankey.links[li].target;
+            if let Some(sc) = col[node] {
+                if col[tgt].is_none_or(|tc| tc < sc + 1) {
+                    col[tgt] = Some(sc + 1);
+                }
+            }
+            indegree[tgt] -= 1;
+            if indegree[tgt] == 0 {
+                ready.push_back(tgt);
+            }
+        }
+    }
+
+    // Nodes no seeded node reaches go in the column after the last assigned one.
+    let max_assigned = col.iter().flatten().copied().max().unwrap_or(0);
+    col.into_iter()
+        .map(|c| c.unwrap_or(max_assigned + 1))
+        .collect()
+}
+
+fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if sankey.nodes.is_empty() || sankey.links.is_empty() {
+        return;
+    }
+
+    let n = sankey.nodes.len();
+
+    // ── Step 1: Column assignment ──
+    let mut col = sankey_columns(sankey);
     let n_cols = col.iter().copied().max().unwrap_or(0) + 1;
 
     // ── Step 2: Node flow totals ──
@@ -21917,16 +21979,14 @@ struct Tile {
     root_idx: usize,
 }
 
-/// Squarify worst-aspect-ratio metric (Bruls et al. 2000).
-/// `row` contains pixel-area values; `w` is the strip width (shorter side).
+/// Squarify worst-aspect-ratio metric (Bruls et al. 2000) for a row with
+/// pixel-area sum `s`, largest area `max_v` and smallest `min_v`, laid in a
+/// strip of width `w` (the shorter side).
 #[inline]
-fn worst_ratio(row: &[f64], w: f64) -> f64 {
-    let s: f64 = row.iter().sum();
+fn strip_ratio(s: f64, max_v: f64, min_v: f64, w: f64) -> f64 {
     if s <= f64::EPSILON || w <= f64::EPSILON {
         return f64::MAX;
     }
-    let max_v = row.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let min_v = row.iter().cloned().fold(f64::INFINITY, f64::min);
     if min_v <= f64::EPSILON {
         return f64::MAX;
     }
@@ -21960,96 +22020,103 @@ fn run_squarify(pixel_areas: &[f64], rect: TmRect) -> Vec<(usize, TmRect)> {
         };
         pixel_areas.len()
     ];
-    squarify_recursive(&order, pixel_areas, rect, &mut result);
+    squarify(&order, pixel_areas, rect, &mut result);
     order.iter().map(|&i| (i, result[i])).collect()
 }
 
-fn squarify_recursive(order: &[usize], areas: &[f64], rect: TmRect, result: &mut Vec<TmRect>) {
-    if order.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 {
-        return;
-    }
-    if order.len() == 1 {
-        result[order[0]] = rect;
-        return;
-    }
-
-    let w = rect.w.min(rect.h); // shorter side → strip dimension
-
-    // Build current row by greedily adding items while aspect ratio improves
-    let mut row_len = 1;
-    let mut row_vals: Vec<f64> = vec![areas[order[0]]];
-    let mut prev_ratio = worst_ratio(&row_vals, w);
-
-    for k in 1..order.len() {
-        let mut candidate = row_vals.clone();
-        candidate.push(areas[order[k]]);
-        let new_ratio = worst_ratio(&candidate, w);
-        if new_ratio <= prev_ratio {
-            row_vals = candidate;
-            row_len += 1;
-            prev_ratio = new_ratio;
-        } else {
-            break;
+/// Lay out `order` (indices into `areas`, largest area first) in `rect`, one
+/// strip at a time along the shorter side.
+///
+/// This is a loop with the row's sum, max and min kept as running values, so
+/// many tiles take neither one stack frame per strip nor a copy of the row per
+/// candidate. The sum is accumulated in the same order as summing the row, so
+/// the layout is the same as the recursive version that rebuilt each row.
+fn squarify(mut order: &[usize], areas: &[f64], mut rect: TmRect, result: &mut [TmRect]) {
+    loop {
+        if order.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 {
+            return;
         }
-    }
+        if order.len() == 1 {
+            result[order[0]] = rect;
+            return;
+        }
 
-    // Lay out the row as a strip
-    let row_sum: f64 = row_vals.iter().sum();
-    let strip_size = if rect.w >= rect.h {
-        row_sum / rect.w
-    } else {
-        row_sum / rect.h
-    };
-    let strip_size = strip_size.max(0.0);
+        let w = rect.w.min(rect.h); // shorter side → strip dimension
 
-    let mut offset = 0.0_f64;
-    for &idx in order[..row_len].iter() {
-        let frac = if row_sum > f64::EPSILON {
-            areas[idx] / row_sum
+        // Build current row by greedily adding items while aspect ratio improves
+        let first = areas[order[0]];
+        let (mut row_sum, mut row_max, mut row_min) = (first, first, first);
+        let mut row_len = 1;
+        let mut prev_ratio = strip_ratio(row_sum, row_max, row_min, w);
+        for &idx in &order[1..] {
+            let a = areas[idx];
+            let (sum, max, min) = (row_sum + a, row_max.max(a), row_min.min(a));
+            let new_ratio = strip_ratio(sum, max, min, w);
+            if new_ratio <= prev_ratio {
+                (row_sum, row_max, row_min) = (sum, max, min);
+                row_len += 1;
+                prev_ratio = new_ratio;
+            } else {
+                break;
+            }
+        }
+
+        // Lay out the row as a strip
+        let strip_size = if rect.w >= rect.h {
+            row_sum / rect.w
         } else {
-            1.0 / row_len as f64
+            row_sum / rect.h
         };
-        result[idx] = if rect.w >= rect.h {
-            let rw = (frac * rect.w).max(0.0);
-            let r = TmRect {
-                x: rect.x + offset,
-                y: rect.y,
-                w: rw,
-                h: strip_size,
+        let strip_size = strip_size.max(0.0);
+
+        let mut offset = 0.0_f64;
+        for &idx in order[..row_len].iter() {
+            let frac = if row_sum > f64::EPSILON {
+                areas[idx] / row_sum
+            } else {
+                1.0 / row_len as f64
             };
-            offset += rw;
-            r
-        } else {
-            let rh = (frac * rect.h).max(0.0);
-            let r = TmRect {
+            result[idx] = if rect.w >= rect.h {
+                let rw = (frac * rect.w).max(0.0);
+                let r = TmRect {
+                    x: rect.x + offset,
+                    y: rect.y,
+                    w: rw,
+                    h: strip_size,
+                };
+                offset += rw;
+                r
+            } else {
+                let rh = (frac * rect.h).max(0.0);
+                let r = TmRect {
+                    x: rect.x,
+                    y: rect.y + offset,
+                    w: strip_size,
+                    h: rh,
+                };
+                offset += rh;
+                r
+            };
+        }
+
+        // Remaining rectangle after the strip
+        rect = if rect.w >= rect.h {
+            TmRect {
                 x: rect.x,
-                y: rect.y + offset,
-                w: strip_size,
-                h: rh,
-            };
-            offset += rh;
-            r
+                y: rect.y + strip_size,
+                w: rect.w,
+                h: (rect.h - strip_size).max(0.0),
+            }
+        } else {
+            TmRect {
+                x: rect.x + strip_size,
+                y: rect.y,
+                w: (rect.w - strip_size).max(0.0),
+                h: rect.h,
+            }
         };
+        order = &order[row_len..];
     }
-
-    // Remaining rectangle after the strip
-    let remaining = if rect.w >= rect.h {
-        TmRect {
-            x: rect.x,
-            y: rect.y + strip_size,
-            w: rect.w,
-            h: (rect.h - strip_size).max(0.0),
-        }
-    } else {
-        TmRect {
-            x: rect.x + strip_size,
-            y: rect.y,
-            w: (rect.w - strip_size).max(0.0),
-            h: rect.h,
-        }
-    };
-
-    squarify_recursive(&order[row_len..], areas, remaining, result);
 }
 
 /// Layout via alternating horizontal/vertical slice-and-dice.
