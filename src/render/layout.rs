@@ -5156,15 +5156,7 @@ fn count_or_linear_tick_values(lo: f64, hi: f64, log: bool) -> Vec<f64> {
     if log {
         let span = (hi - lo).max(0.0);
         let mut values = vec![0.0];
-        let mut k = 0u32;
-        loop {
-            let decade = 10_f64.powi(k as i32);
-            if decade > span {
-                break;
-            }
-            values.push(decade);
-            k += 1;
-        }
+        values.extend(render_utils::decades_up_to(span));
         // Skip the data-max push when it coincides with the last decade (exact power of ten).
         if values.last() != Some(&span) {
             values.push(span);

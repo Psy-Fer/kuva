@@ -1743,16 +1743,10 @@ impl Plot {
                     let log_max = (max_count + 1.0).log10();
                     let tick_values: Vec<(f64, f64)> = {
                         let mut v = vec![(0.0_f64, 0.0_f64)];
-                        let mut k = 0u32;
-                        loop {
-                            let count = 10_f64.powi(k as i32);
-                            if count > max_count {
-                                break;
-                            }
-                            let pos = (count + 1.0).log10();
-                            v.push((pos, count));
-                            k += 1;
-                        }
+                        v.extend(
+                            render_utils::decades_up_to(max_count)
+                                .map(|count| ((count + 1.0).log10(), count)),
+                        );
                         // Always include max_count at the top
                         v.push((log_max, max_count));
                         v.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);

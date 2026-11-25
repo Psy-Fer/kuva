@@ -21794,16 +21794,9 @@ fn add_hexbin_colorbar(hb: &HexbinPlot, scene: &mut Scene, computed: &ComputedLa
     let (map_min, map_max, cb_map_fn, tick_values): (f64, f64, MapFn, Option<Vec<(f64, f64)>>) =
         if hb.log_color {
             let log_max = (v_max - v_min + 1.0).max(1.0).log10().max(f64::EPSILON);
-            let mut ticks = Vec::new();
-            let mut k = 0u32;
-            loop {
-                let count = 10_f64.powi(k as i32);
-                if count > v_max - v_min {
-                    break;
-                }
-                ticks.push(((count + 1.0).log10(), count));
-                k += 1;
-            }
+            let mut ticks: Vec<(f64, f64)> = render_utils::decades_up_to(v_max - v_min)
+                .map(|count| ((count + 1.0).log10(), count))
+                .collect();
             ticks.push((log_max, v_max - v_min));
             ticks.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
             let lmax = log_max;

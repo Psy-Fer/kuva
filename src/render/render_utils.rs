@@ -750,9 +750,13 @@ pub(crate) fn log_multipliers(min: f64, max: f64) -> &'static [f64] {
 /// Generate tick marks for a log-scale axis.
 /// For narrow ranges (≤ 3 decades), include 2x and 5x sub-ticks.
 /// For wider ranges, only powers of 10.
+///
+/// The decades are limited to those of finite doubles (up to `1e308`), so an
+/// infinite `max` gives at most a few hundred ticks instead of looping, and a
+/// NaN `max` gives none.
 pub fn generate_ticks_log(min: f64, max: f64) -> Vec<f64> {
     let log_min = min.max(1e-10).log10().floor() as i32;
-    let log_max = max.log10().ceil() as i32;
+    let log_max = (max.log10().ceil() as i32).min(308);
     let multipliers = log_multipliers(min, max);
 
     let mut ticks = Vec::new();
@@ -760,12 +764,21 @@ pub fn generate_ticks_log(min: f64, max: f64) -> Vec<f64> {
         let base = 10f64.powi(exp);
         for &mult in multipliers {
             let tick = base * mult;
-            if tick >= min * (1.0 - 1e-8) && tick <= max * (1.0 + 1e-8) {
+            if tick.is_finite() && tick >= min * (1.0 - 1e-8) && tick <= max * (1.0 + 1e-8) {
                 ticks.push(tick);
             }
         }
     }
     ticks
+}
+
+/// The powers of ten `1, 10, 100, ...` that are `<= span`, for count colour
+/// bars on a log scale. Stops at `1e308`, the largest finite power of ten, so
+/// an infinite `span` gives 309 values and a NaN `span` gives none.
+pub(crate) fn decades_up_to(span: f64) -> impl Iterator<Item = f64> {
+    (0..=308)
+        .map(|k| 10_f64.powi(k))
+        .take_while(move |&d| d <= span)
 }
 
 /// The next tick strictly greater than `v` in the `[1, 2, 5] × 10^n` (or pure
