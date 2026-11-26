@@ -277,17 +277,16 @@ impl GanttPlot {
     /// Named groups appear first (in group_order, then insertion order),
     /// ungrouped tasks last (represented as `None`).
     pub fn effective_group_order(&self) -> Vec<Option<String>> {
+        // A set alongside the list keeps this linear in tasks plus groups.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let mut ordered: Vec<Option<String>> = vec![];
-        for g in &self.group_order {
-            if !ordered.contains(&Some(g.clone())) {
+        let named = self
+            .group_order
+            .iter()
+            .chain(self.tasks.iter().filter_map(|t| t.group.as_ref()));
+        for g in named {
+            if seen.insert(g.as_str()) {
                 ordered.push(Some(g.clone()));
-            }
-        }
-        for task in &self.tasks {
-            if let Some(ref g) = task.group {
-                if !ordered.contains(&Some(g.clone())) {
-                    ordered.push(Some(g.clone()));
-                }
             }
         }
         if self.tasks.iter().any(|t| t.group.is_none()) {
@@ -300,6 +299,12 @@ impl GanttPlot {
     pub fn ordered_display_rows(&self) -> Vec<GanttDisplayRow> {
         let groups = self.effective_group_order();
         let has_groups = groups.iter().any(|g| g.is_some());
+        // Task indices per group, in task order, built in one pass.
+        let mut by_group: std::collections::HashMap<Option<&str>, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, task) in self.tasks.iter().enumerate() {
+            by_group.entry(task.group.as_deref()).or_default().push(i);
+        }
         let mut rows = vec![];
         for group_key in &groups {
             if has_groups {
@@ -307,14 +312,8 @@ impl GanttPlot {
                     rows.push(GanttDisplayRow::GroupHeader(g.clone()));
                 }
             }
-            for (i, task) in self.tasks.iter().enumerate() {
-                let belongs = match group_key {
-                    Some(g) => task.group.as_deref() == Some(g.as_str()),
-                    None => task.group.is_none(),
-                };
-                if belongs {
-                    rows.push(GanttDisplayRow::Task(i));
-                }
+            if let Some(tasks) = by_group.get(&group_key.as_deref()) {
+                rows.extend(tasks.iter().map(|&i| GanttDisplayRow::Task(i)));
             }
         }
         rows
@@ -347,6 +346,96 @@ impl GanttPlot {
             Some((x_min, x_max))
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scanning versions the set-based ones replaced, as (header, task
+    /// index) pairs so they can be compared.
+    fn order_ref(p: &GanttPlot) -> Vec<Option<String>> {
+        let mut ordered: Vec<Option<String>> = vec![];
+        for g in &p.group_order {
+            if !ordered.contains(&Some(g.clone())) {
+                ordered.push(Some(g.clone()));
+            }
+        }
+        for task in &p.tasks {
+            if let Some(ref g) = task.group {
+                if !ordered.contains(&Some(g.clone())) {
+                    ordered.push(Some(g.clone()));
+                }
+            }
+        }
+        if p.tasks.iter().any(|t| t.group.is_none()) {
+            ordered.push(None);
+        }
+        ordered
+    }
+
+    fn rows_ref(p: &GanttPlot) -> Vec<(Option<String>, Option<usize>)> {
+        let groups = order_ref(p);
+        let has_groups = groups.iter().any(|g| g.is_some());
+        let mut rows = vec![];
+        for group_key in &groups {
+            if has_groups {
+                if let Some(ref g) = group_key {
+                    rows.push((Some(g.clone()), None));
+                }
+            }
+            for (i, task) in p.tasks.iter().enumerate() {
+                let belongs = match group_key {
+                    Some(g) => task.group.as_deref() == Some(g.as_str()),
+                    None => task.group.is_none(),
+                };
+                if belongs {
+                    rows.push((None, Some(i)));
+                }
+            }
+        }
+        rows
+    }
+
+    fn rows(p: &GanttPlot) -> Vec<(Option<String>, Option<usize>)> {
+        p.ordered_display_rows()
+            .into_iter()
+            .map(|r| match r {
+                GanttDisplayRow::GroupHeader(g) => (Some(g), None),
+                GanttDisplayRow::Task(i) => (None, Some(i)),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn set_based_ordering_matches_the_scans() {
+        let names = ["a", "b", "c", "d"];
+        let mut state = 0x1234_5678_9abc_def1_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..500 {
+            let mut p = GanttPlot::new();
+            for t in 0..(next() % 12) {
+                let pick = next() % 5;
+                p = if pick == 4 {
+                    p.with_task(format!("t{t}"), 0.0, 1.0)
+                } else {
+                    p.with_task_group(names[pick as usize], format!("t{t}"), 0.0, 1.0)
+                };
+            }
+            // Explicit order: some names, possibly repeated or unused.
+            let order: Vec<&str> = (0..(next() % 4))
+                .map(|_| names[(next() % 4) as usize])
+                .collect();
+            p = p.with_group_order(order);
+            assert_eq!(p.effective_group_order(), order_ref(&p));
+            assert_eq!(rows(&p), rows_ref(&p));
         }
     }
 }

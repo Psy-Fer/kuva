@@ -8961,12 +8961,10 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
         |v: f64| -> f64 { ((v - v_min) / (v_max - v_min + f64::EPSILON)).clamp(0.0, 1.0) };
     // Colour of the cell at (row, col) in display order, by gradient, category or bin.
     let cell_entries = cm.cell_legend_group().map(|(_, e)| e).unwrap_or_default();
+    let cell_colors = crate::plot::clustermap::CategoryColors::new(&cell_entries);
     let cell_fill = |row_k: usize, col_k: usize| -> Color {
         if !numeric {
-            Color::from(crate::plot::clustermap::category_color(
-                &cell_entries,
-                cat_data[row_k][col_k],
-            ))
+            Color::from(cell_colors.get(cat_data[row_k][col_k]))
         } else if let Some(ref map) = cm.discrete_color_map {
             Color::from(
                 map.bin_of(data[row_k][col_k])
@@ -9089,8 +9087,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 color: None,
             });
         }
+        let strip_colors = crate::plot::clustermap::CategoryColors::new(entries);
         for (k, &orig_row) in row_perm.iter().enumerate() {
-            let color_str = track.color_at(orig_row, entries);
+            let color_str = track.color_at(orig_row, &strip_colors);
             let y = hm_y + k as f64 * cell_h;
             scene.add(Primitive::Rect {
                 x: x_cursor,
@@ -9127,8 +9126,9 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 color: None,
             });
         }
+        let strip_colors = crate::plot::clustermap::CategoryColors::new(entries);
         for (k, &orig_col) in col_perm.iter().enumerate() {
-            let color_str = track.color_at(orig_col, entries);
+            let color_str = track.color_at(orig_col, &strip_colors);
             let x = hm_x + k as f64 * cell_w;
             scene.add(Primitive::Rect {
                 x,

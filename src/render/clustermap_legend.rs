@@ -3,8 +3,10 @@
 //! need render-side pieces (the default palette, normalization), so they live here to keep the
 //! plot layer free of render imports.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::plot::clustermap::{
-    category_color, is_na, AnnotationTrack, CategoryEntry, CategoryStyle, Clustermap, NA_COLOR,
+    is_na, AnnotationTrack, CategoryColors, CategoryEntry, CategoryStyle, Clustermap, NA_COLOR,
 };
 use crate::render::palette::Palette;
 
@@ -26,25 +28,35 @@ impl CategoryStyle {
         values: impl IntoIterator<Item = &'a str>,
         start: usize,
     ) -> Vec<CategoryEntry> {
+        // Sets and maps beside the lists keep this linear in the number of
+        // values; with mostly distinct values the list searches were quadratic.
         let mut seen: Vec<&str> = Vec::new();
+        let mut seen_set: HashSet<&str> = HashSet::new();
         let mut has_na = false;
         for v in values {
             if is_na(v) {
                 has_na = true;
-            } else if !seen.contains(&v) {
+            } else if seen_set.insert(v) {
                 seen.push(v);
             }
         }
+        // A name repeated in `order` is listed each time, as before.
         let mut ordered: Vec<&str> = self
             .order
             .iter()
             .map(String::as_str)
-            .filter(|c| seen.contains(c))
+            .filter(|c| seen_set.contains(c))
             .collect();
-        for &c in &seen {
-            if !ordered.contains(&c) {
-                ordered.push(c);
-            }
+        let in_order: HashSet<&str> = ordered.iter().copied().collect();
+        ordered.extend(seen.iter().copied().filter(|c| !in_order.contains(c)));
+        // Explicit colours and labels; the first one given for a value wins.
+        let mut colors: HashMap<&str, &str> = HashMap::new();
+        for (k, col) in &self.colors {
+            colors.entry(k.as_str()).or_insert(col.as_str());
+        }
+        let mut labels: HashMap<&str, &str> = HashMap::new();
+        for (k, l) in &self.labels {
+            labels.entry(k.as_str()).or_insert(l.as_str());
         }
         let default_palette;
         let palette: &[String] = match self.palette {
@@ -58,19 +70,17 @@ impl CategoryStyle {
         let mut out: Vec<CategoryEntry> = ordered
             .into_iter()
             .map(|c| {
-                let color = match self.colors.iter().find(|(k, _)| k == c) {
-                    Some((_, col)) => col.clone(),
+                let color = match colors.get(c) {
+                    Some(&col) => col.to_string(),
                     None => {
                         let col = palette[next % palette.len().max(1)].clone();
                         next += 1;
                         col
                     }
                 };
-                let label = self
-                    .labels
-                    .iter()
-                    .find(|(k, _)| k == c)
-                    .map_or_else(|| c.to_string(), |(_, l)| l.clone());
+                let label = labels
+                    .get(c)
+                    .map_or_else(|| c.to_string(), |l| l.to_string());
                 CategoryEntry {
                     value: c.to_string(),
                     label,
@@ -111,20 +121,20 @@ impl AnnotationTrack {
     /// How many palette colours this track's categories take (those without an explicit
     /// colour, NA excluded).
     pub(crate) fn palette_colors_used(&self, entries: &[CategoryEntry]) -> usize {
+        let explicit: HashSet<&str> = self.style.colors.iter().map(|(k, _)| k.as_str()).collect();
         entries
             .iter()
-            .filter(|e| {
-                !e.value.is_empty() && !self.style.colors.iter().any(|(k, _)| *k == e.value)
-            })
+            .filter(|e| !e.value.is_empty() && !explicit.contains(e.value.as_str()))
             .count()
     }
 
-    /// The strip colour for the item at original index `i`.
-    pub(crate) fn color_at(&self, i: usize, entries: &[CategoryEntry]) -> String {
+    /// The strip colour for the item at original index `i`. `colors` is built
+    /// once from the track's resolved entries.
+    pub(crate) fn color_at(&self, i: usize, colors: &CategoryColors) -> String {
         match &self.categories {
-            Some(values) => {
-                category_color(entries, values.get(i).map_or("", String::as_str)).to_string()
-            }
+            Some(values) => colors
+                .get(values.get(i).map_or("", String::as_str))
+                .to_string(),
             None => self
                 .colors
                 .get(i)
@@ -203,5 +213,134 @@ impl Clustermap {
         let col = self.col_annotations.iter().map(&mut resolve).collect();
         let row = self.row_annotations.iter().map(&mut resolve).collect();
         (col, row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The list-search version `resolve_from` replaced.
+    fn resolve_ref<'a>(
+        style: &CategoryStyle,
+        values: impl IntoIterator<Item = &'a str>,
+        start: usize,
+    ) -> Vec<CategoryEntry> {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut has_na = false;
+        for v in values {
+            if is_na(v) {
+                has_na = true;
+            } else if !seen.contains(&v) {
+                seen.push(v);
+            }
+        }
+        let mut ordered: Vec<&str> = style
+            .order
+            .iter()
+            .map(String::as_str)
+            .filter(|c| seen.contains(c))
+            .collect();
+        for &c in &seen {
+            if !ordered.contains(&c) {
+                ordered.push(c);
+            }
+        }
+        let default_palette = Palette::category10();
+        let palette: &[String] = match style.palette {
+            Some(ref p) => &p.0,
+            None => default_palette.colors(),
+        };
+        let mut next = start;
+        let mut out: Vec<CategoryEntry> = ordered
+            .into_iter()
+            .map(|c| {
+                let color = match style.colors.iter().find(|(k, _)| k == c) {
+                    Some((_, col)) => col.clone(),
+                    None => {
+                        let col = palette[next % palette.len().max(1)].clone();
+                        next += 1;
+                        col
+                    }
+                };
+                let label = style
+                    .labels
+                    .iter()
+                    .find(|(k, _)| k == c)
+                    .map_or_else(|| c.to_string(), |(_, l)| l.clone());
+                CategoryEntry {
+                    value: c.to_string(),
+                    label,
+                    color,
+                }
+            })
+            .collect();
+        if has_na {
+            out.push(CategoryEntry {
+                value: String::new(),
+                label: style.na_label.clone().unwrap_or_else(|| "NA".to_string()),
+                color: NA_COLOR.to_string(),
+            });
+        }
+        out
+    }
+
+    #[test]
+    fn hashed_resolution_matches_the_list_searches() {
+        let pool = ["a", "b", "c", "d", "e", "", " "];
+        let state = std::cell::Cell::new(0x0bad_cafe_f00d_1234_u64);
+        let next = || {
+            let mut x = state.get();
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            state.set(x);
+            x
+        };
+        let pick = |n: u64| -> Vec<String> {
+            (0..(next() % n))
+                .map(|_| pool[(next() % 5) as usize].to_string())
+                .collect()
+        };
+        for _ in 0..400 {
+            // Repeated names in `order`, and repeated keys in colours and
+            // labels, where the first one wins.
+            let style = CategoryStyle {
+                palette: None,
+                colors: pick(4)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, k)| (k, format!("#00000{i}")))
+                    .collect(),
+                labels: pick(4)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, k)| (k, format!("L{i}")))
+                    .collect(),
+                order: pick(5),
+                na_label: None,
+            };
+            let values: Vec<&str> = (0..(next() % 15))
+                .map(|_| pool[(next() % pool.len() as u64) as usize])
+                .collect();
+            let start = (next() % 3) as usize;
+            let got = style.resolve_from(values.iter().copied(), start);
+            assert_eq!(
+                got,
+                resolve_ref(&style, values.iter().copied(), start),
+                "{style:?} {values:?}"
+            );
+            let colors = CategoryColors::new(&got);
+            for v in &values {
+                let want = if is_na(v) {
+                    NA_COLOR
+                } else {
+                    got.iter()
+                        .find(|e| e.value == *v)
+                        .map_or(NA_COLOR, |e| e.color.as_str())
+                };
+                assert_eq!(colors.get(v), want);
+            }
+        }
     }
 }

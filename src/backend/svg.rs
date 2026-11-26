@@ -1001,12 +1001,30 @@ fn opaque(fill: &Color) -> bool {
 /// The overlap check uses a uniform grid sized from the median rect, so a big heatmap or brick
 /// plot costs about one bucket lookup per rect. If one segment's grid work runs far past its
 /// size (wildly mixed rect sizes), the segment is closed early: always safe, just less merging.
+///
+/// A rect that covers more than [`MAX_GRID_CELLS`] grid cells (a legend box or plot background
+/// next to many small cells) is kept out of the grid and checked directly against the
+/// segment's members instead, so its size never turns into per-cell work. A segment holds at
+/// most [`MAX_BIG_RECTS`] of them, which bounds the extra check each small rect makes.
 struct Segmenter {
     cw: f64,
     ch: f64,
     grid: std::collections::HashMap<(i64, i64), Vec<u32>>,
     members: Vec<u32>,
+    big: Vec<u32>,
     work: usize,
+}
+
+/// Rects covering more grid cells than this are checked directly, not through the grid.
+const MAX_GRID_CELLS: f64 = 1024.0;
+/// Most big rects one segment may hold; another one starts a new segment.
+const MAX_BIG_RECTS: usize = 64;
+
+/// Whether `r` and `o` overlap in a way that breaks regrouping by colour.
+fn conflicts(r: &PlainRect, o: &PlainRect) -> bool {
+    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
+    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
+    xov > OVERLAP_EPS && yov > OVERLAP_EPS && !(opaque(r.fill) && r.fill == o.fill)
 }
 
 impl Segmenter {
@@ -1024,6 +1042,7 @@ impl Segmenter {
             ch: median(live().map(|r| r.h).collect()),
             grid: std::collections::HashMap::new(),
             members: Vec::new(),
+            big: Vec::new(),
             work: 0,
         }
     }
@@ -1038,10 +1057,36 @@ impl Segmenter {
         )
     }
 
+    /// Whether `r` covers too many grid cells to go through the grid. Computed in floating
+    /// point so a huge or non-finite rect can't overflow; a NaN count counts as big.
+    fn is_big(&self, r: &PlainRect) -> bool {
+        let span =
+            |lo: f64, len: f64, cell: f64| ((lo + len) / cell).floor() - (lo / cell).floor() + 1.0;
+        let n = span(r.x, r.w, self.cw) * span(r.y, r.h, self.ch);
+        n.is_nan() || n > MAX_GRID_CELLS
+    }
+
     /// Whether rect `idx` can join the current segment.
     fn fits(&mut self, rects: &[PlainRect], idx: usize) -> bool {
         let r = &rects[idx];
         let budget = 64 * (self.members.len() + 1) + 10_000;
+        if self.is_big(r) {
+            if self.big.len() >= MAX_BIG_RECTS {
+                return false;
+            }
+            // Checked against every member directly: at most one pass per big rect.
+            self.work += self.members.len();
+            return !self
+                .members
+                .iter()
+                .any(|&o| conflicts(r, &rects[o as usize]));
+        }
+        for &o in &self.big {
+            self.work += 1;
+            if conflicts(r, &rects[o as usize]) {
+                return false;
+            }
+        }
         let (xs, ys) = self.cells(r);
         for gx in xs {
             for gy in ys.clone() {
@@ -1051,13 +1096,7 @@ impl Segmenter {
                 };
                 for &other in cell {
                     self.work += 1;
-                    let o = &rects[other as usize];
-                    let xov = (r.x + r.w).min(o.x + o.w) - r.x.max(o.x);
-                    let yov = (r.y + r.h).min(o.y + o.h) - r.y.max(o.y);
-                    if xov > OVERLAP_EPS
-                        && yov > OVERLAP_EPS
-                        && !(opaque(r.fill) && r.fill == o.fill)
-                    {
+                    if conflicts(r, &rects[other as usize]) {
                         return false;
                     }
                 }
@@ -1070,10 +1109,14 @@ impl Segmenter {
     }
 
     fn add(&mut self, rects: &[PlainRect], idx: usize) {
-        let (xs, ys) = self.cells(&rects[idx]);
-        for gx in xs {
-            for gy in ys.clone() {
-                self.grid.entry((gx, gy)).or_default().push(idx as u32);
+        if self.is_big(&rects[idx]) {
+            self.big.push(idx as u32);
+        } else {
+            let (xs, ys) = self.cells(&rects[idx]);
+            for gx in xs {
+                for gy in ys.clone() {
+                    self.grid.entry((gx, gy)).or_default().push(idx as u32);
+                }
             }
         }
         self.members.push(idx as u32);
@@ -1082,6 +1125,7 @@ impl Segmenter {
     /// Close the current segment, returning its rect indices in paint order.
     fn take(&mut self) -> Vec<u32> {
         self.grid.clear();
+        self.big.clear();
         self.work = 0;
         std::mem::take(&mut self.members)
     }

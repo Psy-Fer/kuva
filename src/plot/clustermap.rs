@@ -77,15 +77,27 @@ pub fn is_na(value: &str) -> bool {
     value.trim().is_empty()
 }
 
-/// Colour of `value` among resolved categories (NA colour for a missing value).
-pub(crate) fn category_color<'a>(entries: &'a [CategoryEntry], value: &str) -> &'a str {
-    if is_na(value) {
-        return NA_COLOR;
+/// Colours of resolved categories by value, built once so that colouring each
+/// cell or strip item is a hash lookup instead of a search of the entries.
+pub(crate) struct CategoryColors<'a>(std::collections::HashMap<&'a str, &'a str>);
+
+impl<'a> CategoryColors<'a> {
+    pub(crate) fn new(entries: &'a [CategoryEntry]) -> Self {
+        let mut map = std::collections::HashMap::with_capacity(entries.len());
+        for e in entries {
+            // The first entry for a value wins.
+            map.entry(e.value.as_str()).or_insert(e.color.as_str());
+        }
+        Self(map)
     }
-    entries
-        .iter()
-        .find(|e| e.value == value)
-        .map_or(NA_COLOR, |e| e.color.as_str())
+
+    /// Colour of `value` (NA colour for a missing or unknown value).
+    pub(crate) fn get(&self, value: &str) -> &'a str {
+        if is_na(value) {
+            return NA_COLOR;
+        }
+        self.0.get(value).copied().unwrap_or(NA_COLOR)
+    }
 }
 
 /// Where annotation strips sit relative to the labels on the same side of the body. Only
