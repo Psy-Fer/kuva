@@ -11,6 +11,13 @@
 //! 3. Build a [`render::layout::Layout`] with [`render::layout::Layout::auto_from_plots`] and customise it.
 //! 4. Call [`render_to_svg`] (or [`render_to_png`] / [`render_to_pdf`]) to get the output in one step.
 //!
+//! Rendering never fails. Anything it had to change or leave out, such as an
+//! option that could not apply or a size limit that switched to a cheaper
+//! method, is recorded in [`Scene::warnings`](render::render::Scene::warnings).
+//! The one-call helpers print these on stderr; call
+//! [`render::render::render_multiple`] to get the [`Scene`](render::render::Scene)
+//! and read them yourself.
+//!
 //! # Example
 //!
 //! ```rust
@@ -167,9 +174,23 @@ pub use render::theme::Theme;
 ///
 /// For fine-grained control — custom layout, twin axes, or embedded-font SVG —
 /// use [`render::render::render_multiple`] and [`struct@backend::svg::SvgBackend`] directly.
+///
+/// Any [`Scene::warnings`](render::render::Scene::warnings) are printed on
+/// stderr, as with the other one-call helpers.
 pub fn render_to_svg(plots: Vec<render::plots::Plot>, layout: render::layout::Layout) -> String {
     let scene = render::render::render_multiple(plots, layout);
+    print_warnings(&scene);
     backend::svg::SvgBackend.render_scene(&scene)
+}
+
+/// The one-call helpers return only the output, so they print the scene's
+/// warnings on stderr. Code that needs them as data calls
+/// [`render::render::render_multiple`] and reads
+/// [`Scene::warnings`](render::render::Scene::warnings).
+fn print_warnings(scene: &render::render::Scene) {
+    for w in &scene.warnings {
+        eprintln!("kuva: warning: {w}");
+    }
 }
 
 /// Render a collection of plots to a PNG byte vector in one call (requires feature `png`).
@@ -189,6 +210,7 @@ pub fn render_to_png(
     scale: f32,
 ) -> Result<Vec<u8>, String> {
     let scene = render::render::render_multiple(plots, layout);
+    print_warnings(&scene);
     backend::png::PngBackend::new()
         .with_scale(scale)
         .render_scene(&scene)
@@ -208,6 +230,7 @@ pub fn render_to_raster(
     scale: f32,
 ) -> Result<Vec<u8>, String> {
     let scene = render::render::render_multiple(plots, layout);
+    print_warnings(&scene);
     backend::raster::RasterBackend::new()
         .with_scale(scale)
         .render_scene(&scene)
@@ -225,6 +248,7 @@ pub fn render_to_pdf(
     layout: render::layout::Layout,
 ) -> Result<Vec<u8>, String> {
     let scene = render::render::render_multiple(plots, layout);
+    print_warnings(&scene);
     backend::pdf::PdfBackend::new().render_scene(&scene)
 }
 
@@ -244,5 +268,6 @@ pub fn render_to_pdf_multi(
         .into_iter()
         .map(|(plots, layout)| render::render::render_multiple(plots, layout))
         .collect();
+    scenes.iter().for_each(print_warnings);
     backend::pdf::PdfBackend::new().render_scenes(&scenes)
 }

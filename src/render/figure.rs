@@ -828,6 +828,9 @@ impl Figure {
                 for def in cell_scene.defs {
                     master.defs.push(def);
                 }
+                for w in cell_scene.warnings {
+                    master.warn(w.code, w.message);
+                }
                 master.add(Primitive::GroupStart {
                     transform: Some(format!("translate({cell_x},{cell_y})")),
                     title: None,

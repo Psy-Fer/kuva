@@ -50,6 +50,11 @@ pub(crate) fn output_path_parser() -> impl TypedValueParser<Value = PathBuf> {
 
 /// Write the scene to a file (format inferred from extension) or SVG to stdout.
 pub fn write_output(mut scene: Scene, args: &BaseArgs) -> Result<(), String> {
+    // Anything rendering changed or left out, on stderr so it never mixes with
+    // an SVG written to stdout.
+    for w in &scene.warnings {
+        eprintln!("warning: {w}");
+    }
     // Only override the theme background when the user explicitly passed --background.
     if let Some(ref bg) = args.background {
         scene.background_color = Some(bg.clone());

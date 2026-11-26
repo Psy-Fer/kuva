@@ -1229,6 +1229,9 @@ pub(crate) fn merge_translated(master: &mut Scene, sub: Scene, dx: f64, dy: f64)
     for script in sub.scripts {
         master.scripts.push(script);
     }
+    for w in sub.warnings {
+        master.warn(w.code, w.message);
+    }
 }
 
 /// Draw the one shared x-axis for the stack at the top edge of its band. The axis *label* is drawn

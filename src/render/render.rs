@@ -593,6 +593,41 @@ pub struct Scene {
     /// library consumer, you are responsible for ensuring it never contains
     /// untrusted content.
     pub scripts: Vec<String>,
+    /// What rendering changed or left out: a limit that switched an expensive
+    /// step to a cheaper one, an option that could not apply, and so on.
+    /// Rendering never fails, so this is where to look when the output is not
+    /// what the plot asked for. Add to it with [`Scene::warn`]. The CLI prints
+    /// these on stderr, and so do the one-call helpers such as
+    /// [`crate::render_to_svg`]. See *Reference -> Limits and warnings* in the
+    /// docs for the full list.
+    pub warnings: Vec<RenderWarning>,
+}
+
+/// One thing rendering changed or left out, carried on [`Scene::warnings`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RenderWarning {
+    /// Short stable identifier, such as `"axis_break.ignored"`, for code that
+    /// wants to react to a particular warning. The message wording may change
+    /// between releases; the code does not.
+    pub code: &'static str,
+    /// What happened and what to change, written for a person to read.
+    pub message: String,
+}
+
+impl RenderWarning {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for RenderWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
 }
 
 impl Scene {
@@ -610,6 +645,7 @@ impl Scene {
             interactive: false,
             axis_meta: None,
             scripts: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -629,6 +665,17 @@ impl Scene {
             interactive: false,
             axis_meta: None,
             scripts: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Record a warning on the scene. An identical warning (same code and
+    /// message) is only kept once, so a figure whose panels hit the same limit
+    /// reports it once.
+    pub fn warn(&mut self, code: &'static str, message: impl Into<String>) {
+        let w = RenderWarning::new(code, message);
+        if !self.warnings.contains(&w) {
+            self.warnings.push(w);
         }
     }
 
@@ -710,8 +757,11 @@ fn add_in_gap_markers(plots: &[Plot], scene: &mut Scene, computed: &ComputedLayo
         }
     }
     if count > 0 {
-        eprintln!(
-            "warning: {count} point(s) fall inside an axis break and are marked with a cross in the gap"
+        scene.warn(
+            "axis_break.points_in_gap",
+            format!(
+                "{count} point(s) fall inside an axis break and are marked with a cross in the gap"
+            ),
         );
     }
 }
@@ -17205,8 +17255,14 @@ fn add_text_plot(tp: &TextPlot, scene: &mut Scene, computed: &ComputedLayout) {
     }
 }
 
-/// this should be the default renderer.
-/// TODO: make an alias of this for single plots, that vectorises
+/// Render `plots` into one [`Scene`] using `layout`. This is the main entry
+/// point; hand the scene to a backend such as
+/// [`SvgBackend`](struct@crate::backend::svg::SvgBackend) for output.
+///
+/// Rendering never fails. When it has to change or leave out something the
+/// plots asked for (an ignored axis break, a limit that switches an expensive
+/// step to a cheaper one), it records a [`RenderWarning`] in
+/// [`Scene::warnings`] instead.
 pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
     // Sequence logos size their canvas here (and may wrap onto rows).
     let layout = {
@@ -17268,15 +17324,20 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         layout.y_break = None;
     }
     let mut computed = resolve_brick_notation_tiers(&plots, &mut layout);
+    // Added to the scene once it exists.
+    let mut early_warnings = Vec::new();
     for (axis, requested, kept) in [
         ("x", layout.x_break.is_some(), computed.x_break.is_some()),
         ("y", layout.y_break.is_some(), computed.y_break.is_some()),
     ] {
         if requested && !kept {
-            eprintln!(
-                "warning: {axis}-axis break ignored: it must satisfy lo < hi strictly inside the \
-                 axis range on a linear axis (not log, categorical, equal-aspect, twin-y or candlestick)"
-            );
+            early_warnings.push(RenderWarning::new(
+                "axis_break.ignored",
+                format!(
+                    "{axis}-axis break ignored: it must satisfy lo < hi strictly inside the \
+                     axis range on a linear axis (not log, categorical, equal-aspect, twin-y or candlestick)"
+                ),
+            ));
         }
     }
 
@@ -17364,6 +17425,9 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         .sum::<usize>()
         + 64;
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
+    for w in early_warnings {
+        scene.warn(w.code, w.message);
+    }
     scene.font_family = computed.font_family.clone();
     scene.mono_font_family = computed.mono_font_family.clone();
     apply_theme(&mut scene, &computed.theme);
@@ -19948,6 +20012,9 @@ fn add_jointplot(
     }
     for def in scatter_scene.defs {
         scene.defs.push(def);
+    }
+    for w in scatter_scene.warnings {
+        scene.warn(w.code, w.message);
     }
     scene.add(Primitive::GroupEnd);
 

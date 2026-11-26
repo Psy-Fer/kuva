@@ -124,6 +124,7 @@
 - [Stats Box](./reference/stats_box.md)
 - [Significance Brackets](./reference/significance.md)
 - [Math in Labels](./reference/math.md)
+- [Limits and Warnings](./reference/warnings.md)
 
 # Performance
 

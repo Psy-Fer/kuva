@@ -576,6 +576,9 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
         master.defs.extend(row.defs);
         master.scripts.extend(row.scripts);
         master.interactive |= row.interactive;
+        for w in row.warnings {
+            master.warn(w.code, w.message);
+        }
         master.add(Primitive::GroupStart {
             transform: Some(format!("translate(0,{y})")),
             title: None,

@@ -103,7 +103,7 @@ A bracket with no explicit position is auto-stacked above the data maximum the p
 
 `.with_position(y)` pins a bracket at a value in data units; a pinned bracket takes no part in stacking and never grows the axis.
 
-An explicit `with_y_axis_max` (or `with_x_axis_max` for horizontal plots) is always respected. Instead of growing the axis, kuva squeezes the levels closer together to fit the room under your max, down to the point where a label would touch the bar above it. If even that does not fit, the top brackets run past the plot area and a warning is printed; raise the max or drop it.
+An explicit `with_y_axis_max` (or `with_x_axis_max` for horizontal plots) is always respected. Instead of growing the axis, kuva squeezes the levels closer together to fit the room under your max, down to the point where a label would touch the bar above it. If even that does not fit, the top brackets run past the plot area and a `brackets.overflow` warning is recorded (see [Limits and Warnings](./warnings.md)); raise the max or drop it.
 
 <img src="../assets/significance/pinned.svg" alt="Bracket pinned at an explicit height" width="560">
 

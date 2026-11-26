@@ -105,13 +105,13 @@ A break that cannot apply is dropped silently rather than producing a broken fig
 - the axis is logarithmic, categorical (the group axis of bar, box, violin, strip, raincloud), or the layout uses `equal_aspect`;
 - the break is not strictly inside the resolved axis range, including when `with_y_axis_min` / `with_y_axis_max` pin the range so the break falls outside it.
 
-A y break is also ignored on twin-y plots (the secondary axis shares the plot height on a plain scale, so a primary gap would slice its series) and on candlestick plots (prices are mapped onto their own price/volume panel). The CLI prints a warning whenever a requested break is ignored. Hover read-outs in interactive SVG are disabled on a broken axis, since they assume a linear range.
+A y break is also ignored on twin-y plots (the secondary axis shares the plot height on a plain scale, so a primary gap would slice its series) and on candlestick plots (prices are mapped onto their own price/volume panel). Whenever a requested break is ignored, kuva records an `axis_break.ignored` warning on the scene, and the CLI prints it (see [Limits and Warnings](./warnings.md)). Hover read-outs in interactive SVG are disabled on a broken axis, since they assume a linear range.
 
 ---
 
 ## Data inside the gap
 
-A scatter point or line vertex whose value lies strictly between `lo` and `hi` cannot be drawn to scale. Rather than hiding it, kuva draws a small cross in the series colour inside the gap at its position, and prints a warning with the count. Lines run up to the gap edge on each side of such a vertex. A bar whose top falls inside the gap is drawn sliced at the edge.
+A scatter point or line vertex whose value lies strictly between `lo` and `hi` cannot be drawn to scale. Rather than hiding it, kuva draws a small cross in the series colour inside the gap at its position, and records an `axis_break.points_in_gap` warning with the count. Lines run up to the gap edge on each side of such a vertex. A bar whose top falls inside the gap is drawn sliced at the edge.
 
 ```rust,no_run
 # use kuva::render::layout::Layout;

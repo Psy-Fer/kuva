@@ -185,9 +185,10 @@ pub fn add_text_annotations(
 /// grew the value axis so the stack fits.
 pub fn add_brackets(layout: &Layout, scene: &mut Scene, computed: &ComputedLayout) {
     if computed.bracket_overflow {
-        eprintln!(
-            "warning: the axis max leaves too little room for the significance brackets; \
-             the top ones are drawn outside the plot (raise or drop the axis max)"
+        scene.warn(
+            "brackets.overflow",
+            "the axis max leaves too little room for the significance brackets; \
+             the top ones are drawn outside the plot (raise or drop the axis max)",
         );
     }
     for (i, b) in layout.brackets.iter().enumerate() {
