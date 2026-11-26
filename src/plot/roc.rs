@@ -235,12 +235,27 @@ pub fn delong_auc(predictions: &[(f64, bool)]) -> (f64, f64) {
         return (0.5, 0.0);
     }
 
+    // Each class sorted once, so the placement counts below are binary
+    // searches: O(n log n) instead of comparing every positive with every
+    // negative. NaN compares false with everything, so it is left out of the
+    // sorted copies and a NaN score counts nothing.
+    let sorted = |v: &[f64]| {
+        let mut v: Vec<f64> = v.iter().copied().filter(|x| !x.is_nan()).collect();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let (neg_sorted, pos_sorted) = (sorted(&neg), sorted(&pos));
+    // (count below s, count equal to s) in a sorted slice.
+    let below_and_tied = |v: &[f64], s: f64| {
+        let below = v.partition_point(|&x| x < s);
+        (below, v.partition_point(|&x| x <= s) - below)
+    };
+
     // V10[i] = fraction of negatives with score < pos[i]  (placement statistic)
     let v10: Vec<f64> = pos
         .iter()
         .map(|&s| {
-            let less = neg.iter().filter(|&&n| n < s).count();
-            let tied = neg.iter().filter(|&&n| n == s).count();
+            let (less, tied) = below_and_tied(&neg_sorted, s);
             (less as f64 + 0.5 * tied as f64) / n_neg as f64
         })
         .collect();
@@ -249,8 +264,12 @@ pub fn delong_auc(predictions: &[(f64, bool)]) -> (f64, f64) {
     let v01: Vec<f64> = neg
         .iter()
         .map(|&s| {
-            let greater = pos.iter().filter(|&&p| p > s).count();
-            let tied = pos.iter().filter(|&&p| p == s).count();
+            let (not_above, tied) = below_and_tied(&pos_sorted, s);
+            let greater = if s.is_nan() {
+                0
+            } else {
+                pos_sorted.len() - not_above - tied
+            };
             (greater as f64 + 0.5 * tied as f64) / n_pos as f64
         })
         .collect();
@@ -372,5 +391,77 @@ pub fn compute_group(group: &RocGroup) -> RocComputed {
         ci_lo,
         ci_hi,
         optimal_idx,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pairwise version `delong_auc` replaced, kept to check the sorted
+    /// version gives bit-identical results.
+    fn delong_auc_ref(predictions: &[(f64, bool)]) -> (f64, f64) {
+        let pos: Vec<f64> = predictions.iter().filter(|p| p.1).map(|p| p.0).collect();
+        let neg: Vec<f64> = predictions.iter().filter(|p| !p.1).map(|p| p.0).collect();
+        let (n_pos, n_neg) = (pos.len(), neg.len());
+        if n_pos == 0 || n_neg == 0 {
+            return (0.5, 0.0);
+        }
+        let v10: Vec<f64> = pos
+            .iter()
+            .map(|&s| {
+                let less = neg.iter().filter(|&&n| n < s).count();
+                let tied = neg.iter().filter(|&&n| n == s).count();
+                (less as f64 + 0.5 * tied as f64) / n_neg as f64
+            })
+            .collect();
+        let v01: Vec<f64> = neg
+            .iter()
+            .map(|&s| {
+                let greater = pos.iter().filter(|&&p| p > s).count();
+                let tied = pos.iter().filter(|&&p| p == s).count();
+                (greater as f64 + 0.5 * tied as f64) / n_pos as f64
+            })
+            .collect();
+        let auc = v10.iter().sum::<f64>() / n_pos as f64;
+        (
+            auc,
+            variance(&v10) / n_pos as f64 + variance(&v01) / n_neg as f64,
+        )
+    }
+
+    #[test]
+    fn sorted_delong_matches_the_pairwise_version_bit_for_bit() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let special = [-0.0, 0.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN];
+        let mut informative = 0;
+        for _ in 0..500 {
+            let n = (next() % 40) as usize;
+            let preds: Vec<(f64, bool)> = (0..n)
+                .map(|_| {
+                    let score = match next() % 12 {
+                        0 => special[(next() % special.len() as u64) as usize],
+                        // Few distinct values, so ties are common.
+                        _ => (next() % 9) as f64 / 8.0,
+                    };
+                    (score, next() % 2 == 0)
+                })
+                .collect();
+            let (a, v) = delong_auc(&preds);
+            let (ra, rv) = delong_auc_ref(&preds);
+            assert_eq!(
+                (a.to_bits(), v.to_bits()),
+                (ra.to_bits(), rv.to_bits()),
+                "{preds:?}"
+            );
+            informative += usize::from(v > 0.0);
+        }
+        assert!(informative > 300, "{informative}");
     }
 }

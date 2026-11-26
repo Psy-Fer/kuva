@@ -281,14 +281,22 @@ pub(crate) fn km_curve(times: &[f64], events: &[bool]) -> Vec<KMPoint> {
 
 /// Return (time, survival_at_t) for each censored observation, using the
 /// last KM step at or before `t_censor`.
+///
+/// `km` is a [`km_curve`]: a start point at `t = 0` with `s = 1`, then the
+/// event steps in ascending time. The steps are binary searched, so this takes
+/// O(c log k) for c censored rows and k steps. Before the first step the level
+/// is 1, which is also the start point's value (even for negative times, where
+/// the start point is out of order).
 pub(crate) fn censoring_levels(times: &[f64], events: &[bool], km: &[KMPoint]) -> Vec<(f64, f64)> {
+    let steps = km.get(1..).unwrap_or(&[]);
     let mut out = Vec::new();
     for (&t, &ev) in times.iter().zip(events) {
         if ev || t.is_nan() {
             continue;
         }
-        // Find survival at t: last KM point with km.t <= t
-        let s = km.iter().rev().find(|p| p.t <= t).map_or(1.0, |p| p.s);
+        // Survival at t: the last step with step.t <= t.
+        let n = steps.partition_point(|p| p.t <= t);
+        let s = n.checked_sub(1).map_or(1.0, |i| steps[i].s);
         out.push((t, s));
     }
     out
@@ -338,21 +346,45 @@ pub(crate) fn logrank_chi2(groups: &[KMGroup]) -> Option<(f64, usize)> {
     let mut expected = vec![0.0_f64; k];
     let mut var = 0.0_f64; // variance of O_1 - E_1 (two-group case)
 
-    for &t in &event_times {
-        // At-risk and events at time t, overall and per group.
-        let n_g: Vec<f64> = groups
-            .iter()
-            .map(|g| n_at_risk(&g.times, t) as f64)
-            .collect();
-        let d_g: Vec<f64> = groups
-            .iter()
-            .map(|g| {
-                g.times
+    // Each group's times and event times, sorted once, so the counts at each
+    // event time are binary searches: O(n log n) overall instead of a scan of
+    // every row per event time. NaN times are never at risk and never equal
+    // an event time, so they are left out.
+    let sorted = |it: &mut dyn Iterator<Item = f64>| {
+        let mut v: Vec<f64> = it.filter(|t| !t.is_nan()).collect();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let all_times: Vec<Vec<f64>> = groups
+        .iter()
+        .map(|g| sorted(&mut g.times.iter().copied()))
+        .collect();
+    let ev_times: Vec<Vec<f64>> = groups
+        .iter()
+        .map(|g| {
+            sorted(
+                &mut g
+                    .times
                     .iter()
                     .zip(&g.events)
-                    .filter(|(&x, &e)| e && x == t)
-                    .count() as f64
-            })
+                    .filter(|(_, &e)| e)
+                    .map(|(&t, _)| t),
+            )
+        })
+        .collect();
+
+    for &t in &event_times {
+        if t.is_nan() {
+            continue; // nobody is at risk at NaN
+        }
+        // At-risk (time >= t) and events (time == t) per group.
+        let n_g: Vec<f64> = all_times
+            .iter()
+            .map(|v| (v.len() - v.partition_point(|&x| x < t)) as f64)
+            .collect();
+        let d_g: Vec<f64> = ev_times
+            .iter()
+            .map(|v| (v.partition_point(|&x| x <= t) - v.partition_point(|&x| x < t)) as f64)
             .collect();
         let n_total: f64 = n_g.iter().sum();
         let d_total: f64 = d_g.iter().sum();
@@ -495,6 +527,148 @@ fn ln_gamma(x: f64) -> f64 {
 #[cfg(test)]
 mod survival_tests {
     use super::*;
+
+    /// The scan-based versions `censoring_levels` and `logrank_chi2`
+    /// replaced, kept to check the binary-search versions give bit-identical
+    /// results.
+    fn censoring_levels_ref(times: &[f64], events: &[bool], km: &[KMPoint]) -> Vec<(f64, f64)> {
+        let mut out = Vec::new();
+        for (&t, &ev) in times.iter().zip(events) {
+            if ev || t.is_nan() {
+                continue;
+            }
+            let s = km.iter().rev().find(|p| p.t <= t).map_or(1.0, |p| p.s);
+            out.push((t, s));
+        }
+        out
+    }
+
+    fn logrank_chi2_ref(groups: &[KMGroup]) -> Option<(f64, usize)> {
+        let k = groups.len();
+        if k < 2 {
+            return None;
+        }
+        let mut event_times: Vec<f64> = groups
+            .iter()
+            .flat_map(|g| {
+                g.times
+                    .iter()
+                    .zip(&g.events)
+                    .filter(|(_, &e)| e)
+                    .map(|(&t, _)| t)
+            })
+            .collect();
+        event_times.sort_by(|a, b| a.nan_cmp(b));
+        event_times.dedup();
+        if event_times.is_empty() {
+            return None;
+        }
+        let mut observed = vec![0.0_f64; k];
+        let mut expected = vec![0.0_f64; k];
+        let mut var = 0.0_f64;
+        for &t in &event_times {
+            let n_g: Vec<f64> = groups
+                .iter()
+                .map(|g| n_at_risk(&g.times, t) as f64)
+                .collect();
+            let d_g: Vec<f64> = groups
+                .iter()
+                .map(|g| {
+                    g.times
+                        .iter()
+                        .zip(&g.events)
+                        .filter(|(&x, &e)| e && x == t)
+                        .count() as f64
+                })
+                .collect();
+            let n_total: f64 = n_g.iter().sum();
+            let d_total: f64 = d_g.iter().sum();
+            if n_total <= 0.0 || d_total <= 0.0 {
+                continue;
+            }
+            for g in 0..k {
+                observed[g] += d_g[g];
+                expected[g] += d_total * n_g[g] / n_total;
+            }
+            if k == 2 && n_total > 1.0 {
+                let p1 = n_g[0] / n_total;
+                var += d_total * (n_total - d_total) / (n_total - 1.0) * p1 * (1.0 - p1);
+            }
+        }
+        let (chi2, df) = if k == 2 {
+            if var <= 0.0 {
+                return None;
+            }
+            ((observed[0] - expected[0]).powi(2) / var, 1)
+        } else {
+            let chi2: f64 = (0..k)
+                .filter(|&g| expected[g] > 0.0)
+                .map(|g| (observed[g] - expected[g]).powi(2) / expected[g])
+                .sum();
+            (chi2, k - 1)
+        };
+        Some((chi2, df))
+    }
+
+    #[test]
+    fn binary_search_versions_match_the_scans_bit_for_bit() {
+        // Deterministic pseudo-random groups: few distinct times so ties are
+        // common, plus negative, signed-zero, infinite and NaN times.
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let special = [-0.0, 0.0, -3.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN];
+        let mut checked = 0;
+        for _ in 0..400 {
+            let k = 1 + (next() % 4) as usize;
+            let groups: Vec<KMGroup> = (0..k)
+                .map(|g| {
+                    let n = (next() % 25) as usize;
+                    let times = (0..n)
+                        .map(|_| match next() % 10 {
+                            0 => special[(next() % special.len() as u64) as usize],
+                            _ => (next() % 12) as f64 * 0.5,
+                        })
+                        .collect();
+                    let events = (0..n).map(|_| next() % 3 != 0).collect();
+                    KMGroup {
+                        label: format!("g{g}"),
+                        times,
+                        events,
+                        color: None,
+                    }
+                })
+                .collect();
+            let bits = |r: Option<(f64, usize)>| r.map(|(c, d)| (c.to_bits(), d));
+            assert_eq!(
+                bits(logrank_chi2(&groups)),
+                bits(logrank_chi2_ref(&groups)),
+                "{:?}",
+                groups
+                    .iter()
+                    .map(|g| (&g.times, &g.events))
+                    .collect::<Vec<_>>()
+            );
+            for g in &groups {
+                let km = km_curve(&g.times, &g.events);
+                let got = censoring_levels(&g.times, &g.events, &km);
+                let want = censoring_levels_ref(&g.times, &g.events, &km);
+                let b = |v: Vec<(f64, f64)>| {
+                    v.into_iter()
+                        .map(|(a, b)| (a.to_bits(), b.to_bits()))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(b(got), b(want), "{:?} {:?}", g.times, g.events);
+            }
+            checked += usize::from(logrank_chi2(&groups).is_some());
+        }
+        // Most cases produce a statistic, so the comparison covers real values.
+        assert!(checked > 150, "{checked}");
+    }
 
     #[test]
     fn median_survival_finds_half_crossing() {
