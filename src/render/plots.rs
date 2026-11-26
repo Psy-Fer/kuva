@@ -1653,9 +1653,10 @@ impl Plot {
             Plot::Venn(v) => v.sets.len() * 10 + 50,
             Plot::Parallel(p) => p.rows.len() + p.axis_names.len() * 10 + 50,
             Plot::Mosaic(mp) => {
+                // Only (column, row) pairs with cells draw anything: up to two
+                // rects and two label lines with backgrounds each.
                 let nc = mp.effective_col_order().len();
-                let nr = mp.effective_row_order().len();
-                nc * nr * 2 + nc + nr + 30
+                mp.cells.len().saturating_mul(6).saturating_add(nc + 30)
             }
             Plot::Ecdf(ep) => {
                 let n: usize = ep.groups.iter().map(|g| g.data.len()).sum();

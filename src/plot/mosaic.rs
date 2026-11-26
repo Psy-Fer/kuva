@@ -218,22 +218,4 @@ impl MosaicPlot {
         }
         order
     }
-
-    /// Sum of all values in a column.
-    pub(crate) fn col_total(&self, col: &str) -> f64 {
-        self.cells
-            .iter()
-            .filter(|c| c.col == col)
-            .map(|c| c.value)
-            .sum()
-    }
-
-    /// Value for a specific (col, row) pair (sums duplicates).
-    pub(crate) fn cell_value(&self, col: &str, row: &str) -> f64 {
-        self.cells
-            .iter()
-            .filter(|c| c.col == col && c.row == row)
-            .map(|c| c.value)
-            .sum()
-    }
 }

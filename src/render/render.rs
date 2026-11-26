@@ -17419,11 +17419,14 @@ pub fn render_multiple(plots: Vec<Plot>, layout: Layout) -> Scene {
         }
     }
 
+    // A hint only: the scene grows past it if needed. Capped so an estimate
+    // that overshoots can't reserve a huge buffer up front.
+    const MAX_CAPACITY_HINT: usize = 1 << 20;
     let capacity_hint: usize = plots
         .iter()
         .map(|p| p.estimated_primitives())
-        .sum::<usize>()
-        + 64;
+        .fold(64, usize::saturating_add)
+        .min(MAX_CAPACITY_HINT);
     let mut scene = Scene::with_capacity(computed.width, computed.height, capacity_hint);
     for w in early_warnings {
         scene.warn(w.code, w.message);
@@ -20283,8 +20286,40 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
     let pw = (area_right - area_left).max(1.0);
     let ph = (area_bottom - area_top).max(1.0);
 
-    // ── Compute column totals and grand total ──────────────────────────────
-    let col_totals: Vec<f64> = col_order.iter().map(|c| mp.col_total(c)).collect();
+    // ── Column totals and cell values, in one pass over the cells ─────────
+    // Sums start at -0.0 and add in cell order, the same as `Iterator::sum`
+    // over the matching cells. A name repeated in an explicit order is drawn
+    // at each of its positions.
+    let mut col_pos: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (ci, c) in col_order.iter().enumerate() {
+        col_pos.entry(c.as_str()).or_default().push(ci);
+    }
+    let mut row_pos: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (ri, r) in row_order.iter().enumerate() {
+        row_pos.entry(r.as_str()).or_default().push(ri);
+    }
+    let mut col_totals = vec![-0.0_f64; n_cols];
+    // Per column, the rows that have cells: (row index, summed value).
+    let mut col_cells: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n_cols];
+    let mut cell_slot: HashMap<(usize, usize), usize> = HashMap::new();
+    for cell in &mp.cells {
+        let Some(cis) = col_pos.get(cell.col.as_str()) else {
+            continue;
+        };
+        for &ci in cis {
+            col_totals[ci] += cell.value;
+            for &ri in row_pos.get(cell.row.as_str()).map_or(&[][..], |v| &v[..]) {
+                let slot = *cell_slot.entry((ci, ri)).or_insert_with(|| {
+                    col_cells[ci].push((ri, -0.0));
+                    col_cells[ci].len() - 1
+                });
+                col_cells[ci][slot].1 += cell.value;
+            }
+        }
+    }
+    for cells in &mut col_cells {
+        cells.sort_by_key(|c| std::cmp::Reverse(c.0));
+    }
     let grand_total: f64 = col_totals.iter().sum();
     if grand_total <= 0.0 {
         return;
@@ -20328,20 +20363,24 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
         let col_y_bottom = area_bottom;
 
         let mut seg_y = col_y_bottom;
-        for (ri, row_name) in row_order.iter().enumerate().rev() {
-            let val = mp.cell_value(col_name, row_name);
-            let seg_h = if col_total > 0.0 {
-                (val / col_total) * usable_col_h
-            } else {
-                0.0
-            };
+        // Rows are stacked bottom-up (last row first). Every row below the
+        // top one takes a gap above it, except an empty bottom row. Only rows
+        // with cells are visited, and the gaps of the empty rows between them
+        // are taken in one step, so the work follows the number of cells, not
+        // rows x columns.
+        let mut prev = n_rows;
+        for &(ri, val) in &col_cells[ci] {
+            let seg_h = (val / col_total) * usable_col_h;
             if seg_h <= 0.0 {
-                // Still move y up by zero gap to keep separation correct
-                if ri + 1 < n_rows {
-                    seg_y -= gap;
-                }
-                continue;
+                continue; // drawn as an empty row
             }
+            let empty_gaps = prev.min(n_rows - 1).saturating_sub(ri + 1);
+            if empty_gaps == 1 {
+                seg_y -= gap;
+            } else if empty_gaps > 1 {
+                seg_y -= gap * empty_gaps as f64;
+            }
+            prev = ri;
             let seg_top = seg_y - seg_h;
             let color = mp.color_for_row_idx(ri);
 
