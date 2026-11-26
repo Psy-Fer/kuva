@@ -620,10 +620,13 @@ impl SvgBackend {
                     }
                 }
                 Primitive::GroupEnd => {
-                    depth -= 1;
-                    write_indent(&mut svg, depth, p);
-                    svg.push_str("</g>");
-                    write_newline(&mut svg, p);
+                    // A surplus end has no open group to close: skip it.
+                    if depth > 1 {
+                        depth -= 1;
+                        write_indent(&mut svg, depth, p);
+                        svg.push_str("</g>");
+                        write_newline(&mut svg, p);
+                    }
                 }
                 Primitive::ClipStart { id, .. } => {
                     // The <clipPath> definition was pushed to scene.defs and is
@@ -637,10 +640,13 @@ impl SvgBackend {
                     depth += 1;
                 }
                 Primitive::ClipEnd => {
-                    depth -= 1;
-                    write_indent(&mut svg, depth, p);
-                    svg.push_str("</g>");
-                    write_newline(&mut svg, p);
+                    // A surplus end has no open group to close: skip it.
+                    if depth > 1 {
+                        depth -= 1;
+                        write_indent(&mut svg, depth, p);
+                        svg.push_str("</g>");
+                        write_newline(&mut svg, p);
+                    }
                 }
                 Primitive::Rect {
                     x,
@@ -723,6 +729,14 @@ impl SvgBackend {
                     }
                 }
             }
+        }
+
+        // Close groups a scene left open so the XML is well-formed.
+        while depth > 1 {
+            depth -= 1;
+            write_indent(&mut svg, depth, p);
+            svg.push_str("</g>");
+            write_newline(&mut svg, p);
         }
 
         // Emit script blocks (e.g. CalendarPlot tooltip JS).

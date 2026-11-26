@@ -1679,7 +1679,9 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     } else {
                         None
                     };
-                    if tip.is_some() || extra.is_some() {
+                    // Close the group under the same condition that opened it.
+                    let opened = tip.is_some() || extra.is_some();
+                    if opened {
                         scene.add(Primitive::GroupStart {
                             transform: None,
                             title: tip,
@@ -1708,7 +1710,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         let cap_half = bar.error_cap_width * (x1 - x0).abs() / 2.0;
                         pending_whiskers.push((x_mid, yl, x_mid, yh, cap_half, true));
                     }
-                    if bar.show_tooltips || computed.interactive {
+                    if opened {
                         scene.add(Primitive::GroupEnd);
                     }
 
@@ -1751,7 +1753,9 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     } else {
                         None
                     };
-                    if tip.is_some() || extra.is_some() {
+                    // Close the group under the same condition that opened it.
+                    let opened = tip.is_some() || extra.is_some();
+                    if opened {
                         scene.add(Primitive::GroupStart {
                             transform: None,
                             title: tip,
@@ -1779,7 +1783,7 @@ fn add_bar(bar: &BarPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         let cap_half = bar.error_cap_width * (x1 - x0).abs() / 2.0;
                         pending_whiskers.push((x_mid, yl, x_mid, yh, cap_half, true));
                     }
-                    if bar.show_tooltips || computed.interactive {
+                    if opened {
                         scene.add(Primitive::GroupEnd);
                     }
                     flat_i += 1;
