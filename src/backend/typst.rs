@@ -1061,6 +1061,7 @@ mod tests {
             interactive: false,
             axis_meta: None,
             scripts: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
