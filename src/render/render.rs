@@ -7464,8 +7464,11 @@ fn add_venn(vp: &VennPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 let angle = angles[idx];
 
                 // Project label onto the shared outer ring, then clamp.
-                let lx = (cx + label_r * angle.cos()).clamp(left_bound, right_bound);
-                let ly = (cy + label_r * angle.sin()).clamp(top_bound, bottom_bound);
+                // A plot narrower than the margins inverts the bounds.
+                let lx =
+                    render_utils::clamp_fit(cx + label_r * angle.cos(), left_bound, right_bound);
+                let ly =
+                    render_utils::clamp_fit(cy + label_r * angle.sin(), top_bound, bottom_bound);
 
                 // Thin grey leader line from centroid to just short of the label.
                 let ldx = lx - cen_x;
@@ -10937,7 +10940,8 @@ fn add_manhattan(mp: &ManhattanPlot, scene: &mut Scene, computed: &ComputedLayou
         {
             let p = &mp.points[idx];
             let y_val = -(p.pvalue.max(floor)).log10();
-            let cx = computed.map_x(p.x).clamp(band_left, band_right);
+            // A span outside the plot (fixed x range) inverts the bounds.
+            let cx = render_utils::clamp_fit(computed.map_x(p.x), band_left, band_right);
             let cy = computed.map_y(y_val);
             let tip = tooltip(mp.show_tooltips, &mp.tooltip_labels, idx, || {
                 let name = p.label.as_deref().unwrap_or("");
@@ -18739,7 +18743,8 @@ fn add_synteny(synteny: &SyntenyPlot, scene: &mut Scene, computed: &ComputedLayo
                     0.0
                 }
         };
-        raw.clamp(bar_x_left, bar_x_right)
+        // Long labels on a narrow plot can put the left edge past the right.
+        render_utils::clamp_fit(raw, bar_x_left, bar_x_right)
     };
 
     let fallback = Palette::category10();
@@ -21043,15 +21048,18 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 // Clamp to plot bounds, accounting for anchor and label width.
                 let x_max = ox + pw + pad_right_extra;
                 let y_max = oy + ph;
+                // A label wider than the plot, or a font taller than it,
+                // inverts the bounds; `clamp_fit` centres the label then.
+                use render_utils::clamp_fit;
                 for l in labels.iter_mut() {
                     l.0 = match l.4 {
-                        TextAnchor::Start => l.0.clamp(ox, (x_max - l.3).max(ox)),
-                        TextAnchor::End => l.0.clamp(ox + l.3, x_max),
+                        TextAnchor::Start => clamp_fit(l.0, ox, (x_max - l.3).max(ox)),
+                        TextAnchor::End => clamp_fit(l.0, ox + l.3, x_max),
                         TextAnchor::Middle => {
-                            l.0.clamp(ox + l.3 / 2.0, (x_max - l.3 / 2.0).max(ox + l.3 / 2.0))
+                            clamp_fit(l.0, ox + l.3 / 2.0, (x_max - l.3 / 2.0).max(ox + l.3 / 2.0))
                         }
                     };
-                    l.1 = l.1.clamp(oy + font_size as f64, y_max);
+                    l.1 = clamp_fit(l.1, oy + font_size as f64, y_max);
                 }
             }
 

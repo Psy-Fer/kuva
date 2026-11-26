@@ -1278,6 +1278,21 @@ fn loess_fit(local: &mut [(f64, f64, f64)], x0: f64) -> Option<f64> {
     y0.is_finite().then_some(y0)
 }
 
+/// `v.clamp(lo, hi)` that can't panic. `f64::clamp` panics when `lo > hi` or
+/// either bound is NaN, and bounds built from label sizes or data can be
+/// either: a label wider than the plot, or a span outside it. Inverted bounds
+/// give their midpoint (an oversized label is centred), and a NaN bound leaves
+/// `v` as it is. Otherwise the result is exactly `v.clamp(lo, hi)`.
+pub(crate) fn clamp_fit(v: f64, lo: f64, hi: f64) -> f64 {
+    if lo <= hi {
+        v.clamp(lo, hi)
+    } else if lo.is_nan() || hi.is_nan() {
+        v
+    } else {
+        (lo + hi) / 2.0
+    }
+}
+
 /// One label for the force-directed [`repel_labels`] layout. `pos` is the label
 /// box centre (mutated in place); `anchor` is the fixed data point it belongs to;
 /// `half_w`/`half_h` are half the label's bounding-box width/height in pixels.
@@ -1356,14 +1371,10 @@ pub fn repel_labels(items: &mut [RepelItem], bounds: (f64, f64, f64, f64), itera
             force[i].1 += spring * (items[i].anchor.1 - items[i].pos.1);
             items[i].pos.0 += force[i].0 * step;
             items[i].pos.1 += force[i].1 * step;
-            items[i].pos.0 = items[i]
-                .pos
-                .0
-                .clamp(xmin + items[i].half_w, xmax - items[i].half_w);
-            items[i].pos.1 = items[i]
-                .pos
-                .1
-                .clamp(ymin + items[i].half_h, ymax - items[i].half_h);
+            // A label larger than the bounds is centred in them.
+            let it = &mut items[i];
+            it.pos.0 = clamp_fit(it.pos.0, xmin + it.half_w, xmax - it.half_w);
+            it.pos.1 = clamp_fit(it.pos.1, ymin + it.half_h, ymax - it.half_h);
         }
     }
 }
