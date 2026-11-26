@@ -220,3 +220,57 @@ fn without_x_date_format_x_column_is_still_parsed_as_a_plain_number() {
     assert_eq!(code, 0, "stderr: {stderr}");
     assert!(stdout.contains("<svg"));
 }
+
+#[test]
+fn dates_near_the_end_of_chronos_range_render() {
+    // Year 262142 is the last full year chrono can hold. Stepping past it used
+    // to panic in the tick generator.
+    let tsv = "date\tvalue\n+262142-01-01\t1\n+262142-12-31\t2\n";
+    for unit in ["years", "months", "weeks", "days"] {
+        for cmd in ["line", "scatter"] {
+            let (stdout, stderr, code) = run_with_stdin(
+                &[
+                    cmd,
+                    "--x",
+                    "date",
+                    "--y",
+                    "value",
+                    "--x-date-format",
+                    "%Y-%m-%d",
+                    "--x-date-unit",
+                    unit,
+                ],
+                tsv,
+            );
+            assert_eq!(code, 0, "{cmd} {unit}: {stderr}");
+            assert!(stdout.contains("<svg"), "{cmd} {unit}");
+        }
+    }
+}
+
+#[test]
+fn tick_format_chrono_cannot_render_is_an_error() {
+    for fmt in ["%Q", "%Z", "%Y %"] {
+        let (_, stderr, code) = run_with_stdin(
+            &[
+                "line",
+                "--x",
+                "date",
+                "--y",
+                "value",
+                "--x-date-format",
+                "%Y-%m-%d",
+                "--x-date-unit",
+                "months",
+                "--x-date-tick-format",
+                fmt,
+            ],
+            MONTHLY_TSV,
+        );
+        assert_ne!(code, 0, "{fmt}");
+        assert!(
+            stderr.contains("--x-date-tick-format") && stderr.contains(fmt),
+            "{fmt}: {stderr}"
+        );
+    }
+}

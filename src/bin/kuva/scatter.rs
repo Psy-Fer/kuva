@@ -297,7 +297,7 @@ pub fn run(args: ScatterArgs) -> Result<(), String> {
     let layout = apply_log_args(layout, &args.log);
     let layout = if let Some(ref fmt) = args.date.x_date_format {
         let xs = table.col_date_f64(&x_col, fmt)?;
-        layout.with_x_datetime(date_axis_from_args(&args.date, &xs))
+        layout.with_x_datetime(date_axis_from_args(&args.date, &xs)?)
     } else {
         layout
     };

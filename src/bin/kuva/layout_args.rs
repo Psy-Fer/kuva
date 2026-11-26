@@ -1001,7 +1001,10 @@ pub fn apply_log_args(mut layout: Layout, args: &LogArgs) -> Layout {
 /// only invoke this when `args.x_date_format` is set — that flag is what
 /// actually switches the x column from a numeric to a date/time parse; this
 /// function only decides how the resulting timestamps are ticked.
-pub fn date_axis_from_args(args: &DateArgs, xs: &[f64]) -> DateTimeAxis {
+pub fn date_axis_from_args(args: &DateArgs, xs: &[f64]) -> Result<DateTimeAxis, String> {
+    if let Some(fmt) = &args.x_date_tick_format {
+        DateTimeAxis::check_format(fmt).map_err(|e| format!("--x-date-tick-format: {e}"))?;
+    }
     let axis = match args.x_date_unit.as_deref() {
         Some(unit) => {
             let fmt = args
@@ -1020,10 +1023,10 @@ pub fn date_axis_from_args(args: &DateArgs, xs: &[f64]) -> DateTimeAxis {
         }
         None => auto_date_axis(xs),
     };
-    match args.x_date_tick_step {
+    Ok(match args.x_date_tick_step {
         Some(step) => axis.with_step(step),
         None => axis,
-    }
+    })
 }
 
 fn auto_date_axis(xs: &[f64]) -> DateTimeAxis {
