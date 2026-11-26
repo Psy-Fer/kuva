@@ -160,7 +160,9 @@ fn crossing_objective_from_pairs(pairs: &mut [(f64, f64, f64)]) -> f64 {
     pairs.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     let mut y2_sorted: Vec<f64> = pairs.iter().map(|(_, y2, _)| *y2).collect();
     y2_sorted.sort_by(|a, b| a.total_cmp(b));
-    y2_sorted.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    // Exact dedup, so the lookup below finds every value. A tolerance here
+    // dropped values that the exact lookup then could not find.
+    y2_sorted.dedup_by(|a, b| a.total_cmp(b).is_eq());
 
     let mut bit = FenwickTree::new(y2_sorted.len());
     let mut seen_weight = 0.0;
@@ -662,7 +664,17 @@ fn two_opt_best_improvement(mut cycle: Vec<usize>, mat: &[Vec<f64>]) -> Vec<usiz
         if swaps == 0 {
             break;
         }
+        // Keep the move only if the whole tour gets shorter. With edge costs
+        // far apart in size (weights like 1e300 and 1e-300), rounding in the
+        // running `imp` sum can exceed the threshold, and the loop could swap
+        // back and forth forever. A strictly falling cost can't revisit a tour.
+        let before = tour_cost(&cycle, mat);
         cycle[swap1..=swap2].reverse();
+        // `partial_cmp` is `None` for NaN costs, which also stops the search.
+        if tour_cost(&cycle, mat).partial_cmp(&before) != Some(std::cmp::Ordering::Less) {
+            cycle[swap1..=swap2].reverse();
+            break;
+        }
     }
     cycle
 }
@@ -710,6 +722,17 @@ fn make_lode_y_by_axis(
     let n_rows = alluvia.len();
     let node_pos = node_positions(nodes_in_col, col_orig.len());
     let mut y = vec![vec![0.0; n_rows]; n_axes];
+    // Position of the row's node on `axis`. A row with no node there (a short
+    // alluvium, or a column that only `with_link` nodes use) goes after the
+    // others.
+    let pos_on = |row: usize, axis: usize| -> usize {
+        alluvia[row]
+            .nodes
+            .iter()
+            .find(|&&node| col_orig.get(node) == Some(&axis))
+            .and_then(|&node| node_pos.get(node).copied())
+            .unwrap_or(usize::MAX)
+    };
 
     for axis_pos in 0..n_axes {
         let axis = column_order[axis_pos];
@@ -720,33 +743,9 @@ fn make_lode_y_by_axis(
         };
         let mut order: Vec<usize> = (0..n_rows).collect();
         order.sort_by(|&a, &b| {
-            let node_a = alluvia[a]
-                .nodes
-                .iter()
-                .copied()
-                .find(|&node| col_orig[node] == axis)
-                .expect("alluvium contains axis");
-            let node_b = alluvia[b]
-                .nodes
-                .iter()
-                .copied()
-                .find(|&node| col_orig[node] == axis)
-                .expect("alluvium contains axis");
-            let tie_a = alluvia[a]
-                .nodes
-                .iter()
-                .copied()
-                .find(|&node| col_orig[node] == tiebreak_axis)
-                .expect("alluvium contains tiebreak axis");
-            let tie_b = alluvia[b]
-                .nodes
-                .iter()
-                .copied()
-                .find(|&node| col_orig[node] == tiebreak_axis)
-                .expect("alluvium contains tiebreak axis");
-            node_pos[node_a]
-                .cmp(&node_pos[node_b])
-                .then(node_pos[tie_a].cmp(&node_pos[tie_b]))
+            pos_on(a, axis)
+                .cmp(&pos_on(b, axis))
+                .then(pos_on(a, tiebreak_axis).cmp(&pos_on(b, tiebreak_axis)))
                 .then(a.cmp(&b))
         });
         let mut cum = 0.0;
@@ -1473,5 +1472,38 @@ mod tests {
         assert_eq!(node_labels[2], vec!["M1", "M2", "M3"]);
         assert_eq!(node_labels[3], vec!["Y", "Z", "X"]);
         assert_eq!(objective, 646.0);
+    }
+
+    #[test]
+    fn crossing_objective_scales_with_tiny_weights() {
+        // Positions are ranks, so scaling every y and weight by k scales the
+        // objective by k^2. With k = 1e-12 the cumulative y values differ by
+        // less than 1e-9, which the old tolerant dedup merged and then failed
+        // to look up.
+        let base = [
+            (1.0, 3.0, 1.0),
+            (2.0, 1.0, 2.0),
+            (3.0, 4.0, 1.5),
+            (4.0, 2.0, 0.5),
+            (5.0, 2.0, 1.0),
+        ];
+        let mut pairs = base.to_vec();
+        let want = super::crossing_objective_from_pairs(&mut pairs);
+        assert_eq!(want, 5.75);
+        for k in [1e-12, 1e-150, 1e150] {
+            let mut pairs: Vec<_> = base
+                .iter()
+                .map(|&(a, b, w)| (a * k, b * k, w * k))
+                .collect();
+            let got = super::crossing_objective_from_pairs(&mut pairs);
+            assert!(((got / (k * k)) - want).abs() < 1e-9, "{k}: {got}");
+        }
+        // Non-finite values don't panic.
+        let mut pairs = vec![
+            (1.0, f64::NAN, 1.0),
+            (f64::INFINITY, 2.0, f64::NAN),
+            (0.0, -0.0, 1.0),
+        ];
+        let _ = super::crossing_objective_from_pairs(&mut pairs);
     }
 }
