@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::data::{ColSpec, DataTable, InputArgs};
 use crate::layout_args::{apply_base_args, BaseArgs};
 use crate::output::write_output;
@@ -134,35 +136,33 @@ pub fn run(args: RoseArgs) -> Result<(), String> {
         let values_col = table.col_f64(&value_col)?;
         let groups_col = table.col_str(gcol)?;
 
-        // Collect ordered unique labels and groups
+        // Ordered unique labels and groups, then the sum for each (group,
+        // label) in one pass over the rows. Starting from -0.0 and adding in
+        // row order gives the same result as `Iterator::sum`.
+        let mut label_idx: HashMap<&str, usize> = HashMap::new();
         let mut ordered_labels: Vec<String> = vec![];
-        let mut ordered_groups: Vec<String> = vec![];
         for l in &labels_col {
-            if !ordered_labels.contains(l) {
+            label_idx.entry(l).or_insert_with(|| {
                 ordered_labels.push(l.clone());
-            }
+                ordered_labels.len() - 1
+            });
         }
+        let mut group_idx: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_groups: Vec<String> = vec![];
         for g in &groups_col {
-            if !ordered_groups.contains(g) {
+            group_idx.entry(g).or_insert_with(|| {
                 ordered_groups.push(g.clone());
-            }
+                ordered_groups.len() - 1
+            });
+        }
+        let mut sums = vec![vec![-0.0_f64; ordered_labels.len()]; ordered_groups.len()];
+        for ((l, g), v) in labels_col.iter().zip(&groups_col).zip(&values_col) {
+            sums[group_idx[g.as_str()]][label_idx[l.as_str()]] += *v;
         }
 
         plot = plot.with_x_labels(ordered_labels.iter().cloned());
 
-        for grp in &ordered_groups {
-            let vals: Vec<f64> = ordered_labels
-                .iter()
-                .map(|lbl| {
-                    labels_col
-                        .iter()
-                        .zip(groups_col.iter())
-                        .zip(values_col.iter())
-                        .filter(|((l, g), _)| *l == lbl && *g == grp)
-                        .map(|((_, _), v)| *v)
-                        .sum::<f64>()
-                })
-                .collect();
+        for (grp, vals) in ordered_groups.iter().zip(sums) {
             plot = match mode {
                 RoseMode::Grouped => plot.with_group(grp.clone(), vals),
                 RoseMode::Stacked => plot.with_stack(grp.clone(), vals),

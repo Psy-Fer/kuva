@@ -147,19 +147,27 @@ pub fn run(args: RadarArgs) -> Result<(), String> {
         }
     } else {
         // Each row is one series.
+        // Parse each column once, not once per row.
         let n_rows = table.rows.len();
-        for row in 0..n_rows {
-            let mut vals: Vec<f64> = Vec::with_capacity(axes.len());
-            for cs in &axes {
-                let col = table.col_f64(cs)?;
-                vals.push(*col.get(row).unwrap_or(&0.0));
-            }
-            let label = if let Some(ref lc) = args.label_col {
-                let lcol = table.col_str(lc)?;
-                lcol.get(row).cloned()
-            } else {
-                None
+        let (cols, lcol) = if n_rows > 0 {
+            let cols = axes
+                .iter()
+                .map(|cs| table.col_f64(cs))
+                .collect::<Result<Vec<_>, _>>()?;
+            let lcol = match args.label_col {
+                Some(ref lc) => Some(table.col_str(lc)?),
+                None => None,
             };
+            (cols, lcol)
+        } else {
+            (Vec::new(), None)
+        };
+        for row in 0..n_rows {
+            let vals: Vec<f64> = cols
+                .iter()
+                .map(|col| *col.get(row).unwrap_or(&0.0))
+                .collect();
+            let label = lcol.as_ref().and_then(|l| l.get(row).cloned());
             let color = pal[row % pal.len()].to_string();
             if let Some(lbl) = label {
                 plot = plot.with_series_color(vals, lbl.as_str(), color.as_str());

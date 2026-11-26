@@ -637,32 +637,28 @@ fn detect_header(records: &[Vec<String>]) -> bool {
         return true;
     }
 
-    // Signal 2: a non-numeric label atop an all-numeric column.
-    let data = &records[1..];
-    for (col, cell) in first.iter().enumerate() {
-        if cell.parse::<f64>().is_ok() {
-            continue; // numeric header cell carries no signal
-        }
-        let mut numeric = 0usize;
-        let mut nonempty = 0usize;
-        for row in data {
-            if let Some(v) = row.get(col) {
-                let v = v.trim();
-                if v.is_empty() {
-                    continue;
-                }
-                nonempty += 1;
-                if v.parse::<f64>().is_ok() {
-                    numeric += 1;
-                }
+    // Signal 2: a non-numeric label atop an all-numeric column. One pass over
+    // the cells, so a wide first row over many short rows costs the number of
+    // cells, not width x rows.
+    let label_col: Vec<bool> = first.iter().map(|c| c.parse::<f64>().is_err()).collect();
+    if !label_col.contains(&true) {
+        return false; // numeric header cells carry no signal
+    }
+    let mut numeric = vec![0usize; first.len()];
+    let mut nonempty = vec![0usize; first.len()];
+    for row in &records[1..] {
+        for (col, v) in row.iter().take(first.len()).enumerate() {
+            let v = v.trim();
+            if !label_col[col] || v.is_empty() {
+                continue;
+            }
+            nonempty[col] += 1;
+            if v.parse::<f64>().is_ok() {
+                numeric[col] += 1;
             }
         }
-        if nonempty > 0 && numeric == nonempty {
-            return true;
-        }
     }
-
-    false
+    (0..first.len()).any(|col| label_col[col] && nonempty[col] > 0 && numeric[col] == nonempty[col])
 }
 
 fn sniff_delim(content: &str) -> char {
@@ -1663,5 +1659,102 @@ mod colspec_tests {
         assert!(!glob_match("a*c", "abd"));
         assert!(glob_match("exact", "exact"));
         assert!(!glob_match("exact", "exacts"));
+    }
+}
+
+#[cfg(test)]
+mod header_detect_tests {
+    use super::detect_header;
+
+    /// The nested-loop version `detect_header` replaced, kept to check the
+    /// one-pass version gives the same answer.
+    fn reference(records: &[Vec<String>]) -> bool {
+        let Some(first) = records.first() else {
+            return false;
+        };
+        if first
+            .first()
+            .map(|f| f.parse::<f64>().is_err())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        for (col, cell) in first.iter().enumerate() {
+            if cell.parse::<f64>().is_ok() {
+                continue;
+            }
+            let (mut numeric, mut nonempty) = (0, 0);
+            for row in &records[1..] {
+                if let Some(v) = row.get(col) {
+                    let v = v.trim();
+                    if v.is_empty() {
+                        continue;
+                    }
+                    nonempty += 1;
+                    if v.parse::<f64>().is_ok() {
+                        numeric += 1;
+                    }
+                }
+            }
+            if nonempty > 0 && numeric == nonempty {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn one_pass_detection_matches_the_nested_loop() {
+        // Every table of up to 3 rows of 0-3 cells drawn from these values.
+        let cells = ["1", "x", "", " 2 "];
+        let mut rows: Vec<Vec<String>> = vec![vec![]];
+        for len in 1..=3 {
+            let mut next = Vec::new();
+            for r in rows.iter().filter(|r| r.len() == len - 1) {
+                for c in cells {
+                    let mut r = r.clone();
+                    r.push(c.to_string());
+                    next.push(r);
+                }
+            }
+            rows.extend(next);
+        }
+        let mut checked = 0;
+        let mut headers = 0;
+        for a in &rows {
+            for b in &rows {
+                for c in &rows {
+                    for n in 1..=3 {
+                        let table: Vec<Vec<String>> =
+                            [a, b, c][..n].iter().map(|r| r.to_vec()).collect();
+                        let got = detect_header(&table);
+                        assert_eq!(got, reference(&table), "{table:?}");
+                        checked += 1;
+                        headers += usize::from(got);
+                    }
+                }
+            }
+        }
+        // Both answers occur often, so the comparison means something.
+        assert!(
+            headers > checked / 10 && headers < checked * 9 / 10,
+            "{headers}/{checked}"
+        );
+        assert!(!detect_header(&[]));
+    }
+
+    #[test]
+    fn wide_first_row_over_short_rows_is_linear() {
+        // 200 000 columns in the first row (numeric first cell, so the quick
+        // check doesn't decide) and 200 000 one-cell rows. The nested loop
+        // made 4 x 10^10 lookups (minutes); one pass takes about a second.
+        let n = 200_000;
+        let mut first = vec!["1".to_string()];
+        first.extend(std::iter::repeat_n("x".to_string(), n - 1));
+        let mut records = vec![first];
+        records.extend(std::iter::repeat_n(vec!["2".to_string()], n));
+        let t = std::time::Instant::now();
+        assert!(!detect_header(&records));
+        assert!(t.elapsed().as_secs() < 30, "{:?}", t.elapsed());
     }
 }
