@@ -66,6 +66,8 @@ let strip = StripPlot::new()
 
 Swarm works best for **N < ~200 per group**. With very large N, points are pushed far from center and the spread becomes impractical.
 
+A point that finds no free spot within 1000 point radii of the centre is drawn on the centre line, overlapping the others. The layout also stops after trying 20,000,000 candidate positions in one group (`kuva::render::render_utils::MAX_SWARM_CANDIDATE_CHECKS`). Ordinary data stays well under that: 10,000 points packed into a 40 px band need about 8 million. Past it, the remaining points are drawn on the centre line and rendering adds a `swarm.budget` warning (see [Limits and Warnings](../reference/warnings.md)). The same applies to the swarm overlays on box and violin plots.
+
 ```rust,no_run
 use kuva::plot::StripPlot;
 use kuva::backend::svg::SvgBackend;

@@ -213,6 +213,14 @@ impl ViolinPlot {
     /// Points are spread horizontally to avoid overlap, giving a clearer
     /// picture of density than a jittered strip. Works best with smaller
     /// datasets (roughly N < 200 per group).
+    ///
+    /// A point with no free spot within 1000 point radii of the centre is
+    /// drawn on the centre line, overlapping. Layout tries at most
+    /// [`MAX_SWARM_CANDIDATE_CHECKS`](crate::render::render_utils::MAX_SWARM_CANDIDATE_CHECKS)
+    /// (20,000,000) positions per group, which
+    /// ordinary data, even 10,000 densely packed points, stays well under;
+    /// the points left after that are drawn on the centre line too, and
+    /// rendering adds a `swarm.budget` warning.
     pub fn with_swarm_overlay(mut self) -> Self {
         self.overlay = Some(StripStyle::Swarm);
         self

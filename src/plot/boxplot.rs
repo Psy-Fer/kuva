@@ -180,6 +180,14 @@ impl BoxPlot {
     /// view of the data density than a jittered strip. Useful for smaller
     /// datasets (N < ~200 per group) where individual points are
     /// meaningful.
+    ///
+    /// A point with no free spot within 1000 point radii of the centre is
+    /// drawn on the centre line, overlapping. Layout tries at most
+    /// [`MAX_SWARM_CANDIDATE_CHECKS`](crate::render::render_utils::MAX_SWARM_CANDIDATE_CHECKS)
+    /// (20,000,000) positions per group, which
+    /// ordinary data, even 10,000 densely packed points, stays well under;
+    /// the points left after that are drawn on the centre line too, and
+    /// rendering adds a `swarm.budget` warning.
     pub fn with_swarm_overlay(mut self) -> Self {
         self.overlay = Some(StripStyle::Swarm);
         self

@@ -8,8 +8,8 @@ mod hostile;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::roc::compute_group;
+use kuva::plot::{BoxPlot, NetworkLayout, NetworkPlot, StripPlot, ViolinPlot};
 use kuva::plot::{Clustermap, GanttPlot, MosaicPlot, RocGroup, SurvivalPlot};
-use kuva::plot::{NetworkLayout, NetworkPlot};
 use kuva::render::color::Color;
 use kuva::render::render::{Primitive, Scene};
 use kuva::render::track_stack::{Interval, IntervalTrack, TrackStack};
@@ -220,4 +220,80 @@ fn wrapped_logo_with_many_positions_and_sequences() {
     });
     // 400 rows of 50 positions, stacked.
     assert!(scene.height > 400.0 * 200.0, "height {}", scene.height);
+}
+
+fn swarm_scene(plot: Plot) -> Scene {
+    let plots = vec![plot];
+    let layout = Layout::auto_from_plots(&plots);
+    render_multiple(plots, layout)
+}
+
+fn budget_warned(scene: &Scene) -> bool {
+    scene.warnings.iter().any(|w| w.code == "swarm.budget")
+}
+
+#[test]
+fn swarm_with_many_equal_values() {
+    // Every candidate offset was checked against every point already placed:
+    // 2,001 candidates x 10^5 points x 10^5 points here. Equal values now
+    // reuse the previous answer once the columns are full, so no budget is
+    // needed.
+    for horizontal in [false, true] {
+        let scene = hostile::bounded(64 << 20, move || {
+            swarm_scene(Plot::Strip(
+                StripPlot::new()
+                    .with_group("a", vec![5.0; 100_000])
+                    .with_swarm()
+                    .with_horizontal(horizontal),
+            ))
+        });
+        assert!(!budget_warned(&scene), "horizontal {horizontal}");
+    }
+}
+
+#[test]
+fn swarm_with_many_nearly_equal_values() {
+    // Distinct but nearly equal values fill the columns and then try every
+    // candidate for each point. The candidate budget stops that and reports
+    // it, for the strip plot and the box and violin overlays alike.
+    let values: Vec<f64> = (0..100_000).map(|i| 5.0 + i as f64 * 1e-12).collect();
+    let plots: Vec<Box<dyn Fn(Vec<f64>) -> Plot + Send>> = vec![
+        Box::new(|v| Plot::Strip(StripPlot::new().with_group("a", v).with_swarm())),
+        Box::new(|v| {
+            Plot::Strip(
+                StripPlot::new()
+                    .with_group("a", v)
+                    .with_swarm()
+                    .with_horizontal(true),
+            )
+        }),
+        Box::new(|v| Plot::Box(BoxPlot::new().with_group("a", v).with_swarm_overlay())),
+        Box::new(|v| {
+            Plot::Violin(
+                ViolinPlot::new()
+                    .with_group("a", v)
+                    .with_swarm_overlay()
+                    .with_horizontal(true),
+            )
+        }),
+    ];
+    for (i, make) in plots.into_iter().enumerate() {
+        let v = values.clone();
+        let scene = hostile::bounded(64 << 20, move || swarm_scene(make(v)));
+        assert!(budget_warned(&scene), "plot {i}");
+    }
+}
+
+#[test]
+fn ordinary_swarm_has_no_budget_warning() {
+    // 10,000 points spread over a normal-looking range, all in one group.
+    let values: Vec<f64> = (0..10_000)
+        .map(|i| ((i * 7919) % 10_000) as f64 / 100.0)
+        .collect();
+    let scene = hostile::bounded(64 << 20, move || {
+        swarm_scene(Plot::Strip(
+            StripPlot::new().with_group("a", values).with_swarm(),
+        ))
+    });
+    assert!(!budget_warned(&scene));
 }

@@ -308,6 +308,14 @@ impl StripPlot {
     /// overlapping. The resulting outline traces the density of the
     /// distribution. Works best for N < ~200 per group; with very large
     /// datasets points will be pushed far from center.
+    ///
+    /// A point with no free spot within 1000 point radii of the centre is
+    /// drawn on the centre line, overlapping. Layout tries at most
+    /// [`MAX_SWARM_CANDIDATE_CHECKS`](crate::render::render_utils::MAX_SWARM_CANDIDATE_CHECKS)
+    /// (20,000,000) positions per group, which
+    /// ordinary data, even 10,000 densely packed points, stays well under;
+    /// the points left after that are drawn on the centre line too, and
+    /// rendering adds a `swarm.budget` warning.
     pub fn with_swarm(mut self) -> Self {
         self.style = StripStyle::Swarm;
         self

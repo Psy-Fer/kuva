@@ -4542,7 +4542,21 @@ fn add_strip_points(
         StripStyle::Swarm => {
             if horizontal {
                 let x_screen: Vec<f64> = values.iter().map(|&v| computed.map_x(v)).collect();
-                let y_offsets = render_utils::beeswarm_positions(&x_screen, point_size);
+                let (y_offsets, swarm_exhausted) = render_utils::beeswarm_layout(
+                    &x_screen,
+                    point_size,
+                    render_utils::MAX_SWARM_CANDIDATE_CHECKS,
+                );
+                if swarm_exhausted {
+                    scene.warn(
+                        "swarm.budget",
+                        format!(
+                            "swarm layout gave up after {} candidate positions; the remaining \
+                             points are drawn on the centre line",
+                            render_utils::MAX_SWARM_CANDIDATE_CHECKS
+                        ),
+                    );
+                }
                 // Cap swarm spread at half the category's own pixel slot, minus
                 // the marker radius, so dense columns can't bleed into a
                 // neighboring category and outermost-category markers don't
@@ -4577,7 +4591,21 @@ fn add_strip_points(
                 }
             } else {
                 let y_screen: Vec<f64> = values.iter().map(|&v| computed.map_y(v)).collect();
-                let x_offsets = render_utils::beeswarm_positions(&y_screen, point_size);
+                let (x_offsets, swarm_exhausted) = render_utils::beeswarm_layout(
+                    &y_screen,
+                    point_size,
+                    render_utils::MAX_SWARM_CANDIDATE_CHECKS,
+                );
+                if swarm_exhausted {
+                    scene.warn(
+                        "swarm.budget",
+                        format!(
+                            "swarm layout gave up after {} candidate positions; the remaining \
+                             points are drawn on the centre line",
+                            render_utils::MAX_SWARM_CANDIDATE_CHECKS
+                        ),
+                    );
+                }
                 // Cap swarm spread at half the category's own pixel slot, minus
                 // the marker radius, so dense columns can't bleed into a
                 // neighboring category and outermost-category markers don't

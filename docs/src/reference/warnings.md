@@ -35,5 +35,6 @@ The one-call helpers (`render_to_svg`, `render_to_png`, `render_to_raster`, `ren
 | `brackets.overflow` | An explicit axis max leaves too little room for the significance brackets, so the top ones are drawn outside the plot. See [Significance Brackets](./significance.md). |
 | `brick.strigar_rejected` | Some `BrickPlot` STRIGAR rows were rejected (old `\|`/`@` format, an unreadable character, or over a brick limit) and are drawn empty. The message gives the number of rows and the first; `BrickPlot::strigar_issues` has the details. See [Brick Plot](../plots/brick.md). |
 | `calendar.period_skipped` | A calendar period has a start or end that is not a valid `YYYY-MM-DD` date, or ends before it starts. The period is not drawn; the others are. One warning per period. See [Calendar Heatmap](../plots/calendar.md). |
+| `swarm.budget` | A beeswarm (strip plot `with_swarm`, or a box or violin swarm overlay) tried `MAX_SWARM_CANDIDATE_CHECKS` (20,000,000) positions in one group and stopped. The remaining points are drawn on the centre line. See [Strip Plot](../plots/strip.md). |
 
 Some older checks still print straight to stderr instead of recording a warning: heatmap bin edges that don't fit the data, sequence logo input problems, `$...$` labels the math typesetter refuses, and a log axis with no positive data. They will move to `Scene::warnings` over time.

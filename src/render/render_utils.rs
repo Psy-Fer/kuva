@@ -1379,10 +1379,143 @@ pub fn repel_labels(items: &mut [RepelItem], bounds: (f64, f64, f64, f64), itera
     }
 }
 
+/// Most candidate offsets tried for one point (offset 0, then +-1 to +-1000
+/// steps).
+const SWARM_CANDIDATES: usize = 2001;
+
+/// Most candidate offsets [`beeswarm_positions`] tries in one call, across all
+/// points. Ordinary data, even 10,000 densely packed points, stays well under
+/// it. Past it, the remaining points get offset 0.
+pub const MAX_SWARM_CANDIDATE_CHECKS: usize = 20_000_000;
+
 /// Greedy beeswarm layout: returns x pixel offsets from group center for each
 /// point such that no two points overlap (Euclidean distance ≥ 2*point_r).
-/// Placement tries x=0, then ±step, ±2×step, … (step = point_r).
+/// Placement tries x=0, then ±step, ±2×step, … (step = point_r), up to ±1000
+/// steps; a point with no free offset in that range gets 0 and overlaps.
+/// A non-finite position also gets 0.
+///
+/// Points are placed in order of position, and each candidate is checked only
+/// against the latest point placed in the five offset columns around it, so the
+/// cost is about linear in the number of points. In total at most
+/// [`MAX_SWARM_CANDIDATE_CHECKS`] candidates are tried; the points left after
+/// that get offset 0. Rendering reports this with a `swarm.budget` warning.
 pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
+    beeswarm_layout(y_screen, point_r, MAX_SWARM_CANDIDATE_CHECKS).0
+}
+
+/// [`beeswarm_positions`] with an explicit budget; the flag is true when the
+/// budget ran out and some points were given offset 0 without being placed.
+pub(crate) fn beeswarm_layout(y_screen: &[f64], point_r: f64, budget: usize) -> (Vec<f64>, bool) {
+    let n = y_screen.len();
+    if n == 0 {
+        return (vec![], false);
+    }
+    // The column argument below needs offsets that stay finite when squared.
+    if !point_r.is_finite() || point_r.abs() > 1e100 {
+        return (beeswarm_reference(y_screen, point_r), false);
+    }
+
+    let mut result = vec![0.0f64; n];
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| y_screen[a].nan_cmp(&y_screen[b]));
+
+    let min_dist_sq = (2.0 * point_r) * (2.0 * point_r);
+    let step = point_r;
+    const HALF: i64 = (SWARM_CANDIDATES as i64 - 1) / 2;
+    // Candidate k maps to column m: 0, +1, -1, +2, -2, ...
+    let column = |k: usize| -> i64 {
+        if k == 0 {
+            0
+        } else if k % 2 == 1 {
+            k.div_ceil(2) as i64
+        } else {
+            -(k.div_ceil(2) as i64)
+        }
+    };
+    // The same arithmetic as the candidate offsets, so a column's x is
+    // bit-identical to the offset the point in it was given.
+    let column_x = |m: i64| -> f64 {
+        let magnitude = m.unsigned_abs() as f64 * step;
+        if m >= 0 {
+            if m == 0 {
+                0.0
+            } else {
+                magnitude
+            }
+        } else {
+            -magnitude
+        }
+    };
+    // Position of the latest point placed in each column. Points are placed in
+    // increasing order, so it is the closest one below the current point, and
+    // the distance check is monotone in that gap: if the latest point in a
+    // column is far enough away, every earlier one is too.
+    let mut latest: Vec<Option<f64>> = vec![None; SWARM_CANDIDATES];
+    // A repeated position with nothing changed since gets the same offset.
+    let mut memo: Option<(f64, f64)> = None;
+    let mut checks = 0usize;
+    let mut exhausted = false;
+
+    for &idx in &order {
+        let y = y_screen[idx];
+        // Non-finite positions: NaN fails every distance check, and an infinite
+        // one only meets itself, so all of them end at 0 and none of them blocks
+        // a finite point.
+        if !y.is_finite() {
+            continue;
+        }
+        if let Some((my, mx)) = memo {
+            if my == y {
+                result[idx] = mx;
+                continue;
+            }
+        }
+        if checks >= budget {
+            exhausted = true;
+            continue;
+        }
+
+        let mut chosen = 0.0;
+        let mut chosen_col = 0i64;
+        for k in 0..SWARM_CANDIDATES {
+            checks += 1;
+            let m = column(k);
+            let x_try = column_x(m);
+            // Columns three or more steps away are at least 3 * point_r off
+            // horizontally, so they can never be too close.
+            let ok = (m - 2..=m + 2).filter(|c| c.abs() <= HALF).all(|c| {
+                match latest[(c + HALF) as usize] {
+                    None => true,
+                    Some(py) => {
+                        let dx = x_try - column_x(c);
+                        let dy = y - py;
+                        dx * dx + dy * dy >= min_dist_sq
+                    }
+                }
+            });
+            if ok {
+                chosen = x_try;
+                chosen_col = m;
+                break;
+            }
+        }
+        let slot = &mut latest[(chosen_col + HALF) as usize];
+        if *slot == Some(y) {
+            // Nothing changed, so the same position would get the same offset.
+            memo = Some((y, chosen));
+        } else {
+            *slot = Some(y);
+            memo = None;
+        }
+        result[idx] = chosen;
+    }
+
+    (result, exhausted)
+}
+
+/// The original all-pairs layout, kept for a point radius too large for the
+/// column argument in [`beeswarm_layout`] and as the reference in tests.
+pub(crate) fn beeswarm_reference(y_screen: &[f64], point_r: f64) -> Vec<f64> {
     let n = y_screen.len();
     if n == 0 {
         return vec![];
@@ -1401,7 +1534,7 @@ pub fn beeswarm_positions(y_screen: &[f64], point_r: f64) -> Vec<f64> {
         let mut chosen_x = 0.0;
 
         // k=0 → x=0; k=1 → +step; k=2 → -step; k=3 → +2*step; k=4 → -2*step; …
-        for k in 0usize..=2000 {
+        for k in 0usize..SWARM_CANDIDATES {
             let x_try = if k == 0 {
                 0.0
             } else {
@@ -1896,6 +2029,86 @@ pub(crate) fn spread_labels(
 
 #[cfg(test)]
 mod tests {
+
+    use super::{beeswarm_layout, beeswarm_reference};
+
+    #[test]
+    fn beeswarm_matches_the_all_pairs_layout() {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let specials = [
+            f64::NAN,
+            -f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            0.0,
+            -0.0,
+            1e300,
+            -1e300,
+            5e-324,
+        ];
+        let radii = [
+            3.0,
+            0.5,
+            1.0,
+            7.25,
+            0.0,
+            -2.0,
+            1e-160,
+            5e-324,
+            1e90,
+            1e120,
+            f64::NAN,
+        ];
+        for case in 0..250 {
+            let n = (next() % 300) as usize;
+            let r = radii[case % radii.len()];
+            let scale = [1.0, 10.0, 100.0, 1e-3][(next() % 4) as usize];
+            let ys: Vec<f64> = (0..n)
+                .map(|_| match next() % 10 {
+                    // Heavy ties, so columns fill and points run out of room.
+                    0..=3 => (next() % 4) as f64 * scale,
+                    4 => specials[(next() % specials.len() as u64) as usize],
+                    _ => (next() % 1_000_000) as f64 / 1_000_000.0 * 50.0 * scale,
+                })
+                .collect();
+            let (got, exhausted) = beeswarm_layout(&ys, r, usize::MAX);
+            let want = beeswarm_reference(&ys, r);
+            assert!(!exhausted);
+            let gb: Vec<u64> = got.iter().map(|v| v.to_bits()).collect();
+            let wb: Vec<u64> = want.iter().map(|v| v.to_bits()).collect();
+            assert_eq!(gb, wb, "case {case}, r {r}, ys {ys:?}");
+        }
+    }
+
+    #[test]
+    fn beeswarm_saturates_like_the_all_pairs_layout() {
+        // 1,100 equal values: 1,001 fit side by side (every other column),
+        // the rest overlap at 0. Plus a second, slightly higher cluster.
+        let mut ys = vec![10.0; 1_100];
+        ys.extend((0..300).map(|i| 10.5 + i as f64 * 1e-9));
+        let (got, _) = beeswarm_layout(&ys, 3.0, usize::MAX);
+        assert_eq!(got, beeswarm_reference(&ys, 3.0));
+        assert!(got.iter().filter(|&&x| x == 0.0).count() > 99);
+    }
+
+    #[test]
+    fn beeswarm_budget_gives_the_rest_offset_zero() {
+        let ys: Vec<f64> = (0..50).map(|i| i as f64 * 1e-6).collect();
+        let full = beeswarm_reference(&ys, 3.0);
+        // Each point tries one more candidate than the last: 1 + 3 + 5 + ...
+        let (got, exhausted) = beeswarm_layout(&ys, 3.0, 100);
+        assert!(exhausted);
+        let placed = got.iter().zip(&full).take_while(|(a, b)| a == b).count();
+        assert!((5..50).contains(&placed), "placed {placed}");
+        assert!(got[placed..].iter().all(|&x| x == 0.0));
+        assert!(!beeswarm_layout(&ys, 3.0, usize::MAX).1);
+    }
 
     #[test]
     fn log_range_contains_data_just_past_a_power_of_ten() {
