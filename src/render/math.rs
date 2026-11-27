@@ -1231,14 +1231,15 @@ fn typst_math_body_allowed(src: &str) -> bool {
 /// Escape Typst markup specials in literal label text so it renders verbatim.
 /// Shared by the `math` tier (whole-label source) and the `typst` markup
 /// backend. Covers the markup-significant characters: `#`, `$`, `*`, `_`,
-/// `` ` ``, `<`, `>`, `@`, `\`, `"`, and the content-block delimiters `[` `]`
-/// (a label like `signal [dB]` would otherwise lose its brackets).
+/// `` ` ``, `<`, `>`, `@`, `\`, `"`, `/`, and the content-block delimiters `[` `]`
+/// (a label like `signal [dB]` would otherwise lose its brackets, and `//` or
+/// `/*` would start a Typst comment).
 #[cfg(any(feature = "typst-math", feature = "typst"))]
 pub(crate) fn escape_typst_markup(s: &str, out: &mut String) {
     for c in s.chars() {
         if matches!(
             c,
-            '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '\\' | '"' | '[' | ']'
+            '#' | '$' | '*' | '_' | '`' | '<' | '>' | '@' | '\\' | '"' | '[' | ']' | '/'
         ) {
             out.push('\\');
         }
@@ -1569,5 +1570,27 @@ mod tests {
         ] {
             assert!(!typst_math_allowed(label), "should refuse {label:?}");
         }
+    }
+
+    #[cfg(any(feature = "typst-math", feature = "typst"))]
+    #[test]
+    fn escape_typst_markup_neutralizes_comments() {
+        let mut out = String::new();
+        escape_typst_markup("A // B /* C */", &mut out);
+        assert_eq!(out, r"A \/\/ B \/\* C \*\/");
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[test]
+    fn typst_math_compiles_slashes_and_comment_like_text() {
+        let frag = render_label_svg(
+            "rate // mg/mL /* note */ $x$",
+            12.0,
+            Some(&crate::render::color::Color::Rgb(0, 0, 0)),
+        );
+        assert!(
+            frag.is_some(),
+            "text containing // and /* beside math should compile cleanly in Typst"
+        );
     }
 }

@@ -101,7 +101,10 @@ impl TypstBackend {
 
         // Default font for text.
         if let Some(ff) = &scene.font_family {
-            let _ = writeln!(out, "#set text(font: \"{}\")", primary_font(ff));
+            let font = escape_typst_string(&primary_font(ff));
+            if !font.is_empty() {
+                let _ = writeln!(out, "#set text(font: \"{font}\")");
+            }
         }
 
         // Pull in CETZ for the drawing primitives.
@@ -649,7 +652,7 @@ fn typst_color_named(s: &str) -> String {
     if s == "none" || s.is_empty() {
         return "none".to_string();
     }
-    if s.starts_with('#') {
+    if is_hex_color(s) {
         return format!("rgb(\"{}\")", s);
     }
     // Typst's standard named colors (matches the CSS basic palette).
@@ -659,6 +662,30 @@ fn typst_color_named(s: &str) -> String {
         | "lime" => s.to_lowercase(),
         _ => "black".to_string(),
     }
+}
+
+fn is_hex_color(s: &str) -> bool {
+    match s.strip_prefix('#') {
+        Some(hex) => {
+            matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+        }
+        None => false,
+    }
+}
+
+/// Escape a string for inclusion inside a Typst double-quoted string literal.
+fn escape_typst_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_control() {
+            continue;
+        }
+        if matches!(c, '\\' | '"') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Extract the primary font family name from a comma-separated CSS-style
@@ -882,14 +909,13 @@ fn emit_path(out: &mut String, data: &crate::render::render::PathData, scene_h: 
         None => style.push_str("fill: none"),
     }
     if data.stroke_width > 0.0 && !matches!(data.stroke, Color::None) {
-        match &data.stroke_dasharray {
+        match data.stroke_dasharray.as_deref().and_then(dash_lengths) {
             Some(dash) => {
                 let _ = write!(
                     style,
-                    ", stroke: (thickness: {}pt, paint: {}, dash: ({}))",
+                    ", stroke: (thickness: {}pt, paint: {}, dash: ({dash}))",
                     data.stroke_width,
                     paint(&data.stroke, data.opacity),
-                    dash_lengths(dash)
                 );
             }
             None => {
@@ -1019,19 +1045,24 @@ fn paint(c: &Color, opacity: Option<f64>) -> String {
 }
 
 /// Convert an SVG `stroke-dasharray` value (`"4 3"`, `"2,2"`) to a Typst
-/// dash-pattern tuple body (`"4pt, 3pt"`).
-fn dash_lengths(dasharray: &str) -> String {
-    let parts: Vec<String> = dasharray
-        .split([' ', ','])
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("{s}pt"))
-        .collect();
+/// dash-pattern tuple body (`"4pt, 3pt"`). Returns `None` if any token is not
+/// a finite non-negative number.
+fn dash_lengths(dasharray: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    for tok in dasharray.split([' ', ',']).filter(|s| !s.is_empty()) {
+        let v: f64 = tok.parse().ok()?;
+        if !v.is_finite() || v < 0.0 {
+            return None;
+        }
+        let v = if v == 0.0 { 0.0 } else { v };
+        parts.push(format!("{v}pt"));
+    }
     // A one-element SVG dasharray means equal on/off runs; Typst tuples need
     // two entries to mean the same thing.
-    if parts.len() == 1 {
-        format!("{}, {}", parts[0], parts[0])
-    } else {
-        parts.join(", ")
+    match parts.len() {
+        0 => None,
+        1 => Some(format!("{}, {}", parts[0], parts[0])),
+        _ => Some(parts.join(", ")),
     }
 }
 
@@ -1185,5 +1216,92 @@ mod tests {
         });
         let typst = TypstBackend::default().render_scene(&s);
         assert!(typst.contains("angle: 90deg"));
+    }
+
+    #[test]
+    fn hostile_colors_fall_back_to_black() {
+        let mut s = empty_scene(100.0, 100.0);
+        s.background_color = Some("#fff\"))\n#panic(\"bg\") //".into());
+        s.elements.push(Primitive::Circle {
+            cx: 10.0,
+            cy: 10.0,
+            r: 3.0,
+            fill: Color::Css("#abc\") #panic(\"fill\") //".into()),
+            fill_opacity: None,
+            stroke: None,
+            stroke_width: None,
+        });
+        let typst = TypstBackend::default().render_scene(&s);
+        assert!(
+            !typst.contains("#panic"),
+            "injected code in output: {typst}"
+        );
+        assert!(typst.contains(", fill: black)\n"));
+        assert!(typst.contains("fill: black, stroke: none"));
+        // Valid 3/4/6/8-digit hex colors and named colors still pass through.
+        assert_eq!(typst_color_named("#abc"), "rgb(\"#abc\")");
+        assert_eq!(typst_color_named("#aabbccdd"), "rgb(\"#aabbccdd\")");
+        assert_eq!(typst_color_named("steelblue"), "black");
+        assert_eq!(typst_color_named("blue"), "blue");
+    }
+
+    #[test]
+    fn hostile_font_family_is_escaped() {
+        let mut s = empty_scene(100.0, 100.0);
+        s.font_family = Some("Arial\")\n#panic(\"font\") //".into());
+        let typst = TypstBackend::default().render_scene(&s);
+        assert!(
+            typst.contains("#set text(font: \"Arial\\\")#panic(\\\"font\\\") //\")\n"),
+            "unexpected font directive: {typst}"
+        );
+        // Control-only font family omits the directive cleanly.
+        s.font_family = Some("\n\r\t".into());
+        let typst_empty = TypstBackend::default().render_scene(&s);
+        assert!(!typst_empty.contains("#set text(font:"));
+    }
+
+    #[test]
+    fn hostile_path_dasharray_falls_back_to_solid_stroke() {
+        let mut s = empty_scene(100.0, 100.0);
+        s.elements
+            .push(Primitive::Path(Box::new(crate::render::render::PathData {
+                d: "M 0 0 L 10 10".into(),
+                fill: None,
+                stroke: Color::Rgb(0, 0, 0),
+                stroke_width: 1.0,
+                stroke_dasharray: Some("4));panic(\"dash\");(4".into()),
+                opacity: None,
+            })));
+        let typst = TypstBackend::default().render_scene(&s);
+        assert!(!typst.contains("panic"), "injected dash in output: {typst}");
+        assert!(typst.contains("stroke: 1pt + rgb(\"#000000\")"));
+        // Valid dasharrays still emit Typst dash tuples.
+        assert_eq!(dash_lengths("4 3"), Some("4pt, 3pt".into()));
+        assert_eq!(dash_lengths("2,2"), Some("2pt, 2pt".into()));
+        assert_eq!(dash_lengths("4"), Some("4pt, 4pt".into()));
+        assert_eq!(dash_lengths("0.125 0.25"), Some("0.125pt, 0.25pt".into()));
+        assert_eq!(dash_lengths("-0.0 2"), Some("0pt, 2pt".into()));
+        assert_eq!(dash_lengths("-1 2"), None);
+        assert_eq!(dash_lengths("NaN"), None);
+    }
+
+    #[test]
+    fn slashes_in_text_are_escaped_against_typst_comments() {
+        let mut s = empty_scene(200.0, 100.0);
+        s.elements.push(Primitive::Text {
+            x: 10.0,
+            y: 10.0,
+            content: "A // B /* C */".into(),
+            size: 12,
+            anchor: TextAnchor::Start,
+            rotate: None,
+            bold: false,
+            color: None,
+        });
+        let typst = TypstBackend::default().render_scene(&s);
+        assert!(
+            typst.contains("A \\/\\/ B \\/\\* C \\*\\/"),
+            "slashes must be escaped: {typst}"
+        );
     }
 }
