@@ -44,7 +44,7 @@ mod registry;
 #[cfg(feature = "custom_fonts")]
 pub use registry::{
     family_styles, register_font_bytes, register_font_file, register_fonts_dir, registered_fonts,
-    DirReport, FamilyStyles, FontError, FontInfo,
+    DirReport, FamilyStyles, FontError, FontInfo, MAX_COLLECTION_FACES, MAX_FAMILY_NAME_CHARS,
 };
 #[cfg(all(feature = "custom_fonts", feature = "pdf"))]
 pub(crate) use registry::{generation, registered_sources, FontSource};

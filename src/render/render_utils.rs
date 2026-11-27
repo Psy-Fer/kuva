@@ -1460,6 +1460,8 @@ pub(crate) fn beeswarm_layout(y_screen: &[f64], point_r: f64, budget: usize) -> 
     // the distance check is monotone in that gap: if the latest point in a
     // column is far enough away, every earlier one is too.
     let mut latest: Vec<Option<f64>> = vec![None; SWARM_CANDIDATES];
+    // Each column's x, computed once (`col_x[c + HALF]`).
+    let col_x: Vec<f64> = (-HALF..=HALF).map(column_x).collect();
     // A repeated position with nothing changed since gets the same offset.
     let mut memo: Option<(f64, f64)> = None;
     let mut checks = 0usize;
@@ -1489,19 +1491,27 @@ pub(crate) fn beeswarm_layout(y_screen: &[f64], point_r: f64, budget: usize) -> 
         for k in 0..SWARM_CANDIDATES {
             checks += 1;
             let m = column(k);
-            let x_try = column_x(m);
+            let x_try = col_x[(m + HALF) as usize];
             // Columns three or more steps away are at least 3 * point_r off
             // horizontally, so they can never be too close.
-            let ok = (m - 2..=m + 2).filter(|c| c.abs() <= HALF).all(|c| {
-                match latest[(c + HALF) as usize] {
-                    None => true,
-                    Some(py) => {
-                        let dx = x_try - column_x(c);
-                        let dy = y - py;
-                        dx * dx + dy * dy >= min_dist_sq
+            let lo = (m - 2).max(-HALF);
+            let hi = (m + 2).min(HALF);
+            let mut ok = true;
+            for c in lo..=hi {
+                let i = (c + HALF) as usize;
+                if let Some(py) = latest[i] {
+                    let dx = x_try - col_x[i];
+                    let dy = y - py;
+                    // Too close, or NaN: the old `>=` check failed for both.
+                    if matches!(
+                        (dx * dx + dy * dy).partial_cmp(&min_dist_sq),
+                        None | Some(std::cmp::Ordering::Less)
+                    ) {
+                        ok = false;
+                        break;
                     }
                 }
-            });
+            }
             if ok {
                 chosen = x_try;
                 chosen_col = m;

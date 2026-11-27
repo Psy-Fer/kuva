@@ -150,6 +150,10 @@ can check `FontInfo::restricted_embedding`.
 - **Character widths cover the Basic Multilingual Plane** (U+0000 to U+FFFF), read from at most the
   first 32 Unicode `cmap` subtables of the font. Ordinary fonts have a handful; the limit keeps a
   damaged or crafted font from making the measurement slow.
+- **Collections (TTC/OTC) may hold at most 1,024 faces**, each listed once, and a family name
+  may be at most 256 characters (`kuva::fonts::MAX_COLLECTION_FACES`, `MAX_FAMILY_NAME_CHARS`).
+  A collection over the limit, or listing one face twice, fails to register with an error; a
+  longer name record is ignored.
 - **Installed fonts aren't looked up by name.** Load the font file with `register_font_file` or
   `--font-file`.
 - Two sizes are decided before a font family can be set, so they are always measured with DejaVu

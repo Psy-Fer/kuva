@@ -305,6 +305,10 @@ fn registry() -> &'static RwLock<Vec<Arc<Face>>> {
 
 /// Register every face in a font file (TTF, OTF, or a TTC/OTC collection).
 /// Returns what was registered.
+///
+/// A collection may hold at most [`MAX_COLLECTION_FACES`] faces, each listed
+/// once; otherwise nothing is registered and the error says why. A family
+/// name record longer than [`MAX_FAMILY_NAME_CHARS`] is not used.
 pub fn register_font_file(path: impl AsRef<Path>) -> Result<Vec<FontInfo>, FontError> {
     let path = path.as_ref();
     // Read only the tables registration needs; the rest of the file is read the
@@ -325,7 +329,7 @@ pub fn register_font_file(path: impl AsRef<Path>) -> Result<Vec<FontInfo>, FontE
 }
 
 /// Register every face in font data already in memory (for example a font
-/// fetched by a web page).
+/// fetched by a web page). The same limits as [`register_font_file`] apply.
 pub fn register_font_bytes(bytes: Vec<u8>) -> Result<Vec<FontInfo>, FontError> {
     register(bytes.into(), "font data")
 }
@@ -587,6 +591,15 @@ fn parse_faces(data: &[u8], origin: &str) -> Result<Vec<FontInfo>, FontError> {
             "the collection header claims more faces than the file holds".into(),
         ));
     }
+    if data.starts_with(b"ttcf") {
+        let offsets: Vec<u32> = (0..count as usize)
+            .map(|i| {
+                let at = 12 + 4 * i;
+                u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
+            })
+            .collect();
+        check_collection(&offsets).map_err(parse_err)?;
+    }
     let mut infos = Vec::with_capacity(count as usize);
     for index in 0..count {
         let face = ttf_parser::Face::parse(data, index).map_err(|e| parse_err(e.to_string()))?;
@@ -617,6 +630,37 @@ fn face_info(face: &ttf_parser::Face, origin: &str) -> Result<FontInfo, FontErro
 /// takes over.
 const MAX_HEADER_TABLE_BYTES: u64 = 16 << 20;
 
+/// Most table bytes [`read_face_infos`] reads for one file, across all its
+/// faces; past it, the whole-file path takes over.
+const MAX_HEADER_FILE_BYTES: u64 = 64 << 20;
+
+/// Most faces a font collection (TTC/OTC) may hold. Large collections have
+/// tens to a few hundred.
+pub const MAX_COLLECTION_FACES: u32 = 1024;
+
+/// Longest family name, in characters, that registration accepts. A longer
+/// name record is skipped.
+pub const MAX_FAMILY_NAME_CHARS: usize = 256;
+
+/// Check a collection's face count and offsets before any per-face work: at
+/// most [`MAX_COLLECTION_FACES`] faces, each at its own offset. Real
+/// collections share tables between faces but never repeat a face, while a
+/// crafted file can repeat one offset to claim thousands of faces.
+fn check_collection(offsets: &[u32]) -> Result<(), String> {
+    if offsets.len() > MAX_COLLECTION_FACES as usize {
+        return Err(format!(
+            "the collection has {} faces, more than the {MAX_COLLECTION_FACES} kuva reads",
+            offsets.len()
+        ));
+    }
+    let mut sorted = offsets.to_vec();
+    sorted.sort_unstable();
+    if sorted.windows(2).any(|w| w[0] == w[1]) {
+        return Err("the collection lists the same face more than once".into());
+    }
+    Ok(())
+}
+
 /// The [`FontInfo`] of every face in a font file, read from the table directory
 /// and the few tables it needs (`head`, `hhea`, `maxp`, `name`, `OS/2`, `post`,
 /// `fvar`) without reading glyph data. `None` when anything is unusual (a short
@@ -626,10 +670,12 @@ fn read_face_infos(path: &Path) -> Option<Vec<FontInfo>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
+    let mut budget = MAX_HEADER_FILE_BYTES;
     let mut read_at = |offset: u64, n: u64| -> Option<Vec<u8>> {
-        if n > MAX_HEADER_TABLE_BYTES || offset.checked_add(n)? > len {
+        if n > MAX_HEADER_TABLE_BYTES || n > budget || offset.checked_add(n)? > len {
             return None;
         }
+        budget -= n;
         file.seek(SeekFrom::Start(offset)).ok()?;
         let mut buf = vec![0; n as usize];
         file.read_exact(&mut buf).ok()?;
@@ -645,9 +691,10 @@ fn read_face_infos(path: &Path) -> Option<Vec<FontInfo>> {
             return None;
         }
         let raw = read_at(12, count * 4)?;
-        raw.chunks_exact(4)
-            .map(|o| u64::from(be_u32(o, 0)))
-            .collect()
+        let offsets: Vec<u32> = raw.chunks_exact(4).map(|o| be_u32(o, 0)).collect();
+        // The whole-file path reports the problem.
+        check_collection(&offsets).ok()?;
+        offsets.into_iter().map(u64::from).collect()
     } else {
         vec![0]
     };
@@ -698,11 +745,16 @@ fn family_name(face: &ttf_parser::Face) -> Option<String> {
             if name.name_id != id {
                 continue;
             }
+            // UTF-16 or Mac Roman: at most 4 bytes per character. Checked
+            // before decoding, so a huge record is not copied.
+            if name.name.len() > 4 * MAX_FAMILY_NAME_CHARS {
+                continue;
+            }
             let Some(text) = name.to_string() else {
                 continue;
             };
             let text = text.trim().to_string();
-            if text.is_empty() {
+            if text.is_empty() || text.chars().count() > MAX_FAMILY_NAME_CHARS {
                 continue;
             }
             if name.language() == ttf_parser::Language::English_UnitedStates {
@@ -762,6 +814,29 @@ fn collect_font_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reading the header tables of a collection stops at
+    /// `MAX_HEADER_FILE_BYTES` for the whole file, even when every face shares
+    /// one large table; registration then reads the whole file instead.
+    #[test]
+    fn header_reads_stop_at_the_file_budget() {
+        use crate::render::text_metrics::test_font::{
+            collection_sharing_tables, font_with_name_padding,
+        };
+        let face = font_with_name_padding("Kuva Big Name", 9 << 20);
+        let path = std::env::temp_dir().join(format!("kuva-budget-{}.ttc", std::process::id()));
+        // 8 faces x 9 MiB of name table: over the 64 MiB budget.
+        std::fs::write(&path, collection_sharing_tables(&face, 8)).unwrap();
+        assert!(read_face_infos(&path).is_none());
+        let infos = register_font_file(&path).unwrap();
+        assert_eq!(infos.len(), 8);
+        assert!(infos.iter().all(|i| i.family == "Kuva Big Name"));
+
+        // 6 faces (54 MiB) stay within it.
+        std::fs::write(&path, collection_sharing_tables(&face, 6)).unwrap();
+        assert_eq!(read_face_infos(&path).map(|v| v.len()), Some(6));
+        std::fs::remove_file(&path).ok();
+    }
 
     fn pick(weights: &[u16], desired: u16) -> u16 {
         weights[closest_weight(weights.iter().copied(), desired).unwrap()]

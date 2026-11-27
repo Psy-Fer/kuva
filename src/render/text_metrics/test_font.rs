@@ -17,6 +17,21 @@ pub fn font(family: &str, cmap: Vec<u8>) -> Vec<u8> {
 
 /// [`font`] with one glyph per entry of `advances`, in font units.
 pub fn font_with_advances(family: &str, cmap: Vec<u8>, advances: &[u16]) -> Vec<u8> {
+    font_parts(family, cmap, advances, 0)
+}
+
+/// [`font`] whose `name` table is followed by `name_padding` zero bytes, so
+/// reading it costs that much more.
+pub fn font_with_name_padding(family: &str, name_padding: usize) -> Vec<u8> {
+    font_parts(
+        family,
+        cmap(1, format12(&[(0x41, 0x5A, 1)])),
+        &[500, 500],
+        name_padding,
+    )
+}
+
+fn font_parts(family: &str, cmap: Vec<u8>, advances: &[u16], name_padding: usize) -> Vec<u8> {
     let mut head = Vec::new();
     head.extend(be32(0x0001_0000)); // version
     head.extend(be32(0x0001_0000)); // revision
@@ -65,6 +80,7 @@ pub fn font_with_advances(family: &str, cmap: Vec<u8>, advances: &[u16]) -> Vec<
     name.extend(be16(utf16.len() as u16));
     name.extend(be16(0));
     name.extend(utf16);
+    name.resize(name.len() + name_padding, 0);
 
     let tables: Vec<(&[u8; 4], Vec<u8>)> = vec![
         (b"cmap", cmap),
@@ -142,4 +158,70 @@ pub fn cmap_of(subtables: &[Vec<u8>]) -> Vec<u8> {
         t.extend(s);
     }
     t
+}
+
+/// `font` with every table offset moved by `base`, for placing it inside a
+/// collection.
+fn rebase(font: &[u8], base: u32) -> Vec<u8> {
+    let mut out = font.to_vec();
+    let num_tables = u16::from_be_bytes([font[4], font[5]]) as usize;
+    for i in 0..num_tables {
+        let at = 12 + 16 * i + 8;
+        let offset = u32::from_be_bytes([out[at], out[at + 1], out[at + 2], out[at + 3]]);
+        out[at..at + 4].copy_from_slice(&(offset + base).to_be_bytes());
+    }
+    out
+}
+
+fn collection_header(offsets: &[u32]) -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend(*b"ttcf");
+    t.extend(be32(0x0001_0000));
+    t.extend(be32(offsets.len() as u32));
+    for &o in offsets {
+        t.extend(be32(o));
+    }
+    t
+}
+
+/// A TrueType collection holding `fonts`, one after another.
+pub fn collection(fonts: &[Vec<u8>]) -> Vec<u8> {
+    let mut base = 12 + 4 * fonts.len() as u32;
+    let mut offsets = Vec::new();
+    let mut body = Vec::new();
+    for f in fonts {
+        offsets.push(base);
+        let mut placed = rebase(f, base);
+        placed.resize(placed.len().div_ceil(4) * 4, 0);
+        base += placed.len() as u32;
+        body.extend(placed);
+    }
+    let mut out = collection_header(&offsets);
+    out.extend(body);
+    out
+}
+
+/// A collection claiming `count` faces that all point at the one `font`.
+pub fn collection_repeating(font: &[u8], count: u32) -> Vec<u8> {
+    let base = 12 + 4 * count;
+    let mut out = collection_header(&vec![base; count as usize]);
+    out.extend(rebase(font, base));
+    out
+}
+
+/// A collection of `count` faces, each with its own table directory, all
+/// pointing at the one set of tables from `font`.
+pub fn collection_sharing_tables(font: &[u8], count: u32) -> Vec<u8> {
+    let num_tables = u16::from_be_bytes([font[4], font[5]]) as u32;
+    let dir_len = 12 + 16 * num_tables;
+    let header = 12 + 4 * count;
+    let tables_at = header + count * dir_len;
+    let dir = rebase(&font[..dir_len as usize], tables_at - dir_len);
+    let offsets: Vec<u32> = (0..count).map(|i| header + i * dir_len).collect();
+    let mut out = collection_header(&offsets);
+    for _ in 0..count {
+        out.extend(&dir);
+    }
+    out.extend(&font[dir_len as usize..]);
+    out
 }
