@@ -33,6 +33,7 @@ pub struct CalendarArgs {
     pub start: Option<String>,
 
     /// End date for a custom date range (YYYY-MM-DD); use with --start.
+    /// An invalid date or an end before --start is an error.
     #[arg(long)]
     pub end: Option<String>,
 
@@ -90,6 +91,7 @@ pub fn run(args: CalendarArgs) -> Result<(), String> {
 
     if let (Some(start), Some(end)) = (args.start, args.end) {
         plot = plot.with_date_range(start, end);
+        plot.check_periods()?;
     }
 
     if args.no_legend {

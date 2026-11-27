@@ -173,6 +173,8 @@ std::fs::write("calendar.svg", svg).unwrap();
 
 A period can also span more than a year — each period becomes one calendar row.
 
+Each start and end must be a valid `YYYY-MM-DD` date, and a period may not end before it starts (a one-day period, start equal to end, is fine). A period that breaks either rule is not drawn, and rendering adds a `calendar.period_skipped` warning to the scene naming it (see [Limits and Warnings](../reference/warnings.md)). Call `check_periods()` before rendering to get the problem as an error instead.
+
 ## Aggregation modes
 
 | Variant | Behaviour |
@@ -270,6 +272,7 @@ let plot = CalendarPlot::new()
 | `with_period(label, start, end)` | — | Display a single named date range |
 | `with_periods(iter)` | — | Display multiple named date ranges |
 | `with_date_range(start, end)` | — | Unnamed single date range (label from start year) |
+| `check_periods()` | — | `Err` naming the first period with an invalid date or an end before its start |
 | `with_week_start(ws)` | `Monday` | `WeekStart::Monday` (ISO) or `Sunday` (GitHub) |
 | `with_color_map(cmap)` | GitHub green | [`ColorMap`] variant for the value → color mapping |
 | `with_missing_color(color)` | `"#ebedf0"` | CSS color for days absent from the dataset |
@@ -299,7 +302,7 @@ Calendar heatmap — GitHub-style contribution grid showing daily values across 
 | `--agg <AGG>` | `count` | Aggregation for multiple entries per day: `count`, `sum`, `mean`, `max` |
 | `--year <YEAR>` | auto | Display a single full calendar year (Jan–Dec) |
 | `--start <DATE>` | — | Start date of a custom range (use with `--end`) |
-| `--end <DATE>` | — | End date of a custom range (use with `--start`) |
+| `--end <DATE>` | — | End date of a custom range (use with `--start`). An invalid date or an end before `--start` is an error. |
 | `--no-legend` | off | Hide the color-scale legend |
 
 ```bash

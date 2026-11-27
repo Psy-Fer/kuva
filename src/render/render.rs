@@ -24750,6 +24750,9 @@ fn add_calendar(cp: &CalendarPlot, scene: &mut Scene, computed: &ComputedLayout)
         cp.color_map.clone()
     };
     let agg_data = cp.aggregate();
+    for msg in cp.skipped_periods() {
+        scene.warn("calendar.period_skipped", msg);
+    }
     let periods = cp.detect_periods();
     if periods.is_empty() {
         return;

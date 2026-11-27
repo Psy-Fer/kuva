@@ -33,5 +33,6 @@ The one-call helpers (`render_to_svg`, `render_to_png`, `render_to_raster`, `ren
 | `axis_break.ignored` | An x or y axis break was requested but can't apply: it needs `lo < hi` strictly inside the range of a linear axis, and isn't supported on log, categorical, equal-aspect, twin-y or candlestick axes. The plot is drawn without the break. See [Axis Breaks](./axis_break.md). |
 | `axis_break.points_in_gap` | Some scatter points or line vertices fall inside an axis break. They are drawn as crosses in the gap; the message gives the count. |
 | `brackets.overflow` | An explicit axis max leaves too little room for the significance brackets, so the top ones are drawn outside the plot. See [Significance Brackets](./significance.md). |
+| `calendar.period_skipped` | A calendar period has a start or end that is not a valid `YYYY-MM-DD` date, or ends before it starts. The period is not drawn; the others are. One warning per period. See [Calendar Heatmap](../plots/calendar.md). |
 
 Some older checks still print straight to stderr instead of recording a warning: heatmap bin edges that don't fit the data, sequence logo input problems, `$...$` labels the math typesetter refuses, and a log axis with no positive data. They will move to `Scene::warnings` over time.

@@ -239,6 +239,11 @@ impl CalendarPlot {
     ///
     /// The label is taken from the start date's year if not otherwise specified.
     /// Use `with_period` to set a custom label.
+    ///
+    /// Dates are `YYYY-MM-DD`. A period with an invalid date, or whose end is
+    /// before its start, is not drawn: rendering adds a
+    /// `calendar.period_skipped` warning to the scene instead. Use
+    /// [`CalendarPlot::check_periods`] to reject such input up front.
     pub fn with_date_range(mut self, start: impl Into<String>, end: impl Into<String>) -> Self {
         let start = start.into();
         let label = start.get(..4).unwrap_or("").to_string();
@@ -257,6 +262,11 @@ impl CalendarPlot {
     /// let plot = CalendarPlot::new()
     ///     .with_period("FY2023/24", "2023-07-01", "2024-06-30");
     /// ```
+    ///
+    /// Dates are `YYYY-MM-DD`. A period with an invalid date, or whose end is
+    /// before its start, is not drawn: rendering adds a
+    /// `calendar.period_skipped` warning to the scene instead. Use
+    /// [`CalendarPlot::check_periods`] to reject such input up front.
     pub fn with_period(
         mut self,
         label: impl Into<String>,
@@ -281,6 +291,11 @@ impl CalendarPlot {
     ///         ("FY2023/24", "2023-07-01", "2024-06-30"),
     ///     ]);
     /// ```
+    ///
+    /// Dates are `YYYY-MM-DD`. A period with an invalid date, or whose end is
+    /// before its start, is not drawn: rendering adds a
+    /// `calendar.period_skipped` warning to the scene instead. Use
+    /// [`CalendarPlot::check_periods`] to reject such input up front.
     pub fn with_periods<L, S, E>(mut self, periods: impl IntoIterator<Item = (L, S, E)>) -> Self
     where
         L: Into<String>,
@@ -339,6 +354,31 @@ impl CalendarPlot {
             .collect()
     }
 
+    /// Check the explicit periods set by `with_date_range`, `with_period` or
+    /// `with_periods`. Each start and end must be a valid `YYYY-MM-DD` date
+    /// and the end must not be before the start. Returns the first problem
+    /// found.
+    ///
+    /// Rendering does not fail on a bad period: it leaves the period out and
+    /// adds a `calendar.period_skipped` warning to the scene. Call this first
+    /// to reject the input instead, as the CLI does for `--start`/`--end`.
+    pub fn check_periods(&self) -> Result<(), String> {
+        self.periods
+            .iter()
+            .flatten()
+            .try_for_each(|p| resolve_period(p).map(|_| ()))
+    }
+
+    /// Why each explicit period that rendering leaves out was rejected.
+    pub(crate) fn skipped_periods(&self) -> Vec<String> {
+        self.periods
+            .iter()
+            .flatten()
+            .filter_map(|p| resolve_period(p).err())
+            .map(|e| format!("{e}; the period is not drawn"))
+            .collect()
+    }
+
     /// Detect calendar years present in data (sorted).
     pub(crate) fn detect_years(&self) -> Vec<i32> {
         if let Some(ref yrs) = self.years {
@@ -358,16 +398,13 @@ impl CalendarPlot {
     /// Resolve display periods: `(label, start_triple, end_triple)`.
     ///
     /// Priority: explicit `periods` > explicit `years` > auto-detected years from data.
+    ///
+    /// Explicit periods that [`CalendarPlot::check_periods`] rejects are left
+    /// out; the renderer reports each one as a `calendar.period_skipped`
+    /// warning.
     pub(crate) fn detect_periods(&self) -> Vec<PeriodTriple> {
         if let Some(ref ps) = self.periods {
-            return ps
-                .iter()
-                .filter_map(|p| {
-                    let start = parse_date(&p.start)?;
-                    let end = parse_date(&p.end)?;
-                    Some((p.label.clone(), start, end))
-                })
-                .collect();
+            return ps.iter().filter_map(|p| resolve_period(p).ok()).collect();
         }
         self.detect_years()
             .iter()
@@ -466,6 +503,29 @@ impl CalendarPlot {
 /// Compact alias for the resolved period tuple used internally.
 pub(crate) type PeriodTriple = (String, (i32, u32, u32), (i32, u32, u32));
 
+/// Parse a period's dates and check that it does not end before it starts.
+fn resolve_period(p: &CalendarPeriod) -> Result<PeriodTriple, String> {
+    let parse = |which: &str, d: &str| {
+        parse_date(d).ok_or_else(|| {
+            format!(
+                "calendar period '{}': {which} date '{d}' is not a valid YYYY-MM-DD date",
+                p.label
+            )
+        })
+    };
+    let start = parse("start", &p.start)?;
+    let end = parse("end", &p.end)?;
+    if end < start {
+        return Err(format!(
+            "calendar period '{}': end date {} is before start date {}",
+            p.label,
+            p.end.trim(),
+            p.start.trim()
+        ));
+    }
+    Ok((p.label.clone(), start, end))
+}
+
 // ── Date math ────────────────────────────────────────────────────────────────
 
 /// Parse `"YYYY-MM-DD"` → `(year, month, day)`.
@@ -539,10 +599,12 @@ pub(crate) fn from_jd(jd: i64) -> (i32, u32, u32) {
     (y, m, d)
 }
 
-/// Number of days from `from` to `to` (both inclusive of `to - from`).
-/// `to` must be >= `from`.
+/// Number of days from `from` to `to`. A `to` before `from` gives 0 (the
+/// periods that reach here have been checked, so this is only a guard
+/// against wrapping to a huge count).
 pub(crate) fn days_between(from: (i32, u32, u32), to: (i32, u32, u32)) -> u32 {
-    (to_jd(to.0, to.1, to.2) - to_jd(from.0, from.1, from.2)) as u32
+    let diff = to_jd(to.0, to.1, to.2) - to_jd(from.0, from.1, from.2);
+    u32::try_from(diff.max(0)).unwrap_or(u32::MAX)
 }
 
 /// Tomohiko Sakamoto — returns 0=Sun, 1=Mon, …, 6=Sat.
@@ -576,14 +638,14 @@ pub(crate) fn period_grid_pos(
     period_start: (i32, u32, u32),
     start_dow: u32,
 ) -> (u32, u32) {
-    let offset = days_between(period_start, date) + start_dow;
+    let offset = days_between(period_start, date).saturating_add(start_dow);
     (offset / 7, offset % 7)
 }
 
 /// Maximum column index (exclusive) needed to display a period.
 pub(crate) fn period_max_cols(start: (i32, u32, u32), end: (i32, u32, u32), start_dow: u32) -> u32 {
-    let n_days = days_between(start, end) + 1;
-    (n_days + start_dow).div_ceil(7)
+    let n_days = days_between(start, end).saturating_add(1);
+    n_days.saturating_add(start_dow).div_ceil(7)
 }
 
 /// Convenience — `grid_pos` relative to Jan 1 of the same year.
@@ -595,4 +657,23 @@ pub(crate) fn grid_pos(y: i32, m: u32, d: u32, sunday_start: bool) -> (u32, u32)
         dow_mon0(y, 1, 1)
     };
     period_grid_pos((y, m, d), (y, 1, 1), jan1_dow)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reversed_dates_give_zero_days_instead_of_wrapping() {
+        let (a, b) = ((2024, 6, 1), (2024, 1, 1));
+        assert_eq!(days_between(b, a), 152);
+        assert_eq!(days_between(a, b), 0);
+        assert_eq!(period_max_cols(a, b, 6), 1);
+        assert_eq!(period_grid_pos(b, a, 6), (0, 6));
+        // The widest span parse_date allows still fits.
+        assert_eq!(
+            days_between((-999, 1, 1), (9999, 12, 31)) as i64,
+            to_jd(9999, 12, 31) - to_jd(-999, 1, 1)
+        );
+    }
 }
