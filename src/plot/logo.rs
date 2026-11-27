@@ -711,29 +711,72 @@ impl SequenceLogo {
         self
     }
 
-    /// The logo restricted to the *displayed* positions `range` (so for a
-    /// reverse-complemented logo, displayed position `i` is source position
-    /// `n - 1 - i`). Keeps every setting and the full sequence count, so
-    /// stack heights match the unwrapped logo; `start` moves to the first
-    /// position shown. Used to build the rows of a wrapped logo.
-    pub(crate) fn chunk(&self, range: std::ops::Range<usize>) -> Self {
+    /// The logo cut into rows of at most `per_line` *displayed* positions (so
+    /// for a reverse-complemented logo, displayed position `i` is source
+    /// position `n - 1 - i`). Each row keeps every setting and the full
+    /// sequence count, so stack heights match the unwrapped logo; `start`
+    /// moves to the first position shown. Used to build the rows of a
+    /// wrapped logo.
+    ///
+    /// Each row copies only its own columns and sequence slices, and each
+    /// source sequence is walked once, so the cost is linear in the size of
+    /// the logo. Source sequences shorter than the matrix (possible since the
+    /// fields are public) give shorter or empty slices.
+    pub(crate) fn chunks(&self, per_line: usize) -> Vec<Self> {
         let n = self.n_positions();
-        let src = if self.reverse_complement {
-            n - range.end..n - range.start
-        } else {
-            range.clone()
+        let per_line = per_line.max(1);
+        let src_range = |r: usize| {
+            let (a, b) = (r * per_line, ((r + 1) * per_line).min(n));
+            if self.reverse_complement {
+                n - b..n - a
+            } else {
+                a..b
+            }
         };
-        let mut out = self.clone();
-        out.matrix = self.matrix[src.clone()].to_vec();
-        out.source_sequences = self.source_sequences.as_ref().map(|seqs| {
-            seqs.iter()
-                .map(|s| s.chars().skip(src.start).take(src.len()).collect())
-                .collect()
+        let n_rows = n.div_ceil(per_line);
+        // Walk each sequence once, holding one sequence's char boundaries at
+        // a time, and cut it into its per-row pieces.
+        let mut pieces: Option<Vec<Vec<String>>> = self.source_sequences.as_ref().map(|seqs| {
+            let mut rows = vec![Vec::with_capacity(seqs.len()); n_rows];
+            for s in seqs {
+                let b: Vec<usize> = s
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .chain(std::iter::once(s.len()))
+                    .collect();
+                let last = b.len() - 1;
+                for (r, row) in rows.iter_mut().enumerate() {
+                    let src = src_range(r);
+                    row.push(s[b[src.start.min(last)]..b[src.end.min(last)]].to_string());
+                }
+            }
+            rows
         });
-        out.start = self.start + range.start as i64;
-        out.per_line = None;
-        out.title = None;
-        out
+        (0..n_rows)
+            .map(|r| {
+                let src = src_range(r);
+                let source_sequences = pieces.as_mut().map(|rows| std::mem::take(&mut rows[r]));
+                Self {
+                    matrix: self.matrix[src].to_vec(),
+                    alphabet: self.alphabet.clone(),
+                    letters: self.letters.clone(),
+                    sample_size: self.sample_size,
+                    units: self.units,
+                    palette: self.palette.clone(),
+                    start: self.start + (r * per_line) as i64,
+                    show_consensus: self.show_consensus,
+                    consensus_threshold: self.consensus_threshold,
+                    show_legend: self.show_legend,
+                    reverse_complement: self.reverse_complement,
+                    apply_correction: self.apply_correction,
+                    include_gaps: self.include_gaps,
+                    respect_case: self.respect_case,
+                    title: None,
+                    per_line: None,
+                    source_sequences,
+                }
+            })
+            .collect()
     }
 
     // ── Computed views ────────────────────────────────────────────────────
@@ -1038,6 +1081,76 @@ mod tests {
 
     /// Chunks of a (reverse-complemented) logo show exactly the columns, in the
     /// same order, that the full logo shows at those displayed positions.
+    /// The per-row slicing `chunks` replaced: clone the whole logo, then
+    /// re-walk every sequence from its start. Kept as a reference.
+    fn chunk_reference(l: &SequenceLogo, range: std::ops::Range<usize>) -> SequenceLogo {
+        let n = l.n_positions();
+        let src = if l.reverse_complement {
+            n - range.end..n - range.start
+        } else {
+            range.clone()
+        };
+        let mut out = l.clone();
+        out.matrix = l.matrix[src.clone()].to_vec();
+        out.source_sequences = l.source_sequences.as_ref().map(|seqs| {
+            seqs.iter()
+                .map(|s| s.chars().skip(src.start).take(src.len()).collect())
+                .collect()
+        });
+        out.start = l.start + range.start as i64;
+        out.per_line = None;
+        out.title = None;
+        out
+    }
+
+    #[test]
+    fn chunks_match_the_reference_slicing() {
+        let seqs = ["ACGTTGCAAC", "ACGATGCATC", "TCGTTGGAAC"];
+        let mut cases = Vec::new();
+        for rc in [false, true] {
+            let mut l = SequenceLogo::from_sequences(seqs, Alphabet::Dna)
+                .unwrap()
+                .with_start(-3)
+                .with_title("t")
+                .with_per_line(4);
+            if rc {
+                l = l.with_reverse_complement().unwrap();
+            }
+            cases.push(l.clone());
+            // Multi-byte chars, and sequences shorter or longer than the
+            // matrix (the fields are public).
+            let mut odd = l.clone();
+            odd.source_sequences = Some(vec![
+                "AéCGTüTGCA".to_string(),
+                "ACG".to_string(),
+                String::new(),
+                "ACGTACGTACGTAC".to_string(),
+            ]);
+            cases.push(odd);
+            let mut none = l;
+            none.source_sequences = None;
+            cases.push(none);
+        }
+        for l in &cases {
+            let n = l.n_positions();
+            for per_line in 1..=n + 1 {
+                let got = l.chunks(per_line);
+                assert_eq!(got.len(), n.div_ceil(per_line));
+                for (r, c) in got.iter().enumerate() {
+                    let want = chunk_reference(l, r * per_line..((r + 1) * per_line).min(n));
+                    assert_eq!(c.matrix, want.matrix, "per_line {per_line} row {r}");
+                    assert_eq!(c.source_sequences, want.source_sequences);
+                    assert_eq!(c.start, want.start);
+                    assert_eq!(c.title, want.title);
+                    assert_eq!(c.per_line, want.per_line);
+                    assert_eq!(c.sample_size, want.sample_size);
+                    assert_eq!(c.reverse_complement, want.reverse_complement);
+                    assert_eq!(c.letters, want.letters);
+                }
+            }
+        }
+    }
+
     #[test]
     fn chunks_tile_the_displayed_columns() {
         let seqs = ["ACGTTGCAAC", "ACGATGCATC", "TCGTTGGAAC"];
@@ -1052,11 +1165,10 @@ mod tests {
                 l.stack(if l.reverse_complement { m - 1 - i } else { i })
             };
             let mut tiled = Vec::new();
-            for start in (0..n).step_by(4) {
-                let c = full.chunk(start..(start + 4).min(n));
-                assert_eq!(c.start, full.start + start as i64);
+            for (r, c) in full.chunks(4).iter().enumerate() {
+                assert_eq!(c.start, full.start + 4 * r as i64);
                 assert_eq!(c.sample_size, full.sample_size);
-                tiled.extend((0..c.n_positions()).map(|i| displayed(&c, i)));
+                tiled.extend((0..c.n_positions()).map(|i| displayed(c, i)));
             }
             let whole: Vec<_> = (0..n).map(|i| displayed(&full, i)).collect();
             assert_eq!(tiled, whole, "reverse_complement = {rc}");

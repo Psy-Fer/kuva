@@ -462,9 +462,7 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
     let legend_width = layout.legend_width_with(&fonts);
     let n = sl.n_positions();
     let n_rows = n.div_ceil(per_line);
-    let chunks: Vec<SequenceLogo> = (0..n_rows)
-        .map(|r| sl.chunk(r * per_line..((r + 1) * per_line).min(n)))
-        .collect();
+    let chunks = sl.chunks(per_line);
 
     // One legend for the whole logo, beside the first row.
     let legend_entries = if layout.show_legend {

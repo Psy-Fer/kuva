@@ -6,6 +6,7 @@
 mod hostile;
 
 use kuva::backend::svg::SvgBackend;
+use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::roc::compute_group;
 use kuva::plot::{Clustermap, GanttPlot, MosaicPlot, RocGroup, SurvivalPlot};
 use kuva::plot::{NetworkLayout, NetworkPlot};
@@ -189,4 +190,34 @@ fn network_with_many_components() {
     });
     assert_eq!(positions.len(), 40_000);
     assert!(positions.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
+}
+
+#[test]
+fn wrapped_logo_with_many_positions_and_sequences() {
+    // Every wrapped row cloned the whole logo, all sequences included, and
+    // re-walked each sequence from its start to cut out the row's slice:
+    // 400 rows x 2,500 sequences x 20,000 positions here.
+    let scene = hostile::bounded(64 << 20, || {
+        // The matrix is built directly and the sequences attached through the
+        // public field, so the test time goes on wrapping, not on counting
+        // 5 x 10^7 letters in a debug build.
+        let seq = "ACGT".repeat(5_000);
+        let mut logo = SequenceLogo::from_matrix(
+            (0..20_000)
+                .map(|p| {
+                    let mut row = vec![1.0; 4];
+                    row[p % 4] = 2_497.0;
+                    row
+                })
+                .collect(),
+            Alphabet::Dna,
+        );
+        logo.sample_size = Some(2_500);
+        logo.source_sequences = Some(vec![seq; 2_500]);
+        let plots = vec![Plot::SequenceLogo(logo)];
+        let layout = Layout::auto_from_plots(&plots);
+        render_multiple(plots, layout)
+    });
+    // 400 rows of 50 positions, stacked.
+    assert!(scene.height > 400.0 * 200.0, "height {}", scene.height);
 }
