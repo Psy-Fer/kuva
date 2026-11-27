@@ -192,6 +192,11 @@ pub(crate) struct FontMetrics {
 #[cfg(feature = "custom_fonts")]
 const MAX_CMAP_SUBTABLES: usize = 32;
 
+/// Largest advance or vertical metric, in em, kept when a registered font is
+/// measured; larger values are clamped to it. Real fonts stay well inside.
+#[cfg(feature = "custom_fonts")]
+pub const MAX_METRIC_EM: u32 = 4;
+
 impl FontMetrics {
     /// Metrics of the bundled DejaVu face for `style`, decoded on first use and
     /// shared for the life of the process.
@@ -233,7 +238,18 @@ impl FontMetrics {
     #[cfg(feature = "custom_fonts")]
     pub(crate) fn from_face(face: &ttf_parser::Face) -> FontMetrics {
         let units_per_em = face.units_per_em();
-        let advance = |c: char| face.glyph_index(c).and_then(|g| face.glyph_hor_advance(g));
+        // Font metrics are capped at MAX_METRIC_EM: a crafted font can claim
+        // advances and line heights thousands of em high, which layout would
+        // turn into a canvas of that size.
+        let max_units: u16 =
+            (u32::from(units_per_em) * MAX_METRIC_EM).min(u32::from(u16::MAX)) as u16;
+        let max_i16 = i16::try_from(max_units).unwrap_or(i16::MAX);
+        let clamp_v = |v: i16| v.clamp(-max_i16, max_i16);
+        let advance = |c: char| {
+            face.glyph_index(c)
+                .and_then(|g| face.glyph_hor_advance(g))
+                .map(|a| a.min(max_units))
+        };
         let mut advances: Box<[u16; 0x10000]> = vec![0u16; 0x10000]
             .into_boxed_slice()
             .try_into()
@@ -270,7 +286,7 @@ impl FontMetrics {
             };
             let glyph = subtables.iter().find_map(|s| s.glyph_index(u32::from(c)));
             if let Some(a) = glyph.and_then(|g| face.glyph_hor_advance(g)) {
-                advances[cp as usize] = a;
+                advances[cp as usize] = a.min(max_units);
             }
         }
 
@@ -289,11 +305,11 @@ impl FontMetrics {
             .or_else(|| face.x_height())
             .unwrap_or((f32::from(cap_height) * 0.72) as i16);
         let vmetrics = VMetrics {
-            ascent,
-            descent: -face.descender(),
-            line_gap: face.line_gap(),
-            cap_height,
-            x_height,
+            ascent: clamp_v(ascent),
+            descent: clamp_v(face.descender().saturating_neg()),
+            line_gap: clamp_v(face.line_gap()),
+            cap_height: clamp_v(cap_height),
+            x_height: clamp_v(x_height),
         };
 
         let ascii: Vec<f64> = (0x20u8..=0x7E)

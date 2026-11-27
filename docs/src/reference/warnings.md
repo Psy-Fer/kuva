@@ -38,4 +38,11 @@ The one-call helpers (`render_to_svg`, `render_to_png`, `render_to_raster`, `ren
 | `labels.repel_skipped` | More than `MAX_REPEL_LABELS` (1,000) labels asked for repulsion (scatter, volcano or Manhattan `LabelStyle::Repel`, or network `with_repel_labels`). The labels are drawn without repulsion. See [Scatter Plot](../plots/scatter.md). |
 | `swarm.budget` | A beeswarm (strip plot `with_swarm`, or a box or violin swarm overlay) tried `MAX_SWARM_CANDIDATE_CHECKS` (20,000,000) positions in one group and stopped. The remaining points are drawn on the centre line. See [Strip Plot](../plots/strip.md). |
 
+## Limits that are errors
+
+A few inputs are refused outright rather than drawn differently:
+
+- **PNG size.** The PNG backend draws at most `MAX_RASTER_PIXELS` (2^28, about 16,384 x 16,384) pixels after scaling. A larger image is an `Err` from `RasterBackend::render_scene` and the one-call PNG helpers, and an error message from the CLI. Use a smaller `--width`/`--height` or `--scale`, or SVG output.
+- **Fonts.** Collections over 1,024 faces, or listing a face twice, fail to register. See [Fonts](./fonts.md#limits).
+
 Some older checks still print straight to stderr instead of recording a warning: heatmap bin edges that don't fit the data, sequence logo input problems, `$...$` labels the math typesetter refuses, and a log axis with no positive data. They will move to `Scene::warnings` over time.

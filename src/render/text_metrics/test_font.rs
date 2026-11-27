@@ -32,13 +32,53 @@ pub fn font_with_name_padding(family: &str, name_padding: usize) -> Vec<u8> {
 }
 
 fn font_parts(family: &str, cmap: Vec<u8>, advances: &[u16], name_padding: usize) -> Vec<u8> {
+    font_spec(
+        family,
+        cmap,
+        &Spec {
+            advances: advances.to_vec(),
+            name_padding,
+            ..Spec::default()
+        },
+    )
+}
+
+/// What [`font_spec`] builds beyond the family name and `cmap`.
+pub struct Spec {
+    pub units_per_em: u16,
+    /// Ascender, descender and line gap in `hhea`.
+    pub vmetrics: (i16, i16, i16),
+    /// One glyph per entry, in font units.
+    pub advances: Vec<u16>,
+    pub name_padding: usize,
+    /// When set, adds `glyf` and `loca` tables in which glyph 1 is a square
+    /// of this many font units (glyph 0 stays empty).
+    pub square: Option<i16>,
+}
+
+impl Default for Spec {
+    fn default() -> Self {
+        Spec {
+            units_per_em: 1000,
+            vmetrics: (800, -200, 0),
+            advances: vec![500, 500],
+            name_padding: 0,
+            square: None,
+        }
+    }
+}
+
+/// A font built from `spec`.
+pub fn font_spec(family: &str, cmap: Vec<u8>, spec: &Spec) -> Vec<u8> {
+    let advances = &spec.advances[..];
+    let name_padding = spec.name_padding;
     let mut head = Vec::new();
     head.extend(be32(0x0001_0000)); // version
     head.extend(be32(0x0001_0000)); // revision
     head.extend(be32(0)); // checksum adjustment
     head.extend(be32(0x5F0F_3CF5)); // magic
     head.extend(be16(0)); // flags
-    head.extend(be16(1000)); // units per em
+    head.extend(be16(spec.units_per_em)); // units per em
     head.extend([0; 16]); // created, modified
     for v in [0i16, -200, 500, 800] {
         head.extend(v.to_be_bytes()); // bounding box
@@ -49,7 +89,8 @@ fn font_parts(family: &str, cmap: Vec<u8>, advances: &[u16], name_padding: usize
 
     let mut hhea = Vec::new();
     hhea.extend(be32(0x0001_0000));
-    for v in [800i16, -200, 0] {
+    let (asc, desc, gap) = spec.vmetrics;
+    for v in [asc, desc, gap] {
         hhea.extend(v.to_be_bytes()); // ascender, descender, line gap
     }
     hhea.extend([0; 24]);
@@ -82,14 +123,44 @@ fn font_parts(family: &str, cmap: Vec<u8>, advances: &[u16], name_padding: usize
     name.extend(utf16);
     name.resize(name.len() + name_padding, 0);
 
-    let tables: Vec<(&[u8; 4], Vec<u8>)> = vec![
-        (b"cmap", cmap),
-        (b"head", head),
-        (b"hhea", hhea),
-        (b"hmtx", hmtx),
-        (b"maxp", maxp),
-        (b"name", name),
-    ];
+    let mut tables: Vec<(&[u8; 4], Vec<u8>)> = vec![(b"cmap", cmap)];
+    if let Some(side) = spec.square {
+        // One contour, four on-curve points: (0,0) (side,0) (side,side) (0,side).
+        let mut glyph = Vec::new();
+        glyph.extend(be16(1)); // number of contours
+        for v in [0, 0, side, side] {
+            glyph.extend(v.to_be_bytes()); // bounding box
+        }
+        glyph.extend(be16(3)); // last point of the contour
+        glyph.extend(be16(0)); // no instructions
+        glyph.extend([0x01; 4]); // on curve, 16-bit coordinates
+        for v in [0, side, 0, -side] {
+            glyph.extend(v.to_be_bytes()); // x deltas
+        }
+        for v in [0, 0, side, 0] {
+            glyph.extend(v.to_be_bytes()); // y deltas
+        }
+        // Short loca: offsets / 2, glyph 0 empty, glyph 1 the square, the
+        // rest empty after it.
+        let half = (glyph.len() / 2) as u16;
+        let mut loca = Vec::new();
+        loca.extend(be16(0));
+        loca.extend(be16(0));
+        for _ in 1..advances.len() {
+            loca.extend(be16(half));
+        }
+        tables.push((b"glyf", glyph));
+        tables.push((b"head", head));
+        tables.push((b"hhea", hhea));
+        tables.push((b"hmtx", hmtx));
+        tables.push((b"loca", loca));
+    } else {
+        tables.push((b"head", head));
+        tables.push((b"hhea", hhea));
+        tables.push((b"hmtx", hmtx));
+    }
+    tables.push((b"maxp", maxp));
+    tables.push((b"name", name));
     let mut out = Vec::new();
     out.extend(be32(0x0001_0000));
     out.extend(be16(tables.len() as u16));

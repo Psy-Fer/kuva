@@ -1029,10 +1029,16 @@ impl Canvas {
         let mut px = pen_x;
         for ch in text.chars() {
             let key = glyph_key(ch, size);
-            cache
-                .0
-                .entry(key)
-                .or_insert_with(|| font.rasterize(ch, size));
+            if let std::collections::hash_map::Entry::Vacant(slot) = cache.0.entry(key) {
+                // Size the glyph from its metrics before rasterizing it.
+                let m = font.metrics(ch, size);
+                let max = (size * MAX_GLYPH_EM).max(1.0);
+                if m.width as f32 > max || m.height as f32 > max {
+                    px += m.advance_width;
+                    continue;
+                }
+                slot.insert(font.rasterize(ch, size));
+            }
             let (metrics, bitmap) = &cache.0[&key];
             let gx = (px + metrics.xmin as f32).round() as i32;
             // fontdue ymin: pixels above baseline the bottom of the bitmap sits.
@@ -1087,8 +1093,19 @@ impl Canvas {
         let text_h = size * 1.5;
         let pad = 2.0f32;
 
-        let buf_w = (text_w + pad * 2.0).ceil() as u32 + 4;
-        let buf_h = (text_h + pad * 2.0).ceil() as u32 + 4;
+        // The offscreen buffer follows the text, so bound it by the canvas:
+        // rotated text bigger than the whole canvas several times over is
+        // not drawn.
+        let buf_w_f = (text_w + pad * 2.0).ceil() + 4.0;
+        let buf_h_f = (text_h + pad * 2.0).ceil() + 4.0;
+        let canvas_px = f64::from(self.width) * f64::from(self.height);
+        if !(buf_w_f.is_finite() && buf_h_f.is_finite())
+            || f64::from(buf_w_f) * f64::from(buf_h_f) > (4.0 * canvas_px).max(1e6)
+        {
+            return;
+        }
+        let buf_w = buf_w_f as u32;
+        let buf_h = buf_h_f as u32;
 
         // In the offscreen buffer the anchor point is at (off_ax, off_ay).
         // off_ay is the baseline; off_ax depends on text anchor.
@@ -1286,17 +1303,15 @@ fn glyph_key(ch: char, size: f32) -> (char, u32) {
     (ch, (size * 1000.0).round() as u32)
 }
 
+/// Width of `text`, from cached glyphs or the font's metrics. Measuring
+/// never rasterizes: fontdue's `metrics` gives the same advance.
 fn measure_text(text: &str, size: f32, font: &Font, cache: &mut GlyphCache) -> f32 {
-    let mut total = 0.0f32;
-    for ch in text.chars() {
-        let key = glyph_key(ch, size);
-        cache
-            .0
-            .entry(key)
-            .or_insert_with(|| font.rasterize(ch, size));
-        total += cache.0[&key].0.advance_width;
-    }
-    total
+    text.chars()
+        .map(|ch| match cache.0.get(&glyph_key(ch, size)) {
+            Some((m, _)) => m.advance_width,
+            None => font.metrics(ch, size).advance_width,
+        })
+        .sum()
 }
 
 /// Measure text width using font metrics only (no rasterization, no cache).
@@ -1989,6 +2004,14 @@ fn parse_translate(t: &str) -> (f32, f32) {
 
 // ── Public backend ────────────────────────────────────────────────────────────
 
+/// Most pixels [`RasterBackend::render_scene`] draws (2^28, a 1 GiB RGBA
+/// buffer): for example 16,384 x 16,384. A larger canvas is an error.
+pub const MAX_RASTER_PIXELS: u64 = 1 << 28;
+
+/// Largest glyph bitmap drawn, in em on each side. A glyph whose outline is
+/// bigger (only a broken or crafted font has one) is not drawn.
+const MAX_GLYPH_EM: f32 = 8.0;
+
 pub struct RasterBackend {
     pub scale: f32,
 }
@@ -2009,7 +2032,27 @@ impl RasterBackend {
         self
     }
 
+    /// Rasterize `scene` and encode it as PNG.
+    ///
+    /// Fails without allocating when the scaled canvas would have more than
+    /// [`MAX_RASTER_PIXELS`] pixels, or a zero or non-finite size.
     pub fn render_scene(&self, scene: &Scene) -> Result<Vec<u8>, String> {
+        let (w_f, h_f) = (
+            (scene.width * f64::from(self.scale)).ceil(),
+            (scene.height * f64::from(self.scale)).ceil(),
+        );
+        if !(w_f.is_finite() && h_f.is_finite()) {
+            return Err(format!(
+                "scene size {} x {} at scale {} is not finite",
+                scene.width, scene.height, self.scale
+            ));
+        }
+        if w_f * h_f > MAX_RASTER_PIXELS as f64 {
+            return Err(format!(
+                "a {w_f} x {h_f} pixel image is more than the {MAX_RASTER_PIXELS} pixels \
+                 the PNG backend draws; use a smaller size or scale, or SVG output"
+            ));
+        }
         let w = (scene.width as f32 * self.scale).ceil() as u32;
         let h = (scene.height as f32 * self.scale).ceil() as u32;
         if w == 0 || h == 0 {

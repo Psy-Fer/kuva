@@ -154,6 +154,10 @@ can check `FontInfo::restricted_embedding`.
   may be at most 256 characters (`kuva::fonts::MAX_COLLECTION_FACES`, `MAX_FAMILY_NAME_CHARS`).
   A collection over the limit, or listing one face twice, fails to register with an error; a
   longer name record is ignored.
+- **Font metrics are capped at 4 em.** A character's advance, and the ascent, descent, line gap,
+  cap height and x height, are clamped to 4 em when a font is loaded, and PNG output does not draw
+  a glyph whose outline is more than 8 em on a side. Real fonts are well inside both; the limits
+  keep a broken or crafted font from making the canvas or a glyph bitmap enormous.
 - **Installed fonts aren't looked up by name.** Load the font file with `register_font_file` or
   `--font-file`.
 - Two sizes are decided before a font family can be set, so they are always measured with DejaVu

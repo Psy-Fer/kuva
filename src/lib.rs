@@ -199,7 +199,8 @@ fn print_warnings(scene: &render::render::Scene) {
 /// Prefer [`render_to_raster`] for new code.
 ///
 /// `scale` is the pixel density multiplier: `1.0` matches the SVG logical size,
-/// `2.0` gives retina/HiDPI quality.
+/// `2.0` gives retina/HiDPI quality. Returns `Err` when the scaled image would
+/// have more than [`backend::raster::MAX_RASTER_PIXELS`] pixels.
 ///
 /// For fine-grained control use [`render::render::render_multiple`] and
 /// [`backend::raster::RasterBackend`] directly.
@@ -223,6 +224,8 @@ pub fn render_to_png(
 /// This is the preferred high-performance path for PNG output.
 ///
 /// `scale` is the pixel density multiplier: `2.0` gives retina/HiDPI quality.
+/// Returns `Err` when the scaled image would have more than
+/// [`backend::raster::MAX_RASTER_PIXELS`] pixels.
 #[cfg(feature = "png")]
 pub fn render_to_raster(
     plots: Vec<render::plots::Plot>,
