@@ -317,7 +317,7 @@ gene    Sample_01  Sample_02  Sample_03 …
 BRCA1   0.23        0.48       1.06     …
 ```
 
-**Input (long format):** use `--long-format` to pass `(row, col, value)` triples instead. Missing combinations are filled with `0`. Column order defaults to 0/1/2; override with `--row-col`, `--col-col`, `--value-col`.
+**Input (long format):** use `--long-format` to pass `(row, col, value)` triples instead. Missing combinations are filled with `0`. Column order defaults to 0/1/2; override with `--row-col`, `--col-col`, `--value-col`. The matrix has one row per distinct row label and one column per distinct column label, and like a wide matrix it may have at most 1,000,000 cells; larger input is an error.
 
 ```
 species     week  abundance

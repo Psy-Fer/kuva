@@ -106,6 +106,13 @@ pub fn run(args: HeatmapArgs) -> Result<(), String> {
             cells.insert((ri, ci), v);
         }
 
+        crate::data::check_pivot_cells(
+            "heatmap --long-format",
+            row_order.len(),
+            "rows",
+            col_order.len(),
+            "columns",
+        )?;
         let mat: Vec<Vec<f64>> = (0..row_order.len())
             .map(|ri| {
                 (0..col_order.len())
@@ -125,7 +132,7 @@ pub fn run(args: HeatmapArgs) -> Result<(), String> {
 
         let nrows = table.rows.len();
         let ncells = nrows * (ncols - 1);
-        const CELL_LIMIT: usize = 1_000_000;
+        use crate::data::CELL_LIMIT;
         if ncells > CELL_LIMIT {
             return Err(format!(
                 "heatmap has {ncells} cells ({nrows} rows × {} data columns), \

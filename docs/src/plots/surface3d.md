@@ -143,7 +143,7 @@ let surface2 = Surface3DPlot::new(vec![])
 
 ## CLI
 
-The CLI accepts **long format** (x, y, z columns) or **matrix format** (`--matrix`, one row of Z values per line).
+The CLI accepts **long format** (x, y, z columns) or **matrix format** (`--matrix`, one row of Z values per line). Long format is pivoted into a grid of distinct x by distinct y values, which may have at most 1,000,000 cells; larger input is an error.
 
 ```bash
 # Long format with colormap

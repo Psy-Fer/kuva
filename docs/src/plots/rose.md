@@ -160,7 +160,7 @@ W	20
 NW	22
 ```
 
-For multi-series mode, add a group column and use `--group-by`:
+For multi-series mode, add a group column and use `--group-by`. Distinct groups times distinct labels may be at most 1,000,000; larger input is an error.
 
 ```tsv
 direction	speed_class	count

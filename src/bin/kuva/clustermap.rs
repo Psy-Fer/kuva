@@ -230,7 +230,7 @@ pub fn run(args: ClustermapArgs) -> Result<(), String> {
         return Err("clustermap input needs at least 2 columns (row label + data)".into());
     }
     let nrows = table.rows.len();
-    const CELL_LIMIT: usize = 1_000_000;
+    use crate::data::CELL_LIMIT;
     if nrows * (ncols - 1) > CELL_LIMIT {
         return Err(format!(
             "clustermap has {} cells ({nrows} rows x {} data columns), over the {CELL_LIMIT} \

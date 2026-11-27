@@ -142,6 +142,7 @@ pub fn run(args: Surface3DArgs) -> Result<(), String> {
 
         let ncols = xs.len();
         let nrows = ys.len();
+        crate::data::check_pivot_cells("surface3d", nrows, "y values", ncols, "x values")?;
         let mut z_data = vec![vec![f64::NAN; ncols]; nrows];
 
         for k in 0..x_vals.len() {

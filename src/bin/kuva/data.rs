@@ -94,6 +94,31 @@ impl ColSpec {
     }
 }
 
+/// Most cells a dense matrix built from the input may have: the wide
+/// heatmap/clustermap limit, also applied to long-format pivots.
+pub(crate) const CELL_LIMIT: usize = 1_000_000;
+
+/// Check a pivot of `rows` distinct row keys by `cols` distinct column keys
+/// against [`CELL_LIMIT`] before the dense matrix is allocated. Each input
+/// line can add a new row and a new column, so the matrix grows with the
+/// square of the input size.
+pub(crate) fn check_pivot_cells(
+    what: &str,
+    rows: usize,
+    row_name: &str,
+    cols: usize,
+    col_name: &str,
+) -> Result<(), String> {
+    match rows.checked_mul(cols) {
+        Some(n) if n <= CELL_LIMIT => Ok(()),
+        _ => Err(format!(
+            "{what} would need a {rows} x {cols} matrix ({rows} distinct {row_name} x {cols} \
+             distinct {col_name}), over the {CELL_LIMIT} cell limit. Aggregate the data, or \
+             check that the right columns are selected."
+        )),
+    }
+}
+
 /// Simple glob match: `*` matches any run of characters. Supports prefix (`a*`), suffix (`*a`),
 /// contains (`*a*`), and interior (`a*b*c`) patterns. No character classes or escaping.
 pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
@@ -1659,6 +1684,22 @@ mod colspec_tests {
         assert!(!glob_match("a*c", "abd"));
         assert!(glob_match("exact", "exact"));
         assert!(!glob_match("exact", "exacts"));
+    }
+}
+
+#[cfg(test)]
+mod pivot_limit_tests {
+    use super::{check_pivot_cells, CELL_LIMIT};
+
+    #[test]
+    fn the_cell_limit_is_inclusive_and_overflow_safe() {
+        assert!(check_pivot_cells("t", 1000, "r", 1000, "c").is_ok());
+        assert_eq!(1000 * 1000, CELL_LIMIT);
+        let err = check_pivot_cells("t", 1000, "r", 1001, "c").unwrap_err();
+        assert!(err.contains("1000 x 1001"), "{err}");
+        // A product that overflows usize is refused, not wrapped.
+        assert!(check_pivot_cells("t", usize::MAX, "r", 2, "c").is_err());
+        assert!(check_pivot_cells("t", 0, "r", usize::MAX, "c").is_ok());
     }
 }
 

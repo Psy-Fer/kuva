@@ -155,6 +155,13 @@ pub fn run(args: RoseArgs) -> Result<(), String> {
                 ordered_groups.len() - 1
             });
         }
+        crate::data::check_pivot_cells(
+            "rose --group-by",
+            ordered_groups.len(),
+            "groups",
+            ordered_labels.len(),
+            "labels",
+        )?;
         let mut sums = vec![vec![-0.0_f64; ordered_labels.len()]; ordered_groups.len()];
         for ((l, g), v) in labels_col.iter().zip(&groups_col).zip(&values_col) {
             sums[group_idx[g.as_str()]][label_idx[l.as_str()]] += *v;
