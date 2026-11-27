@@ -186,6 +186,12 @@ pub(crate) struct FontMetrics {
     mean_advance_em: f64,
 }
 
+/// Most cmap subtables [`FontMetrics::from_face`] reads (Unicode subtables that
+/// can map a codepoint, in file order). Fonts have a handful; the limit keeps a
+/// crafted font with thousands of encoding records from multiplying the work.
+#[cfg(feature = "custom_fonts")]
+const MAX_CMAP_SUBTABLES: usize = 32;
+
 impl FontMetrics {
     /// Metrics of the bundled DejaVu face for `style`, decoded on first use and
     /// shared for the life of the process.
@@ -232,23 +238,38 @@ impl FontMetrics {
             .into_boxed_slice()
             .try_into()
             .expect("65536 entries");
-        // Visit only the codepoints the font maps: `glyph_index` consults just the
-        // Unicode cmap subtables, and those enumerate exactly what they map, so this
-        // fills the same table as probing all 65536 codepoints, much faster.
-        // U+FFFF is probed explicitly: a format-4 subtable's closing sentinel segment
-        // sits there, which `glyph_index` resolves but enumeration skips.
-        let mut mapped = vec![0xFFFF];
-        if let Some(cmap) = face.tables().cmap {
-            for subtable in cmap.subtables.into_iter().filter(|s| s.is_unicode()) {
-                subtable.codepoints(|cp| {
-                    if cp <= 0xFFFF {
-                        mapped.push(cp);
-                    }
-                });
-            }
-        }
-        for cp in mapped {
-            if let Some(a) = char::from_u32(cp).and_then(advance) {
+        // Probe every BMP codepoint against the Unicode subtables in order, the
+        // first that maps it winning: the rule `glyph_index` uses, and the one
+        // `examples/gen_text_metrics.rs` applies to the bundled faces. The font
+        // does not decide how much work this is. Enumerating the subtables'
+        // codepoints instead let a crafted range cover all 2^32 codes, or many
+        // records repeat one full-BMP range, and the list of codes grow with it.
+        // Only the first `MAX_CMAP_SUBTABLES` subtables that can map a codepoint
+        // are used; real fonts have a handful.
+        let subtables: Vec<ttf_parser::cmap::Subtable> = face
+            .tables()
+            .cmap
+            .map(|cmap| {
+                cmap.subtables
+                    .into_iter()
+                    .filter(|s| {
+                        s.is_unicode()
+                            && !matches!(
+                                s.format,
+                                ttf_parser::cmap::Format::MixedCoverage
+                                    | ttf_parser::cmap::Format::UnicodeVariationSequences(_)
+                            )
+                    })
+                    .take(MAX_CMAP_SUBTABLES)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for cp in 0u32..=0xFFFF {
+            let Some(c) = char::from_u32(cp) else {
+                continue; // surrogates
+            };
+            let glyph = subtables.iter().find_map(|s| s.glyph_index(u32::from(c)));
+            if let Some(a) = glyph.and_then(|g| face.glyph_hor_advance(g)) {
                 advances[cp as usize] = a;
             }
         }
@@ -658,6 +679,10 @@ fn decode_rle(rle: &[(u16, u16)]) -> Box<[u16; 0x10000]> {
         .expect("advance RLE must cover exactly the 65536 BMP codepoints")
 }
 
+/// Minimal TrueType fonts for tests, shared with the integration tests.
+#[cfg(all(test, feature = "custom_fonts"))]
+pub(crate) mod test_font;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -961,6 +986,82 @@ mod tests {
         let bytes = std::fs::read(format!("{dir}/DejaVuSans.ttf")).unwrap();
         let regular = FontMetrics::from_face(&ttf_parser::Face::parse(&bytes, 0).unwrap());
         assert!((regular.mean_advance_em - data::MEAN_ADVANCE_EM).abs() < 1e-6);
+    }
+
+    /// When two Unicode subtables map the same codepoint, the first wins, as in
+    /// `glyph_index`; and a font with more subtables than are read still
+    /// measures from the first ones.
+    #[cfg(feature = "custom_fonts")]
+    #[test]
+    fn the_first_cmap_subtable_wins() {
+        use super::test_font::{cmap_of, font_with_advances, format12};
+        // Glyph 1 is 300 units wide, glyph 2 is 700.
+        let first = format12(&[(0x41, 0x41, 1)]);
+        let second = format12(&[(0x41, 0x41, 2), (0x42, 0x42, 2)]);
+        let mut subtables = vec![first, second];
+        let bytes = font_with_advances("First Wins", cmap_of(&subtables), &[500, 300, 700]);
+        let m = FontMetrics::from_face(&ttf_parser::Face::parse(&bytes, 0).unwrap());
+        assert_eq!(m.advances[0x41], 300);
+        assert_eq!(m.advances[0x42], 700);
+
+        // Subtables past the limit are not read: 'C' is mapped only there.
+        subtables = vec![format12(&[(0x41, 0x41, 1)]); MAX_CMAP_SUBTABLES];
+        subtables.push(format12(&[(0x43, 0x43, 2)]));
+        let bytes = font_with_advances("Too Many", cmap_of(&subtables), &[500, 300, 700]);
+        let m = FontMetrics::from_face(&ttf_parser::Face::parse(&bytes, 0).unwrap());
+        assert_eq!(m.advances[0x41], 300);
+        assert_eq!(m.advances[0x43], 0);
+    }
+
+    /// The advance table the cmap probe fills equals the one the old code built
+    /// by enumerating each Unicode subtable's codepoints, on every font file in
+    /// the repository.
+    #[cfg(feature = "custom_fonts")]
+    #[test]
+    fn cmap_probe_matches_codepoint_enumeration() {
+        let root = env!("CARGO_MANIFEST_DIR");
+        let mut files = Vec::new();
+        for dir in ["assets/fonts", "tests/data/fonts"] {
+            for entry in std::fs::read_dir(format!("{root}/{dir}")).unwrap() {
+                let path = entry.unwrap().path();
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if ["ttf", "otf", "ttc"].contains(&ext) {
+                    files.push(path);
+                }
+            }
+        }
+        assert!(files.len() >= 7, "{files:?}");
+        for path in files {
+            let bytes = std::fs::read(&path).unwrap();
+            let face = ttf_parser::Face::parse(&bytes, 0).unwrap();
+            let mut want = vec![0u16; 0x10000];
+            let mut mapped = vec![0xFFFF];
+            for subtable in face
+                .tables()
+                .cmap
+                .unwrap()
+                .subtables
+                .into_iter()
+                .filter(|s| s.is_unicode())
+            {
+                subtable.codepoints(|cp| {
+                    if cp <= 0xFFFF {
+                        mapped.push(cp);
+                    }
+                });
+            }
+            for cp in mapped {
+                if let Some(a) = char::from_u32(cp)
+                    .and_then(|c| face.glyph_index(c))
+                    .and_then(|g| face.glyph_hor_advance(g))
+                {
+                    want[cp as usize] = a;
+                }
+            }
+            let got = FontMetrics::from_face(&face);
+            assert!(want.iter().any(|&a| a != 0), "{path:?}");
+            assert_eq!(&got.advances[..], &want[..], "{path:?}");
+        }
     }
 
     /// A different font measures differently: DejaVu Serif (the test font) against

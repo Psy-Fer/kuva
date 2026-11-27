@@ -147,6 +147,9 @@ can check `FontInfo::restricted_embedding`.
 - **Characters a font doesn't have** keep one em of space. SVG viewers draw them with a fallback
   font; PNG draws the font's placeholder glyph (usually a box). There is no automatic fallback to
   a second font.
+- **Character widths cover the Basic Multilingual Plane** (U+0000 to U+FFFF), read from at most the
+  first 32 Unicode `cmap` subtables of the font. Ordinary fonts have a handful; the limit keeps a
+  damaged or crafted font from making the measurement slow.
 - **Installed fonts aren't looked up by name.** Load the font file with `register_font_file` or
   `--font-file`.
 - Two sizes are decided before a font family can be set, so they are always measured with DejaVu
