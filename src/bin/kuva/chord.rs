@@ -70,6 +70,9 @@ pub fn run(args: ChordArgs) -> Result<(), String> {
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut plot = ChordPlot::new().with_matrix(matrix).with_labels(labels);
+    // One value column per data row, checked before anything is laid out.
+    plot.check_square()
+        .map_err(|e| format!("{e} (one value column per data row)"))?;
 
     if let Some(g) = args.gap {
         plot = plot.with_gap(g);

@@ -35,6 +35,7 @@ The one-call helpers (`render_to_svg`, `render_to_png`, `render_to_raster`, `ren
 | `brackets.overflow` | An explicit axis max leaves too little room for the significance brackets, so the top ones are drawn outside the plot. See [Significance Brackets](./significance.md). |
 | `brick.strigar_rejected` | Some `BrickPlot` STRIGAR rows were rejected (old `\|`/`@` format, an unreadable character, or over a brick limit) and are drawn empty. The message gives the number of rows and the first; `BrickPlot::strigar_issues` has the details. See [Brick Plot](../plots/brick.md). |
 | `calendar.period_skipped` | A calendar period has a start or end that is not a valid `YYYY-MM-DD` date, or ends before it starts. The period is not drawn; the others are. One warning per period. See [Calendar Heatmap](../plots/calendar.md). |
+| `chord.not_square` | A chord matrix has a row whose length differs from the number of rows. The chord diagram is not drawn. See [Chord Diagram](../plots/chord.md). |
 | `labels.repel_skipped` | More than `MAX_REPEL_LABELS` (1,000) labels asked for repulsion (scatter, volcano or Manhattan `LabelStyle::Repel`, or network `with_repel_labels`). The labels are drawn without repulsion. See [Scatter Plot](../plots/scatter.md). |
 | `swarm.budget` | A beeswarm (strip plot `with_swarm`, or a box or violin swarm overlay) tried `MAX_SWARM_CANDIDATE_CHECKS` (20,000,000) positions in one group and stopped. The remaining points are drawn on the centre line. See [Strip Plot](../plots/strip.md). |
 

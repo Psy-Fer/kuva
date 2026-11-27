@@ -95,8 +95,10 @@ impl ChordPlot {
     /// Set the N×N flow matrix.
     ///
     /// `matrix[i][j]` is the flow (or connection strength) from node i to
-    /// node j. The matrix must be square. Diagonal entries are typically `0.0`
-    /// (self-loops are not rendered).
+    /// node j. The matrix must be square: a non-square matrix is not drawn,
+    /// and rendering adds a `chord.not_square` warning (see
+    /// [`check_square`](Self::check_square)). Diagonal entries are typically
+    /// `0.0` (self-loops are not rendered).
     ///
     /// Arc lengths on the outer ring are proportional to each node's total
     /// outgoing flow (row sum). Ribbon widths at each end reflect the flow
@@ -203,5 +205,23 @@ impl ChordPlot {
     /// Return the number of nodes (inferred from matrix dimensions).
     pub fn n_nodes(&self) -> usize {
         self.matrix.len()
+    }
+
+    /// Check that the matrix is square: every row has one value per row.
+    /// Returns the first row that doesn't.
+    ///
+    /// Rendering does not fail on a non-square matrix: it draws no chord
+    /// diagram and adds a `chord.not_square` warning to the scene. Laying out
+    /// n rows takes an n x n table, so a long list of short rows would
+    /// otherwise cost far more than its size.
+    pub fn check_square(&self) -> Result<(), String> {
+        let n = self.matrix.len();
+        match self.matrix.iter().position(|r| r.len() != n) {
+            None => Ok(()),
+            Some(i) => Err(format!(
+                "chord matrix has {n} rows but row {i} has {} values; it must be square",
+                self.matrix[i].len()
+            )),
+        }
     }
 }

@@ -10,6 +10,8 @@ A chord diagram arranges N nodes around a circle and connects them with ribbons 
 
 Supply an N×N matrix with `.with_matrix()` and node labels with `.with_labels()`. The diagram renders in pixel space — no x/y axis system is used. A title set on the `Layout` is still shown.
 
+The matrix must be square: one value per row in every row. A non-square matrix is not drawn, and rendering adds a `chord.not_square` warning naming the first bad row (see [Limits and Warnings](../reference/warnings.md)). `check_square()` returns the same problem as an error.
+
 ```rust,no_run
 use kuva::plot::ChordPlot;
 use kuva::backend::svg::SvgBackend;
@@ -139,6 +141,7 @@ let chord = ChordPlot::new()
 | `.with_gap(deg)` | Gap between arc segments in degrees (default `2.0`) |
 | `.with_opacity(f)` | Ribbon fill opacity `0.0`–`1.0` (default `0.7`) |
 | `.with_legend(s)` | Enable a per-node color legend |
+| `.check_square()` | `Err` naming the first row whose length differs from the row count |
 
 **See also:** [Sankey Diagram](./sankey.md) for staged, directional flow instead of pairwise, [Network Plot](./network.md) for a general graph layout.
 
@@ -148,7 +151,7 @@ let chord = ChordPlot::new()
 
 Chord diagram for pairwise flow data.
 
-**Input:** square N×N matrix — first column is the row label (ignored for layout), header row supplies node names.
+**Input:** square N×N matrix — first column is the row label (ignored for layout), header row supplies node names. A table that isn't square (data rows and value columns differ in number) is an error.
 
 ```
 region        Cortex  Hippocampus  Amygdala …

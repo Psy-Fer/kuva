@@ -15752,6 +15752,13 @@ fn add_chord(chord: &ChordPlot, scene: &mut Scene, computed: &ComputedLayout) {
     if n == 0 {
         return;
     }
+    if let Err(e) = chord.check_square() {
+        scene.warn(
+            "chord.not_square",
+            format!("{e}; the chord diagram is not drawn"),
+        );
+        return;
+    }
 
     // Fallback palette
     let fallback = Palette::category10();
