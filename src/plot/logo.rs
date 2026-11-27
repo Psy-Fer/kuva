@@ -55,7 +55,15 @@ impl Alphabet {
                 'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S',
                 'T', 'V', 'W', 'Y',
             ],
-            Alphabet::Custom(cs) => cs.clone(),
+            Alphabet::Custom(cs) => {
+                let mut out = Vec::with_capacity(cs.len());
+                for &c in cs {
+                    if !out.contains(&c) {
+                        out.push(c);
+                    }
+                }
+                out
+            }
         }
     }
 
@@ -66,7 +74,12 @@ impl Alphabet {
 
     /// A rough IC ceiling for the alphabet: log₂ of its size.
     pub fn max_bits(&self) -> f64 {
-        (self.letters().len() as f64).log2()
+        let n = self.letters().len();
+        if n <= 1 {
+            0.0
+        } else {
+            (n as f64).log2()
+        }
     }
 
     /// Complement a base in this alphabet (A↔T for DNA, A↔U for RNA).
@@ -791,7 +804,12 @@ impl SequenceLogo {
     /// Uses `self.letters` (not the raw alphabet) so `with_include_gaps`,
     /// which adds a [`GAP_LETTER`] column, raises the ceiling consistently.
     pub fn max_bits(&self) -> f64 {
-        (self.letters.len() as f64).log2()
+        let n = self.letters.len();
+        if n <= 1 {
+            0.0
+        } else {
+            (n as f64).log2()
+        }
     }
 
     /// Ceiling on the y-axis for the current [`LogoUnits`].
@@ -953,12 +971,12 @@ fn count_matrix(
     include_gaps: bool,
 ) -> (Vec<char>, Vec<Vec<f64>>) {
     let mut letters = alphabet.letters();
-    if include_gaps {
+    if include_gaps && !letters.contains(&GAP_LETTER) {
         letters.push(GAP_LETTER);
     }
     let letter_index: HashMap<char, usize> =
         letters.iter().enumerate().map(|(i, c)| (*c, i)).collect();
-    let gap_idx = include_gaps.then(|| letters.len() - 1);
+    let gap_idx = include_gaps.then(|| letter_index[&GAP_LETTER]);
 
     let width = seqs.first().map(|s| s.chars().count()).unwrap_or(0);
     let mut matrix = vec![vec![0.0_f64; letters.len()]; width];
@@ -987,13 +1005,13 @@ fn count_matrix(
                 count_gap(row);
                 continue;
             }
-            if respect_case && c.is_lowercase() {
+            if respect_case && c.is_lowercase() && !letter_index.contains_key(&c) {
                 // Soft-masked base — honour the masker's judgement.
                 count_gap(row);
                 continue;
             }
             let upper = c.to_ascii_uppercase();
-            if let Some(&idx) = letter_index.get(&upper) {
+            if let Some(&idx) = letter_index.get(&upper).or_else(|| letter_index.get(&c)) {
                 row[idx] += 1.0;
             } else if is_ambiguity(upper, alphabet) {
                 if !warned_ambiguous {
@@ -1041,7 +1059,7 @@ pub fn parse_fasta(text: &str) -> Vec<(String, String)> {
     let mut header: Option<String> = None;
     let mut seq = String::new();
     for raw in text.lines() {
-        let line = raw.trim_end();
+        let line = raw.trim();
         if let Some(rest) = line.strip_prefix('>') {
             if let Some(h) = header.take() {
                 if !seq.is_empty() {
@@ -1309,5 +1327,46 @@ mod tests {
             .unwrap()
             .with_legend();
         assert!(forced.legend_visible());
+    }
+
+    #[test]
+    fn custom_alphabet_empty_singleton_and_duplicates_stay_finite() {
+        let empty = Alphabet::Custom(vec![]);
+        assert_eq!(empty.max_bits(), 0.0);
+        assert_eq!(
+            SequenceLogo::from_matrix(vec![vec![]], empty).max_bits(),
+            0.0
+        );
+        let single = Alphabet::Custom(vec!['A']);
+        assert_eq!(single.max_bits(), 0.0);
+        assert_eq!(
+            SequenceLogo::from_matrix(vec![vec![1.0]], single).max_bits(),
+            0.0
+        );
+        let dup = Alphabet::Custom(vec!['A', 'A', 'C', 'G']);
+        assert_eq!(dup.letters(), vec!['A', 'C', 'G']);
+        assert!((dup.max_bits() - 3.0_f64.log2()).abs() < 1e-12);
+
+        // Gap already in custom alphabet is not duplicated when include_gaps is enabled.
+        let with_gap = SequenceLogo::from_sequences(["A-"], Alphabet::Custom(vec!['A', 'C', '-']))
+            .unwrap()
+            .with_include_gaps();
+        assert_eq!(with_gap.letters, vec!['A', 'C', '-']);
+        assert_eq!(with_gap.matrix[1], vec![0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn parse_fasta_accepts_leading_whitespace_before_header() {
+        let recs = parse_fasta("  >seq1\nACGT\n");
+        assert_eq!(recs, vec![("seq1".to_string(), "ACGT".to_string())]);
+    }
+
+    #[test]
+    fn respect_case_keeps_lowercase_non_ascii_custom_letters() {
+        let logo = SequenceLogo::from_sequences(["αβ"], Alphabet::Custom(vec!['α', 'β']))
+            .unwrap()
+            .with_respect_case();
+        assert_eq!(logo.matrix[0], vec![1.0, 0.0]);
+        assert_eq!(logo.matrix[1], vec![0.0, 1.0]);
     }
 }
