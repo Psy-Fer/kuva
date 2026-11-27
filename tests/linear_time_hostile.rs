@@ -8,8 +8,10 @@ mod hostile;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::roc::compute_group;
 use kuva::plot::{Clustermap, GanttPlot, MosaicPlot, RocGroup, SurvivalPlot};
+use kuva::plot::{NetworkLayout, NetworkPlot};
 use kuva::render::color::Color;
 use kuva::render::render::{Primitive, Scene};
+use kuva::render::track_stack::{Interval, IntervalTrack, TrackStack};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
 fn svg(plot: Plot) -> String {
@@ -154,4 +156,37 @@ fn rect_batching_with_a_huge_rect_among_small_ones() {
     // Every rect is drawn: the small ones as subpaths, the huge one included.
     let subpaths = svg.matches('z').count() + svg.matches("<rect").count();
     assert!(subpaths >= 10_001, "{subpaths}");
+}
+
+#[test]
+fn interval_track_with_every_interval_overlapping() {
+    // Row packing scanned every open row for each interval, and the stack
+    // asked for the track height several times per render, each time
+    // packing again: about 5 x 1.8 x 10^9 row checks here.
+    let svg = hostile::bounded(64 << 20, || {
+        let intervals = (0..60_000)
+            .map(|i| Interval::new(i as f64 * 1e-3, 100.0 + i as f64 * 1e-3))
+            .collect();
+        let scene = TrackStack::new()
+            .x_range(0.0, 200.0)
+            .track(IntervalTrack::new(intervals))
+            .render(600.0);
+        SvgBackend.render_scene(&scene)
+    });
+    assert!(svg.contains("<svg"));
+}
+
+#[test]
+fn network_with_many_components() {
+    // The component-wise layout scanned every edge once per component: 20,000
+    // disjoint pairs meant 4 x 10^8 edge lookups.
+    let positions = hostile::bounded(64 << 20, || {
+        let mut net = NetworkPlot::new().with_layout(NetworkLayout::ForceDirected);
+        for i in 0..20_000 {
+            net = net.with_edge(format!("a{i}"), format!("b{i}"), 1.0);
+        }
+        net.compute_positions()
+    });
+    assert_eq!(positions.len(), 40_000);
+    assert!(positions.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
 }

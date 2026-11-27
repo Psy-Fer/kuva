@@ -819,6 +819,9 @@ pub struct IntervalTrack {
     fill: Color,
     row_colors: Option<Vec<Color>>,
     item_colors: Option<Vec<Color>>,
+    /// [`pack_rows`](Self::pack_rows), computed on first use: the stack asks for the height
+    /// several times per render. The intervals never change after `new`.
+    packed: std::sync::OnceLock<(Vec<usize>, usize)>,
 }
 
 impl IntervalTrack {
@@ -830,6 +833,7 @@ impl IntervalTrack {
             fill: Color::from("#7aa6c2"),
             row_colors: None,
             item_colors: None,
+            packed: std::sync::OnceLock::new(),
         }
     }
     /// Track name, drawn by the stack in the left gutter.
@@ -866,25 +870,68 @@ impl IntervalTrack {
     /// sort by start, then place each into the lowest row whose last interval ends at or before
     /// this one's start. Returns `(row_per_interval, row_count)`; `row_count` is the maximum
     /// overlap depth, so the layout uses exactly as many rows as needed.
+    ///
+    /// Two heaps make this O(n log n): rows in use, by end, and free rows, by index. Starts are
+    /// visited in increasing order, so a row that is free at one start stays free for every
+    /// later one until it is reused. A row whose last interval ends at NaN is never free, and an
+    /// interval starting at NaN always opens a new row, as `start >= end` is false for both.
     fn pack_rows(&self) -> (Vec<usize>, usize) {
+        let (row_of, rows) = self.packed.get_or_init(|| self.compute_rows());
+        (row_of.clone(), *rows)
+    }
+
+    fn compute_rows(&self) -> (Vec<usize>, usize) {
+        use std::cmp::Reverse;
+        use std::collections::BinaryHeap;
+
+        /// An end coordinate ordered by `total_cmp`, so it can sit in a heap.
+        #[derive(PartialEq)]
+        struct End(f64);
+        impl Eq for End {}
+        impl PartialOrd for End {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for End {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.0.total_cmp(&other.0)
+            }
+        }
+
         let mut order: Vec<usize> = (0..self.intervals.len()).collect();
         order.sort_by(|&a, &b| self.intervals[a].start.nan_cmp(&self.intervals[b].start));
-        let mut row_end: Vec<f64> = Vec::new(); // end of the last interval placed in each row
+        let mut busy: BinaryHeap<Reverse<(End, usize)>> = BinaryHeap::new();
+        let mut free: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
+        let mut rows = 0usize;
         let mut row_of = vec![0usize; self.intervals.len()];
         for &i in &order {
             let iv = &self.intervals[i];
-            match row_end.iter().position(|&end| iv.start >= end) {
-                Some(r) => {
-                    row_end[r] = iv.end;
-                    row_of[i] = r;
-                }
-                None => {
-                    row_of[i] = row_end.len();
-                    row_end.push(iv.end);
+            // Free every row whose last interval ends at or before this start.
+            while let Some(Reverse((End(end), _))) = busy.peek() {
+                if iv.start >= *end {
+                    let Reverse((_, r)) = busy.pop().expect("peeked");
+                    free.push(Reverse(r));
+                } else {
+                    break;
                 }
             }
+            let r = match free.peek() {
+                Some(&Reverse(r)) if !iv.start.is_nan() => {
+                    free.pop();
+                    r
+                }
+                _ => {
+                    rows += 1;
+                    rows - 1
+                }
+            };
+            row_of[i] = r;
+            if !iv.end.is_nan() {
+                busy.push(Reverse((End(iv.end), r)));
+            }
         }
-        (row_of, row_end.len().max(1))
+        (row_of, rows.max(1))
     }
 }
 
@@ -1423,6 +1470,69 @@ fn fmt_numeric(v: f64) -> String {
 mod tests {
     use super::*;
     use crate::plot::LinePlot;
+
+    /// The row scan the heap packing replaced.
+    fn pack_rows_ref(intervals: &[Interval]) -> (Vec<usize>, usize) {
+        let mut order: Vec<usize> = (0..intervals.len()).collect();
+        order.sort_by(|&a, &b| intervals[a].start.nan_cmp(&intervals[b].start));
+        let mut row_end: Vec<f64> = Vec::new();
+        let mut row_of = vec![0usize; intervals.len()];
+        for &i in &order {
+            let iv = &intervals[i];
+            match row_end.iter().position(|&end| iv.start >= end) {
+                Some(r) => {
+                    row_end[r] = iv.end;
+                    row_of[i] = r;
+                }
+                None => {
+                    row_of[i] = row_end.len();
+                    row_end.push(iv.end);
+                }
+            }
+        }
+        (row_of, row_end.len().max(1))
+    }
+
+    #[test]
+    fn heap_packing_matches_the_row_scan() {
+        let mut state = 0xfeed_beef_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        // Both NaN signs: total_cmp sorts -NaN before every number.
+        let special = [
+            f64::NAN,
+            -f64::NAN,
+            -0.0,
+            0.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        let mut multi_row = 0;
+        for _ in 0..2000 {
+            let n = (next() % 15) as usize;
+            let mut value = || match next() % 12 {
+                0 => special[(next() % special.len() as u64) as usize],
+                _ => (next() % 10) as f64,
+            };
+            // Ends may come before starts (reversed intervals).
+            let pairs: Vec<(f64, f64)> = (0..n).map(|_| (value(), value())).collect();
+            let build = || {
+                pairs
+                    .iter()
+                    .map(|&(a, b)| Interval::new(a, b))
+                    .collect::<Vec<_>>()
+            };
+            let want = pack_rows_ref(&build());
+            let got = IntervalTrack::new(build()).pack_rows();
+            assert_eq!(got, want, "{pairs:?}");
+            multi_row += usize::from(want.1 > 2);
+        }
+        assert!(multi_row > 500, "{multi_row}");
+    }
 
     fn line(ys: &[f64]) -> Plot {
         let pts: Vec<(f64, f64)> = ys.iter().enumerate().map(|(i, &y)| (i as f64, y)).collect();

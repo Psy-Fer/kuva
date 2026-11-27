@@ -623,8 +623,29 @@ impl NetworkPlot {
             node_count: usize,
         }
 
+        // Each edge's component, found once, so building every sub-graph takes
+        // one pass over the edges in total instead of one pass per component.
+        // An edge joins its component only when both ends are in it.
+        let mut comp_of = vec![usize::MAX; n];
+        for (ci, comp) in components.iter().enumerate() {
+            for &i in comp {
+                if let Some(c) = comp_of.get_mut(i) {
+                    *c = ci;
+                }
+            }
+        }
+        let mut comp_edges: Vec<Vec<usize>> = vec![Vec::new(); components.len()];
+        for (ei, edge) in self.edges.iter().enumerate() {
+            let cs = comp_of.get(edge.source).copied();
+            if cs.is_some() && cs == comp_of.get(edge.target).copied() {
+                if let Some(list) = cs.and_then(|c| comp_edges.get_mut(c)) {
+                    list.push(ei);
+                }
+            }
+        }
+
         let mut comp_layouts: Vec<CompLayout> = Vec::new();
-        for comp in components {
+        for (ci, comp) in components.iter().enumerate() {
             if comp.len() == 1 {
                 // Single isolated node — place at centre.
                 comp_layouts.push(CompLayout {
@@ -656,8 +677,8 @@ impl NetworkPlot {
                     position: node.position,
                 });
             }
-            // Add edges (remapped)
-            for edge in &self.edges {
+            // Add edges (remapped), in their original order.
+            for edge in comp_edges[ci].iter().map(|&ei| &self.edges[ei]) {
                 if let (Some(&new_s), Some(&new_t)) =
                     (index_map.get(&edge.source), index_map.get(&edge.target))
                 {
