@@ -416,6 +416,8 @@ Attach a text label to each point with `.with_labels(iter)` (aligned to the data
 
 `.with_repel_labels()` is shorthand for `.with_label_style(LabelStyle::Repel)`, the best choice for dense, clustered labels.
 
+Repulsion compares every label with every other label, so it handles at most 1,000 labels (`kuva::render::render_utils::MAX_REPEL_LABELS`). With more, the labels are drawn just above their points without repulsion, and rendering adds a `labels.repel_skipped` warning (see [Limits and Warnings](../reference/warnings.md)). The same limit applies to `Repel` labels on volcano and Manhattan plots and to network label repulsion.
+
 ```rust,no_run
 # use kuva::plot::ScatterPlot;
 let plot = ScatterPlot::new()

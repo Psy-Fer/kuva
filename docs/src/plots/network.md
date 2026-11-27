@@ -161,7 +161,7 @@ Self-loops (`source == target`) are rendered as a small arc pointing outward fro
 | `.with_node_radius(px)` | Base node radius in pixels (default `8.0`) |
 | `.with_edge_opacity(f)` | Edge opacity `0.0`-`1.0` (default `0.6`) |
 | `.with_labels()` | Show node labels |
-| `.with_repel_labels()` | Push overlapping labels apart |
+| `.with_repel_labels()` | Push overlapping labels apart (up to 1,000 labels; with more, labels are drawn without repulsion and a `labels.repel_skipped` warning is added) |
 | `.with_legend(s)` | Show a per-group colour legend |
 | `.with_label_size(px)` | Override label font size |
 

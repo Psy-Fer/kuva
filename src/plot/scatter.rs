@@ -391,6 +391,11 @@ impl ScatterPlot {
 
     /// Convenience: place point labels with force-directed (ggrepel-style) repulsion.
     /// Equivalent to `with_label_style(LabelStyle::Repel)`.
+    ///
+    /// Repulsion handles at most
+    /// [`MAX_REPEL_LABELS`](crate::render::render_utils::MAX_REPEL_LABELS)
+    /// (1,000) labels. With more, they are drawn without it, just above their
+    /// points, and rendering adds a `labels.repel_skipped` warning.
     pub fn with_repel_labels(mut self) -> Self {
         self.label_style = crate::plot::volcano::LabelStyle::Repel;
         self

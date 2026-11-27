@@ -10608,6 +10608,18 @@ fn add_colorbar(info: &ColorBarInfo, scene: &mut Scene, computed: &ComputedLayou
     add_colorbar_at(info, scene, computed, bar_x, bar_y, bar_height);
 }
 
+/// Record that label repulsion was skipped for `n` labels.
+fn warn_repel_skipped(scene: &mut Scene, n: usize) {
+    scene.warn(
+        "labels.repel_skipped",
+        format!(
+            "{n} labels is more than the {} that label repulsion handles; \
+             they are drawn without repulsion",
+            render_utils::MAX_REPEL_LABELS
+        ),
+    );
+}
+
 /// Force-directed (ggrepel-style) label placement shared by volcano, manhattan,
 /// and scatter. `anchors` are `(cx, cy, text)` in screen coordinates; `point_size`
 /// is the marker radius so leader lines stop just outside each point.
@@ -10643,6 +10655,9 @@ fn draw_repel_labels(
         computed.width - computed.margin_right,
         computed.height - computed.margin_bottom,
     );
+    if items.len() > render_utils::MAX_REPEL_LABELS {
+        warn_repel_skipped(scene, items.len());
+    }
     render_utils::repel_labels(&mut items, bounds, 150);
 
     let leader = if computed.bw_mode {
@@ -21159,7 +21174,13 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                 })
                 .collect();
 
-            if net.repel_labels && labels.len() > 1 {
+            if net.repel_labels && labels.len() > render_utils::MAX_REPEL_LABELS {
+                warn_repel_skipped(scene, labels.len());
+            }
+            if net.repel_labels
+                && labels.len() > 1
+                && labels.len() <= render_utils::MAX_REPEL_LABELS
+            {
                 let lh = font_size as f64;
                 // Convert to center-x for repulsion arithmetic, then convert back.
                 let center_x = |l: &(f64, f64, String, f64, TextAnchor)| match l.4 {

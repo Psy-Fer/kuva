@@ -8,10 +8,11 @@ mod hostile;
 use kuva::backend::svg::SvgBackend;
 use kuva::plot::logo::{Alphabet, SequenceLogo};
 use kuva::plot::roc::compute_group;
-use kuva::plot::{BoxPlot, NetworkLayout, NetworkPlot, StripPlot, ViolinPlot};
+use kuva::plot::{BoxPlot, NetworkLayout, NetworkPlot, ScatterPlot, StripPlot, ViolinPlot};
 use kuva::plot::{Clustermap, GanttPlot, MosaicPlot, RocGroup, SurvivalPlot};
 use kuva::render::color::Color;
 use kuva::render::render::{Primitive, Scene};
+use kuva::render::render_utils::{repel_labels, RepelItem, MAX_REPEL_LABELS};
 use kuva::render::track_stack::{Interval, IntervalTrack, TrackStack};
 use kuva::render::{layout::Layout, plots::Plot, render::render_multiple};
 
@@ -296,4 +297,89 @@ fn ordinary_swarm_has_no_budget_warning() {
         ))
     });
     assert!(!budget_warned(&scene));
+}
+
+fn repel_warned(scene: &Scene) -> bool {
+    scene
+        .warnings
+        .iter()
+        .any(|w| w.code == "labels.repel_skipped")
+}
+
+#[test]
+fn repel_with_every_point_labelled() {
+    // Repulsion compared every label with every other label and every anchor,
+    // 150 times: 50,000 labelled points meant about 5 x 10^11 checks.
+    let scene = hostile::bounded(64 << 20, || {
+        let pts: Vec<(f64, f64)> = (0..50_000)
+            .map(|i| ((i % 100) as f64, (i / 100) as f64))
+            .collect();
+        let labels: Vec<String> = (0..50_000).map(|i| format!("p{i}")).collect();
+        let plots = vec![Plot::Scatter(
+            ScatterPlot::new()
+                .with_data(pts)
+                .with_labels(labels)
+                .with_repel_labels(),
+        )];
+        let layout = Layout::auto_from_plots(&plots);
+        render_multiple(plots, layout)
+    });
+    assert!(repel_warned(&scene));
+}
+
+#[test]
+fn network_label_repel_with_many_nodes() {
+    let scene = hostile::bounded(64 << 20, || {
+        let mut net = NetworkPlot::new()
+            .with_layout(NetworkLayout::Circle)
+            .with_labels()
+            .with_repel_labels();
+        for i in 0..5_000 {
+            net = net.with_node(format!("node{i}"));
+        }
+        let plots = vec![Plot::Network(net)];
+        let layout = Layout::auto_from_plots(&plots);
+        render_multiple(plots, layout)
+    });
+    assert!(repel_warned(&scene));
+}
+
+#[test]
+fn repel_labels_leaves_too_many_items_alone() {
+    let item = |i: usize| RepelItem {
+        anchor: (50.0, 50.0),
+        half_w: 10.0,
+        half_h: 5.0,
+        pos: (50.0 + i as f64 * 1e-3, 50.0),
+    };
+    let bounds = (0.0, 0.0, 400.0, 400.0);
+    // At the limit, stacked labels are pushed apart.
+    let mut at_limit: Vec<RepelItem> = (0..MAX_REPEL_LABELS).map(item).collect();
+    hostile::bounded(64 << 20, move || {
+        repel_labels(&mut at_limit, bounds, 1);
+        assert!(at_limit
+            .iter()
+            .enumerate()
+            .any(|(i, it)| it.pos != item(i).pos));
+    });
+    // One more and they are left where they are.
+    let mut over: Vec<RepelItem> = (0..=MAX_REPEL_LABELS).map(item).collect();
+    hostile::bounded(64 << 20, move || {
+        repel_labels(&mut over, bounds, 150);
+        assert!(over.iter().enumerate().all(|(i, it)| it.pos == item(i).pos));
+    });
+}
+
+#[test]
+fn a_few_repelled_labels_give_no_warning() {
+    let pts: Vec<(f64, f64)> = (0..20).map(|i| (i as f64 * 0.01, 1.0)).collect();
+    let labels: Vec<String> = (0..20).map(|i| format!("p{i}")).collect();
+    let plots = vec![Plot::Scatter(
+        ScatterPlot::new()
+            .with_data(pts)
+            .with_labels(labels)
+            .with_repel_labels(),
+    )];
+    let layout = Layout::auto_from_plots(&plots);
+    assert!(!repel_warned(&render_multiple(plots, layout)));
 }

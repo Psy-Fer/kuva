@@ -27,6 +27,11 @@ pub enum LabelStyle {
     /// Force-directed (ggrepel / adjustText style) placement: labels are pushed
     /// off each other and off the data points in 2-D, with a thin leader line
     /// drawn back to each point. The best option for dense, clustered labels.
+    ///
+    /// Repulsion handles at most
+    /// [`MAX_REPEL_LABELS`](crate::render::render_utils::MAX_REPEL_LABELS)
+    /// (1,000) labels. With more, they are drawn without it, just above their
+    /// points, and rendering adds a `labels.repel_skipped` warning.
     Repel,
 }
 

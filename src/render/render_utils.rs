@@ -1293,6 +1293,10 @@ pub(crate) fn clamp_fit(v: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
+/// Most labels [`repel_labels`] will lay out. Beyond it the labels keep their
+/// starting positions (just above each point in the kuva renderers).
+pub const MAX_REPEL_LABELS: usize = 1_000;
+
 /// One label for the force-directed [`repel_labels`] layout. `pos` is the label
 /// box centre (mutated in place); `anchor` is the fixed data point it belongs to;
 /// `half_w`/`half_h` are half the label's bounding-box width/height in pixels.
@@ -1310,9 +1314,14 @@ pub struct RepelItem {
 /// with a weak spring pulling each label back toward its own anchor, then clamps
 /// each into `bounds` = `(x_min, y_min, x_max, y_max)`. Mutates `items[*].pos`.
 /// O(iterations · n²); intended for the small top-N label set, not every point.
+///
+/// More than [`MAX_REPEL_LABELS`] items are left where they are: when that
+/// many labels crowd together they keep overlapping, so every iteration costs
+/// about n² checks whatever the layout does. The kuva renderers report this
+/// with a `labels.repel_skipped` warning.
 pub fn repel_labels(items: &mut [RepelItem], bounds: (f64, f64, f64, f64), iterations: usize) {
     let n = items.len();
-    if n == 0 {
+    if n == 0 || n > MAX_REPEL_LABELS {
         return;
     }
     let (xmin, ymin, xmax, ymax) = bounds;

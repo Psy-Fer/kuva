@@ -493,6 +493,11 @@ impl NetworkPlot {
     }
 
     /// Enable label repulsion so overlapping labels push apart.
+    ///
+    /// Repulsion handles at most
+    /// [`MAX_REPEL_LABELS`](crate::render::render_utils::MAX_REPEL_LABELS)
+    /// (1,000) labels. With more, they are drawn without it, beside their
+    /// nodes, and rendering adds a `labels.repel_skipped` warning.
     pub fn with_repel_labels(mut self) -> Self {
         self.repel_labels = true;
         self
