@@ -3534,6 +3534,19 @@ fn cigar_bw_idx(op: CigarOp) -> usize {
 }
 
 fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLayout) {
+    if !brickplot.strigar_issues.is_empty() {
+        let mut rows: Vec<usize> = brickplot.strigar_issues.iter().map(|i| i.row()).collect();
+        rows.dedup();
+        scene.warn(
+            "brick.strigar_rejected",
+            format!(
+                "{} STRIGAR row(s) could not be used and are drawn empty (first: row {}); \
+                 see BrickPlot::strigar_issues",
+                rows.len(),
+                rows[0]
+            ),
+        );
+    }
     // Use expanded strigars when available, otherwise raw sequences
     let rows: &Vec<String> = if let Some(ref exp) = brickplot.strigar_exp {
         exp

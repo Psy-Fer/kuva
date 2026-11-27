@@ -171,6 +171,45 @@ pub enum StrigarIssue {
         /// The character the tokeniser could not use.
         fragment: char,
     },
+    /// The row's runs add up to more than [`MAX_STRIGAR_ROW_BRICKS`] bricks.
+    /// Each copy of a motif is one brick, so a run count far above any real
+    /// repeat length would otherwise allocate and draw that many bricks.
+    TooManyBricks {
+        /// Row index.
+        row: usize,
+        /// Bricks the row asks for (saturates at `usize::MAX`).
+        bricks: usize,
+    },
+    /// The row fits the per-row limit, but drawing it would take the plot
+    /// past [`MAX_STRIGAR_PLOT_BRICKS`] in total. Rows are counted in order,
+    /// so the rows after the limit is reached are the ones rejected.
+    PlotTooLarge {
+        /// Row index.
+        row: usize,
+        /// Bricks the row asks for.
+        bricks: usize,
+    },
+}
+
+/// Most bricks one STRIGAR row may expand to. Well above the longest
+/// repeat tracts seen in long-read data; a row over it is rejected with
+/// [`StrigarIssue::TooManyBricks`].
+pub const MAX_STRIGAR_ROW_BRICKS: usize = 1_000_000;
+
+/// Most bricks all STRIGAR rows of one plot may expand to together. Rows that
+/// would pass it are rejected with [`StrigarIssue::PlotTooLarge`].
+pub const MAX_STRIGAR_PLOT_BRICKS: usize = 20_000_000;
+
+impl StrigarIssue {
+    /// The row the issue is about.
+    pub fn row(&self) -> usize {
+        match self {
+            StrigarIssue::LegacyFormat { row, .. }
+            | StrigarIssue::Unparseable { row, .. }
+            | StrigarIssue::TooManyBricks { row, .. }
+            | StrigarIssue::PlotTooLarge { row, .. } => *row,
+        }
+    }
 }
 
 /// Parse a CIGAR string into read-space spans.
@@ -947,6 +986,8 @@ impl BrickPlot {
     /// partially rendered, because a STRIGAR in the superseded `|`/`@` format
     /// loses its separators to the tokeniser and would otherwise produce a
     /// wrong row that still looks like a valid one.
+    /// Rows over the brick limits ([`MAX_STRIGAR_ROW_BRICKS`],
+    /// [`MAX_STRIGAR_PLOT_BRICKS`]) are rejected the same way.
     ///
     /// ```rust
     /// use kuva::plot::BrickPlot;
@@ -1226,6 +1267,16 @@ impl BrickPlot {
         self
     }
 
+    /// Draw rows from bladerunner STRIGAR pairs: `(motif map, strigar)`, such
+    /// as `("AATGG:A,CAG:B", "10A2B")`. Each run is a count of copies of its
+    /// letter's k-mer, and each copy is one brick.
+    ///
+    /// Rows that can't be used are kept as empty slots and reported by
+    /// [`strigar_issues`](Self::strigar_issues): the superseded `|`/`@`
+    /// format, characters the tokeniser can't read, a row over
+    /// [`MAX_STRIGAR_ROW_BRICKS`], and rows that would take the plot past
+    /// [`MAX_STRIGAR_PLOT_BRICKS`]. Rendering adds a `brick.strigar_rejected`
+    /// warning to the scene when any row was rejected.
     pub fn with_strigars<T, U, I>(mut self, strigars: I) -> Self
     where
         I: IntoIterator<Item = (T, U)>,
@@ -1249,13 +1300,36 @@ impl BrickPlot {
         for (row, (motif_str, strigar_str)) in strigars_ref.iter().enumerate() {
             issues.extend(validate_strigar_row(row, motif_str, strigar_str));
         }
-        let rejected: std::collections::HashSet<usize> = issues
-            .iter()
-            .map(|i| match i {
-                StrigarIssue::LegacyFormat { row, .. } => *row,
-                StrigarIssue::Unparseable { row, .. } => *row,
-            })
-            .collect();
+        let mut rejected: std::collections::HashSet<usize> =
+            issues.iter().map(StrigarIssue::row).collect();
+
+        // Size limits, checked on the run counts before anything is expanded.
+        // Only runs whose letter is in the row's motif map become bricks, the
+        // same rule Phase D uses.
+        let mut plot_bricks = 0usize;
+        for (row, (motif_str, strigar_str)) in strigars_ref.iter().enumerate() {
+            if rejected.contains(&row) {
+                continue;
+            }
+            let local_map = parse_motif_map(motif_str);
+            let bricks = parse_strigar_runs(strigar_str)
+                .iter()
+                .filter(|(_, letter)| local_map.contains_key(letter))
+                .fold(0usize, |acc, (count, _)| acc.saturating_add(*count));
+            let issue = if bricks > MAX_STRIGAR_ROW_BRICKS {
+                Some(StrigarIssue::TooManyBricks { row, bricks })
+            } else if plot_bricks + bricks > MAX_STRIGAR_PLOT_BRICKS {
+                Some(StrigarIssue::PlotTooLarge { row, bricks })
+            } else {
+                plot_bricks += bricks;
+                None
+            };
+            if let Some(issue) = issue {
+                rejected.insert(row);
+                issues.push(issue);
+            }
+        }
+        issues.sort_by_key(StrigarIssue::row);
 
         // Phase B: walk every row, collecting kmers by canonical rotation into
         // brick-count frequency tables. One motif namespace per row (the format has
@@ -1272,12 +1346,16 @@ impl BrickPlot {
             for (count, letter) in parse_strigar_runs(strigar_str) {
                 if let Some(kmer) = local_map.get(&letter) {
                     let canon = canonical_rotation(kmer);
-                    *canonical_freq.entry(canon.clone()).or_insert(0) += count;
-                    *rotation_freq
+                    // Saturating: rows are capped above, but the counters
+                    // must not wrap or panic whatever reaches them.
+                    let f = canonical_freq.entry(canon.clone()).or_insert(0);
+                    *f = f.saturating_add(count);
+                    let f = rotation_freq
                         .entry(canon)
                         .or_default()
                         .entry(kmer.clone())
-                        .or_insert(0) += count;
+                        .or_insert(0);
+                    *f = f.saturating_add(count);
                 }
             }
         }
@@ -1304,11 +1382,12 @@ impl BrickPlot {
                 for (count, letter) in parse_strigar_runs(strigar_str) {
                     if let Some(kmer) = local_map.get(&letter) {
                         let canon = canonical_rotation(kmer);
-                        *cons_rotation_freq
+                        let f = cons_rotation_freq
                             .entry(canon)
                             .or_default()
                             .entry(kmer.clone())
-                            .or_insert(0) += count;
+                            .or_insert(0);
+                        *f = f.saturating_add(count);
                     }
                 }
                 for (canon, rotations) in &cons_rotation_freq {

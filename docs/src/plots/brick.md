@@ -183,9 +183,19 @@ for issue in plot.strigar_issues() {
         StrigarIssue::Unparseable { row, fragment } => {
             eprintln!("row {row}: cannot read {fragment:?}");
         }
+        StrigarIssue::TooManyBricks { row, bricks } => {
+            eprintln!("row {row}: {bricks} bricks is over the per-row limit");
+        }
+        StrigarIssue::PlotTooLarge { row, bricks } => {
+            eprintln!("row {row}: {bricks} more bricks would pass the plot limit");
+        }
     }
 }
 ```
+
+Rendering a plot with rejected rows also adds a `brick.strigar_rejected`
+warning to the scene, giving the number of rows and the first one (see
+[Limits and Warnings](../reference/warnings.md)).
 
 Validation runs before the motif-frequency passes, so a rejected row cannot
 influence the canonical-rotation ranking, global letters, or colours that the
@@ -193,6 +203,23 @@ remaining rows share.
 
 Regenerate STRIGAR strings from a current bladerunner, or build rows through
 the builder API instead.
+
+### Size limits
+
+Each copy of a motif is drawn as one brick, so the number of bricks comes from
+the run counts in the data rather than from the length of the input: `1000000A`
+is nine characters and a million bricks. Two limits keep a bad count from
+exhausting memory:
+
+- a row may expand to at most `MAX_STRIGAR_ROW_BRICKS` (1,000,000) bricks;
+  a longer row is rejected with `StrigarIssue::TooManyBricks`;
+- all rows of a plot may expand to at most `MAX_STRIGAR_PLOT_BRICKS`
+  (20,000,000) bricks together. Rows are counted in order, and a row that
+  would pass the total is rejected with `StrigarIssue::PlotTooLarge`.
+
+Only runs whose letter is in the row's motif map count, since only they are
+drawn. Both limits are well above real repeat tracts, and the check runs on the
+counts before any row is expanded.
 
 ### Aligning reads by genomic position
 
