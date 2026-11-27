@@ -506,7 +506,7 @@ fn render_wrapped(sl: &SequenceLogo, layout: &Layout, per_line: usize) -> Scene 
         l.x_axis_max = Some(per_line as f64 + 0.5);
         l.x_range = (0.5, per_line as f64 + 0.5);
         if y_max.is_some() {
-            l.y_axis_min = Some(0.0);
+            l.y_axis_min.get_or_insert(0.0);
             l.y_axis_max = y_max;
         }
         if !first {

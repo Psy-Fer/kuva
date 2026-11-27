@@ -733,3 +733,19 @@ fn from_matrix_rejects_negative() {
 fn from_matrix_rejects_ragged_rows() {
     let _ = SequenceLogo::from_matrix(vec![vec![1.0, 0.0, 0.0]], Alphabet::Dna);
 }
+
+#[test]
+fn wrapped_logo_preserves_explicit_y_axis_min() {
+    let logo = long_dna(20).with_per_line(10);
+    let plots: Vec<Plot> = vec![logo.into()];
+    let layout = Layout::auto_from_plots(&plots).with_y_axis_min(0.5);
+    let svg = kuva::render_to_svg(plots, layout);
+    assert!(
+        svg.contains(">0.5</text>"),
+        "wrapped logo should preserve explicit y_axis_min = 0.5"
+    );
+    assert!(
+        !svg.contains(">0</text>"),
+        "wrapped logo should not reset y_axis_min to 0"
+    );
+}

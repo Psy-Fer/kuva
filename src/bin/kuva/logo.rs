@@ -292,20 +292,27 @@ fn shape_matrix(
     orientation: MatrixOrientation,
     letters: &[char],
 ) -> Result<Vec<Vec<f64>>, String> {
-    if orientation == MatrixOrientation::RowsArePositions {
-        // Row 0 might be letters (header) — strip it if so.
+    let perm = if orientation == MatrixOrientation::RowsArePositions {
         if row_is_all_alphabet(&rows[0], letters) {
-            rows.remove(0);
+            let header = rows.remove(0);
+            Some(header_permutation(&header, letters)?)
+        } else {
+            None
         }
-    } else {
-        // Column 0 might be letter labels; strip it.
-        if column_is_all_alphabet(&rows, 0, letters) {
-            for r in rows.iter_mut() {
-                if !r.is_empty() {
-                    r.remove(0);
-                }
+    } else if column_is_all_alphabet(&rows, 0, letters) {
+        let mut header = Vec::with_capacity(rows.len());
+        for r in rows.iter_mut() {
+            if !r.is_empty() {
+                header.push(r.remove(0));
             }
         }
+        Some(header_permutation(&header, letters)?)
+    } else {
+        None
+    };
+
+    if rows.is_empty() {
+        return Err("Matrix input has no data rows".to_string());
     }
 
     match orientation {
@@ -320,7 +327,15 @@ fn shape_matrix(
                         row_f.len()
                     ));
                 }
-                matrix.push(row_f);
+                if let Some(ref p) = perm {
+                    let mut reordered = vec![0.0_f64; letters.len()];
+                    for (ci, &v) in row_f.iter().enumerate() {
+                        reordered[p[ci]] = v;
+                    }
+                    matrix.push(reordered);
+                } else {
+                    matrix.push(row_f);
+                }
             }
             Ok(matrix)
         }
@@ -333,6 +348,9 @@ fn shape_matrix(
                 ));
             }
             let n_positions = rows[0].len();
+            if n_positions == 0 {
+                return Err("Matrix input has no data columns".to_string());
+            }
             let mut matrix = vec![vec![0.0_f64; letters.len()]; n_positions];
             for (li, row) in rows.iter().enumerate() {
                 let row_f = parse_row_f64(row, li)?;
@@ -342,13 +360,43 @@ fn shape_matrix(
                         row_f.len()
                     ));
                 }
+                let dst = perm.as_ref().map_or(li, |p| p[li]);
                 for (pos, v) in row_f.iter().enumerate() {
-                    matrix[pos][li] = *v;
+                    matrix[pos][dst] = *v;
                 }
             }
             Ok(matrix)
         }
     }
+}
+
+fn header_permutation(header: &[String], letters: &[char]) -> Result<Vec<usize>, String> {
+    if header.len() != letters.len() {
+        return Err(format!(
+            "Matrix header has {} letters, expected {} (alphabet size)",
+            header.len(),
+            letters.len()
+        ));
+    }
+    let mut seen = vec![false; letters.len()];
+    let mut perm = Vec::with_capacity(letters.len());
+    for s in header {
+        let c = s
+            .chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase())
+            .ok_or_else(|| "Matrix header contains an empty letter".to_string())?;
+        let idx = letters
+            .iter()
+            .position(|&l| l == c)
+            .ok_or_else(|| format!("Matrix header letter '{c}' is not in the alphabet"))?;
+        if seen[idx] {
+            return Err(format!("Matrix header repeats letter '{c}'"));
+        }
+        seen[idx] = true;
+        perm.push(idx);
+    }
+    Ok(perm)
 }
 
 /// Orientation of a matrix with no letter header row or column: whichever side
@@ -435,8 +483,14 @@ fn parse_alphabet(s: &str) -> Result<Alphabet, String> {
         "dna" => Ok(Alphabet::Dna),
         "rna" => Ok(Alphabet::Rna),
         "protein" | "aa" | "amino" => Ok(Alphabet::Protein),
-        other => {
-            let letters: Vec<char> = other.chars().filter(|c| !c.is_whitespace()).collect();
+        _ => {
+            let mut letters = Vec::new();
+            for c in s.chars().filter(|c| !c.is_whitespace()) {
+                let upper = c.to_ascii_uppercase();
+                if !letters.contains(&upper) {
+                    letters.push(upper);
+                }
+            }
             if letters.is_empty() {
                 return Err(format!("Unrecognised alphabet: '{s}'"));
             }
@@ -521,5 +575,64 @@ fn default_y_label(units: LogoUnits) -> &'static str {
         LogoUnits::Probability => "Probability",
         LogoUnits::Frequency => "Count",
         LogoUnits::Bits => "Information (bits)",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_alphabet_preserves_uppercase_custom_and_deduplicates() {
+        assert_eq!(
+            parse_alphabet("MHUL").unwrap().letters(),
+            vec!['M', 'H', 'U', 'L']
+        );
+        assert_eq!(
+            parse_alphabet("mhul").unwrap().letters(),
+            vec!['M', 'H', 'U', 'L']
+        );
+        assert_eq!(parse_alphabet("A A B").unwrap().letters(), vec!['A', 'B']);
+        assert!(parse_alphabet("   ").is_err());
+    }
+
+    #[test]
+    fn matrix_header_permutes_columns_into_alphabet_order() {
+        let csv = "T,G,C,A\n0.9,0.05,0.03,0.02\n0.1,0.2,0.3,0.4\n";
+        let logo = build_from_matrix(csv, &Alphabet::Dna, None).unwrap();
+        // Alphabet::Dna canonical order is A, C, G, T.
+        assert_eq!(logo.matrix[0], vec![0.02, 0.03, 0.05, 0.9]);
+        assert_eq!(logo.matrix[1], vec![0.4, 0.3, 0.2, 0.1]);
+    }
+
+    #[test]
+    fn jaspar_matrix_header_permutes_rows_into_alphabet_order() {
+        let tsv = "T\t0.9\t0.1\nG\t0.05\t0.2\nC\t0.03\t0.3\nA\t0.02\t0.4\n";
+        let logo = build_from_matrix(tsv, &Alphabet::Dna, None).unwrap();
+        assert_eq!(logo.matrix[0], vec![0.02, 0.03, 0.05, 0.9]);
+        assert_eq!(logo.matrix[1], vec![0.4, 0.3, 0.2, 0.1]);
+    }
+
+    #[test]
+    fn matrix_header_rejects_duplicates_and_empty_body() {
+        let dup = "A,A,G,T\n0.25,0.25,0.25,0.25\n";
+        assert!(build_from_matrix(dup, &Alphabet::Dna, None).is_err());
+        let header_only = "A,C,G,T\n";
+        assert!(build_from_matrix(header_only, &Alphabet::Dna, None).is_err());
+        let jaspar_header_only = "A\nC\nG\nT\n";
+        assert!(build_from_matrix(jaspar_header_only, &Alphabet::Dna, None).is_err());
+    }
+
+    #[test]
+    fn custom_alphabet_cli_works_for_fasta_and_matrix() {
+        let alpha = parse_alphabet("MHUL").unwrap();
+        let fasta_logo =
+            SequenceLogo::from_fasta_str(">s1\nMHUL\n>s2\nMHUL\n", alpha.clone()).unwrap();
+        assert_eq!(fasta_logo.matrix[0], vec![2.0, 0.0, 0.0, 0.0]);
+        assert_eq!(fasta_logo.matrix[3], vec![0.0, 0.0, 0.0, 2.0]);
+
+        let pwm = "L,U,H,M\n0.1,0.2,0.3,0.4\n";
+        let mat_logo = build_from_matrix(pwm, &alpha, None).unwrap();
+        assert_eq!(mat_logo.matrix[0], vec![0.4, 0.3, 0.2, 0.1]);
     }
 }
