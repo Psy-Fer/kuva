@@ -638,3 +638,25 @@ fn ragged_col_zscore_with_discrete_color_map_does_not_panic() {
     assert!(!svg.contains("NaN"));
 }
 
+#[test]
+fn duplicate_row_and_col_labels_preserve_all_rows() {
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![10.0, 20.0], vec![1.1, 2.1]])
+        .with_row_labels(["GeneA", "GeneA", "GeneB"])
+        .with_col_labels(["S", "S"])
+        .with_values();
+    let svg = render(cm, "Duplicate labels");
+    assert!(
+        svg.contains(">1.00</text>"),
+        "row 0 value 1.00 must not be dropped"
+    );
+    assert!(
+        svg.contains(">10.00</text>"),
+        "row 1 value 10.00 must be preserved"
+    );
+    assert!(
+        svg.contains(">1.10</text>"),
+        "row 2 value 1.10 must be preserved"
+    );
+}
+

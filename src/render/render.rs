@@ -8911,44 +8911,48 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
 
     // ── Step 2: Leaf order → data permutation ────────────────────────────────
 
-    let row_perm: Vec<usize> = if let Some((ref nodes, root)) = row_tree {
-        let labels = cm.row_labels.as_ref().unwrap_or(&default_row_labels);
-        let label_to_idx: HashMap<&str, usize> = labels
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.as_str(), i))
-            .collect();
+    let tree_perm = |nodes: &[crate::plot::phylo::PhyloNode],
+                     root: usize,
+                     from_upgma: bool,
+                     labels: &[String],
+                     n: usize|
+     -> Vec<usize> {
+        if from_upgma {
+            return post_order_dfs(root, nodes)
+                .into_iter()
+                .filter(|&id| nodes[id].children.is_empty() && id < n)
+                .collect();
+        }
+        let mut label_to_idxs: HashMap<&str, std::collections::VecDeque<usize>> = HashMap::new();
+        for (i, s) in labels.iter().enumerate() {
+            label_to_idxs.entry(s.as_str()).or_default().push_back(i);
+        }
         post_order_dfs(root, nodes)
             .into_iter()
             .filter(|&id| nodes[id].children.is_empty())
             .filter_map(|id| {
-                nodes[id]
-                    .label
-                    .as_deref()
-                    .and_then(|l| label_to_idx.get(l).copied())
+                nodes[id].label.as_deref().and_then(|l| {
+                    let q = label_to_idxs.get_mut(l)?;
+                    if q.len() > 1 {
+                        q.pop_front()
+                    } else {
+                        q.front().copied()
+                    }
+                })
             })
             .collect()
+    };
+
+    let row_perm: Vec<usize> = if let Some((ref nodes, root)) = row_tree {
+        let labels = cm.row_labels.as_ref().unwrap_or(&default_row_labels);
+        tree_perm(nodes, root, cm.row_tree.is_none(), labels, n_rows)
     } else {
         (0..n_rows).collect()
     };
 
     let col_perm: Vec<usize> = if let Some((ref nodes, root)) = col_tree {
         let labels = cm.col_labels.as_ref().unwrap_or(&default_col_labels);
-        let label_to_idx: HashMap<&str, usize> = labels
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.as_str(), i))
-            .collect();
-        post_order_dfs(root, nodes)
-            .into_iter()
-            .filter(|&id| nodes[id].children.is_empty())
-            .filter_map(|id| {
-                nodes[id]
-                    .label
-                    .as_deref()
-                    .and_then(|l| label_to_idx.get(l).copied())
-            })
-            .collect()
+        tree_perm(nodes, root, cm.col_tree.is_none(), labels, n_cols)
     } else {
         (0..n_cols).collect()
     };
