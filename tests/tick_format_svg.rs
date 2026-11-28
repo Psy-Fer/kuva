@@ -286,3 +286,19 @@ fn test_auto_preserves_precision_for_small_ranges() {
         );
     }
 }
+
+#[test]
+fn test_auto_preserves_sub_1e9_ticks_above_integer() {
+    let ticks = [1.0, 1.0 + 2e-10, 1.0 + 4e-10, 1.0 + 6e-10];
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&ticks),
+        ["1", "1.0000000002", "1.0000000004", "1.0000000006"]
+    );
+    // Symmetric check just below an integer, plus negative zero normalization.
+    let below = [2.0 - 4e-10, 2.0 - 2e-10, 2.0];
+    assert_eq!(
+        TickFormat::Auto.format_ticks(&below),
+        ["1.9999999996", "1.9999999998", "2"]
+    );
+    assert_eq!(TickFormat::Auto.format(-0.0), "0");
+}

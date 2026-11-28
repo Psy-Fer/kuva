@@ -143,12 +143,13 @@ fn auto_tick_decimals(ticks: &[f64]) -> usize {
         return MIN;
     }
     let tol = step * 1e-3;
+    let int_snap = tol.min(1e-9);
     // Only the ticks that `tick_format_auto_with` writes in fixed point.
     let fixed: Vec<f64> = sorted
         .into_iter()
         .filter(|v| {
             let a = v.abs();
-            (0.01..10_000.0).contains(&a) && !(a >= 1.0 && v.fract().abs() < 1e-9)
+            (0.01..10_000.0).contains(&a) && !(a >= 1.0 && (v - v.round()).abs() < int_snap)
         })
         .collect();
     (MIN..=MAX)
@@ -177,9 +178,13 @@ fn tick_format_auto_with(v: f64, decimals: usize) -> String {
     if !v.is_finite() {
         return v.to_string();
     }
-    if v == 0.0 || (v.abs() >= 1.0 && v.fract().abs() < 1e-9) {
+    if v == 0.0 {
+        return "0".to_string();
+    }
+    let int_snap = (0.5 * 10f64.powi(-(decimals as i32))).min(1e-9);
+    if v.abs() >= 1.0 && (v - v.round()).abs() < int_snap {
         format!("{:.0}", v)
-    } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {
+    } else if v.abs() >= 10_000.0 || v.abs() < 0.01 {
         tick_format_sci(v)
     } else {
         let s = format!("{:.*}", decimals, v);
