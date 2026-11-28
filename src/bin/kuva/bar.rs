@@ -74,6 +74,11 @@ pub struct BarArgs {
 }
 
 pub fn run(args: BarArgs) -> Result<(), String> {
+    if let Some(b) = args.baseline {
+        if !b.is_finite() {
+            return Err(format!("--baseline: '{b}' must be finite"));
+        }
+    }
     let (na_set, na_strat, clamp) = args.na.resolve()?;
     // Drop/zero/error missing values in a value column, keeping labels aligned (row-level).
     let clean_lv =

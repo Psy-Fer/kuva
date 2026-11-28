@@ -148,6 +148,28 @@ fn minor_grid_lines(svg: &str) -> (usize, usize) {
     counts
 }
 
+/// Major grid lines (default `#cccccc` at `stroke-width="1"`) as (vertical, horizontal) counts.
+fn major_grid_lines(svg: &str) -> (usize, usize) {
+    let attr = |tag: &str, name: &str| -> f64 {
+        let key = format!("{name}=\"");
+        let start = tag.find(&key).unwrap() + key.len();
+        tag[start..].split('"').next().unwrap().parse().unwrap()
+    };
+    let mut counts = (0, 0);
+    for tag in svg.split("<line").skip(1) {
+        let tag = tag.split('>').next().unwrap();
+        if !tag.contains("stroke=\"#cccccc\"") || !tag.contains("stroke-width=\"1\"") {
+            continue;
+        }
+        if attr(tag, "x1") == attr(tag, "x2") {
+            counts.0 += 1;
+        } else if attr(tag, "y1") == attr(tag, "y2") {
+            counts.1 += 1;
+        }
+    }
+    counts
+}
+
 /// #142: minor ticks (and so minor grid lines) on one axis only, and an axis's
 /// own count overriding the shared one.
 #[test]
@@ -613,4 +635,134 @@ fn test_axis_range_natural_overshoot_is_unaffected() {
     let computed = ComputedLayout::from_layout(&layout);
 
     assert_eq!(computed.x_range, (0.0, 17.5));
+}
+
+#[test]
+fn test_categorical_minor_ticks_and_grid_vertical_and_horizontal() {
+    use kuva::plot::BarPlot;
+
+    // Vertical categorical bar plot: Y minor ticks and Y minor gridlines render;
+    // X (categorical) gets no minor gridlines.
+    let make_v = || {
+        vec![Plot::Bar(BarPlot::new().with_bars(vec![
+            ("A", 10.0),
+            ("B", 20.0),
+            ("C", 15.0),
+        ]))]
+    };
+    let v_base_plots = make_v();
+    let v_base_layout = Layout::auto_from_plots(&v_base_plots);
+    let v_base = SvgBackend.render_scene(&render_multiple(v_base_plots, v_base_layout));
+    let v_minor_plots = make_v();
+    let v_minor_layout = Layout::auto_from_plots(&v_minor_plots)
+        .with_y_minor_ticks(5)
+        .with_show_minor_grid(true);
+    let v_minor = SvgBackend.render_scene(&render_multiple(v_minor_plots, v_minor_layout));
+    let (v_vert, v_horiz) = minor_grid_lines(&v_minor);
+    assert_eq!(v_vert, 0, "vertical bar must not draw X minor gridlines");
+    assert!(v_horiz > 0, "vertical bar must draw Y minor gridlines");
+    assert!(
+        v_minor.matches("<line ").count() > v_base.matches("<line ").count() + v_horiz,
+        "vertical bar must also draw Y minor tick marks"
+    );
+
+    // Horizontal categorical bar plot: X minor ticks and X minor gridlines render;
+    // Y (categorical) must not draw fractional-index minor gridlines even with with_minor_ticks(5).
+    let make_h = || {
+        vec![Plot::Bar(
+            BarPlot::new()
+                .with_bars(vec![("A", 10.0), ("B", 20.0), ("C", 15.0)])
+                .with_horizontal(true),
+        )]
+    };
+    let h_base_plots = make_h();
+    let h_base_layout = Layout::auto_from_plots(&h_base_plots);
+    let h_base = SvgBackend.render_scene(&render_multiple(h_base_plots, h_base_layout));
+    let h_minor_plots = make_h();
+    let h_minor_layout = Layout::auto_from_plots(&h_minor_plots)
+        .with_minor_ticks(5)
+        .with_show_minor_grid(true);
+    let h_minor = SvgBackend.render_scene(&render_multiple(h_minor_plots, h_minor_layout));
+    let (h_vert, h_horiz) = minor_grid_lines(&h_minor);
+    assert!(h_vert > 0, "horizontal bar must draw X minor gridlines");
+    assert_eq!(
+        h_horiz, 0,
+        "horizontal bar must not draw Y minor gridlines on categorical axis"
+    );
+    assert!(
+        h_minor.matches("<line ").count() > h_base.matches("<line ").count() + h_vert,
+        "horizontal bar must also draw X minor tick marks"
+    );
+
+    // Horizontal categorical plots must also draw major vertical gridlines
+    // (no blank gaps at major ticks when show_grid + show_minor_grid are active).
+    let (h_maj_vert, h_maj_horiz) = major_grid_lines(&h_base);
+    assert!(
+        h_maj_vert > 0,
+        "horizontal bar must draw major vertical gridlines on its numeric X axis"
+    );
+    assert_eq!(
+        h_maj_horiz, 0,
+        "horizontal bar must not draw major horizontal gridlines on categorical Y axis"
+    );
+
+    // Non-bar categorical plot (BoxPlot, vertical + horizontal) gets the same treatment.
+    use kuva::plot::BoxPlot;
+    let box_plots = vec![Plot::Box(
+        BoxPlot::new()
+            .with_group("Ctrl", vec![1.0, 2.0, 3.0, 4.0, 5.0])
+            .with_group("Treat", vec![2.0, 4.0, 6.0, 8.0, 10.0])
+            .with_horizontal(true),
+    )];
+    let box_layout = Layout::auto_from_plots(&box_plots)
+        .with_minor_ticks(5)
+        .with_show_minor_grid(true);
+    let box_svg = SvgBackend.render_scene(&render_multiple(box_plots, box_layout));
+    let (b_min_v, b_min_h) = minor_grid_lines(&box_svg);
+    let (b_maj_v, b_maj_h) = major_grid_lines(&box_svg);
+    assert!(
+        b_maj_v > 0 && b_min_v > 0,
+        "horizontal box needs major+minor X grid"
+    );
+    assert_eq!(
+        (b_maj_h, b_min_h),
+        (0, 0),
+        "horizontal box must not draw Y gridlines"
+    );
+}
+
+#[test]
+fn test_log_axis_margins_measure_explicit_ticks_and_custom_format() {
+    use kuva::render::layout::TickFormat;
+    use std::sync::Arc;
+
+    let base_y =
+        ComputedLayout::from_layout(&Layout::new((1.0, 10.0), (10.0, 20000.0)).with_log_y());
+    let custom_y = ComputedLayout::from_layout(
+        &Layout::new((1.0, 10.0), (10.0, 20000.0))
+            .with_log_y()
+            .with_y_tick_values([20.0, 100.0, 20000.0])
+            .with_y_tick_format(TickFormat::Custom(Arc::new(|v| format!("{v:.0} Hz")))),
+    );
+    assert!(
+        custom_y.margin_left > base_y.margin_left + 10.0,
+        "log y left margin should widen for custom formatted explicit ticks: {} vs {}",
+        custom_y.margin_left,
+        base_y.margin_left
+    );
+
+    let base_x =
+        ComputedLayout::from_layout(&Layout::new((10.0, 20000.0), (0.0, 10.0)).with_log_x());
+    let custom_x = ComputedLayout::from_layout(
+        &Layout::new((10.0, 20000.0), (0.0, 10.0))
+            .with_log_x()
+            .with_x_tick_values([20.0, 100.0, 20000.0])
+            .with_x_tick_format(TickFormat::Custom(Arc::new(|v| format!("{v:.0} Hz")))),
+    );
+    assert!(
+        custom_x.margin_right > base_x.margin_right + 5.0,
+        "log x right margin should widen for custom formatted explicit ticks: {} vs {}",
+        custom_x.margin_right,
+        base_x.margin_right
+    );
 }

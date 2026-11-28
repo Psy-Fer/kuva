@@ -143,12 +143,13 @@ fn auto_tick_decimals(ticks: &[f64]) -> usize {
         return MIN;
     }
     let tol = step * 1e-3;
+    let int_snap = tol.min(1e-9);
     // Only the ticks that `tick_format_auto_with` writes in fixed point.
     let fixed: Vec<f64> = sorted
         .into_iter()
         .filter(|v| {
             let a = v.abs();
-            (0.01..10_000.0).contains(&a) && !(a >= 1.0 && v.fract().abs() < 1e-9)
+            (0.01..10_000.0).contains(&a) && !(a >= 1.0 && (v - v.round()).abs() < int_snap)
         })
         .collect();
     (MIN..=MAX)
@@ -177,9 +178,13 @@ fn tick_format_auto_with(v: f64, decimals: usize) -> String {
     if !v.is_finite() {
         return v.to_string();
     }
-    if v == 0.0 || (v.abs() >= 1.0 && v.fract().abs() < 1e-9) {
+    if v == 0.0 {
+        return "0".to_string();
+    }
+    let int_snap = (0.5 * 10f64.powi(-(decimals as i32))).min(1e-9);
+    if v.abs() >= 1.0 && (v - v.round()).abs() < int_snap {
         format!("{:.0}", v)
-    } else if v.abs() >= 10_000.0 || (v != 0.0 && v.abs() < 0.01) {
+    } else if v.abs() >= 10_000.0 || v.abs() < 0.01 {
         tick_format_sci(v)
     } else {
         let s = format!("{:.*}", decimals, v);
@@ -858,6 +863,10 @@ impl Layout {
         let mut bump_n_time: usize = 0;
         let mut has_pareto: bool = false;
         let mut pareto_horizontal: bool = false;
+        let mut bar_y_baseline_min: Option<f64> = None;
+        let mut bar_y_baseline_max: Option<f64> = None;
+        let mut bar_x_baseline_min: Option<f64> = None;
+        let mut bar_x_baseline_max: Option<f64> = None;
 
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
@@ -867,10 +876,25 @@ impl Layout {
                 y_max = y_max.max(ymax);
             }
 
-            if matches!(
+            if let Plot::Bar(bp) = plot {
+                if bp.baseline == 0.0 {
+                    anchor_y_zero = true;
+                } else if bp.baseline.is_finite() {
+                    if bp.horizontal {
+                        bar_x_baseline_min =
+                            Some(bar_x_baseline_min.map_or(bp.baseline, |v| v.min(bp.baseline)));
+                        bar_x_baseline_max =
+                            Some(bar_x_baseline_max.map_or(bp.baseline, |v| v.max(bp.baseline)));
+                    } else {
+                        bar_y_baseline_min =
+                            Some(bar_y_baseline_min.map_or(bp.baseline, |v| v.min(bp.baseline)));
+                        bar_y_baseline_max =
+                            Some(bar_y_baseline_max.map_or(bp.baseline, |v| v.max(bp.baseline)));
+                    }
+                }
+            } else if matches!(
                 plot,
-                Plot::Bar(_)
-                    | Plot::Histogram(_)
+                Plot::Histogram(_)
                     | Plot::StackedArea(_)
                     | Plot::Waterfall(_)
                     | Plot::Lollipop(_)
@@ -1735,6 +1759,34 @@ impl Layout {
         layout.anchor_y_zero = anchor_y_zero;
         layout.data_x_range = Some(raw_x);
         layout.data_y_range = Some(raw_y);
+        if raw_y.1 > raw_y.0 {
+            if let Some(b) = bar_y_baseline_min {
+                if raw_y.0 == b {
+                    layout.y_range.0 = b;
+                    layout.y_axis_min = Some(b);
+                }
+            }
+            if let Some(b) = bar_y_baseline_max {
+                if raw_y.1 == b {
+                    layout.y_range.1 = b;
+                    layout.y_axis_max = Some(b);
+                }
+            }
+        }
+        if raw_x.1 > raw_x.0 {
+            if let Some(b) = bar_x_baseline_min {
+                if raw_x.0 == b {
+                    layout.x_range.0 = b;
+                    layout.x_axis_min = Some(b);
+                }
+            }
+            if let Some(b) = bar_x_baseline_max {
+                if raw_x.1 == b {
+                    layout.x_range.1 = b;
+                    layout.x_axis_max = Some(b);
+                }
+            }
+        }
         if has_pareto {
             // Cumulative percentage's true extent is (0, 100), always — but feeding
             // that as *both* the padded and raw range left `resolve_axis_range`'s
@@ -4077,14 +4129,28 @@ impl ComputedLayout {
                 .widest_text_width(cats.iter().map(|s| s.as_str()), tick_size, tick_style)
                 .max(tick_size * 2.0)
         } else if layout.log_y {
-            let ticks_log = render_utils::generate_ticks_log(
-                layout.y_range.0.max(1e-300),
-                layout.y_range.1.max(1e-300),
-            );
-            let labels: Vec<String> = ticks_log
-                .iter()
-                .map(|&v| render_utils::format_log_tick(v))
-                .collect();
+            let tick_vals = if let Some(ref values) = layout.y_tick_values {
+                let auto = render_utils::auto_nice_range_log(
+                    layout.y_range.0.max(1e-300),
+                    layout.y_range.1.max(1e-300),
+                );
+                let y_lo = layout.y_axis_min.unwrap_or(auto.0);
+                let y_hi = layout.y_axis_max.unwrap_or(auto.1);
+                render_utils::explicit_ticks(values, (y_lo, y_hi), true)
+            } else {
+                render_utils::generate_ticks_log(
+                    layout.y_range.0.max(1e-300),
+                    layout.y_range.1.max(1e-300),
+                )
+            };
+            let labels: Vec<String> = if matches!(layout.y_tick_format, TickFormat::Auto) {
+                tick_vals
+                    .iter()
+                    .map(|&v| render_utils::format_log_tick(v))
+                    .collect()
+            } else {
+                layout.y_tick_format.format_ticks(&tick_vals)
+            };
             fonts
                 .widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
                 .max(tick_size * 2.0)
@@ -4107,7 +4173,9 @@ impl ComputedLayout {
             // changes very little after nice-rounding.
             let n = if layout.ticks > 0 { layout.ticks } else { 5 };
             let tick_vals = if let Some(ref values) = layout.y_tick_values {
-                render_utils::explicit_ticks(values, layout.y_range, layout.log_y)
+                let y_lo = layout.y_axis_min.unwrap_or(layout.y_range.0);
+                let y_hi = layout.y_axis_max.unwrap_or(layout.y_range.1);
+                render_utils::explicit_ticks(values, (y_lo, y_hi), layout.log_y)
             } else if let Some(step) = layout.y_tick_step {
                 render_utils::generate_ticks_with_step(layout.y_range.0, layout.y_range.1, step)
             } else {
@@ -4147,11 +4215,41 @@ impl ComputedLayout {
             || layout.x_tick_rotate.is_some()
         {
             0.0 // handled elsewhere or not applicable
+        } else if let Some(ref values) = layout.x_tick_values {
+            let (auto_lo, auto_hi) = if layout.log_x {
+                render_utils::auto_nice_range_log(
+                    layout.x_range.0.max(1e-300),
+                    layout.x_range.1.max(1e-300),
+                )
+            } else {
+                layout.x_range
+            };
+            let x_lo = layout.x_axis_min.unwrap_or(auto_lo);
+            let x_hi = layout.x_axis_max.unwrap_or(auto_hi);
+            let ticks = render_utils::explicit_ticks(values, (x_lo, x_hi), layout.log_x);
+            if let Some(&last) = ticks.last() {
+                let label = if layout.log_x && matches!(layout.x_tick_format, TickFormat::Auto) {
+                    render_utils::format_log_tick(last)
+                } else {
+                    layout
+                        .x_tick_format
+                        .format_ticks(&ticks)
+                        .pop()
+                        .unwrap_or_default()
+                };
+                fonts.measure_text_width(&label, tick_size, tick_style) * 0.5
+            } else {
+                0.0
+            }
         } else if layout.log_x {
             // A log axis ends on a tick (the nice bound, or the one given) and
             // writes it with `format_log_tick` unless a format is set.
             let val = layout.x_axis_max.unwrap_or_else(|| {
-                render_utils::auto_nice_range_log(layout.x_range.0, layout.x_range.1).1
+                render_utils::auto_nice_range_log(
+                    layout.x_range.0.max(1e-300),
+                    layout.x_range.1.max(1e-300),
+                )
+                .1
             });
             let label = if matches!(layout.x_tick_format, TickFormat::Auto) {
                 render_utils::format_log_tick(val)
@@ -4205,10 +4303,25 @@ impl ComputedLayout {
             if let (Some((y2_min, y2_max)), false) = (layout.y2_range, layout.suppress_y2_ticks) {
                 // Measure the actual secondary-axis tick labels rather than assuming a flat
                 // ~3 char-widths, which clipped wide right-axis numbers.
-                let n = if layout.ticks > 0 { layout.ticks } else { 5 };
-                let labels: Vec<String> = layout
-                    .y2_tick_format
-                    .format_ticks(&render_utils::generate_ticks(y2_min, y2_max, n));
+                let y2_lo = layout.y2_axis_min.unwrap_or(y2_min);
+                let y2_hi = layout.y2_axis_max.unwrap_or(y2_max);
+                let labels: Vec<String> = if layout.log_y2 {
+                    let tick_vals =
+                        render_utils::generate_ticks_log(y2_lo.max(1e-300), y2_hi.max(1e-300));
+                    if matches!(layout.y2_tick_format, TickFormat::Auto) {
+                        tick_vals
+                            .iter()
+                            .map(|&v| render_utils::format_log_tick(v))
+                            .collect()
+                    } else {
+                        layout.y2_tick_format.format_ticks(&tick_vals)
+                    }
+                } else {
+                    let n = if layout.ticks > 0 { layout.ticks } else { 5 };
+                    layout
+                        .y2_tick_format
+                        .format_ticks(&render_utils::generate_ticks(y2_lo, y2_hi, n))
+                };
                 let y2_tick_label_px = fonts
                     .widest_text_width(labels.iter().map(|s| s.as_str()), tick_size, tick_style)
                     .max(tick_size * 2.0);

@@ -473,37 +473,45 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     // On a broken axis each segment extrapolates with its own step.
     // A log axis with hand-picked ticks (20, 50, 100, ...) takes its minors from
     // the decades instead, so `9` still marks 2 to 9 in each decade.
-    let x_minor = computed.x_minor_ticks.map(|n| {
-        if layout.log_x && computed.x_tick_values.is_some() {
-            decade_minor_ticks(computed.x_range, &x_ticks, n)
-        } else {
-            minor_ticks_for(
-                &x_ticks,
-                &x_spacing,
-                x_broken.as_ref(),
-                computed.x_break,
-                computed.x_range,
-                n,
-            )
-        }
-    });
-    let y_minor = computed.y_minor_ticks.map(|n| {
-        if layout.log_y && computed.y_tick_values.is_some() {
-            decade_minor_ticks(computed.y_range, &y_ticks, n)
-        } else {
-            minor_ticks_for(
-                &y_ticks,
-                &y_spacing,
-                y_broken.as_ref(),
-                computed.y_break,
-                computed.y_range,
-                n,
-            )
-        }
-    });
+    let x_minor = if layout.x_categories.is_none() {
+        computed.x_minor_ticks.map(|n| {
+            if layout.log_x && computed.x_tick_values.is_some() {
+                decade_minor_ticks(computed.x_range, &x_ticks, n)
+            } else {
+                minor_ticks_for(
+                    &x_ticks,
+                    &x_spacing,
+                    x_broken.as_ref(),
+                    computed.x_break,
+                    computed.x_range,
+                    n,
+                )
+            }
+        })
+    } else {
+        None
+    };
+    let y_minor = if layout.y_categories.is_none() {
+        computed.y_minor_ticks.map(|n| {
+            if layout.log_y && computed.y_tick_values.is_some() {
+                decade_minor_ticks(computed.y_range, &y_ticks, n)
+            } else {
+                minor_ticks_for(
+                    &y_ticks,
+                    &y_spacing,
+                    y_broken.as_ref(),
+                    computed.y_break,
+                    computed.y_range,
+                    n,
+                )
+            }
+        })
+    } else {
+        None
+    };
 
     // Draw minor gridlines (before major so major renders on top)
-    if computed.show_minor_grid && layout.x_categories.is_none() {
+    if computed.show_minor_grid {
         if let Some(ref mx) = x_minor {
             for tx in mx {
                 let x = map_x(*tx);
@@ -537,7 +545,7 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
     // Draw grid lines (always, regardless of suppress flags)
     if layout.show_grid {
         // Vertical grid lines (skip for category x-axes like boxplot, bar, violin)
-        if layout.x_categories.is_none() && layout.y_categories.is_none() {
+        if layout.x_categories.is_none() {
             let x_axis_edge = computed.margin_left;
             for tx in x_ticks.iter() {
                 // Skip gridlines that land on (or within 1 px of) the y-axis line —
@@ -845,22 +853,23 @@ pub fn add_axes_and_grid(scene: &mut Scene, computed: &ComputedLayout, layout: &
                 });
             }
         }
+    }
 
-        // Minor tick marks (no label)
-        if !layout.suppress_x_ticks {
-            if let Some(ref mx) = x_minor {
-                for tx in mx {
-                    let x = map_x(*tx);
-                    draw_x_tick(scene, layout, computed, theme, x, true);
-                }
+    // Minor tick marks (no label) for any numeric axis, including the value axis
+    // of categorical plots.
+    if !layout.suppress_x_ticks {
+        if let Some(ref mx) = x_minor {
+            for tx in mx {
+                let x = map_x(*tx);
+                draw_x_tick(scene, layout, computed, theme, x, true);
             }
         }
-        if !layout.suppress_y_ticks {
-            if let Some(ref my) = y_minor {
-                for ty in my {
-                    let y = map_y(*ty);
-                    draw_y_tick(scene, layout, computed, theme, y, true);
-                }
+    }
+    if !layout.suppress_y_ticks {
+        if let Some(ref my) = y_minor {
+            for ty in my {
+                let y = map_y(*ty);
+                draw_y_tick(scene, layout, computed, theme, y, true);
             }
         }
     }
