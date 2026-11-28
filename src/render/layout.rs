@@ -863,6 +863,10 @@ impl Layout {
         let mut bump_n_time: usize = 0;
         let mut has_pareto: bool = false;
         let mut pareto_horizontal: bool = false;
+        let mut bar_y_baseline_min: Option<f64> = None;
+        let mut bar_y_baseline_max: Option<f64> = None;
+        let mut bar_x_baseline_min: Option<f64> = None;
+        let mut bar_x_baseline_max: Option<f64> = None;
 
         for plot in plots {
             if let Some(((xmin, xmax), (ymin, ymax))) = plot.bounds() {
@@ -872,10 +876,25 @@ impl Layout {
                 y_max = y_max.max(ymax);
             }
 
-            if matches!(
+            if let Plot::Bar(bp) = plot {
+                if bp.baseline == 0.0 {
+                    anchor_y_zero = true;
+                } else if bp.baseline.is_finite() {
+                    if bp.horizontal {
+                        bar_x_baseline_min =
+                            Some(bar_x_baseline_min.map_or(bp.baseline, |v| v.min(bp.baseline)));
+                        bar_x_baseline_max =
+                            Some(bar_x_baseline_max.map_or(bp.baseline, |v| v.max(bp.baseline)));
+                    } else {
+                        bar_y_baseline_min =
+                            Some(bar_y_baseline_min.map_or(bp.baseline, |v| v.min(bp.baseline)));
+                        bar_y_baseline_max =
+                            Some(bar_y_baseline_max.map_or(bp.baseline, |v| v.max(bp.baseline)));
+                    }
+                }
+            } else if matches!(
                 plot,
-                Plot::Bar(_)
-                    | Plot::Histogram(_)
+                Plot::Histogram(_)
                     | Plot::StackedArea(_)
                     | Plot::Waterfall(_)
                     | Plot::Lollipop(_)
@@ -1740,6 +1759,34 @@ impl Layout {
         layout.anchor_y_zero = anchor_y_zero;
         layout.data_x_range = Some(raw_x);
         layout.data_y_range = Some(raw_y);
+        if raw_y.1 > raw_y.0 {
+            if let Some(b) = bar_y_baseline_min {
+                if raw_y.0 == b {
+                    layout.y_range.0 = b;
+                    layout.y_axis_min = Some(b);
+                }
+            }
+            if let Some(b) = bar_y_baseline_max {
+                if raw_y.1 == b {
+                    layout.y_range.1 = b;
+                    layout.y_axis_max = Some(b);
+                }
+            }
+        }
+        if raw_x.1 > raw_x.0 {
+            if let Some(b) = bar_x_baseline_min {
+                if raw_x.0 == b {
+                    layout.x_range.0 = b;
+                    layout.x_axis_min = Some(b);
+                }
+            }
+            if let Some(b) = bar_x_baseline_max {
+                if raw_x.1 == b {
+                    layout.x_range.1 = b;
+                    layout.x_axis_max = Some(b);
+                }
+            }
+        }
         if has_pareto {
             // Cumulative percentage's true extent is (0, 100), always — but feeding
             // that as *both* the padded and raw range left `resolve_axis_range`'s

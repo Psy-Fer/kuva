@@ -311,7 +311,7 @@ impl BarPlot {
     ///
     /// A log value axis needs a positive baseline, since it can't show `0`.
     pub fn with_baseline(mut self, baseline: f64) -> Self {
-        self.baseline = baseline;
+        self.baseline = if baseline.is_finite() { baseline } else { 0.0 };
         self
     }
 

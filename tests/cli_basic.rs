@@ -2879,3 +2879,27 @@ fn control_characters_in_data_never_reach_the_terminal() {
         "expected a visible escape: {stderr}"
     );
 }
+
+#[test]
+fn test_bar_rejects_non_finite_baseline() {
+    let input = "category\tcount\nA\t10\nB\t20\n";
+    for bad in ["NaN", "inf", "-inf"] {
+        let (_, stderr, code) = run_with_stdin(
+            &[
+                "bar",
+                "--label-col",
+                "category",
+                "--value-col",
+                "count",
+                "--baseline",
+                bad,
+            ],
+            input,
+        );
+        assert_ne!(code, 0, "expected --baseline {bad} to fail");
+        assert!(
+            stderr.contains("--baseline") && stderr.contains("must be finite"),
+            "unexpected stderr for --baseline {bad}: {stderr}"
+        );
+    }
+}

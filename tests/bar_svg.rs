@@ -571,3 +571,62 @@ fn test_bar_baseline_stacked() {
     assert!((y1 - computed.map_y(110.0)).abs() < 0.01);
     assert!((y2 - computed.map_y(115.0)).abs() < 0.01);
 }
+
+#[test]
+fn test_bar_nonzero_baseline_seats_flush_without_explicit_axis_min() {
+    // Negative baseline (dBFS): y_range starts at -120.0, not padded below it.
+    let neg_plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![("A", -75.0), ("B", -60.0)])
+            .with_baseline(-120.0),
+    )];
+    let neg_computed = ComputedLayout::from_layout(&Layout::auto_from_plots(&neg_plots));
+    assert_eq!(neg_computed.y_range.0, -120.0);
+
+    // Positive baseline: y_range starts at 40.0 instead of being pulled down to 0.0.
+    let pos_plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![("A", 60.0), ("B", 100.0)])
+            .with_baseline(40.0),
+    )];
+    let pos_computed = ComputedLayout::from_layout(&Layout::auto_from_plots(&pos_plots));
+    assert_eq!(pos_computed.y_range.0, 40.0);
+
+    // Horizontal positive baseline: x_range starts at 40.0.
+    let horiz_plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![("A", 60.0), ("B", 100.0)])
+            .with_horizontal(true)
+            .with_baseline(40.0),
+    )];
+    let horiz_computed = ComputedLayout::from_layout(&Layout::auto_from_plots(&horiz_plots));
+    assert_eq!(horiz_computed.x_range.0, 40.0);
+
+    // Hanging below a positive baseline: y_range.1 pins flush at 40.0.
+    let hang_plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![("A", 10.0), ("B", 25.0)])
+            .with_baseline(40.0),
+    )];
+    let hang_computed = ComputedLayout::from_layout(&Layout::auto_from_plots(&hang_plots));
+    assert_eq!(hang_computed.y_range.1, 40.0);
+
+    // Degenerate all-bars-equal-baseline must not collapse to a zero-span axis.
+    let flat_plots = vec![Plot::Bar(
+        BarPlot::new()
+            .with_bars(vec![("A", 40.0), ("B", 40.0)])
+            .with_baseline(40.0),
+    )];
+    let flat_computed = ComputedLayout::from_layout(&Layout::auto_from_plots(&flat_plots));
+    assert!(
+        flat_computed.y_range.1 > flat_computed.y_range.0,
+        "degenerate equal-to-baseline bars must keep positive axis span: {:?}",
+        flat_computed.y_range
+    );
+
+    // Non-finite baseline falls back to 0.0 in the library builder.
+    let nan_bar = BarPlot::new()
+        .with_bars(vec![("A", 5.0)])
+        .with_baseline(f64::NAN);
+    assert_eq!(nan_bar.baseline, 0.0);
+}
