@@ -610,3 +610,31 @@ fn annotation_placement_next_to_cells() {
     assert!(y0 - attr(text_attrs(&svg, "ctrl_1"), "y") < 10.0);
     assert!(x0 - attr(text_attrs(&svg, "BRCA1"), "x") < 10.0);
 }
+
+#[test]
+fn empty_category_palette_falls_back_to_default() {
+    let cm = Clustermap::new()
+        .with_categorical_data(vec![vec!["a", "b"], vec!["b", "a"]])
+        .with_category_palette(Vec::<String>::new())
+        .with_row_annotation(
+            AnnotationTrack::categorical(["x", "y"]).with_palette(Vec::<String>::new()),
+        );
+    let svg = render(cm, "Empty palette");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
+#[test]
+fn ragged_col_zscore_with_discrete_color_map_does_not_panic() {
+    use kuva::plot::clustermap::{ClustermapNorm, DiscreteColorMap};
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![3.0]])
+        .with_normalization(ClustermapNorm::ColZScore)
+        .with_discrete_color_map(DiscreteColorMap::new().with_bin(0.0, "#ff0000", "pos"));
+    let legend = cm.cell_legend_group();
+    assert!(legend.is_some());
+    let svg = render(cm, "Ragged ColZScore");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
