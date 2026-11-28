@@ -49,7 +49,99 @@ impl Color {
         self.write_svg(&mut s);
         s
     }
+
+    /// Resolve the color to `(r, g, b)` bytes when possible (`Color::Rgb`, or
+    /// `rgba(r, g, b, a)` stored in `Color::Css`). Returns `None` for
+    /// `Color::None` or non-RGB CSS values such as `url(#...)` gradients.
+    #[inline]
+    pub fn to_rgb(&self) -> Option<(u8, u8, u8)> {
+        match self {
+            Color::Rgb(r, g, b) => Some((*r, *g, *b)),
+            Color::None => None,
+            Color::Css(s) => {
+                if let Some(inner) = s.strip_prefix("rgba(").and_then(|t| t.strip_suffix(')')) {
+                    let mut parts = inner.split(',');
+                    let (r, g, b, _a) =
+                        (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+                    if parts.next().is_some() {
+                        return None;
+                    }
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        r.trim().parse::<f64>(),
+                        g.trim().parse::<f64>(),
+                        b.trim().parse::<f64>(),
+                    ) {
+                        if r.is_finite() && g.is_finite() && b.is_finite() {
+                            return Some((
+                                r.clamp(0.0, 255.0).round() as u8,
+                                g.clamp(0.0, 255.0).round() as u8,
+                                b.clamp(0.0, 255.0).round() as u8,
+                            ));
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Alpha-composite a foreground sRGB color over an opaque background at
+    /// `alpha` (clamped to `0.0..=1.0`).
+    #[inline]
+    pub fn composite_over(fg: (u8, u8, u8), bg: (u8, u8, u8), alpha: f64) -> (u8, u8, u8) {
+        let a = if alpha.is_finite() {
+            alpha.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let inv = 1.0 - a;
+        let mix = |f: u8, b: u8| (f as f64 * a + b as f64 * inv).round().clamp(0.0, 255.0) as u8;
+        (mix(fg.0, bg.0), mix(fg.1, bg.1), mix(fg.2, bg.2))
+    }
+
+    /// WCAG 2.1 relative luminance in `[0.0, 1.0]` for an sRGB triple.
+    /// Uses a precomputed 256-entry lookup table to avoid `powf` in hot loops.
+    #[inline]
+    pub fn relative_luminance((r, g, b): (u8, u8, u8)) -> f64 {
+        0.2126 * SRGB_TO_LINEAR[r as usize]
+            + 0.7152 * SRGB_TO_LINEAR[g as usize]
+            + 0.0722 * SRGB_TO_LINEAR[b as usize]
+    }
+
+    /// WCAG 2.1 contrast ratio in `[1.0, 21.0]` between two relative luminances.
+    #[inline]
+    pub fn contrast_ratio(l1: f64, l2: f64) -> f64 {
+        let (hi, lo) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// Choose `#000000` or `#ffffff` for maximum WCAG 2.1 contrast against
+    /// `bg_rgb` (guarantees at least `4.58:1` on every RGB color).
+    #[inline]
+    pub fn contrasting_text_color(bg_rgb: (u8, u8, u8)) -> Color {
+        // Exact crossover where contrast(L, 0.0) == contrast(L, 1.0):
+        // (L + 0.05) / 0.05 == 1.05 / (L + 0.05) => L = sqrt(0.0525) - 0.05.
+        const WCAG_CROSSOVER: f64 = 0.179_128_784_747_792_04;
+        if Self::relative_luminance(bg_rgb) >= WCAG_CROSSOVER {
+            Color::Rgb(0, 0, 0)
+        } else {
+            Color::Rgb(255, 255, 255)
+        }
+    }
 }
+
+/// Precomputed WCAG 2.1 sRGB-to-linear transfer values for `0..=255`,
+/// initialized once on first use to avoid `powf` calls in hot render loops.
+static SRGB_TO_LINEAR: std::sync::LazyLock<[f64; 256]> = std::sync::LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let s = i as f64 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    })
+});
 
 // ── From impls ──────────────────────────────────────────────────────────────
 // These let all existing `.into()` call sites work transparently.
@@ -220,6 +312,46 @@ fn parse_color_str(s: &str) -> Color {
         "blanchedalmond" => Color::Rgb(255, 235, 205),
         "navajowhite" => Color::Rgb(255, 222, 173),
         "peachpuff" => Color::Rgb(255, 218, 185),
+        "lime" => Color::Rgb(0, 255, 0),
+        "aqua" => Color::Rgb(0, 255, 255),
+        "fuchsia" => Color::Rgb(255, 0, 255),
+        "darkturquoise" => Color::Rgb(0, 206, 209),
+        "dimgray" | "dimgrey" => Color::Rgb(105, 105, 105),
+        "gainsboro" => Color::Rgb(220, 220, 220),
+        "ivory" => Color::Rgb(255, 255, 240),
+        "linen" => Color::Rgb(250, 240, 230),
+        "oldlace" => Color::Rgb(253, 245, 230),
+        "seashell" => Color::Rgb(255, 245, 238),
+        "cornsilk" => Color::Rgb(255, 248, 220),
+        "floralwhite" => Color::Rgb(255, 250, 240),
+        "lavenderblush" => Color::Rgb(255, 240, 245),
+        "lightcyan" => Color::Rgb(224, 255, 255),
+        "lightgoldenrodyellow" => Color::Rgb(250, 250, 210),
+        "lightgreen" => Color::Rgb(144, 238, 144),
+        "lightpink" => Color::Rgb(255, 182, 193),
+        "palegoldenrod" => Color::Rgb(238, 232, 170),
+        "palegreen" => Color::Rgb(152, 251, 152),
+        "paleturquoise" => Color::Rgb(175, 238, 238),
+        "springgreen" => Color::Rgb(0, 255, 127),
+        "yellowgreen" => Color::Rgb(154, 205, 50),
+        "aquamarine" => Color::Rgb(127, 255, 212),
+        "chartreuse" => Color::Rgb(127, 255, 0),
+        "darkcyan" => Color::Rgb(0, 139, 139),
+        "darkmagenta" => Color::Rgb(139, 0, 139),
+        "darkolivegreen" => Color::Rgb(85, 107, 47),
+        "darkorchid" => Color::Rgb(153, 50, 204),
+        "darkseagreen" => Color::Rgb(143, 188, 143),
+        "darkslateblue" => Color::Rgb(72, 61, 139),
+        "deepskyblue" => Color::Rgb(0, 191, 255),
+        "greenyellow" => Color::Rgb(173, 255, 47),
+        "lawngreen" => Color::Rgb(124, 252, 0),
+        "lightsteelblue" => Color::Rgb(176, 196, 222),
+        "mediumaquamarine" => Color::Rgb(102, 205, 170),
+        "mediumblue" => Color::Rgb(0, 0, 205),
+        "mediumspringgreen" => Color::Rgb(0, 250, 154),
+        "midnightblue" => Color::Rgb(25, 25, 112),
+        "rebeccapurple" => Color::Rgb(102, 51, 153),
+        "sandybrown" => Color::Rgb(244, 164, 96),
         _ => Color::Css(s.into()),
     }
 }
@@ -235,5 +367,69 @@ impl PartialEq for Color {
             (Color::Css(a), Color::Css(b)) => a == b,
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contrasting_text_color_picks_wcag_maximum() {
+        // Dark Viridis purple -> white
+        assert_eq!(
+            Color::contrasting_text_color((68, 1, 84)),
+            Color::Rgb(255, 255, 255)
+        );
+        // Bright Viridis yellow -> black
+        assert_eq!(
+            Color::contrasting_text_color((253, 231, 37)),
+            Color::Rgb(0, 0, 0)
+        );
+        // Light grey parent tile (#e0e0e0) -> black
+        assert_eq!(
+            Color::contrasting_text_color((224, 224, 224)),
+            Color::Rgb(0, 0, 0)
+        );
+        // Navy -> white
+        assert_eq!(
+            Color::contrasting_text_color((0, 0, 128)),
+            Color::Rgb(255, 255, 255)
+        );
+        // Every RGB gray level achieves >= 4.5:1 (WCAG AA)
+        for v in 0..=255u8 {
+            let fg = Color::contrasting_text_color((v, v, v)).to_rgb().unwrap();
+            let ratio = Color::contrast_ratio(
+                Color::relative_luminance((v, v, v)),
+                Color::relative_luminance(fg),
+            );
+            assert!(ratio >= 4.5, "gray {v} achieved contrast {ratio:.2} < 4.5");
+        }
+    }
+
+    #[test]
+    fn composite_over_blends_semi_transparent_fills() {
+        // 25% black over white -> light grey (191, 191, 191) -> black text
+        let eff = Color::composite_over((0, 0, 0), (255, 255, 255), 0.25);
+        assert_eq!(eff, (191, 191, 191));
+        assert_eq!(Color::contrasting_text_color(eff), Color::Rgb(0, 0, 0));
+        // 25% white over dark theme #1e1e1e -> dark grey -> white text
+        let eff_dark = Color::composite_over((255, 255, 255), (30, 30, 30), 0.25);
+        assert_eq!(
+            Color::contrasting_text_color(eff_dark),
+            Color::Rgb(255, 255, 255)
+        );
+    }
+
+    #[test]
+    fn to_rgb_resolves_named_hex_and_rgba() {
+        assert_eq!(Color::from("lime").to_rgb(), Some((0, 255, 0)));
+        assert_eq!(Color::from("#e0e0e0").to_rgb(), Some((224, 224, 224)));
+        assert_eq!(
+            Color::from("rgba(10, 20, 30, 0.5)").to_rgb(),
+            Some((10, 20, 30))
+        );
+        assert_eq!(Color::from("url(#grad)").to_rgb(), None);
+        assert_eq!(Color::None.to_rgb(), None);
     }
 }
