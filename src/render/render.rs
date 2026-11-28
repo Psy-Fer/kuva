@@ -236,18 +236,78 @@ fn label_bg_rect(
     }
 }
 
-/// Color for an in-fill value label's text: `fallback` (chosen for contrast
-/// against the plot's own fill, independent of theme — usually white) when no
-/// background rect is drawn, or the theme's paired `text_color` when
-/// `label_bg_rect` *is* drawing one, since the label then sits on
-/// `theme.legend_bg` instead of the fill and needs the color that's
-/// legible against *that* (white-on-white otherwise).
-fn in_fill_label_color(computed: &ComputedLayout, fallback: &str) -> Color {
+/// Always choose WCAG 2.1 maximum-contrast `#000000` or `#ffffff` against
+/// `fill` (composited over `theme.background` when `fill_opacity < 1.0`),
+/// falling back to `theme.text_color` for non-RGB fills such as `url(#...)`.
+/// Use this at sites that do NOT draw a `label_bg_rect` (such as `Heatmap`,
+/// `Clustermap`, `BrickPlot`, and `BumpPlot`) so `bw_mode` greyscale fills
+/// still get crisp white text on dark/black cells.
+#[inline]
+fn contrast_label_color(
+    computed: &ComputedLayout,
+    fill: &Color,
+    fill_opacity: Option<f64>,
+) -> Color {
+    let Some(fg) = fill.to_rgb() else {
+        return Color::from(computed.theme.text_color.as_str());
+    };
+    let effective = match fill_opacity {
+        Some(a) if a.is_finite() && a < 1.0 => {
+            let bg = Color::from(computed.theme.background.as_str())
+                .to_rgb()
+                .unwrap_or((255, 255, 255));
+            Color::composite_over(fg, bg, a)
+        }
+        _ => fg,
+    };
+    Color::contrasting_text_color(effective)
+}
+
+/// Color for an in-fill value label's text paired with `label_bg_rect`: when
+/// `computed.label_background` is true (e.g. in `bw_mode`), `label_bg_rect`
+/// draws a `theme.legend_bg` backing plate so we return `theme.text_color`;
+/// otherwise delegates to [`contrast_label_color`].
+#[inline]
+fn in_fill_label_color_for(
+    computed: &ComputedLayout,
+    fill: &Color,
+    fill_opacity: Option<f64>,
+) -> Color {
     if computed.label_background {
-        Color::from(computed.theme.text_color.as_str())
-    } else {
-        Color::from(fallback)
+        return Color::from(computed.theme.text_color.as_str());
     }
+    contrast_label_color(computed, fill, fill_opacity)
+}
+
+/// Emit an optional `label_bg_rect` (measuring text only when
+/// `computed.label_background` is enabled) and return the contrasting text
+/// color for a label drawn inside `fill`.
+#[allow(clippy::too_many_arguments)]
+fn in_fill_label_with_bg(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    x: f64,
+    y: f64,
+    anchor: TextAnchor,
+    text: &str,
+    font_size: u32,
+    bold: bool,
+    fill: &Color,
+    fill_opacity: Option<f64>,
+) -> Color {
+    if computed.label_background {
+        let style = if bold {
+            FontStyle::Bold
+        } else {
+            FontStyle::Regular
+        };
+        let w = computed
+            .fonts
+            .measure_text_width(text, font_size as f64, style);
+        label_bg_rect(scene, computed, x, y, anchor, w, font_size, bold, None);
+        return Color::from(computed.theme.text_color.as_str());
+    }
+    contrast_label_color(computed, fill, fill_opacity)
 }
 
 /// Draw an error whisker: a line from `(x1, y1)` to `(x2, y2)` with end caps.
@@ -3078,6 +3138,19 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
         if place_inside {
             let label_x = cx + inside_label_radius * mid_angle.cos();
             let label_y = cy + inside_label_radius * mid_angle.sin();
+            let slice_fill = Color::from(slice.color.as_str());
+            let label_color = in_fill_label_with_bg(
+                scene,
+                computed,
+                label_x,
+                label_y,
+                TextAnchor::Middle,
+                &label_text,
+                computed.body_size,
+                false,
+                &slice_fill,
+                None,
+            );
             scene.add(Primitive::Text {
                 x: label_x,
                 y: label_y,
@@ -3086,7 +3159,7 @@ fn add_pie(pie: &PiePlot, scene: &mut Scene, computed: &ComputedLayout) {
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
-                color: None,
+                color: Some(label_color),
             });
         } else {
             let right_side = mid_angle.cos() >= 0.0;
@@ -3387,7 +3460,7 @@ fn add_heatmap(heatmap: &Heatmap, scene: &mut Scene, computed: &ComputedLayout) 
                 anchor: TextAnchor::Middle,
                 rotate: None,
                 bold: false,
-                color: None,
+                color: Some(contrast_label_color(computed, &cd.fill, None)),
             });
         }
     }
@@ -3954,6 +4027,12 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                 let x1 = computed.map_x(x_start + width - eff_offset);
                 let y0 = computed.map_y(yr);
                 let y1 = computed.map_y(yr - 1.0);
+                let brick_fill = brickplot
+                    .template
+                    .as_ref()
+                    .and_then(|t| t.get(&value))
+                    .map(|c| Color::from(c.as_str()))
+                    .unwrap_or_else(|| Color::from("black"));
                 scene.add(Primitive::Text {
                     x: x0 + ((x1 - x0).abs() / 2.0),
                     y: y0
@@ -3966,7 +4045,7 @@ fn add_brickplot(brickplot: &BrickPlot, scene: &mut Scene, computed: &ComputedLa
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
-                    color: None,
+                    color: Some(contrast_label_color(computed, &brick_fill, None)),
                 });
                 x_pos += width;
             }
@@ -4341,7 +4420,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
                         font_px,
                         FontStyle::Regular,
                     );
-                    label_plate(scene, center_px, y, w * 0.5, font_px);
+                    label_plate(scene, computed, center_px, y, w * 0.5, font_px);
                 }
                 scene.add(Primitive::Text {
                     x: center_px,
@@ -4358,7 +4437,7 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
                 // Plates first, so one label's backing never covers its neighbour.
                 if !p.upward {
                     for &(x, half_w, tier, _) in placed {
-                        label_plate(scene, x, tier_baseline(&p, tier), half_w, font_px);
+                        label_plate(scene, computed, x, tier_baseline(&p, tier), half_w, font_px);
                     }
                 }
                 for (x, _, tier, content) in placed {
@@ -4378,15 +4457,23 @@ fn add_brickplot_notations(brickplot: &BrickPlot, scene: &mut Scene, computed: &
     }
 }
 
-/// A translucent white plate behind a notation label drawn over bricks, so the
-/// text stays legible against whatever motif colour it lands on.
-fn label_plate(scene: &mut Scene, center_x: f64, baseline_y: f64, half_w: f64, font_px: f64) {
+/// A translucent backing plate behind a notation label drawn over bricks, so the
+/// text stays legible against whatever motif colour it lands on (uses the theme's
+/// `legend_bg` so light and dark themes stay paired with `theme.text_color`).
+fn label_plate(
+    scene: &mut Scene,
+    computed: &ComputedLayout,
+    center_x: f64,
+    baseline_y: f64,
+    half_w: f64,
+    font_px: f64,
+) {
     scene.add(Primitive::Rect {
         x: center_x - half_w - 2.0,
         y: baseline_y - font_px * 0.8,
         width: half_w * 2.0 + 4.0,
         height: font_px,
-        fill: Color::from("#ffffff"),
+        fill: Color::from(computed.theme.legend_bg.as_str()),
         stroke: None,
         stroke_width: None,
         opacity: Some(0.78),
@@ -9264,6 +9351,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     if cm.show_values {
         for row_k in 0..n_body_rows {
             for col_k in 0..n_body_cols {
+                let fill = cell_fill(row_k, col_k);
                 scene.add(Primitive::Text {
                     x: hm_x + (col_k as f64 + 0.5) * cell_w,
                     y: hm_y
@@ -9276,7 +9364,7 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
-                    color: None,
+                    color: Some(contrast_label_color(computed, &fill, None)),
                 });
             }
         }
@@ -15114,54 +15202,33 @@ fn add_streamgraph(
             let mid_y = (lower_y + upper_y) / 2.0
                 + computed.fonts.center_offset(font_size, FontStyle::Regular);
 
-            // Choose text color: white for dark fills, dark for light
-            let txt_color = choose_label_color(sg.resolve_color(orig_idx));
-
+            let stream_fill = Color::from(sg.resolve_color(orig_idx));
+            label_bg_rect(
+                scene,
+                computed,
+                mid_x,
+                mid_y,
+                TextAnchor::Middle,
+                half_text_w * 2.0,
+                computed.body_size,
+                false,
+                None,
+            );
             scene.add(Primitive::Text {
                 x: mid_x,
                 y: mid_y,
                 content: label,
                 size: computed.body_size,
-                color: Some(Color::from(txt_color)),
+                color: Some(in_fill_label_color_for(
+                    computed,
+                    &stream_fill,
+                    Some(sg.fill_opacity),
+                )),
                 anchor: TextAnchor::Middle,
                 bold: false,
                 rotate: None,
             });
         }
-    }
-}
-
-/// Return a contrasting text color (white or near-black) for a CSS fill color.
-fn choose_label_color(css: &str) -> &'static str {
-    // Parse approximate luminance from well-known colors; default to white
-    let dark_fills = [
-        "steelblue",
-        "cornflowerblue",
-        "mediumpurple",
-        "orchid",
-        "peru",
-        "tomato",
-        "coral",
-        "goldenrod",
-        "mediumseagreen",
-        "lightslategray",
-    ];
-    if dark_fills.contains(&css) {
-        "white"
-    } else if css.starts_with('#') && css.len() == 7 {
-        // Rough luminance from hex
-        let hex = crate::render::color::hex_byte;
-        let r = hex(css, 1..3).unwrap_or(128) as f64;
-        let g = hex(css, 3..5).unwrap_or(128) as f64;
-        let b = hex(css, 5..7).unwrap_or(128) as f64;
-        let lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        if lum < 140.0 {
-            "white"
-        } else {
-            "#333333"
-        }
-    } else {
-        "white"
     }
 }
 
@@ -16580,6 +16647,26 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
                         None => formatted,
                     }
                 };
+                let ribbon_fill = match &sankey.link_color {
+                    SankeyLinkColor::Source => Color::from(node_color(src).as_str()),
+                    SankeyLinkColor::PerLink => match &link.color {
+                        Some(c) => Color::from(c.as_str()),
+                        None => Color::from(node_color(src).as_str()),
+                    },
+                    SankeyLinkColor::Gradient => Color::None,
+                };
+                let label_color = in_fill_label_with_bg(
+                    scene,
+                    computed,
+                    label_x,
+                    label_y,
+                    TextAnchor::Middle,
+                    &text,
+                    computed.tick_size,
+                    false,
+                    &ribbon_fill,
+                    Some(sankey.link_opacity),
+                );
                 scene.add(Primitive::Text {
                     x: label_x,
                     y: label_y,
@@ -16588,7 +16675,7 @@ fn add_sankey(sankey: &SankeyPlot, scene: &mut Scene, computed: &ComputedLayout)
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
-                    color: None,
+                    color: Some(label_color),
                 });
             }
         }
@@ -20503,6 +20590,7 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             false,
                             None,
                         );
+                        let cell_fill = Color::from(color.as_str());
                         scene.add(Primitive::Text {
                             x: cx,
                             y: cy,
@@ -20511,7 +20599,7 @@ fn add_mosaic(mp: &MosaicPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             anchor: TextAnchor::Middle,
                             rotate: None,
                             bold: false,
-                            color: Some(in_fill_label_color(computed, "white")),
+                            color: Some(in_fill_label_color_for(computed, &cell_fill, None)),
                         });
                     }
                 }
@@ -21114,15 +21202,30 @@ fn add_network(net: &NetworkPlot, scene: &mut Scene, computed: &ComputedLayout) 
                     .max(1e-6);
                 let max_fs = ((2.0 * r) / label_w_per_px).floor() as u32;
                 let fs = max_fs.min(font_size).max(6);
+                let node_fill = Color::from(get_color(i).as_str());
+                let ly =
+                    round2(py[i] + computed.fonts.center_offset(fs as f64, FontStyle::Regular));
+                let label_color = in_fill_label_with_bg(
+                    scene,
+                    computed,
+                    round2(px[i]),
+                    ly,
+                    TextAnchor::Middle,
+                    &node.label,
+                    fs,
+                    false,
+                    &node_fill,
+                    None,
+                );
                 scene.add(Primitive::Text {
                     x: round2(px[i]),
-                    y: round2(py[i] + computed.fonts.center_offset(fs as f64, FontStyle::Regular)),
+                    y: ly,
                     content: node.label.clone(),
                     size: fs,
                     anchor: TextAnchor::Middle,
                     rotate: None,
                     bold: false,
-                    color: Some(Color::from("white")),
+                    color: Some(label_color),
                 });
             }
         } else {
@@ -22816,6 +22919,7 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 label_bg_rect(
                     scene, computed, lx, ly, anchor, label_w, font_size, bold, None,
                 );
+                let tile_fill = Color::from(fill_color.as_str());
                 scene.add(Primitive::Text {
                     x: round2(lx),
                     y: round2(ly),
@@ -22824,7 +22928,7 @@ fn add_treemap(tm: &TreemapPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     anchor,
                     rotate: None,
                     bold,
-                    color: Some(in_fill_label_color(computed, "#ffffff")),
+                    color: Some(in_fill_label_color_for(computed, &tile_fill, None)),
                 });
             }
         }
@@ -23285,6 +23389,7 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
                 false,
                 rotate,
             );
+            let arc_fill = Color::from(fill_color.as_str());
             scene.add(Primitive::Text {
                 x: round2(lx),
                 y: round2(ly),
@@ -23293,7 +23398,7 @@ fn add_sunburst(sb: &SunburstPlot, scene: &mut Scene, computed: &ComputedLayout)
                 anchor: TextAnchor::Middle,
                 rotate,
                 bold: false,
-                color: Some(in_fill_label_color(computed, "#ffffff")),
+                color: Some(in_fill_label_color_for(computed, &arc_fill, None)),
             });
         }
 
@@ -23487,7 +23592,11 @@ fn add_bump(bp: &BumpPlot, scene: &mut Scene, computed: &ComputedLayout, layout:
                         anchor: TextAnchor::Middle,
                         rotate: None,
                         bold: false,
-                        color: Some(Color::from("#ffffff")),
+                        color: Some(contrast_label_color(
+                            computed,
+                            &bump_stroke_col,
+                            Some(opacity),
+                        )),
                     });
                 }
             }
@@ -23811,6 +23920,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     } else {
                         center_x
                     };
+                    let conn_fill = Color::from(color.as_str());
                     scene.add(Primitive::Text {
                         x: mid_x,
                         y: mid_y + 4.0,
@@ -23819,7 +23929,11 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         anchor: TextAnchor::Middle,
                         rotate: None,
                         bold: false,
-                        color: Some(Color::from("#555555")),
+                        color: Some(contrast_label_color(
+                            computed,
+                            &conn_fill,
+                            Some(fp.connector_opacity),
+                        )),
                     });
                 }
             }
@@ -23835,12 +23949,27 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
 
                 // Place inside bar if wide enough, else to the right
                 let text_fits = bar_w > 60.0 && bar_h > (font_size as f64 + 2.0);
+                let label_y = bar_y
+                    + bar_h / 2.0
+                    + computed
+                        .fonts
+                        .center_offset(font_size as f64, FontStyle::Regular);
                 let (lx, anchor, color_text) = if text_fits {
-                    (
-                        bar_x + bar_w / 2.0,
+                    let stage_fill = Color::from(color.as_str());
+                    let cx = bar_x + bar_w / 2.0;
+                    let col = in_fill_label_with_bg(
+                        scene,
+                        computed,
+                        cx,
+                        label_y,
                         TextAnchor::Middle,
-                        in_fill_label_color(computed, "#ffffff"),
-                    )
+                        &label,
+                        font_size,
+                        false,
+                        &stage_fill,
+                        None,
+                    );
+                    (cx, TextAnchor::Middle, Some(col))
                 } else {
                     let rx = if is_mirror {
                         bar_x
@@ -23852,23 +23981,8 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     } else {
                         TextAnchor::Start
                     };
-                    (rx, anc, Color::from("#333333"))
+                    (rx, anc, None)
                 };
-                let label_y = bar_y
-                    + bar_h / 2.0
-                    + computed
-                        .fonts
-                        .center_offset(font_size as f64, FontStyle::Regular);
-                if text_fits {
-                    let label_w = computed.fonts.measure_text_width(
-                        &label,
-                        font_size as f64,
-                        FontStyle::Regular,
-                    );
-                    label_bg_rect(
-                        scene, computed, lx, label_y, anchor, label_w, font_size, false, None,
-                    );
-                }
                 scene.add(Primitive::Text {
                     x: lx,
                     y: label_y,
@@ -23877,7 +23991,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     anchor,
                     rotate: None,
                     bold: false,
-                    color: Some(color_text),
+                    color: color_text,
                 });
             }
 
@@ -23959,6 +24073,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             };
                             let mid_y = cy0 + gap / 2.0;
                             let mid_x = center_x + (m_half_w + next_m_half_w) / 4.0;
+                            let m_conn_fill = Color::from(m_color.as_str());
                             scene.add(Primitive::Text {
                                 x: mid_x,
                                 y: mid_y + 4.0,
@@ -23967,7 +24082,11 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                                 anchor: TextAnchor::Middle,
                                 rotate: None,
                                 bold: false,
-                                color: Some(Color::from("#555555")),
+                                color: Some(contrast_label_color(
+                                    computed,
+                                    &m_conn_fill,
+                                    Some(fp.connector_opacity),
+                                )),
                             });
                         }
                     }
@@ -23986,32 +24105,39 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         };
                         let m_bar_w = m_half_w;
                         let text_fits = m_bar_w > 60.0 && bar_h > (font_size as f64 + 2.0);
+                        let label_y = bar_y
+                            + bar_h / 2.0
+                            + computed
+                                .fonts
+                                .center_offset(font_size as f64, FontStyle::Regular);
                         let (lx, anchor, color_text) = if text_fits {
-                            (
-                                center_x + m_bar_w / 2.0,
+                            let m_fill = Color::from(m_color.as_str());
+                            let cx = center_x + m_bar_w / 2.0;
+                            let col = in_fill_label_with_bg(
+                                scene,
+                                computed,
+                                cx,
+                                label_y,
                                 TextAnchor::Middle,
-                                Color::from("#ffffff"),
-                            )
+                                &label,
+                                font_size,
+                                false,
+                                &m_fill,
+                                None,
+                            );
+                            (cx, TextAnchor::Middle, Some(col))
                         } else {
-                            (
-                                center_x + m_bar_w + 4.0,
-                                TextAnchor::Start,
-                                Color::from("#333333"),
-                            )
+                            (center_x + m_bar_w + 4.0, TextAnchor::Start, None)
                         };
                         scene.add(Primitive::Text {
                             x: lx,
-                            y: bar_y
-                                + bar_h / 2.0
-                                + computed
-                                    .fonts
-                                    .center_offset(font_size as f64, FontStyle::Regular),
+                            y: label_y,
                             content: label,
                             size: font_size,
                             anchor,
                             rotate: None,
                             bold: false,
-                            color: Some(color_text),
+                            color: color_text,
                         });
                     }
 
@@ -24159,6 +24285,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     } else {
                         center_y
                     };
+                    let conn_fill = Color::from(color.as_str());
                     scene.add(Primitive::Text {
                         x: mid_x,
                         y: mid_y + 4.0,
@@ -24167,7 +24294,11 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         anchor: TextAnchor::Middle,
                         rotate: Some(-90.0),
                         bold: false,
-                        color: Some(Color::from("#555555")),
+                        color: Some(contrast_label_color(
+                            computed,
+                            &conn_fill,
+                            Some(fp.connector_opacity),
+                        )),
                     });
                 }
             }
@@ -24182,23 +24313,28 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                 };
                 let text_fits = actual_bar_h > 20.0 && bar_w > 30.0;
                 let (lx, ly, anchor, color_text) = if text_fits {
-                    (
-                        bar_x + bar_w / 2.0,
-                        bar_y
-                            + actual_bar_h / 2.0
-                            + computed
-                                .fonts
-                                .center_offset(font_size as f64, FontStyle::Regular),
+                    let stage_fill = Color::from(color.as_str());
+                    let cx = bar_x + bar_w / 2.0;
+                    let cy = bar_y
+                        + actual_bar_h / 2.0
+                        + computed
+                            .fonts
+                            .center_offset(font_size as f64, FontStyle::Regular);
+                    let col = in_fill_label_with_bg(
+                        scene,
+                        computed,
+                        cx,
+                        cy,
                         TextAnchor::Middle,
-                        Color::from("#ffffff"),
-                    )
+                        &label,
+                        font_size,
+                        false,
+                        &stage_fill,
+                        None,
+                    );
+                    (cx, cy, TextAnchor::Middle, Some(col))
                 } else {
-                    (
-                        bar_x + bar_w / 2.0,
-                        bar_y - 4.0,
-                        TextAnchor::Middle,
-                        Color::from("#333333"),
-                    )
+                    (bar_x + bar_w / 2.0, bar_y - 4.0, TextAnchor::Middle, None)
                 };
                 scene.add(Primitive::Text {
                     x: lx,
@@ -24208,7 +24344,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                     anchor,
                     rotate: None,
                     bold: false,
-                    color: Some(color_text),
+                    color: color_text,
                 });
             }
 
@@ -24284,22 +24420,32 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                         };
                         let text_fits = m_half_h > 20.0 && bar_w > 30.0;
                         let (lx, ly, anchor, color_text) = if text_fits {
-                            (
-                                bar_x + bar_w / 2.0,
-                                center_y
-                                    + m_half_h / 2.0
-                                    + computed
-                                        .fonts
-                                        .center_offset(font_size as f64, FontStyle::Regular),
+                            let m_fill = Color::from(m_color.as_str());
+                            let cx = bar_x + bar_w / 2.0;
+                            let cy = center_y
+                                + m_half_h / 2.0
+                                + computed
+                                    .fonts
+                                    .center_offset(font_size as f64, FontStyle::Regular);
+                            let col = in_fill_label_with_bg(
+                                scene,
+                                computed,
+                                cx,
+                                cy,
                                 TextAnchor::Middle,
-                                Color::from("#ffffff"),
-                            )
+                                &label,
+                                font_size,
+                                false,
+                                &m_fill,
+                                None,
+                            );
+                            (cx, cy, TextAnchor::Middle, Some(col))
                         } else {
                             (
                                 bar_x + bar_w / 2.0,
                                 center_y + m_half_h + 14.0,
                                 TextAnchor::Middle,
-                                Color::from("#333333"),
+                                None,
                             )
                         };
                         scene.add(Primitive::Text {
@@ -24310,7 +24456,7 @@ fn add_funnel(fp: &FunnelPlot, scene: &mut Scene, computed: &ComputedLayout) {
                             anchor,
                             rotate: None,
                             bold: false,
-                            color: Some(color_text),
+                            color: color_text,
                         });
                     }
                 }
@@ -24552,6 +24698,7 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                     let (a1, a2) = rose_sector_angles(i, n, rp.start_angle, rp.clockwise, rp.gap);
                     let mut cum = 0.0_f64;
                     let mut last_r_inn = base_r;
+                    let mut last_color: Option<String> = None;
                     for (j, series) in rp.series.iter().enumerate() {
                         let val = series.values.get(i).copied().unwrap_or(0.0).max(0.0);
                         let r_inn = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
@@ -24565,6 +24712,7 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                             .color
                             .clone()
                             .unwrap_or_else(|| cat10[j % 10].to_string());
+                        last_color = Some(color.clone());
                         let d = rose_wedge(cx, cy, r_inn, r_out, a1, a2, rp.clockwise);
                         let stroke_col = if computed.bw_mode {
                             Color::from("#1a1a1a")
@@ -24586,21 +24734,43 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                     if rp.show_values && cum > f64::EPSILON {
                         let r_out_tip = rose_r(cum, max_total, max_r, base_r, &rp.encoding);
                         let ac = rose_center_angle(i, n, rp.start_angle, rp.clockwise);
-                        let (lx, ly) = if rp.show_labels && r_out_tip - last_r_inn > 16.0 {
+                        let inside = rp.show_labels && r_out_tip - last_r_inn > 16.0;
+                        let (lx, ly) = if inside {
                             // Place inside the wedge tip to avoid colliding with sector labels
                             compass_xy(cx, cy, r_out_tip - 8.0, ac)
                         } else {
                             compass_xy(cx, cy, r_out_tip + 8.0, ac)
                         };
+                        let content = rose_fmt(cum);
+                        let color = if inside {
+                            let wedge_fill = last_color
+                                .as_deref()
+                                .map(Color::from)
+                                .unwrap_or(Color::None);
+                            Some(in_fill_label_with_bg(
+                                scene,
+                                computed,
+                                lx,
+                                ly + 4.0,
+                                TextAnchor::Middle,
+                                &content,
+                                9,
+                                false,
+                                &wedge_fill,
+                                Some(0.75),
+                            ))
+                        } else {
+                            None
+                        };
                         scene.add(Primitive::Text {
                             x: lx,
                             y: ly + 4.0,
-                            content: rose_fmt(cum),
+                            content,
                             size: 9,
                             anchor: TextAnchor::Middle,
                             rotate: None,
                             bold: false,
-                            color: None,
+                            color,
                         });
                     }
                 }
@@ -24611,6 +24781,8 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                     return;
                 }
                 for i in 0..n {
+                    let mut max_val = 0.0_f64;
+                    let mut max_color: Option<String> = None;
                     for (j, series) in rp.series.iter().enumerate() {
                         let val = series.values.get(i).copied().unwrap_or(0.0).max(0.0);
                         let r_out = rose_r(val, max_total, max_r, base_r, &rp.encoding);
@@ -24623,6 +24795,10 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                             .color
                             .clone()
                             .unwrap_or_else(|| cat10[j % 10].to_string());
+                        if val >= max_val {
+                            max_val = val;
+                            max_color = Some(color.clone());
+                        }
                         let d = rose_wedge(cx, cy, base_r, r_out, a1, a2, rp.clockwise);
                         let stroke_col = if computed.bw_mode {
                             Color::from("#1a1a1a")
@@ -24641,31 +24817,44 @@ fn add_rose(rp: &RosePlot, scene: &mut Scene, computed: &ComputedLayout) {
                             None,
                         );
                     }
-                    if rp.show_values {
-                        let max_val = rp
-                            .series
-                            .iter()
-                            .map(|s| s.values.get(i).copied().unwrap_or(0.0))
-                            .fold(0.0_f64, f64::max);
-                        if max_val > f64::EPSILON {
-                            let r_out_tip = rose_r(max_val, max_total, max_r, base_r, &rp.encoding);
-                            let ac = rose_center_angle(i, n, rp.start_angle, rp.clockwise);
-                            let (lx, ly) = if rp.show_labels && r_out_tip - base_r > 16.0 {
-                                compass_xy(cx, cy, r_out_tip - 8.0, ac)
-                            } else {
-                                compass_xy(cx, cy, r_out_tip + 8.0, ac)
-                            };
-                            scene.add(Primitive::Text {
-                                x: lx,
-                                y: ly + 4.0,
-                                content: rose_fmt(max_val),
-                                size: 9,
-                                anchor: TextAnchor::Middle,
-                                rotate: None,
-                                bold: false,
-                                color: None,
-                            });
-                        }
+                    if rp.show_values && max_val > f64::EPSILON {
+                        let r_out_tip = rose_r(max_val, max_total, max_r, base_r, &rp.encoding);
+                        let ac = rose_center_angle(i, n, rp.start_angle, rp.clockwise);
+                        let inside = rp.show_labels && r_out_tip - base_r > 16.0;
+                        let (lx, ly) = if inside {
+                            compass_xy(cx, cy, r_out_tip - 8.0, ac)
+                        } else {
+                            compass_xy(cx, cy, r_out_tip + 8.0, ac)
+                        };
+                        let content = rose_fmt(max_val);
+                        let color = if inside {
+                            let wedge_fill =
+                                max_color.as_deref().map(Color::from).unwrap_or(Color::None);
+                            Some(in_fill_label_with_bg(
+                                scene,
+                                computed,
+                                lx,
+                                ly + 4.0,
+                                TextAnchor::Middle,
+                                &content,
+                                9,
+                                false,
+                                &wedge_fill,
+                                Some(0.75),
+                            ))
+                        } else {
+                            None
+                        };
+                        scene.add(Primitive::Text {
+                            x: lx,
+                            y: ly + 4.0,
+                            content,
+                            size: 9,
+                            anchor: TextAnchor::Middle,
+                            rotate: None,
+                            bold: false,
+                            color,
+                        });
                     }
                 }
             }
@@ -25317,6 +25506,19 @@ fn add_pyramid(pp: &PopulationPyramid, scene: &mut Scene, computed: &ComputedLay
                     } else {
                         format!("{:.0}", left_val)
                     };
+                    let bar_fill = Color::from(left_color.as_str());
+                    let label_color = in_fill_label_with_bg(
+                        scene,
+                        computed,
+                        bar_x + 4.0,
+                        mid_y,
+                        TextAnchor::Start,
+                        &label,
+                        9,
+                        false,
+                        &bar_fill,
+                        opacity,
+                    );
                     scene.add(Primitive::Text {
                         x: bar_x + 4.0,
                         y: mid_y,
@@ -25325,7 +25527,7 @@ fn add_pyramid(pp: &PopulationPyramid, scene: &mut Scene, computed: &ComputedLay
                         anchor: TextAnchor::Start,
                         rotate: None,
                         bold: false,
-                        color: Some(Color::from("#ffffff")),
+                        color: Some(label_color),
                     });
                 }
             }
@@ -25366,6 +25568,19 @@ fn add_pyramid(pp: &PopulationPyramid, scene: &mut Scene, computed: &ComputedLay
                     } else {
                         format!("{:.0}", right_val)
                     };
+                    let bar_fill = Color::from(right_color.as_str());
+                    let label_color = in_fill_label_with_bg(
+                        scene,
+                        computed,
+                        bar_x + bar_w - 4.0,
+                        mid_y,
+                        TextAnchor::End,
+                        &label,
+                        9,
+                        false,
+                        &bar_fill,
+                        opacity,
+                    );
                     scene.add(Primitive::Text {
                         x: bar_x + bar_w - 4.0,
                         y: mid_y,
@@ -25374,7 +25589,7 @@ fn add_pyramid(pp: &PopulationPyramid, scene: &mut Scene, computed: &ComputedLay
                         anchor: TextAnchor::End,
                         rotate: None,
                         bold: false,
-                        color: Some(Color::from("#ffffff")),
+                        color: Some(label_color),
                     });
                 }
             }
@@ -26534,6 +26749,7 @@ fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
                                 false,
                                 None,
                             );
+                            let task_fill = Color::from(color_str.as_str());
                             scene.add(Primitive::Text {
                                 x: x_start + bar_width * 0.5,
                                 y: label_y,
@@ -26542,7 +26758,11 @@ fn add_gantt(gp: &GanttPlot, scene: &mut Scene, computed: &ComputedLayout) {
                                 anchor: TextAnchor::Middle,
                                 rotate: None,
                                 bold: false,
-                                color: Some(in_fill_label_color(computed, "white")),
+                                color: Some(in_fill_label_color_for(
+                                    computed,
+                                    &task_fill,
+                                    Some(0.85),
+                                )),
                             });
                         }
                         // Outside labels drawn post-clip via add_gantt_labels

@@ -97,10 +97,6 @@ macro_rules! bg_tests {
                     !svg.contains(BG_MARKER),
                     "expected no label background by default in color mode"
                 );
-                assert!(
-                    !svg_has_black_text(&svg),
-                    "without a background rect, in-fill labels should keep their usual white text"
-                );
             }
 
             #[test]
