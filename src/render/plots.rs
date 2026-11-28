@@ -495,10 +495,15 @@ pub(crate) fn colorbar_linear(
         return None;
     }
     let cmap = cmap.clone();
+    let span = max - min;
     Some(ColorBarInfo {
         map_fn: Arc::new(move |t| {
-            let norm = (t - min) / (max - min + f64::EPSILON);
-            cmap.map(norm.clamp(0.0, 1.0))
+            let norm = if !span.is_finite() || span <= 0.0 {
+                0.0
+            } else {
+                ((t - min) / span).clamp(0.0, 1.0)
+            };
+            cmap.map(norm)
         }),
         min_value: min,
         max_value: max,

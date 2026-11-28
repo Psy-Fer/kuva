@@ -610,3 +610,108 @@ fn annotation_placement_next_to_cells() {
     assert!(y0 - attr(text_attrs(&svg, "ctrl_1"), "y") < 10.0);
     assert!(x0 - attr(text_attrs(&svg, "BRCA1"), "x") < 10.0);
 }
+
+#[test]
+fn empty_category_palette_falls_back_to_default() {
+    let cm = Clustermap::new()
+        .with_categorical_data(vec![vec!["a", "b"], vec!["b", "a"]])
+        .with_category_palette(Vec::<String>::new())
+        .with_row_annotation(
+            AnnotationTrack::categorical(["x", "y"]).with_palette(Vec::<String>::new()),
+        );
+    let svg = render(cm, "Empty palette");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
+#[test]
+fn ragged_col_zscore_with_discrete_color_map_does_not_panic() {
+    use kuva::plot::clustermap::{ClustermapNorm, DiscreteColorMap};
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![3.0]])
+        .with_normalization(ClustermapNorm::ColZScore)
+        .with_discrete_color_map(DiscreteColorMap::new().with_bin(0.0, "#ff0000", "pos"));
+    let legend = cm.cell_legend_group();
+    assert!(legend.is_some());
+    let svg = render(cm, "Ragged ColZScore");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
+#[test]
+fn duplicate_row_and_col_labels_preserve_all_rows() {
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![10.0, 20.0], vec![1.1, 2.1]])
+        .with_row_labels(["GeneA", "GeneA", "GeneB"])
+        .with_col_labels(["S", "S"])
+        .with_values();
+    let svg = render(cm, "Duplicate labels");
+    assert!(
+        svg.contains(">1.00</text>"),
+        "row 0 value 1.00 must not be dropped"
+    );
+    assert!(
+        svg.contains(">10.00</text>"),
+        "row 1 value 10.00 must be preserved"
+    );
+    assert!(
+        svg.contains(">1.10</text>"),
+        "row 2 value 1.10 must be preserved"
+    );
+}
+
+#[test]
+fn nan_cell_does_not_poison_zscore_or_upgma() {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let cm = Clustermap::new()
+        .with_data(vec![
+            vec![1.0, 2.0, f64::NAN],
+            vec![10.0, 20.0, 30.0],
+            vec![2.0, 4.0, 6.0],
+        ])
+        .with_row_labels(["R1", "R2", "R3"])
+        .with_col_labels(["C1", "C2", "C3"])
+        .with_normalization(ClustermapNorm::RowZScore)
+        .with_values();
+    let svg = render(cm, "NaN z-score");
+    // Row 0's finite values (1.0, 2.0) have z-scores -1.00 and 1.00; the NaN cell shows NA.
+    assert!(svg.contains(">-1.00</text>"), "finite cells keep z-score");
+    assert!(svg.contains(">1.00</text>"), "finite cells keep z-score");
+    assert!(svg.contains(">NA</text>"), "missing cell should show NA");
+    assert!(
+        !svg.contains(">NaN</text>"),
+        "missing cell must not print NaN"
+    );
+    assert!(
+        !svg.contains("x1=\"NaN\"") && !svg.contains("y1=\"NaN\"") && !svg.contains("x2=\"inf\""),
+        "dendrogram coordinates must stay finite"
+    );
+}
+
+#[test]
+fn non_finite_library_rotation_and_cell_gap_stay_finite() {
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+        .with_col_labels(["S1", "S2"])
+        .with_col_label_rotation(f64::NAN)
+        .with_cell_gap(f64::NAN);
+    let svg = render(cm, "Non-finite layout opts");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
+#[test]
+fn small_scale_data_preserves_zscore_and_color_contrast() {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1e-20, 1e-18, 1e-16], vec![2e-20, 2e-18, 2e-16]])
+        .with_cluster_rows(false)
+        .with_cluster_cols(false)
+        .with_normalization(ClustermapNorm::RowZScore)
+        .with_values();
+    let svg = render(cm, "Small-scale z-score");
+    assert!(
+        svg.contains(">1.41</text>"),
+        "small-scale row should not collapse to 0.00 z-score"
+    );
+}

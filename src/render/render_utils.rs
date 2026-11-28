@@ -1631,7 +1631,7 @@ pub fn upgma(labels: &[&str], dist: &[Vec<f64>]) -> (Vec<crate::plot::phylo::Phy
     let mut dm = vec![vec![0.0f64; total]; total];
     for (i, row) in dm.iter_mut().take(n).enumerate() {
         for (j, d) in row.iter_mut().take(n).enumerate() {
-            *d = given(i, j).unwrap_or(missing);
+            *d = given(i, j).filter(|v| v.is_finite()).unwrap_or(missing);
         }
     }
 

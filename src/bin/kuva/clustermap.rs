@@ -150,7 +150,7 @@ fn split_annot_spec(spec: &str) -> Result<(PathBuf, ColSpec), String> {
     if Path::new(spec).is_file() {
         return Ok((PathBuf::from(spec), ColSpec::Index(1)));
     }
-    for (i, _) in spec.match_indices(':') {
+    for (i, _) in spec.rmatch_indices(':') {
         let (file, col) = (&spec[..i], &spec[i + 1..]);
         if Path::new(file).is_file() {
             let col = col.parse::<ColSpec>()?;
@@ -367,6 +367,9 @@ pub fn run(args: ClustermapArgs) -> Result<(), String> {
         cm = cm.with_row_labels_position(RowLabelSide::Left);
     }
     if let Some(deg) = args.col_label_rotation {
+        if !deg.is_finite() {
+            return Err(format!("--col-label-rotation: '{deg}' must be finite"));
+        }
         cm = cm.with_col_label_rotation(deg);
     }
     if let Some(ref spec) = args.cell_size {
@@ -374,6 +377,11 @@ pub fn run(args: ClustermapArgs) -> Result<(), String> {
         cm = cm.with_cell_size(w, h);
     }
     if let Some(gap) = args.cell_gap {
+        if !gap.is_finite() || gap < 0.0 {
+            return Err(format!(
+                "--cell-gap: '{gap}' must be finite and non-negative"
+            ));
+        }
         cm = cm.with_cell_gap(gap);
     }
     if args.annot_next_to_cells {

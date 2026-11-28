@@ -197,3 +197,35 @@ fn ragged_rows_follow_the_header_width() {
         "{stderr}"
     );
 }
+
+#[test]
+fn non_finite_rotation_and_cell_gap_error() {
+    let input = "gene\ts1\ts2\ng1\t1\t2\ng2\t3\t4\n";
+    for args in [
+        &["clustermap", "--col-label-rotation", "NaN"][..],
+        &["clustermap", "--col-label-rotation", "inf"][..],
+        &["clustermap", "--cell-gap", "NaN"][..],
+        &["clustermap", "--cell-gap=-2"][..],
+    ] {
+        let (_, stderr, code) = run_stdin(args, input);
+        assert_eq!(code, 1, "expected error for {args:?}, got: {stderr}");
+    }
+}
+
+#[test]
+fn annot_spec_matches_longest_existing_file_prefix() {
+    let dir = std::env::temp_dir().join(format!("kuva_clustermap_colon_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let short = dir.join("meta");
+    let longer = dir.join("meta:v2");
+    std::fs::write(&short, "gene\tother\ng1\tx\ng2\ty\n").unwrap();
+    std::fs::write(&longer, "gene\tgroup\ng1\tA\ng2\tB\n").unwrap();
+
+    let spec = format!("{}:group", longer.display());
+    let input = "gene\ts1\ts2\ng1\t1\t2\ng2\t3\t4\n";
+    let (stdout, stderr, code) = run_stdin(&["clustermap", "--row-annot", &spec], input);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains(">group</text>"), "expected group track");
+}

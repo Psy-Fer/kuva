@@ -60,8 +60,8 @@ impl CategoryStyle {
         }
         let default_palette;
         let palette: &[String] = match self.palette {
-            Some(ref p) => &p.0,
-            None => {
+            Some(ref p) if !p.0.is_empty() => &p.0,
+            _ => {
                 default_palette = Palette::category10();
                 default_palette.colors()
             }
@@ -152,8 +152,10 @@ impl Clustermap {
             self.cell_style
                 .resolve(d.iter().flatten().map(String::as_str))
         } else if let Some(ref map) = self.discrete_color_map {
+            let fixed = self.shape_fixed();
+            let cm = fixed.as_ref().unwrap_or(self);
             let values =
-                crate::render::render::apply_normalization(self.data.clone(), &self.normalization);
+                crate::render::render::apply_normalization(cm.data.clone(), &cm.normalization);
             let mut entries = map.entries(values.iter().flatten());
             if let Some(ref na) = self.cell_style.na_label {
                 for e in entries.iter_mut().filter(|e| e.value.is_empty()) {
