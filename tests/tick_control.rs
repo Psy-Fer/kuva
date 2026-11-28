@@ -730,3 +730,39 @@ fn test_categorical_minor_ticks_and_grid_vertical_and_horizontal() {
         "horizontal box must not draw Y gridlines"
     );
 }
+
+#[test]
+fn test_log_axis_margins_measure_explicit_ticks_and_custom_format() {
+    use kuva::render::layout::TickFormat;
+    use std::sync::Arc;
+
+    let base_y =
+        ComputedLayout::from_layout(&Layout::new((1.0, 10.0), (10.0, 20000.0)).with_log_y());
+    let custom_y = ComputedLayout::from_layout(
+        &Layout::new((1.0, 10.0), (10.0, 20000.0))
+            .with_log_y()
+            .with_y_tick_values([20.0, 100.0, 20000.0])
+            .with_y_tick_format(TickFormat::Custom(Arc::new(|v| format!("{v:.0} Hz")))),
+    );
+    assert!(
+        custom_y.margin_left > base_y.margin_left + 10.0,
+        "log y left margin should widen for custom formatted explicit ticks: {} vs {}",
+        custom_y.margin_left,
+        base_y.margin_left
+    );
+
+    let base_x =
+        ComputedLayout::from_layout(&Layout::new((10.0, 20000.0), (0.0, 10.0)).with_log_x());
+    let custom_x = ComputedLayout::from_layout(
+        &Layout::new((10.0, 20000.0), (0.0, 10.0))
+            .with_log_x()
+            .with_x_tick_values([20.0, 100.0, 20000.0])
+            .with_x_tick_format(TickFormat::Custom(Arc::new(|v| format!("{v:.0} Hz")))),
+    );
+    assert!(
+        custom_x.margin_right > base_x.margin_right + 5.0,
+        "log x right margin should widen for custom formatted explicit ticks: {} vs {}",
+        custom_x.margin_right,
+        base_x.margin_right
+    );
+}
