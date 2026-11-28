@@ -8393,23 +8393,64 @@ fn euclidean_dist_matrix(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     dm
 }
 
+fn zscore_values(values: impl Iterator<Item = f64> + Clone) -> (f64, f64) {
+    let mut count = 0usize;
+    let mut sum = 0.0f64;
+    for v in values.clone() {
+        if v.is_finite() {
+            count += 1;
+            sum += v;
+        }
+    }
+    if count == 0 {
+        return (0.0, 0.0);
+    }
+    let n = count as f64;
+    let mean = sum / n;
+    let mut max_dev = 0.0f64;
+    for v in values.clone() {
+        if v.is_finite() {
+            let d = (v - mean).abs();
+            if d > max_dev {
+                max_dev = d;
+            }
+        }
+    }
+    if max_dev == 0.0 || !max_dev.is_finite() {
+        return (mean, 0.0);
+    }
+    let var_scaled = values
+        .filter(|v| v.is_finite())
+        .map(|v| {
+            let s = (v - mean) / max_dev;
+            s * s
+        })
+        .sum::<f64>()
+        / n;
+    (mean, max_dev * var_scaled.sqrt())
+}
+
 pub(crate) fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) -> Vec<Vec<f64>> {
     match norm {
         ClustermapNorm::None => data,
         ClustermapNorm::RowZScore => data
             .into_iter()
             .map(|row| {
-                let n = row.len() as f64;
-                if n == 0.0 {
+                if row.is_empty() {
                     return row;
                 }
-                let mean = row.iter().sum::<f64>() / n;
-                let std = (row.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
-                if std < f64::EPSILON {
-                    row.iter().map(|_| 0.0).collect()
-                } else {
-                    row.iter().map(|&v| (v - mean) / std).collect()
-                }
+                let (mean, std) = zscore_values(row.iter().copied());
+                row.into_iter()
+                    .map(|v| {
+                        if !v.is_finite() {
+                            f64::NAN
+                        } else if std == 0.0 {
+                            0.0
+                        } else {
+                            (v - mean) / std
+                        }
+                    })
+                    .collect()
             })
             .collect(),
         ClustermapNorm::ColZScore => {
@@ -8420,15 +8461,15 @@ pub(crate) fn apply_normalization(data: Vec<Vec<f64>>, norm: &ClustermapNorm) ->
             let n_rows = data.len();
             let mut result = data.clone();
             for c in 0..n_cols {
-                let col: Vec<f64> = data.iter().map(|r| r[c]).collect();
-                let mean = col.iter().sum::<f64>() / n_rows as f64;
-                let std =
-                    (col.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n_rows as f64).sqrt();
+                let (mean, std) = zscore_values(data.iter().map(|r| r[c]));
                 for r in 0..n_rows {
-                    result[r][c] = if std < f64::EPSILON {
+                    let v = data[r][c];
+                    result[r][c] = if !v.is_finite() {
+                        f64::NAN
+                    } else if std == 0.0 {
                         0.0
                     } else {
-                        (data[r][c] - mean) / std
+                        (v - mean) / std
                     };
                 }
             }
@@ -8764,7 +8805,11 @@ pub(crate) fn clustermap_frame(cm: &Clustermap, tsf: f64, fonts: &FontSet) -> Cl
     let row_label_w = widest(&cm.row_labels)
         .map(|w| (w + 10.0).clamp(30.0, 200.0))
         .unwrap_or(0.0);
-    let rot = cm.col_label_rotation.abs().clamp(0.0, 90.0);
+    let rot = if cm.col_label_rotation.is_finite() {
+        cm.col_label_rotation.abs().clamp(0.0, 90.0)
+    } else {
+        45.0
+    };
     let (sin_r, cos_r) = rot.to_radians().sin_cos();
     // Band for the column labels: the widest label's reach away from the body at this slant,
     // plus the text height across it and a gap either side.
@@ -9002,8 +9047,14 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
             v_max = v;
         }
     }
-    let norm_val =
-        |v: f64| -> f64 { ((v - v_min) / (v_max - v_min + f64::EPSILON)).clamp(0.0, 1.0) };
+    let span = v_max - v_min;
+    let norm_val = |v: f64| -> f64 {
+        if !span.is_finite() || span <= 0.0 {
+            0.0
+        } else {
+            ((v - v_min) / span).clamp(0.0, 1.0)
+        }
+    };
     // Colour of the cell at (row, col) in display order, by gradient, category or bin.
     let cell_entries = cm.cell_legend_group().map(|(_, e)| e).unwrap_or_default();
     let cell_colors = crate::plot::clustermap::CategoryColors::new(&cell_entries);
@@ -9015,6 +9066,8 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
                 map.bin_of(data[row_k][col_k])
                     .map_or(crate::plot::clustermap::NA_COLOR, |b| b.color.as_str()),
             )
+        } else if !data[row_k][col_k].is_finite() {
+            Color::from(crate::plot::clustermap::NA_COLOR)
         } else {
             Color::from(cmap.map(norm_val(data[row_k][col_k])))
         }
@@ -9022,7 +9075,16 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     // Text for a cell's value label and tooltip.
     let cell_text = |row_k: usize, col_k: usize| -> String {
         if numeric {
-            format!("{:.2}", data[row_k][col_k])
+            let v = data[row_k][col_k];
+            if v.is_finite() {
+                format!("{v:.2}")
+            } else {
+                cm.cell_style
+                    .na_label
+                    .as_deref()
+                    .unwrap_or("NA")
+                    .to_string()
+            }
         } else {
             cat_data[row_k][col_k].to_string()
         }
@@ -9052,8 +9114,8 @@ fn add_clustermap(cm: &Clustermap, scene: &mut Scene, computed: &ComputedLayout)
     // Drawn size of a cell (and of an annotation strip's cell) along a pitch: the pitch less
     // the cell gap, or 99% of it by default.
     let inset = |pitch: f64| match cm.cell_gap {
-        Some(g) => (pitch - g).max(0.0),
-        None => pitch * 0.99,
+        Some(g) if g.is_finite() && g >= 0.0 => (pitch - g).max(0.0),
+        _ => pitch * 0.99,
     };
 
     // ── Step 5: Row dendrogram ────────────────────────────────────────────────

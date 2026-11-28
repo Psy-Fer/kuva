@@ -660,3 +660,58 @@ fn duplicate_row_and_col_labels_preserve_all_rows() {
     );
 }
 
+#[test]
+fn nan_cell_does_not_poison_zscore_or_upgma() {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let cm = Clustermap::new()
+        .with_data(vec![
+            vec![1.0, 2.0, f64::NAN],
+            vec![10.0, 20.0, 30.0],
+            vec![2.0, 4.0, 6.0],
+        ])
+        .with_row_labels(["R1", "R2", "R3"])
+        .with_col_labels(["C1", "C2", "C3"])
+        .with_normalization(ClustermapNorm::RowZScore)
+        .with_values();
+    let svg = render(cm, "NaN z-score");
+    // Row 0's finite values (1.0, 2.0) have z-scores -1.00 and 1.00; the NaN cell shows NA.
+    assert!(svg.contains(">-1.00</text>"), "finite cells keep z-score");
+    assert!(svg.contains(">1.00</text>"), "finite cells keep z-score");
+    assert!(svg.contains(">NA</text>"), "missing cell should show NA");
+    assert!(
+        !svg.contains(">NaN</text>"),
+        "missing cell must not print NaN"
+    );
+    assert!(
+        !svg.contains("x1=\"NaN\"") && !svg.contains("y1=\"NaN\"") && !svg.contains("x2=\"inf\""),
+        "dendrogram coordinates must stay finite"
+    );
+}
+
+#[test]
+fn non_finite_library_rotation_and_cell_gap_stay_finite() {
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1.0, 2.0], vec![3.0, 4.0]])
+        .with_col_labels(["S1", "S2"])
+        .with_col_label_rotation(f64::NAN)
+        .with_cell_gap(f64::NAN);
+    let svg = render(cm, "Non-finite layout opts");
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains("NaN"));
+}
+
+#[test]
+fn small_scale_data_preserves_zscore_and_color_contrast() {
+    use kuva::plot::clustermap::ClustermapNorm;
+    let cm = Clustermap::new()
+        .with_data(vec![vec![1e-20, 1e-18, 1e-16], vec![2e-20, 2e-18, 2e-16]])
+        .with_cluster_rows(false)
+        .with_cluster_cols(false)
+        .with_normalization(ClustermapNorm::RowZScore)
+        .with_values();
+    let svg = render(cm, "Small-scale z-score");
+    assert!(
+        svg.contains(">1.41</text>"),
+        "small-scale row should not collapse to 0.00 z-score"
+    );
+}
